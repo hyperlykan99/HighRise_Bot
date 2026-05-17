@@ -635,6 +635,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "shuffle": "dj",
     "autoplay": "dj",
     "djvibes": "dj",
+    "djprice": "dj",
+    "setdjprice": "dj",
+    "priorityrequest": "dj", "priorityreq": "dj", "pr": "dj",
+    "viprequest": "dj", "vipreq": "dj",
+    "tipdj": "dj",
+    "djleaderboard": "dj", "djtop": "dj",
     "djhelp": "dj",
     # eventhost — events / autogames (new)
     "adminsblessing": "eventhost", "adminblessing": "eventhost",

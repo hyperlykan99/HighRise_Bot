@@ -3148,6 +3148,30 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2P — DJ requests: add priority column (0=normal, 1=priority, 2=vip)
+    try:
+        conn.execute(
+            "ALTER TABLE dj_requests ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"
+        )
+    except Exception:
+        pass
+
+    # 3.2Q — DJ economy log (tips, priority charges, refunds)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dj_economy_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    TEXT NOT NULL DEFAULT '',
+                username   TEXT NOT NULL DEFAULT '',
+                type       TEXT NOT NULL DEFAULT '',
+                amount     INTEGER NOT NULL DEFAULT 0,
+                song_title TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

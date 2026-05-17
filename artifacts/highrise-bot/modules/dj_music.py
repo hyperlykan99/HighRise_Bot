@@ -181,18 +181,20 @@ _CFG_DEBUG       = "dj_debug_mode"
 _CFG_LOCK        = "dj_lock"
 _CFG_REPEAT      = "dj_repeat"
 _CFG_AUTOPLAY    = "dj_autoplay"
-_CFG_PERSONALITY = "dj_personality"
+_CFG_PERSONALITY    = "dj_personality"
+_CFG_PRIORITY_PRICE = "dj_priority_price"
 
 _CFG_DEFAULTS: dict[str, str] = {
-    _CFG_QUEUE_MAX:   "20",
-    _CFG_COOLDOWN:    "30",   # 30 seconds between requests per user
-    _CFG_USER_MAX:    "2",    # max 2 pending songs per user
-    _CFG_VOTE_THRESH: "3",
-    _CFG_DEBUG:       "off",
-    _CFG_LOCK:        "off",
-    _CFG_REPEAT:      "off",
-    _CFG_AUTOPLAY:    "off",
-    _CFG_PERSONALITY: "off",
+    _CFG_QUEUE_MAX:      "20",
+    _CFG_COOLDOWN:       "30",   # 30 seconds between requests per user
+    _CFG_USER_MAX:       "2",    # max 2 pending songs per user
+    _CFG_VOTE_THRESH:    "3",
+    _CFG_DEBUG:          "off",
+    _CFG_LOCK:           "off",
+    _CFG_REPEAT:         "off",
+    _CFG_AUTOPLAY:       "off",
+    _CFG_PERSONALITY:    "off",
+    _CFG_PRIORITY_PRICE: "100",
 }
 
 # Friendly names and valid ranges for !djset
@@ -223,6 +225,11 @@ def _dj_autoplay()    -> bool:
     return db.get_room_setting(_CFG_AUTOPLAY,    "off").lower() == "on"
 def _dj_personality() -> bool:
     return db.get_room_setting(_CFG_PERSONALITY, "off").lower() == "on"
+def _dj_priority_price() -> int:
+    try:
+        return max(0, int(db.get_room_setting(_CFG_PRIORITY_PRICE, "100")))
+    except (ValueError, TypeError):
+        return 100
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +238,8 @@ def _dj_personality() -> bool:
 
 # { user_id: (unix_timestamp, [result_dict, ...]) }
 # TTL: 3 minutes — after that, !pick is rejected and user must !request again
-_pending_searches: dict[str, tuple[float, list[dict]]] = {}
+_pending_searches:    dict[str, tuple[float, list[dict]]] = {}
+_search_request_type: dict[str, str] = {}   # "normal" | "priority" | "vip"
 
 _SEARCH_TTL: int = 180   # seconds
 
@@ -388,19 +396,19 @@ def _is_duplicate(youtube_url: str, title: str) -> dict | None:
 def _add_request(
     user_id: str, username: str, title: str,
     youtube_url: str = "", duration: str = "",
+    priority: int = 0,
 ) -> int:
     """
-    Insert a pending request.
-    If the queue was empty, auto-promotes the new row to 'playing'
-    and calls backend.play() via asyncio.  Returns queue position (1-based).
+    Insert a pending request. Returns queue position (1-based).
+    priority: 0=normal, 1=priority (paid), 2=vip.
     """
     try:
         conn = db.get_connection()
         conn.execute(
             """INSERT INTO dj_requests
-                   (user_id, username, title, youtube_url, duration, status)
-               VALUES (?, ?, ?, ?, ?, 'pending')""",
-            (user_id, username.lower(), title, youtube_url, duration),
+                   (user_id, username, title, youtube_url, duration, status, priority)
+               VALUES (?, ?, ?, ?, ?, 'pending', ?)""",
+            (user_id, username.lower(), title, youtube_url, duration, priority),
         )
         conn.commit()
         pos = conn.execute(
@@ -420,11 +428,11 @@ def _get_nowplaying() -> dict | None:
     try:
         conn = db.get_connection()
         row  = conn.execute(
-            """SELECT id, username, title, youtube_url, duration, status
+            """SELECT id, username, title, youtube_url, duration, status, priority
                FROM dj_requests
                WHERE status IN ('playing','pending')
                ORDER BY CASE status WHEN 'playing' THEN 0 ELSE 1 END,
-                        requested_at ASC
+                        priority DESC, requested_at ASC
                LIMIT 1"""
         ).fetchone()
         conn.close()
@@ -438,10 +446,10 @@ def _get_queue(limit: int = 5) -> list[dict]:
     try:
         conn = db.get_connection()
         rows = conn.execute(
-            """SELECT id, username, title, youtube_url, duration
+            """SELECT id, username, title, youtube_url, duration, priority
                FROM dj_requests
                WHERE status = 'pending'
-               ORDER BY requested_at ASC LIMIT ?""",
+               ORDER BY priority DESC, requested_at ASC LIMIT ?""",
             (limit,),
         ).fetchall()
         conn.close()
@@ -466,9 +474,9 @@ def _promote_front() -> dict | None:
             return None   # already have a playing row
 
         nxt = conn.execute(
-            """SELECT id, username, title, youtube_url, duration
+            """SELECT id, username, title, youtube_url, duration, priority
                FROM dj_requests WHERE status='pending'
-               ORDER BY requested_at ASC LIMIT 1"""
+               ORDER BY priority DESC, requested_at ASC LIMIT 1"""
         ).fetchone()
         if not nxt:
             conn.close()
@@ -499,7 +507,7 @@ def _advance_queue() -> dict | None:
             """SELECT id FROM dj_requests
                WHERE status IN ('playing','pending')
                ORDER BY CASE status WHEN 'playing' THEN 0 ELSE 1 END,
-                        requested_at ASC LIMIT 1"""
+                        priority DESC, requested_at ASC LIMIT 1"""
         ).fetchone()
         if not current:
             conn.close()
@@ -514,9 +522,9 @@ def _advance_queue() -> dict | None:
         _skip_votes.pop(current["id"], None)
 
         nxt = conn.execute(
-            """SELECT id, username, title, youtube_url, duration
+            """SELECT id, username, title, youtube_url, duration, priority
                FROM dj_requests WHERE status='pending'
-               ORDER BY requested_at ASC LIMIT 1"""
+               ORDER BY priority DESC, requested_at ASC LIMIT 1"""
         ).fetchone()
         if nxt:
             conn.execute(
@@ -702,8 +710,16 @@ async def _yt_search(query: str, max_results: int = 5) -> tuple[list[dict], str]
         return [], detail
 
 
-def _store_search(user_id: str, results: list[dict]) -> None:
-    _pending_searches[user_id] = (time.monotonic(), results)
+def _store_search(
+    user_id: str, results: list[dict], req_type: str = "normal",
+) -> None:
+    _pending_searches[user_id]    = (time.monotonic(), results)
+    _search_request_type[user_id] = req_type
+
+
+def _get_search_type(user_id: str) -> str:
+    """Return the request type for a pending search ('normal'/'priority'/'vip')."""
+    return _search_request_type.get(user_id, "normal")
 
 
 def _pop_search(user_id: str) -> list[dict] | None:
@@ -712,6 +728,7 @@ def _pop_search(user_id: str) -> list[dict] | None:
     if not entry:
         return None
     ts, results = entry
+    _search_request_type.pop(user_id, None)   # clear type on consume
     if time.monotonic() - ts > _SEARCH_TTL:
         _pending_searches.pop(user_id, None)
         return None
@@ -865,6 +882,54 @@ def _get_djstats() -> dict:
                 "uptime": "?", "queue": 0}
 
 
+def _log_dj_economy(
+    user_id: str, username: str, type_: str, amount: int, song_title: str,
+) -> None:
+    """Append a row to dj_economy_log (tips, charges, refunds)."""
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "INSERT INTO dj_economy_log "
+            "(user_id, username, type, amount, song_title) VALUES (?,?,?,?,?)",
+            (user_id, username.lower(), type_, amount, song_title),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _dj_is_vip(user_id: str) -> bool:
+    """True if the user is an active subscriber (VIP)."""
+    try:
+        sub = db.get_subscriber_by_user_id(user_id)
+        return bool(sub and sub.get("subscribed"))
+    except Exception:
+        return False
+
+
+def _get_dj_leaderboard() -> dict:
+    """Top 5 tippers and top 5 all-time requesters for !djleaderboard."""
+    try:
+        conn = db.get_connection()
+        tippers = conn.execute(
+            "SELECT username, SUM(amount) AS total FROM dj_economy_log "
+            "WHERE type='tip' GROUP BY user_id ORDER BY total DESC LIMIT 5"
+        ).fetchall()
+        requesters = conn.execute(
+            "SELECT username, COUNT(*) AS cnt FROM dj_requests "
+            "WHERE user_id NOT IN ('autoplay') "
+            "GROUP BY user_id ORDER BY cnt DESC LIMIT 5"
+        ).fetchall()
+        conn.close()
+        return {
+            "tippers":    [dict(r) for r in tippers],
+            "requesters": [dict(r) for r in requesters],
+        }
+    except Exception:
+        return {"tippers": [], "requesters": []}
+
+
 # ---------------------------------------------------------------------------
 # Central playback advance  (timer · repeat · autoplay · announce · personality)
 # ---------------------------------------------------------------------------
@@ -930,11 +995,13 @@ async def _play_song(bot: "BaseBot", song: dict) -> None:
             _playback_timer(bot, dur_secs)
         )
 
-    dur = f" [{song['duration']}]" if song.get("duration") else ""
-    url = f"\n{song['youtube_url']}" if song.get("youtube_url") else ""
+    ptype = song.get("priority", 0)
+    badge = " [⭐ VIP]" if ptype == 2 else (" [💰 Priority]" if ptype == 1 else "")
+    dur   = f" [{song['duration']}]" if song.get("duration") else ""
+    url   = f"\n{song['youtube_url']}" if song.get("youtube_url") else ""
     await _chat(
         bot,
-        f"🎵 Now Playing: {song['title'][:60]}{dur}"
+        f"🎵 Now Playing{badge}: {song['title'][:55]}{dur}"
         f"\nRequested by @{song.get('username', '?')[:15]}{url}"
     )
 
@@ -1047,6 +1114,18 @@ async def handle_dj_pick(
                  "Use !request <song> to search again.")
         return
 
+    # Pre-check balance for priority requests before making them choose
+    req_type = _get_search_type(user.id)
+    price    = _dj_priority_price()
+    if req_type == "priority":
+        bal = db.get_balance(user.id)
+        if bal < price:
+            await _w(bot, user.id,
+                     f"💸 Not enough coins for priority request!\n"
+                     f"Need {price} coins. Balance: {bal}.\n"
+                     f"Use !request for a free spot.")
+            return
+
     if len(args) < 2 or not args[1].isdigit():
         await _w(bot, user.id, "🎵 Usage: !pick <1-5>")
         return
@@ -1079,13 +1158,24 @@ async def handle_dj_pick(
     # Consume the pending search
     _pop_search(user.id)
 
+    priority = 2 if req_type == "vip" else (1 if req_type == "priority" else 0)
     pos = _add_request(
         user.id, user.username,
         pick["title"], pick["url"], pick["duration"],
+        priority=priority,
     )
     if pos < 0:
         await _w(bot, user.id, "⚠️ Could not add your request. Try again.")
         return
+
+    # Deduct coins for priority; log VIP
+    if req_type == "priority":
+        db.adjust_balance(user.id, -price)
+        _log_dj_economy(user.id, user.username, "priority_request", price, pick["title"])
+        new_bal = db.get_balance(user.id)
+        await _w(bot, user.id, f"💰 {price} coins charged. Balance: {new_bal} coins.")
+    elif req_type == "vip":
+        _log_dj_economy(user.id, user.username, "vip_request", 0, pick["title"])
 
     # If this is the first song, promote it to 'playing' and start the timer
     promoted = _promote_front()
@@ -1126,8 +1216,10 @@ async def handle_dj_queue(bot: "BaseBot", user: "User") -> None:
     if upcoming:
         lines.append(f"— Next {min(len(upcoming), 5)} of {total_pending} pending —")
         for i, r in enumerate(upcoming, 1):
-            dur = f" [{r['duration']}]" if r.get("duration") else ""
-            lines.append(f"#{i} {r['title'][:38]}{dur}")
+            dur   = f" [{r['duration']}]" if r.get("duration") else ""
+            p     = r.get("priority", 0)
+            badge = "⭐" if p == 2 else ("💰" if p == 1 else "")
+            lines.append(f"#{i}{badge} {r['title'][:37]}{dur}")
 
     await _w(bot, user.id, "\n".join(lines)[:249])
 
@@ -1651,6 +1743,199 @@ async def handle_dj_vibes(
         await _w(bot, user.id, "🎤 DJ vibes OFF.")
 
 
+async def handle_dj_djprice(bot: "BaseBot", user: "User") -> None:
+    """!djprice  —  show current request prices (public)."""
+    price = _dj_priority_price()
+    await _w(
+        bot, user.id,
+        f"💰 DJ Request Prices:\n"
+        f"Normal !request — FREE\n"
+        f"!priorityrequest — {price} coins (jumps queue)\n"
+        f"!viprequest — VIP subscribers only, FREE\n"
+        f"Use !tipdj <amount> to tip DJ_DUDU!"
+    )
+
+
+async def handle_dj_setdjprice(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!setdjprice <amount>  —  set priority request price (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+    if len(args) < 2 or not args[1].isdigit():
+        cur = _dj_priority_price()
+        await _w(bot, user.id,
+                 f"💰 Priority price: {cur} coins.\nUsage: !setdjprice <amount>")
+        return
+    amount = max(0, int(args[1]))
+    db.set_room_setting(_CFG_PRIORITY_PRICE, str(amount))
+    await _w(bot, user.id, f"✅ Priority request price set to {amount} coins.")
+    await _chat(bot, f"💰 Priority requests now cost {amount} coins!")
+
+
+async def handle_dj_priorityrequest(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!priorityrequest <song>  —  paid priority queue jump."""
+    if not _IS_DJ_BOT:
+        return
+
+    price = _dj_priority_price()
+    if len(args) < 2:
+        await _w(bot, user.id,
+                 f"💰 Usage: !priorityrequest <song>\n"
+                 f"Cost: {price} coins — jumps ahead of normal requests.")
+        return
+
+    if _dj_locked() and not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Song requests are paused.")
+        return
+
+    bal = db.get_balance(user.id)
+    if bal < price:
+        await _w(bot, user.id,
+                 f"💸 Need {price} coins for priority request.\n"
+                 f"Your balance: {bal} coins.\n"
+                 f"Use !request for a free spot.")
+        return
+
+    umax = _user_max()
+    if not can_manage_games(user.username) and _user_pending_count(user.id) >= umax:
+        await _w(bot, user.id,
+                 f"🎵 You already have {umax} song(s) in the queue.")
+        return
+
+    secs_ago = _user_cooldown_secs(user.id)
+    cooldown = _cooldown()
+    if not can_manage_games(user.username) and secs_ago < cooldown:
+        wait = cooldown - secs_ago
+        await _w(bot, user.id, f"⏳ You can request again in {wait}s.")
+        return
+
+    if _total_active() >= _queue_max():
+        await _w(bot, user.id,
+                 f"🚫 Queue is full ({_queue_max()} songs). Try again soon!")
+        return
+
+    query = " ".join(args[1:]).strip()[:120]
+    await _w(bot, user.id,
+             f"🔍 Priority search: {query[:55]}… ({price} coins on pick)")
+
+    results, error_detail = await _yt_search(query)
+    if not results:
+        await _w(bot, user.id,
+                 "⚠️ No results found. Try a different search term.")
+        if error_detail and (is_admin(user.username) or _debug_mode()):
+            await _w(bot, user.id, f"[DJ DEBUG] {error_detail[:245]}")
+        return
+
+    _store_search(user.id, results, req_type="priority")
+    lines = [f"💰 Priority results ({price} coins on pick) — !pick <1-5>:"]
+    for i, r in enumerate(results[:5], 1):
+        d = f" [{r['duration']}]" if r.get("duration") else ""
+        lines.append(f"{i}. {r['title'][:52]}{d}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_viprequest(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!viprequest <song>  —  VIP subscriber priority request (free)."""
+    if not _IS_DJ_BOT:
+        return
+
+    if not _dj_is_vip(user.id):
+        await _w(bot, user.id,
+                 "⭐ VIP requests are for active subscribers only.\n"
+                 "Ask staff how to become a VIP subscriber!")
+        return
+
+    if len(args) < 2:
+        await _w(bot, user.id,
+                 "⭐ Usage: !viprequest <song>\n"
+                 "VIP perk: jumps to front of queue, completely free!")
+        return
+
+    if _dj_locked() and not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Song requests are paused.")
+        return
+
+    if _total_active() >= _queue_max():
+        await _w(bot, user.id,
+                 f"🚫 Queue is full ({_queue_max()} songs). Try again soon!")
+        return
+
+    query = " ".join(args[1:]).strip()[:120]
+    await _w(bot, user.id,
+             f"⭐ VIP search: {query[:60]}… (priority placement, free!)")
+
+    results, _ = await _yt_search(query)
+    if not results:
+        await _w(bot, user.id, "⚠️ No results found. Try a different search term.")
+        return
+
+    _store_search(user.id, results, req_type="vip")
+    lines = ["⭐ VIP results — !pick <1-5>:"]
+    for i, r in enumerate(results[:5], 1):
+        d = f" [{r['duration']}]" if r.get("duration") else ""
+        lines.append(f"{i}. {r['title'][:52]}{d}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def handle_dj_tipdj(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!tipdj <amount>  —  tip DJ_DUDU with coins (public)."""
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id,
+                 "💝 Usage: !tipdj <amount>\nShow DJ_DUDU some love!")
+        return
+
+    amount = int(args[1])
+    if amount <= 0:
+        await _w(bot, user.id, "💝 Tip must be at least 1 coin.")
+        return
+
+    bal = db.get_balance(user.id)
+    if bal < amount:
+        await _w(bot, user.id,
+                 f"💸 Not enough coins! You have {bal} coins.")
+        return
+
+    db.adjust_balance(user.id, -amount)
+    new_bal = db.get_balance(user.id)
+    _log_dj_economy(user.id, user.username, "tip", amount, "")
+    await _w(bot, user.id,
+             f"💝 Tip sent! {amount} coins → DJ_DUDU.\n"
+             f"Your balance: {new_bal} coins. Thank you!")
+    name = user.username[:15]
+    await _chat(
+        bot,
+        f"💝 @{name} tipped DJ_DUDU {amount} coins! Thanks for the love! 🎵"
+    )
+
+
+async def handle_dj_leaderboard(bot: "BaseBot", user: "User") -> None:
+    """!djleaderboard  —  top DJ tippers and all-time requesters (public)."""
+    lb = _get_dj_leaderboard()
+    lines: list[str] = ["🏆 DJ Leaderboard:"]
+
+    if lb["tippers"]:
+        lines.append("💝 Top Tippers:")
+        for i, r in enumerate(lb["tippers"], 1):
+            lines.append(f"  {i}. @{r['username'][:15]} — {r['total']} coins")
+    else:
+        lines.append("💝 No tips yet — be first with !tipdj!")
+
+    if lb["requesters"]:
+        lines.append("🎵 Top Requesters:")
+        for i, r in enumerate(lb["requesters"], 1):
+            lines.append(f"  {i}. @{r['username'][:15]} — {r['cnt']} songs")
+
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
     """!djhelp  —  list all DJ commands."""
     await _w(
@@ -1658,7 +1943,8 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
         "🎵 DJ Commands:\n"
         "!request/!req/!sr/!song | !pick <1-5>\n"
         "!np | !upnext | !queue | !skipvote | !favorite\n"
+        "💰 !djprice | !priorityrequest | !tipdj\n"
+        "⭐ !viprequest (VIP) | !djleaderboard\n"
         "!favorites | !djstats | !djstatus | !radio\n"
-        "Staff: !skip !repeat !shuffle !stopmusic !djconfig\n"
-        "Admin: !djlock !djclear !djremove !autoplay !djvibes"
+        "Admin: !djlock !repeat !shuffle !autoplay !setdjprice"
     )
