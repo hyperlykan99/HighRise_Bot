@@ -1554,6 +1554,52 @@ ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIP_AUDIT_COMMANDS | {"ep"}
 STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS
 ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 
+# ── DJ Music commands (owned by DJ_DUDU, BOT_MODE=dj) ────────────────────────
+DJ_COMMANDS: frozenset[str] = frozenset({
+    # Player-facing (public)
+    "request", "sr", "req", "song", "requesy",
+    "pick", "djpick",
+    "queue", "djqueue",
+    "nowplaying", "np",
+    "skip", "djskip",
+    "skipvote",
+    "radio", "radiostatus",
+    "webplayer",
+    "recent", "myrequests",
+    "cancelrequest", "requeststatus",
+    "songinfo",
+    "djstatus", "djhistory", "toprequests", "upnext",
+    "djstats", "djprice",
+    "djleaderboard", "djtop",
+    "priorityqueue", "pqueue",
+    "favorite", "favorites",
+    "tipdj",
+    "djvibes",
+    "djreport",
+    "dedicate",
+    "djhelp",
+    # Staff / admin
+    "setradio", "setwebplayer",
+    "djlock", "djclear", "djremove",
+    "stopmusic", "djstop", "clearqueue",
+    "djconfig", "djsettings",
+    "djset", "djdebug",
+    "repeat", "shuffle", "autoplay",
+    "setdjprice",
+    "priorityrequest", "priorityreq", "pr",
+    "viprequest", "vipreq",
+    "moveup", "bump",
+    "shoutout",
+    "djban", "djunban", "djbanlist",
+    "songban", "songunban", "songbanlist",
+    "djreports",
+    # Diagnostics (admin+ / owner)
+    "djcheck", "djhealth",
+    "djresetstate", "djbackup",
+    "djtestall",
+})
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS
+
 
 # ---------------------------------------------------------------------------
 # Help texts  (all ≤ 249 chars per whisper)

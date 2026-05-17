@@ -3000,12 +3000,12 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
          "!tipdj <amt> | !djleaderboard | !djstats\n"
          "!priorityqueue | !djvibes\n"
          "!dedicate <#> <msg> | !djreport <#>\n"
-         "!favorite | !favorites | !djreports")[:249],
+         "!favorite | !favorites")[:249],
     )
-    # Section 3 — Radio & Playback (manager+)
+    # Section 3 — Radio & Controls (public/admin mix)
     await _w(
         bot, user.id,
-        ("🎵 DJ Help 3/4 — Radio & Playback:\n"
+        ("🎵 DJ Help 3/4 — Radio & Controls:\n"
          "📻 !radio | !setradio <url> | !radiostatus\n"
          "🌐 !webplayer | !setwebplayer <url>\n"
          "!djstatus | !repeat | !shuffle | !autoplay\n"
