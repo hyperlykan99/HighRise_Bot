@@ -2992,3 +2992,134 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list[str]) -> No
          f"🎛️ !vibe chill|party|status\n"
          f"🔒 Staff: !skip | !remove <#> | !clearqueue | !vibe <mode>")[:249],
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PUBLIC RADIO INTERFACE
+# Used by radio_commands.py / request_queue.py / media_cleanup.py.
+# All names begin with  radio_  to make the contract explicit.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def radio_sftp_ready() -> bool:
+    return _sftp_ready()
+
+
+def radio_sftp_missing() -> list:
+    return _sftp_missing_vars()
+
+
+def radio_check_banned_requester(username: str) -> bool:
+    return _is_banned_requester(username)
+
+
+def radio_check_dedup(url: str, window_secs: int) -> "dict | None":
+    return _db_check_dedup(url, window_secs)
+
+
+def radio_user_pending_count(user_id: str) -> int:
+    with _jobs_lock:
+        return sum(
+            1 for j in _jobs.values()
+            if j["user_id"] == user_id
+            and j["status"] in ("pending", "downloading", "uploading")
+        )
+
+
+def radio_active_count() -> int:
+    with _jobs_lock:
+        return sum(
+            1 for j in _jobs.values()
+            if j["status"] in ("pending", "downloading", "uploading")
+        )
+
+
+def radio_get_jobs_snapshot() -> list:
+    """Snapshot copy of all in-memory jobs (safe to iterate without holding the lock)."""
+    with _jobs_lock:
+        return [dict(j) for j in _jobs.values()]
+
+
+def radio_get_currently_playing_id() -> int:
+    return _currently_playing_db_id
+
+
+def radio_submit_job(
+    bot: "BaseBot",
+    user_id: str,
+    username: str,
+    url: str,
+    coins_charged: int = 0,
+    payment_type: str = "paid",
+) -> None:
+    """Create a new job record and launch the yt-dlp → SFTP pipeline."""
+    job = _new_job(user_id, username, url, coins_charged, payment_type)
+    asyncio.create_task(_run_job(bot, job))
+
+
+def radio_cancel_job(jid: int, reason: str = "cancelled_by_admin") -> "dict | None":
+    """
+    Cancel an active job by in-memory job ID.
+    Returns a copy of the cancelled job dict, or None if not found / already finished.
+    Refunds are NOT issued here — caller is responsible.
+    """
+    found     = None
+    db_id_upd = 0
+    uid_clear = ""
+
+    with _jobs_lock:
+        job = _jobs.get(jid)
+        if job and job["status"] in ("pending", "downloading", "uploading"):
+            _jobs[jid]["status"] = "cancelled"
+            found     = dict(_jobs[jid])
+            db_id_upd = found.get("db_id", 0)
+            uid_clear = found.get("user_id", "")
+
+    if not found:
+        return None
+
+    if db_id_upd:
+        _db_update_job(db_id_upd, status="error", error=reason)
+
+    if uid_clear:
+        with _presence_lock:
+            pres = _active_presence.get(uid_clear)
+            if pres and pres.get("job_id") == jid:
+                _active_presence.pop(uid_clear, None)
+
+    return found
+
+
+def radio_request_history(limit: int = 10) -> list:
+    return _db_request_history(limit)
+
+
+def radio_nowplaying() -> "dict | None":
+    return _azura_fetch_nowplaying()
+
+
+def radio_skip_song(max_attempts: int = 3, delay: float = 2.0) -> bool:
+    return _azura_skip_with_retry(max_attempts, delay)
+
+
+def radio_search_yt(query: str, max_results: int = 5) -> list:
+    return _yt_search_sync(query, max_results)
+
+
+def radio_has_pending_search(user_id: str) -> bool:
+    with _yt_pending_lock:
+        return user_id in _yt_pending
+
+
+def radio_get_pending_search(user_id: str) -> "list | None":
+    with _yt_pending_lock:
+        return _yt_pending.get(user_id)
+
+
+def radio_set_pending_search(user_id: str, results: list) -> None:
+    with _yt_pending_lock:
+        _yt_pending[user_id] = results
+
+
+def radio_clear_pending_search(user_id: str) -> None:
+    with _yt_pending_lock:
+        _yt_pending.pop(user_id, None)

@@ -461,16 +461,12 @@ from modules.dj_music import (
 from modules.yt_request import (
     handle_ytrequest, handle_ytqueue, handle_ytstatus,
     handle_ytnow, handle_ytcooldown, handle_setytcooldown,
-    handle_request as handle_yt_request_search,
     handle_ytpick,
     has_pending_yt_search,
     handle_clearrequests,
     handle_requesthistory,
     handle_requestcleanup,
     handle_playedrequests,
-    handle_play as handle_yt_play,
-    handle_now as handle_yt_now,
-    handle_skip as handle_yt_skip,
     startup_yt_cleanup_task,
     handle_setrequestcost,
     handle_setprioritycost,
@@ -480,13 +476,22 @@ from modules.yt_request import (
     handle_unbanrequester,
     handle_queueadmin,
     on_request_user_left,
-    handle_radio_queue,
-    handle_radio_remove,
-    handle_radio_clearqueue,
-    handle_radio_voteskip,
-    handle_radiohelp,
 )
-from modules.radio_vibe import handle_vibe
+from modules.radio_commands import (
+    handle_request      as rc_request,
+    handle_pick         as rc_pick,
+    handle_queue        as rc_queue,
+    handle_skip         as rc_skip,
+    handle_remove       as rc_remove,
+    handle_clearqueue   as rc_clearqueue,
+    handle_history      as rc_history,
+    handle_voteskip     as rc_voteskip,
+    handle_nowplaying   as rc_nowplaying,
+    handle_vibe         as rc_vibe,
+    handle_setrequestprice as rc_setrequestprice,
+    handle_radiohelp    as rc_radiohelp,
+    startup_radio,
+)
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
     handle_autosummary, handle_minesummary, handle_fishsummary,
@@ -3502,9 +3507,9 @@ class HangoutBot(BaseBot):
             _safe_task(startup_host_dm_queue_loop(self), "startup_host_dm_queue_loop")
         else:
             print(f"[ANNOUNCE] Rotating loop skipped — not host bot ({BOT_MODE}).")
-        # AzuraCast request cleanup poll — DJ bot only
+        # AzuraCast request cleanup + announcement loop — DJ bot only
         if should_this_bot_run_module("yt_request"):
-            _safe_task(startup_yt_cleanup_task(self), "startup_yt_cleanup_task")
+            _safe_task(startup_radio(self), "startup_radio")
         else:
             print(f"[YT_CLEANUP] Cleanup loop skipped — not DJ bot ({BOT_MODE}).")
         # Background automation loops (idempotent — safe on reconnect)
@@ -7293,32 +7298,26 @@ class HangoutBot(BaseBot):
 
         # ── DJ Music ──────────────────────────────────────────────────────────
         elif cmd in ("play", "request", "sr", "req", "song", "requesy"):
-            # !play / aliases → YouTube URL direct-upload or search → AzuraCast
-            await handle_yt_play(self, user, args)
+            await rc_request(self, user, args)
         elif cmd in ("pick", "djpick"):
-            # !pick <1-5> — completes a pending !play search result selection
             if has_pending_yt_search(user.id):
-                await handle_ytpick(self, user, args)
+                await rc_pick(self, user, args)
             else:
                 await handle_dj_pick(self, user, args)
         elif cmd in ("queue", "q"):
-            # !queue / !q → AzuraCast request queue (public)
-            await handle_radio_queue(self, user, args)
+            await rc_queue(self, user, args)
         elif cmd == "djqueue":
             await handle_dj_queue(self, user)
         elif cmd in ("now", "nowplaying", "np"):
-            # !now / aliases → AzuraCast now-playing with player-style display
-            await handle_yt_now(self, user, args)
+            await rc_nowplaying(self, user, args)
         elif cmd in ("skip", "djskip"):
-            # !skip → AzuraCast backend skip (admin+)
-            await handle_yt_skip(self, user, args)
+            await rc_skip(self, user, args)
         elif cmd == "skipvote":
             await handle_dj_skipvote(self, user)
         elif cmd in ("stopmusic", "djstop"):
             await handle_dj_stopmusic(self, user)
         elif cmd == "clearqueue":
-            # !clearqueue → cancel all pending AzuraCast radio requests (admin+)
-            await handle_radio_clearqueue(self, user, args)
+            await rc_clearqueue(self, user, args)
         elif cmd in ("djconfig", "djsettings"):
             await handle_dj_config(self, user)
         elif cmd == "djset":
@@ -7464,13 +7463,17 @@ class HangoutBot(BaseBot):
         elif cmd == "queueadmin":
             await handle_queueadmin(self, user, args)
         elif cmd == "remove":
-            await handle_radio_remove(self, user, args)
+            await rc_remove(self, user, args)
         elif cmd == "voteskip":
-            await handle_radio_voteskip(self, user, args)
+            await rc_voteskip(self, user, args)
         elif cmd == "vibe":
-            await handle_vibe(self, user, args)
+            await rc_vibe(self, user, args)
+        elif cmd in ("history", "radiohistory"):
+            await rc_history(self, user, args)
+        elif cmd == "setrequestprice":
+            await rc_setrequestprice(self, user, args)
         elif cmd == "radiohelp":
-            await handle_radiohelp(self, user, args)
+            await rc_radiohelp(self, user, args)
         elif cmd == "webplayer":
             await handle_dj_webplayer(self, user)
         elif cmd == "setwebplayer":
