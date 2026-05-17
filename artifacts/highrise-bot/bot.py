@@ -183,21 +183,24 @@ def _collect_bots() -> list[_BotSpec]:
 
 async def _run_bot_forever(spec: _BotSpec) -> None:
     """
-    Keep one bot alive as a subprocess.
-    Sets BOT_TOKEN / BOT_ID / BOT_MODE / BOT_USERNAME in the child env so that
-    config.py (imported inside the subprocess) reads the correct identity.
-    Uses exponential backoff (10s → 20s → 40s → 80s → cap 120s) when the bot
-    exits within 60 s of starting, to avoid log spam from invalid tokens.
+    Keep one bot alive as a subprocess — isolated per bot account.
+    One bot crashing never affects the others; each runs in its own asyncio Task.
+
+    Reconnect backoff schedule: 5s → 10s → 30s → 60s (max).
+    The counter resets to zero only after a long stable run (≥ 300 s / 5 min),
+    preventing spam loops when a bot repeatedly disconnects in quick succession.
     """
+    _BACKOFF = [5, 10, 30, 60]   # seconds; last entry is the cap
+
     env = dict(os.environ)
-    env["BOT_TOKEN"]      = spec.token
-    env["BOT_ID"]         = spec.bot_id
-    env["BOT_MODE"]       = spec.bot_mode
-    env["BOT_USERNAME"]   = spec.bot_username
+    env["BOT_TOKEN"]       = spec.token
+    env["BOT_ID"]          = spec.bot_id
+    env["BOT_MODE"]        = spec.bot_mode
+    env["BOT_USERNAME"]    = spec.bot_username
     env["BOT_EXTRA_MODES"] = ",".join(spec.extra_modes)
     main_path = str(HERE / "main.py")
 
-    consecutive_fast_exits = 0
+    _reconnect_count = 0   # resets after a long stable run
 
     while True:
         proc: asyncio.subprocess.Process | None = None
@@ -216,22 +219,31 @@ async def _run_bot_forever(spec: _BotSpec) -> None:
             _ts2 = __import__("datetime").datetime.now(
                 __import__("datetime").timezone.utc).strftime("%H:%M:%S UTC")
             _exit_reason = (
-                "clean exit"        if code == 0  else
-                "Python exception"  if code == 1  else
-                "usage/OS error"    if code == 2  else
-                "SIGTERM"           if code == -15 else
-                "SIGKILL"           if code == -9  else
+                "clean exit"        if code == 0   else
+                "Python exception"  if code == 1   else
+                "usage/OS error"    if code == 2   else
+                "SIGTERM"           if code == -15  else
+                "SIGKILL"           if code == -9   else
                 f"signal {-code}"   if code and code < 0 else
                 f"code {code}"
             )
             print(f"[PROCESS EXIT] {spec.label} mode={spec.bot_mode}"
                   f" code={code} ({_exit_reason}) uptime={uptime:.0f}s @ {_ts2}")
 
+            # Reset backoff only after a long, stable run (≥ 5 min).
+            # Any exit shorter than that — even a graceful disconnect — increments
+            # the counter so repeated quick exits are progressively throttled.
+            if uptime >= 300:
+                _reconnect_count = 0
+            else:
+                _reconnect_count += 1
+
+            delay = _BACKOFF[min(_reconnect_count - 1, len(_BACKOFF) - 1)] \
+                    if _reconnect_count > 0 else _BACKOFF[0]
+
             if uptime < 60:
                 # Fast exit — likely a bad token or immediate connection error
-                consecutive_fast_exits += 1
-                delay = min(10 * (2 ** (consecutive_fast_exits - 1)), 120)
-                if consecutive_fast_exits == 1:
+                if _reconnect_count == 1:
                     print(
                         f"[RUNNER] {spec.label} exited after {uptime:.0f}s (code {code}).\n"
                         f"         Check that {spec.token_env} is a valid Highrise API token.\n"
@@ -239,16 +251,13 @@ async def _run_bot_forever(spec: _BotSpec) -> None:
                     )
                 else:
                     print(
-                        f"[RUNNER] {spec.label} fast-exit #{consecutive_fast_exits} "
+                        f"[RUNNER] {spec.label} fast-exit #{_reconnect_count} "
                         f"(code {code}). Retrying in {delay}s..."
                     )
             else:
-                # Stable run — reset backoff
-                consecutive_fast_exits = 0
-                delay = 10
                 print(
                     f"[RUNNER] {spec.label} (ID:{spec.bot_id}) "
-                    f"exited (code {code}). Restarting in {delay}s..."
+                    f"disconnected (code {code}). Reconnecting in {delay}s..."
                 )
 
         except asyncio.CancelledError:
@@ -260,10 +269,12 @@ async def _run_bot_forever(spec: _BotSpec) -> None:
                     proc.kill()
             raise
         except Exception as exc:
-            consecutive_fast_exits += 1
-            delay = min(10 * (2 ** (consecutive_fast_exits - 1)), 120)
+            _reconnect_count += 1
+            delay = _BACKOFF[min(_reconnect_count - 1, len(_BACKOFF) - 1)]
             print(f"[RUNNER] {spec.label} error: {exc}. Retrying in {delay}s...")
 
+        print(f"[WATCHDOG] {spec.label} mode={spec.bot_mode}"
+              f" reconnect_attempt={_reconnect_count} delay={delay}s")
         await asyncio.sleep(delay)
 
 
