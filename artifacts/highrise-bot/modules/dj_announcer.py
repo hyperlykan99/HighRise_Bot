@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from highrise import BaseBot
 
-_LOG = "[DJ_ANN]"
+_LOG     = "[DJ_ANN]"
+_STATION = "ChillTopia Radio"
+_DIV     = "━━━━━━━━━━━━━"   # 13-char divider line
 
 
 async def _say(bot: "BaseBot", msg: str) -> None:
@@ -28,7 +30,13 @@ async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
         print(f"{_LOG} whisper error (non-fatal): {exc}")
 
 
-# ─── Now Playing ──────────────────────────────────────────────────────────────
+def _track_label(title: str, artist: str) -> str:
+    if artist and artist.lower() not in title.lower():
+        return f"{artist} — {title}"
+    return title or "Unknown"
+
+
+# ─── Now Playing (vibe tracks) ────────────────────────────────────────────────
 
 async def announce_now_playing(
     bot: "BaseBot",
@@ -37,20 +45,76 @@ async def announce_now_playing(
     requester: "str | None" = None,
     vibe: str = "chill",
 ) -> None:
-    """Announce a track to the room. Uses requester tag if provided, else vibe label."""
-    if artist and artist.lower() not in title.lower():
-        song = f"{artist} — {title}"
-    else:
-        song = title or "Unknown"
+    """
+    Polished multi-line room announcement for a new track.
+
+    If `requester` is provided the REQUEST LIVE format is used.
+    Otherwise the chill / party vibe format is used.
+    """
+    track = _track_label(title, artist)[:70]
 
     if requester:
-        msg = f"🎧 Request: {song[:80]} | @{requester}"
-    elif vibe == "party":
-        msg = f"🔥 Party: {song[:120]}"
+        await announce_request_live(bot, title, artist, requester)
+        return
+
+    if vibe == "party":
+        msg = (
+            f"🎙️  NOW PLAYING  🎙️\n"
+            f"{_DIV}\n"
+            f"🔥 Vibe: Party Mode\n"
+            f"🎵 {track}\n"
+            f"📻 {_STATION}\n"
+            f"{_DIV}\n"
+            f"Turn it up — party vibes 🪩"
+        )
     else:
-        msg = f"🎶 Chill: {song[:120]}"
+        msg = (
+            f"🎙️  NOW PLAYING  🎙️\n"
+            f"{_DIV}\n"
+            f"🌙 Vibe: Chill\n"
+            f"🎵 {track}\n"
+            f"📻 {_STATION}\n"
+            f"{_DIV}\n"
+            f"Relax & vibe ✨"
+        )
 
     await _say(bot, msg)
+
+
+# ─── Request confirmed playing ────────────────────────────────────────────────
+
+async def announce_request_live(
+    bot: "BaseBot",
+    title: str,
+    artist: str = "",
+    requester: str = "",
+) -> None:
+    """
+    Polished REQUEST LIVE room announcement fired when skip-verify confirms
+    the requested song is actually playing on AzuraCast.
+    """
+    track    = _track_label(title, artist)[:70]
+    req_line = f"🙋 Requested by: @{requester[:20]}\n" if requester else ""
+    msg = (
+        f"🎧  REQUEST LIVE  🎧\n"
+        f"{_DIV}\n"
+        f"🎵 {track}\n"
+        f"{req_line}"
+        f"📻 {_STATION}\n"
+        f"{_DIV}\n"
+        f"Your request is on air 🔊"
+    )
+    await _say(bot, msg)
+
+
+# ─── Request queued (fallback when skip couldn't confirm) ─────────────────────
+
+async def announce_request_queued_next(bot: "BaseBot") -> None:
+    """
+    Fired when the skip-verify task cannot confirm the request is playing
+    within the poll window.  Lets the room know it will play next.
+    """
+    await _say(bot, "🎧 Request queued and ready. It will play next.")
 
 
 # ─── Vibe ─────────────────────────────────────────────────────────────────────
@@ -99,6 +163,7 @@ async def announce_voteskip_passed(
 # ─── Queue ────────────────────────────────────────────────────────────────────
 
 async def announce_request_queued(bot: "BaseBot", title: str, username: str) -> None:
+    """Legacy helper kept for compatibility — prefer announce_request_live."""
     await _say(bot, f"🎵 Added to radio: {title[:80]} — requested by @{username}")
 
 

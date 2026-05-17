@@ -1255,17 +1255,12 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         if upload_exc[0] is not None:
             raise upload_exc[0]
 
-        # ── Done: whisper success immediately after put() ────────────────────
+        # ── Done: whisper success + mark done (room announcement fires later) ──
         _update_job(jid, status="done", finished_at=time.time())
         print(f"[YT_REQUEST] Job #{jid} — success in {upload_secs:.1f}s: {title[:80]}")
-        await _w(bot, uid, f"✅ Added to queue: {title[:80]}")
-        # Room-wide announcement
-        try:
-            uname = job.get("username") or uid
-            announce = f"🎵 Added to radio: {title[:80]} — requested by @{uname}"
-            await bot.highrise.chat(announce[:249])
-        except Exception as _ann_exc:
-            print(f"[YT_REQUEST] Room announce error (non-fatal): {_ann_exc}")
+        # Whisper to requester only; the playback engine announces to the room
+        # once it verifies the track is actually playing on AzuraCast.
+        await _w(bot, uid, f"✅ Uploaded! Queuing your request: {title[:80]}")
         # Background thread is still closing the SSH connection — that's fine.
 
     except Exception as exc:

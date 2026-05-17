@@ -300,38 +300,63 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
 # ─── !nowplaying ──────────────────────────────────────────────────────────────
 
 async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!nowplaying / !now / !np — detailed now-playing card."""
+    """!nowplaying / !now / !np — media-player style now-playing card."""
     loop = asyncio.get_running_loop()
     np   = await loop.run_in_executor(None, azura.fetch_nowplaying)
 
     if not np:
-        await _w(bot, user.id, "📻 AzuraCast not responding or not configured.")
+        await _w(
+            bot, user.id,
+            "📻 ChillTopia Radio is live, but I can't read the current track right now.",
+        )
         return
 
-    np_obj  = np.get("now_playing") or {}
-    song    = np_obj.get("song") or {}
-    elapsed = int(np_obj.get("elapsed")  or 0)
-    duration= int(np_obj.get("duration") or song.get("length") or 0)
-    title   = (song.get("title")  or "").strip() or "Unknown"
-    artist  = (song.get("artist") or "").strip()
+    np_obj   = np.get("now_playing") or {}
+    song     = np_obj.get("song") or {}
+    elapsed  = int(np_obj.get("elapsed")  or 0)
+    duration = int(np_obj.get("duration") or song.get("length") or 0)
+    title    = (song.get("title")  or "").strip() or "Unknown"
+    artist   = (song.get("artist") or "").strip()
 
-    label = (f"{artist} — {title}" if artist and artist.lower() not in title.lower()
-             else title)
+    if artist and artist.lower() not in title.lower():
+        track = f"{artist} — {title}"
+    else:
+        track = title
 
-    # Check if it's one of our requests
+    # Vibe / mode label
     cp = rq.currently_playing()
-    req_str = f" | @{cp['username'][:15]}" if cp and cp.get("username") else ""
+    if cp:
+        vibe_label = "Request 🎧"
+    elif cs.vibe() == "party":
+        vibe_label = "Party Mode 🔥"
+    else:
+        vibe_label = "Chill 🌙"
 
-    bar      = _progress_bar(elapsed, duration)
-    time_str = f"{_fmt_secs(elapsed)}/{_fmt_secs(duration)}" if duration else ""
+    # Progress bar + time string
+    if duration:
+        bar      = _progress_bar(elapsed, duration)
+        time_str = f"{_fmt_secs(elapsed)} / {_fmt_secs(duration)}"
+    else:
+        bar      = "▰▰▰▱▱▱▱▱▱▱"
+        time_str = "Live stream"
 
-    parts = [f"🎧 {label[:70]}"]
-    if time_str:
-        parts.append(f"{bar} {time_str}")
-    if req_str:
-        parts.append(req_str)
+    # Optional requester line
+    req_line = ""
+    if cp and cp.get("username"):
+        req_line = f"\n│ 🙋 @{cp['username'][:20]}"
 
-    await _w(bot, user.id, " | ".join(parts)[:249])
+    msg = (
+        f"╭─ 🎧 ChillTopia Player ─╮\n"
+        f"│ ▶ Now Playing\n"
+        f"│ 🎵 {track[:45]}\n"
+        f"│ 🌙 Vibe: {vibe_label}\n"
+        f"│ ⏱ {time_str}\n"
+        f"│ {bar}\n"
+        f"│ 📻 Live Radio"
+        f"{req_line}\n"
+        f"╰────────────────────╯"
+    )
+    await _w(bot, user.id, msg[:249])
 
 
 # ─── !skip ────────────────────────────────────────────────────────────────────

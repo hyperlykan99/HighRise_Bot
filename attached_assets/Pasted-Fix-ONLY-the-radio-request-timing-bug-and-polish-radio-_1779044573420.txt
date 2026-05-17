@@ -1,0 +1,121 @@
+Fix ONLY the radio request timing bug and polish radio display messages. Do NOT touch bot respawn/lifecycle/reconnect logic.
+
+Critical rules:
+- Do not modify bot startup.
+- Do not modify bot reconnect.
+- Do not modify bot respawn.
+- Do not block the main bot event loop.
+- Radio errors must be caught/logged and must never crash the bot.
+
+REQUEST TIMING FIX:
+Current bug:
+The bot downloads/uploads a request, calls skip too early, and AzuraCast plays a Chill/Party song instead of the requested song.
+
+Required pipeline:
+1. Player selects request.
+2. Download/upload request.
+3. Verify media import completed.
+4. Verify the request song exists in the Requests playlist.
+5. Wait 3–5 seconds for AzuraCast queue refresh.
+6. Then call AzuraCast skip.
+7. Poll AzuraCast Now Playing API for 10–15 seconds.
+8. If Now Playing matches the requested song:
+   - mark queue item as playing
+   - announce NOW PLAYING
+9. If Now Playing does NOT match:
+   - keep request status as pending/queued
+   - tell room: “🎧 Request queued and ready. It will play next.”
+10. Do NOT announce “Added to radio” until verification succeeds.
+11. Do NOT delete the file unless the request actually finishes playing.
+
+Verification details:
+- Match requested track using title/video ID/media ID when possible.
+- Avoid weak matching that confuses remixes/live/sped-up versions.
+- If media ID exists, prefer media ID.
+- If no media ID, normalize title text and compare safely.
+- Log each step:
+  - downloaded
+  - uploaded/imported
+  - playlist verified
+  - queue refresh wait done
+  - skip attempted
+  - now playing verified
+  - fallback queued next
+
+COMMAND ALIASES:
+- !now and !nowplaying must do the same thing.
+- !q and !queue must do the same thing.
+
+POLISHED NOW PLAYING ANNOUNCEMENT:
+Make track start announcements feel like a real DJ/radio station.
+
+For Chill/default tracks:
+🎙️  NOW PLAYING  🎙️
+━━━━━━━━━━━━━━
+🌙 Vibe: Chill
+🎵 Track: {artist} — {title}
+📻 Station: ChillTopia Radio
+━━━━━━━━━━━━━━
+Relax, vibe, and enjoy the music ✨
+
+For Party tracks:
+🎙️  NOW PLAYING  🎙️
+━━━━━━━━━━━━━━
+🔥 Vibe: Party Mode
+🎵 Track: {artist} — {title}
+📻 Station: ChillTopia Radio
+━━━━━━━━━━━━━━
+Turn it up — party vibes activated 🪩
+
+For Requests:
+🎧  REQUEST LIVE  🎧
+━━━━━━━━━━━━━━
+🎵 Track: {artist} — {title}
+🙋 Requested by: @{username}
+📻 Station: ChillTopia Radio
+━━━━━━━━━━━━━━
+Your request is now on air 🔊
+
+Do not announce the same track twice.
+Keep last_announced_track_id/title and prevent duplicates.
+
+MAKE !NOW / !NOWPLAYING LOOK LIKE A MEDIA PLAYER:
+When user types !now or !nowplaying, reply with a stylish media-player style message:
+
+Example:
+╭─ 🎧 ChillTopia Player ─╮
+│ ▶ Now Playing
+│ 🎵 {artist} — {title}
+│ 🌙 Vibe: {chill/party/request}
+│ ⏱ {elapsed} / {duration}
+│ ▰▰▰▰▱▱▱▱▱▱
+│ 📻 Live Radio
+╰────────────────────╯
+
+If request:
+Add:
+│ 🙋 Requested by: @{username}
+
+If elapsed/duration is unavailable:
+Use:
+│ ⏱ Live stream
+
+Progress bar:
+- If elapsed and duration are available, create a 10-block progress bar.
+- Filled block: ▰
+- Empty block: ▱
+- If unavailable, show: ▰▰▰▱▱▱▱▱▱▱
+
+Fallback:
+If Now Playing API fails:
+“📻 ChillTopia Radio is live, but I can’t read the current track right now.”
+
+Acceptance tests:
+1. Request a song.
+2. Bot downloads/uploads it.
+3. Bot waits/verified before skip.
+4. Skip does not cause random Chill/Party song to play.
+5. If request starts, polished REQUEST LIVE announcement appears.
+6. If request does not start, bot says it is queued next.
+7. !now and !nowplaying show the media-player layout.
+8. Bot respawn/reconnect behavior remains unchanged.

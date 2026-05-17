@@ -312,6 +312,31 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         await _switch_to_vibe(bot)
 
 
+def _title_matches(req_title: str, np_title: str) -> bool:
+    """
+    Decide if the AzuraCast now-playing title corresponds to our request.
+
+    Rules (conservative to avoid remix / live / sped-up mismatches):
+    - Exact lowercase match → True
+    - Shorter title is ≥ 20 chars AND is a substring of the longer → True
+    - First 30 chars match AND both are ≥ 20 chars → True
+    - Everything else → False
+    """
+    if not req_title or not np_title:
+        return False
+    r = req_title.lower().strip()
+    n = np_title.lower().strip()
+    if r == n:
+        return True
+    shorter = r if len(r) <= len(n) else n
+    longer  = n if len(r) <= len(n) else r
+    if len(shorter) >= 20 and shorter in longer:
+        return True
+    if len(r) >= 20 and len(n) >= 20 and r[:30] == n[:30]:
+        return True
+    return False
+
+
 async def _on_new_track(bot: "BaseBot", song: dict) -> None:
     global _cur_req_id, _last_ann_id
 
@@ -333,7 +358,7 @@ async def _on_new_track(bot: "BaseBot", song: dict) -> None:
             _cur_req_id = match["id"]
         if match.get("status") != "playing":
             _db_set_status(match["id"], "playing")
-        await ann.announce_now_playing(bot, req_title, "", req_uname)
+        await ann.announce_request_live(bot, req_title, "", req_uname)
         print(f"{_LOG} Now playing REQUEST: {req_title!r} by @{req_uname}")
     else:
         with _lock:
@@ -350,58 +375,110 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
 
     Flow
     ────
-    1. Poll AzuraCast's upcoming queue (GET /api/station/{id}/queue) until the
-       request appears or 30 s pass.  This gives AzuraCast time to register the
-       just-submitted request before we skip.
-    2. If the request is already playing (poll loop beat us) → bail out.
-    3. Call azura.skip_and_verify_request() which:
-         a. Re-submits the song to the request queue (idempotent, ensures it's at top).
-         b. Waits 2 s.
-         c. Posts a skip.
-         d. Waits 6 s then checks nowplaying.song.id.
-         e. Retries up to 3 times on mismatch.
-    4. Announcements are intentionally left to the normal poll-loop song-change
-       detection — we never announce here.
+    1. Fetch request metadata (title, artist, username) from DB.
+    2. Early-exit if the poll loop already detected it as playing.
+    3. Wait 4 s flat for AzuraCast to register the newly-uploaded file in its
+       internal media library / request queue (no HTTP polling needed here).
+    4. Re-submit the song to AzuraCast's request endpoint (idempotent) then
+       issue a single skip so AzuraCast advances to the request.
+    5. Poll the Now Playing API every 2 s for up to 14 s.
+       • Match by song ID first (exact), then by title (conservative substring).
+       • On match  → pre-set _last_ann_id (dedup the poll loop), mark DB status
+                     "playing", fire polished REQUEST LIVE room announcement.
+       • On timeout → fire "queued and ready" fallback so the room knows; the
+                     poll loop will catch and announce when the song plays next.
     """
-    global _skip_task_active
+    global _skip_task_active, _cur_req_id, _last_ann_id
     _skip_task_active = True
     try:
         loop = asyncio.get_running_loop()
-        print(f"{_LOG} Verified-skip task started: job={job_id} uid={unique_id!r}")
 
-        # Early exit: poll loop may have already detected this request as playing
+        # ── Fetch request metadata ─────────────────────────────────────────────
         job = _db_get_job(job_id)
-        if job and job.get("status") == "playing":
+        if not job:
+            print(f"{_LOG} Verified-skip: job {job_id} not found — aborting")
+            return
+
+        req_title  = (job.get("title")    or "Unknown").strip()
+        req_artist = (job.get("artist")   or "").strip()
+        req_uname  = (job.get("username") or "").strip()
+
+        # ── Early exit: poll loop already marked it playing ────────────────────
+        if job.get("status") == "playing":
             print(f"{_LOG} Job {job_id} already playing — skip task done early")
             return
 
-        # Step 1: Wait for AzuraCast to register the request in its upcoming queue.
-        # max_wait reduced to 20 s (was 30) so this task exits quickly on disconnect.
-        # _stop_flag is passed so the blocking thread can abort early if the bot shuts down.
-        print(f"{_LOG} Waiting for {unique_id!r} in AzuraCast queue (max 20 s)…")
-        in_queue = await loop.run_in_executor(
-            None, azura.wait_for_song_in_queue, unique_id, 20, 2.5, _stop_flag
-        )
+        print(f"{_LOG} Verified-skip started: job={job_id} uid={unique_id!r} title={req_title!r}")
 
-        # Re-check: poll loop may have caught it while we waited
+        # ── Step 1: Flat 4 s wait for AzuraCast queue refresh ─────────────────
+        # (8 × 0.5 s so stop_flag is checked every half-second)
+        print(f"{_LOG} Waiting 4 s for AzuraCast queue refresh…")
+        for _ in range(8):
+            if _stop_flag.is_set():
+                return
+            await asyncio.sleep(0.5)
+
+        # Re-check after the wait
         job = _db_get_job(job_id)
         if job and job.get("status") == "playing":
             print(f"{_LOG} Job {job_id} started playing during queue wait — skip task done")
             return
 
-        if not in_queue:
-            print(f"{_LOG} Queue wait timed out — attempting skip anyway")
+        if _stop_flag.is_set():
+            return
 
-        # Step 2: Skip and verify (retries internally; re-submits before each skip).
-        # post_skip_wait reduced to 5 s (was 6) for faster exit on disconnect.
-        ok = await loop.run_in_executor(
-            None, azura.skip_and_verify_request, unique_id, 3, 5.0, _stop_flag
-        )
+        # ── Step 2: Submit request to AzuraCast + skip ────────────────────────
+        if unique_id:
+            print(f"{_LOG} Submitting request {unique_id!r} to AzuraCast…")
+            await loop.run_in_executor(None, azura.submit_request, unique_id)
+            await asyncio.sleep(1)   # brief settle before skip
 
-        if ok:
-            print(f"{_LOG} Verified-skip task ✓: {unique_id!r} confirmed playing")
-        else:
-            print(f"{_LOG} Verified-skip task: could not confirm {unique_id!r} — poll loop handles announcement")
+        if _stop_flag.is_set():
+            return
+
+        print(f"{_LOG} Issuing skip…")
+        await loop.run_in_executor(None, azura.skip_current, 1, 0)
+
+        # ── Step 3: Poll Now Playing for up to 14 s (7 × 2 s) ────────────────
+        print(f"{_LOG} Polling NP for up to 14 s to confirm {unique_id!r}…")
+        confirmed = False
+
+        for check in range(7):
+            if _stop_flag.is_set():
+                return
+
+            await asyncio.sleep(2)
+
+            np = await loop.run_in_executor(None, azura.fetch_nowplaying)
+            if not np:
+                continue
+
+            np_song   = ((np.get("now_playing") or {}).get("song") or {})
+            np_id     = (np_song.get("id")     or "").strip()
+            np_title  = (np_song.get("title")  or "").strip()
+            np_artist = (np_song.get("artist") or "").strip()
+
+            id_match    = bool(unique_id and np_id and np_id == unique_id)
+            title_match = _title_matches(req_title, np_title)
+
+            if id_match or title_match:
+                reason = "song ID" if id_match else "title"
+                print(f"{_LOG} NP confirmed by {reason} (check {check + 1}): {np_title!r}")
+
+                # Pre-set _last_ann_id so _on_new_track won't duplicate-announce
+                with _lock:
+                    _last_ann_id = np_id or unique_id
+                    _cur_req_id  = job_id
+
+                _db_set_status(job_id, "playing")
+                display_artist = req_artist or np_artist
+                await ann.announce_request_live(bot, req_title, display_artist, req_uname)
+                confirmed = True
+                break
+
+        if not confirmed:
+            print(f"{_LOG} Could not confirm {unique_id!r} in 14 s — announcing queued next")
+            await ann.announce_request_queued_next(bot)
 
     except asyncio.CancelledError:
         _stop_flag.set()
