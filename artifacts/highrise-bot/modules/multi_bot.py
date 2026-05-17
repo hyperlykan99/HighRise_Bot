@@ -1524,7 +1524,10 @@ async def start_heartbeat_loop(bot) -> None:
         # A bot that crashes immediately (bad token / multilogin) never writes
         # last_heartbeat_at, so other bots won't defer to it.
         await asyncio.sleep(30)
+        _hb_started_at = asyncio.get_event_loop().time()
+        _hb_tick = 0
         while True:
+            _hb_tick += 1
             last_error = ""
             db_connected = 1
             try:
@@ -1571,6 +1574,11 @@ async def start_heartbeat_loop(bot) -> None:
                     )
                 except Exception:
                     pass
+            # Console heartbeat every 60 s (every 2nd DB tick)
+            if _hb_tick % 2 == 0:
+                _uptime = int(asyncio.get_event_loop().time() - _hb_started_at)
+                _display = BOT_USERNAME or BOT_MODE
+                print(f"[HEARTBEAT] bot={_display} online uptime={_uptime}s")
             await asyncio.sleep(30)
 
     _heartbeat_task = asyncio.create_task(_loop())

@@ -215,8 +215,17 @@ async def _run_bot_forever(spec: _BotSpec) -> None:
             uptime = asyncio.get_event_loop().time() - started_at
             _ts2 = __import__("datetime").datetime.now(
                 __import__("datetime").timezone.utc).strftime("%H:%M:%S UTC")
+            _exit_reason = (
+                "clean exit"        if code == 0  else
+                "Python exception"  if code == 1  else
+                "usage/OS error"    if code == 2  else
+                "SIGTERM"           if code == -15 else
+                "SIGKILL"           if code == -9  else
+                f"signal {-code}"   if code and code < 0 else
+                f"code {code}"
+            )
             print(f"[PROCESS EXIT] {spec.label} mode={spec.bot_mode}"
-                  f" code={code} uptime={uptime:.0f}s @ {_ts2}")
+                  f" code={code} ({_exit_reason}) uptime={uptime:.0f}s @ {_ts2}")
 
             if uptime < 60:
                 # Fast exit — likely a bad token or immediate connection error

@@ -3304,7 +3304,29 @@ class HangoutBot(BaseBot):
             bot_state.LAST_RECONNECT_AT = _now_ts
             print(f"[RECONNECT] mode={BOT_MODE} id={config.BOT_ID}"
                   f" reconnect #{bot_state.RESTART_COUNT - 1} @ {_now_ts}")
+        _join_type = "first_connect" if bot_state.RESTART_COUNT == 1 else f"reconnect #{bot_state.RESTART_COUNT - 1}"
+        print(f"[ROOM JOIN SUCCESS] bot={BOT_MODE} room={config.ROOM_ID} type={_join_type} @ {_now_ts}")
         _install_task_exception_handler()
+        # Install unhandled-exception hooks once on first connect only
+        if bot_state.RESTART_COUNT == 1:
+            import sys as _sys, traceback as _etb
+            def _unhandled_exc_hook(etype, value, tb):
+                print(f"[UNHANDLED EXCEPTION] bot={BOT_MODE} {etype.__name__}: {value}")
+                _etb.print_exception(etype, value, tb)
+            _sys.excepthook = _unhandled_exc_hook
+            try:
+                import asyncio as _aio
+                def _loop_exc_handler(loop, ctx):
+                    _exc = ctx.get("exception")
+                    _msg = ctx.get("message", "unknown")
+                    if _exc:
+                        print(f"[UNHANDLED ASYNC] bot={BOT_MODE} {type(_exc).__name__}: {_exc}")
+                        _etb.print_exception(type(_exc), _exc, _exc.__traceback__)
+                    else:
+                        print(f"[UNHANDLED ASYNC] bot={BOT_MODE} {_msg}")
+                _aio.get_event_loop().set_exception_handler(_loop_exc_handler)
+            except Exception:
+                pass
 
         def _safe_task(coro, label: str):
             """Wrap a startup coroutine so one failure never kills the bot."""
