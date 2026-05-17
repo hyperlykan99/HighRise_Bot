@@ -617,6 +617,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "skip": "dj", "djskip": "dj",
     "skipvote": "dj",
     "stopmusic": "dj", "djstop": "dj", "clearqueue": "dj",
+    "djconfig": "dj", "djsettings": "dj",
+    "djset": "dj",
+    "djhelp": "dj",
     # eventhost — events / autogames (new)
     "adminsblessing": "eventhost", "adminblessing": "eventhost",
     "eventresume": "eventhost",

@@ -1,97 +1,217 @@
 """
 modules/dj_music.py
 -------------------
-DJ_DUDU music / song-request commands for the Highrise bot.
-Bot mode: "dj"  |  Bot account display name: DJ_DUDU
+Production-ready song-request queue for DJ_DUDU.
 
-Commands (all owned by dj mode):
-  !request <song>   — YouTube search, returns top 5 results (public, 5-min cooldown)
-  !pick <1-5>       — confirm a search result and add it to the queue
-  !queue            — show next 5 pending requests
-  !nowplaying / !np — show current track + YouTube link
-  !skip / !djskip   — advance queue (manager+)
-  !skipvote         — public vote to skip current song (3 votes = auto-skip)
-  !stopmusic        — clear all pending requests (manager+)
+Bot mode : "dj"  (BOT_MODE=dj)   Display name: DJ_DUDU
+All commands are owned exclusively by the dj bot.
 
-State:
-  _pending_searches — per-user in-memory dict of last search results (volatile, OK)
-  _skip_votes       — set of user_ids who voted to skip current #1 (volatile, resets on skip)
-  dj_requests table — queue persists across restarts (SQLite)
+Public commands:
+  !request <song>      Search YouTube, whisper top 5 results
+  !pick <1-5>          Confirm a search result → add to queue
+  !queue / !djqueue    Show next 5 pending songs
+  !np / !nowplaying    Show currently featured song + link
+  !skipvote            Vote to skip current song
+  !djhelp              Show all DJ commands
 
-All messages ≤ 249 characters.
-DB tables: dj_requests (migration 3.2M), youtube_url + duration columns (3.2N)
+Manager commands:
+  !skip / !djskip      Force-advance the queue
+  !stopmusic           Clear all pending / playing entries
+  !djconfig            Show current DJ settings
+
+Admin commands:
+  !djset <key> <val>   Change a DJ setting:
+                         queuemax <1-50>      max queue size          (default 20)
+                         cooldown <1-60>      request cooldown in min (default 5)
+                         votethreshold <2-10> votes needed to auto-skip (default 3)
+
+Architecture:
+  • PlaybackBackend protocol  — plug in IcecastBackend later with zero handler changes
+  • NullBackend               — active now (no-op, queue-only mode)
+  • Explicit status='playing' — front-of-queue song is promoted; backend.play() called there
+  • status state machine:     pending → playing → played | skipped
+  • Search TTL (3 min)        — stale !pick calls are rejected cleanly
+  • Duplicate guard           — exact URL match + normalised-title match block re-requests
+  • Configurable via db.get_room_setting / db.set_room_setting
+  • All DB ops use get_connection() — no module-level connection held open
+
+DB table : dj_requests  (migration 3.2M + 3.2N in database.py)
+Settings : room_settings keys  dj_queue_max | dj_cooldown_mins | dj_skipvote_threshold
 """
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+import re
+import string
+import time
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import database as db
-from modules.permissions import can_manage_games
+from modules.permissions import can_manage_games, is_admin
 
 if TYPE_CHECKING:
     from highrise import BaseBot, User
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-_COOLDOWN_MINUTES: int = 5
-_QUEUE_CAP: int        = 20
-_SKIPVOTE_THRESHOLD: int = 3   # votes needed to auto-skip
 
 # ---------------------------------------------------------------------------
-# Volatile in-memory state (resets on bot restart — intentional)
+# Playback abstraction layer
 # ---------------------------------------------------------------------------
 
-# { user_id: [{"title": str, "url": str, "duration": str, "channel": str}, ...] }
-_pending_searches: dict[str, list[dict]] = {}
+@runtime_checkable
+class PlaybackBackend(Protocol):
+    """
+    Minimal interface every streaming backend must satisfy.
+    Swap NullBackend for IcecastBackend (or any other) at module load time
+    without touching a single command handler.
+    """
+    @property
+    def is_active(self) -> bool: ...
+    @property
+    def is_paused(self) -> bool: ...
 
-# user_ids who have voted to skip the current #1 track
-_skip_votes: set[str] = set()
+    async def play(self, youtube_url: str, title: str) -> bool:
+        """Start playback. Returns True on success."""
+        ...
+
+    async def stop(self) -> None:
+        """Stop current playback immediately."""
+        ...
+
+    async def pause(self) -> None:
+        """Pause playback (stream stays connected)."""
+        ...
+
+    async def resume(self) -> None:
+        """Resume a paused stream."""
+        ...
+
+    async def set_volume(self, pct: int) -> None:
+        """0-100 volume level."""
+        ...
+
+
+class NullBackend:
+    """
+    No-op backend — queue-only mode until a real stream server is configured.
+    All methods succeed silently so handler logic is unchanged when a real
+    backend is swapped in.
+    """
+    _active: bool = False
+    _paused: bool = False
+
+    @property
+    def is_active(self) -> bool:
+        return self._active
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
+
+    async def play(self, youtube_url: str, title: str) -> bool:
+        self._active = True
+        self._paused = False
+        return True
+
+    async def stop(self) -> None:
+        self._active = False
+        self._paused = False
+
+    async def pause(self) -> None:
+        if self._active:
+            self._paused = True
+
+    async def resume(self) -> None:
+        if self._active:
+            self._paused = False
+
+    async def set_volume(self, pct: int) -> None:
+        pass
+
+
+# Active backend instance — replace with IcecastBackend() when ready
+_backend: Any = NullBackend()
+
+
+def set_playback_backend(backend: PlaybackBackend) -> None:
+    """
+    Called at startup (or dynamically) to swap in a real streaming backend.
+    Example (future):
+        from modules.dj_icecast import IcecastBackend
+        dj_music.set_playback_backend(IcecastBackend(host, port, mount, pwd))
+    """
+    global _backend
+    _backend = backend
+
 
 # ---------------------------------------------------------------------------
-# YouTube search via yt-dlp (sync, run in executor)
+# Config helpers  (all settings stored in room_settings table)
 # ---------------------------------------------------------------------------
 
-def _yt_search_sync(query: str, max_results: int = 5) -> list[dict]:
-    """Blocking YouTube search. Returns list of result dicts."""
-    try:
-        import yt_dlp  # type: ignore
-    except ImportError:
-        return []
+_CFG_QUEUE_MAX   = "dj_queue_max"
+_CFG_COOLDOWN    = "dj_cooldown_mins"
+_CFG_VOTE_THRESH = "dj_skipvote_threshold"
 
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "extract_flat": True,
-        "default_search": f"ytsearch{max_results}",
-        "skip_download": True,
-    }
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(query, download=False)
-            entries = info.get("entries", []) if info else []
-            results = []
-            for e in entries[:max_results]:
-                dur_secs = e.get("duration") or 0
-                mins, secs = divmod(int(dur_secs), 60)
-                dur_str = f"{mins}:{secs:02d}" if dur_secs else "?:??"
-                results.append({
-                    "title":    (e.get("title") or "Unknown")[:60],
-                    "url":      f"https://youtu.be/{e.get('id', '')}",
-                    "duration": dur_str,
-                    "channel":  (e.get("uploader") or e.get("channel") or "")[:25],
-                })
-            return results
-    except Exception:
-        return []
+_CFG_DEFAULTS: dict[str, str] = {
+    _CFG_QUEUE_MAX:   "20",
+    _CFG_COOLDOWN:    "5",
+    _CFG_VOTE_THRESH: "3",
+}
+
+# Friendly names and valid ranges for !djset
+_CFG_META: dict[str, tuple[str, int, int]] = {
+    # key → (setting_key, min_val, max_val)
+    "queuemax":      (_CFG_QUEUE_MAX,   1,  50),
+    "cooldown":      (_CFG_COOLDOWN,    1,  60),
+    "votethreshold": (_CFG_VOTE_THRESH, 2,  10),
+}
 
 
-async def _yt_search(query: str, max_results: int = 5) -> list[dict]:
-    """Async wrapper — runs blocking search in thread pool."""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _yt_search_sync, query, max_results)
+def _cfg(key: str) -> int:
+    return int(db.get_room_setting(key, _CFG_DEFAULTS[key]))
+
+
+def _queue_max()   -> int: return _cfg(_CFG_QUEUE_MAX)
+def _cooldown()    -> int: return _cfg(_CFG_COOLDOWN)
+def _vote_thresh() -> int: return _cfg(_CFG_VOTE_THRESH)
+
+
+# ---------------------------------------------------------------------------
+# Volatile in-memory state  (intentionally resets on restart — see notes)
+# ---------------------------------------------------------------------------
+
+# { user_id: (unix_timestamp, [result_dict, ...]) }
+# TTL: 3 minutes — after that, !pick is rejected and user must !request again
+_pending_searches: dict[str, tuple[float, list[dict]]] = {}
+
+_SEARCH_TTL: int = 180   # seconds
+
+# user_ids who have voted to skip the current playing row
+# keyed to the current playing row id so votes reset automatically on advance
+_skip_votes: dict[int, set[str]] = {}   # { row_id: {user_id, ...} }
+
+
+# ---------------------------------------------------------------------------
+# Normalisation helpers (duplicate detection)
+# ---------------------------------------------------------------------------
+
+_PUNCT = re.compile(r"[^\w\s]")
+
+
+def _normalise(text: str) -> str:
+    """Lower-case, strip punctuation/extra spaces — used for title dedup."""
+    return _PUNCT.sub("", text.lower()).split()  # type: ignore[return-value]
+    # returns list of tokens; compared as set intersection below
+
+
+def _titles_are_dupes(a: str, b: str) -> bool:
+    """True if two titles share ≥ 80 % of their word tokens (order-independent)."""
+    ta = set(_PUNCT.sub("", a.lower()).split())
+    tb = set(_PUNCT.sub("", b.lower()).split())
+    if not ta or not tb:
+        return False
+    overlap = len(ta & tb) / max(len(ta), len(tb))
+    return overlap >= 0.80
+
 
 # ---------------------------------------------------------------------------
 # DB helpers
@@ -110,7 +230,10 @@ def _pending_count() -> int:
 
 
 def _user_cooldown_mins(user_id: str) -> int:
-    """Minutes since user's last request (999 = never / already expired)."""
+    """
+    Minutes since user's most recent request that is still pending/playing.
+    Returns 999 if no recent request exists (i.e. cooldown has cleared).
+    """
     try:
         conn = db.get_connection()
         row  = conn.execute(
@@ -129,9 +252,41 @@ def _user_cooldown_mins(user_id: str) -> int:
     return 999
 
 
-def _add_request(user_id: str, username: str, title: str,
-                 youtube_url: str = "", duration: str = "") -> int:
-    """Insert a pending request. Returns queue position (1-based)."""
+def _is_duplicate(youtube_url: str, title: str) -> dict | None:
+    """
+    Returns an existing active queue row if this song is already queued.
+    Checks exact URL match first, then normalised-title similarity.
+    """
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            """SELECT id, title, youtube_url, status,
+                      (SELECT COUNT(*) FROM dj_requests WHERE status IN ('pending','playing')
+                       AND requested_at <= r.requested_at) AS pos
+               FROM dj_requests r
+               WHERE status IN ('pending','playing')
+               ORDER BY requested_at ASC""",
+        ).fetchall()
+        conn.close()
+        for row in rows:
+            if youtube_url and row["youtube_url"] == youtube_url:
+                return dict(row)
+            if _titles_are_dupes(title, row["title"]):
+                return dict(row)
+    except Exception:
+        pass
+    return None
+
+
+def _add_request(
+    user_id: str, username: str, title: str,
+    youtube_url: str = "", duration: str = "",
+) -> int:
+    """
+    Insert a pending request.
+    If the queue was empty, auto-promotes the new row to 'playing'
+    and calls backend.play() via asyncio.  Returns queue position (1-based).
+    """
     try:
         conn = db.get_connection()
         conn.execute(
@@ -142,7 +297,7 @@ def _add_request(user_id: str, username: str, title: str,
         )
         conn.commit()
         pos = conn.execute(
-            "SELECT COUNT(*) AS n FROM dj_requests WHERE status='pending'"
+            "SELECT COUNT(*) AS n FROM dj_requests WHERE status IN ('pending','playing')"
         ).fetchone()["n"]
         conn.close()
         return pos
@@ -150,7 +305,29 @@ def _add_request(user_id: str, username: str, title: str,
         return -1
 
 
+def _get_nowplaying() -> dict | None:
+    """
+    Return the front-of-queue row.
+    Priority: status='playing' first, then oldest 'pending'.
+    """
+    try:
+        conn = db.get_connection()
+        row  = conn.execute(
+            """SELECT id, username, title, youtube_url, duration, status
+               FROM dj_requests
+               WHERE status IN ('playing','pending')
+               ORDER BY CASE status WHEN 'playing' THEN 0 ELSE 1 END,
+                        requested_at ASC
+               LIMIT 1"""
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
 def _get_queue(limit: int = 5) -> list[dict]:
+    """Return upcoming 'pending' rows (does not include the 'playing' row)."""
     try:
         conn = db.get_connection()
         rows = conn.execute(
@@ -166,57 +343,193 @@ def _get_queue(limit: int = 5) -> list[dict]:
         return []
 
 
-def _get_current() -> dict | None:
-    rows = _get_queue(limit=1)
-    return rows[0] if rows else None
-
-
-def _skip_current() -> str | None:
-    """Mark the first pending request as 'played'. Returns its title or None."""
-    global _skip_votes
+def _promote_front() -> dict | None:
+    """
+    If no row is currently 'playing', promote the oldest 'pending' row.
+    Returns the newly promoted row, or None if queue is empty.
+    Does NOT call backend.play() — callers do that asynchronously.
+    """
     try:
         conn = db.get_connection()
-        row  = conn.execute(
-            """SELECT id, title FROM dj_requests
-               WHERE status = 'pending'
+        playing = conn.execute(
+            "SELECT id FROM dj_requests WHERE status='playing' LIMIT 1"
+        ).fetchone()
+        if playing:
+            conn.close()
+            return None   # already have a playing row
+
+        nxt = conn.execute(
+            """SELECT id, username, title, youtube_url, duration
+               FROM dj_requests WHERE status='pending'
                ORDER BY requested_at ASC LIMIT 1"""
         ).fetchone()
-        if not row:
+        if not nxt:
             conn.close()
             return None
+
         conn.execute(
-            """UPDATE dj_requests
-               SET status = 'played', played_at = datetime('now')
-               WHERE id = ?""",
-            (row["id"],),
+            "UPDATE dj_requests SET status='playing' WHERE id=?",
+            (nxt["id"],),
         )
         conn.commit()
         conn.close()
-        _skip_votes = set()   # reset votes for next track
-        return row["title"]
+        return dict(nxt)
+    except Exception:
+        return None
+
+
+def _advance_queue() -> dict | None:
+    """
+    Mark the current playing/leading-pending row as 'played'.
+    Promote the next pending row to 'playing'.
+    Clears skip votes for the outgoing row.
+    Returns the NEW playing row, or None if queue is now empty.
+    """
+    global _skip_votes
+    try:
+        conn = db.get_connection()
+        current = conn.execute(
+            """SELECT id FROM dj_requests
+               WHERE status IN ('playing','pending')
+               ORDER BY CASE status WHEN 'playing' THEN 0 ELSE 1 END,
+                        requested_at ASC LIMIT 1"""
+        ).fetchone()
+        if not current:
+            conn.close()
+            return None
+
+        conn.execute(
+            "UPDATE dj_requests SET status='played', played_at=datetime('now') WHERE id=?",
+            (current["id"],),
+        )
+        conn.commit()
+        # Clear skip votes for the row we just finished
+        _skip_votes.pop(current["id"], None)
+
+        nxt = conn.execute(
+            """SELECT id, username, title, youtube_url, duration
+               FROM dj_requests WHERE status='pending'
+               ORDER BY requested_at ASC LIMIT 1"""
+        ).fetchone()
+        if nxt:
+            conn.execute(
+                "UPDATE dj_requests SET status='playing' WHERE id=?",
+                (nxt["id"],),
+            )
+            conn.commit()
+        conn.close()
+        return dict(nxt) if nxt else None
     except Exception:
         return None
 
 
 def _clear_queue() -> int:
-    """Mark all pending requests as skipped. Returns count cleared."""
+    """Mark all pending + playing rows as skipped. Returns count cleared."""
     global _skip_votes
     try:
         conn = db.get_connection()
         n = conn.execute(
-            "SELECT COUNT(*) AS n FROM dj_requests WHERE status='pending'"
+            "SELECT COUNT(*) AS n FROM dj_requests "
+            "WHERE status IN ('pending','playing')"
         ).fetchone()["n"]
         conn.execute(
-            """UPDATE dj_requests
-               SET status = 'skipped', played_at = datetime('now')
-               WHERE status = 'pending'"""
+            "UPDATE dj_requests SET status='skipped', played_at=datetime('now') "
+            "WHERE status IN ('pending','playing')"
         )
         conn.commit()
         conn.close()
-        _skip_votes = set()
+        _skip_votes.clear()
         return n
     except Exception:
         return 0
+
+
+def _total_active() -> int:
+    """Count of pending + playing rows."""
+    try:
+        conn = db.get_connection()
+        n = conn.execute(
+            "SELECT COUNT(*) AS n FROM dj_requests WHERE status IN ('pending','playing')"
+        ).fetchone()["n"]
+        conn.close()
+        return n
+    except Exception:
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# Search helpers
+# ---------------------------------------------------------------------------
+
+def _yt_search_sync(query: str, max_results: int = 5) -> list[dict]:
+    """Blocking YouTube search via yt-dlp.  Run in executor — do not await."""
+    try:
+        import yt_dlp  # type: ignore
+    except ImportError:
+        return []
+
+    opts = {
+        "quiet":           True,
+        "no_warnings":     True,
+        "extract_flat":    True,
+        "default_search":  f"ytsearch{max_results}",
+        "skip_download":   True,
+        "ignoreerrors":    True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info    = ydl.extract_info(query, download=False) or {}
+            entries = info.get("entries") or []
+            results: list[dict] = []
+            for e in entries[:max_results]:
+                if not e:
+                    continue
+                secs = e.get("duration") or 0
+                m, s = divmod(int(secs), 60)
+                results.append({
+                    "title":    (e.get("title") or "Unknown")[:80],
+                    "url":      f"https://youtu.be/{e.get('id', '')}",
+                    "duration": f"{m}:{s:02d}" if secs else "?:??",
+                    "channel":  (e.get("uploader") or e.get("channel") or "")[:30],
+                })
+            return results
+    except Exception:
+        return []
+
+
+async def _yt_search(query: str, max_results: int = 5) -> list[dict]:
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _yt_search_sync, query, max_results)
+
+
+def _store_search(user_id: str, results: list[dict]) -> None:
+    _pending_searches[user_id] = (time.monotonic(), results)
+
+
+def _pop_search(user_id: str) -> list[dict] | None:
+    """Return and remove pending search if still within TTL, else None."""
+    entry = _pending_searches.get(user_id)
+    if not entry:
+        return None
+    ts, results = entry
+    if time.monotonic() - ts > _SEARCH_TTL:
+        _pending_searches.pop(user_id, None)
+        return None
+    del _pending_searches[user_id]
+    return results
+
+
+def _peek_search(user_id: str) -> list[dict] | None:
+    """Return pending search without removing (used for !pick re-display)."""
+    entry = _pending_searches.get(user_id)
+    if not entry:
+        return None
+    ts, results = entry
+    if time.monotonic() - ts > _SEARCH_TTL:
+        _pending_searches.pop(user_id, None)
+        return None
+    return results
+
 
 # ---------------------------------------------------------------------------
 # Whisper / chat helpers
@@ -235,6 +548,30 @@ async def _chat(bot: "BaseBot", msg: str) -> None:
     except Exception:
         pass
 
+
+# ---------------------------------------------------------------------------
+# Internal: advance + announce
+# ---------------------------------------------------------------------------
+
+async def _do_advance(bot: "BaseBot") -> None:
+    """
+    Advance the queue, fire backend.play(), post room announcement.
+    Called by !skip, !skipvote (auto-skip), and future auto-advance hook.
+    """
+    nxt = _advance_queue()
+    if nxt:
+        await _backend.play(nxt.get("youtube_url", ""), nxt["title"])
+        url_part = f"\n{nxt['youtube_url']}" if nxt.get("youtube_url") else ""
+        await _chat(
+            bot,
+            f"⏭️ Now playing: {nxt['title'][:55]}"
+            f" (@{nxt['username'][:15]}){url_part}"
+        )
+    else:
+        await _backend.stop()
+        await _chat(bot, "🎵 Queue finished. Use !request <song> to add more!")
+
+
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
@@ -242,9 +579,11 @@ async def _chat(bot: "BaseBot", msg: str) -> None:
 async def handle_dj_request(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!request <song> — search YouTube, whisper top 5 results."""
+    """!request <song>  —  search YouTube, whisper top 5 results."""
     if len(args) < 2:
-        await _w(bot, user.id, "🎵 Usage: !request <song title>  then !pick <1-5>")
+        await _w(bot, user.id,
+                 "🎵 Usage: !request <song title>\n"
+                 "Then use !pick <1-5> to confirm.")
         return
 
     query = " ".join(args[1:]).strip()[:120]
@@ -252,30 +591,31 @@ async def handle_dj_request(
         await _w(bot, user.id, "🎵 Please include a song title.")
         return
 
-    # Cooldown check
+    # Rate-limit check
     mins_ago = _user_cooldown_mins(user.id)
-    if mins_ago < _COOLDOWN_MINUTES:
-        wait = _COOLDOWN_MINUTES - mins_ago
+    cooldown = _cooldown()
+    if mins_ago < cooldown:
+        wait = cooldown - mins_ago
         await _w(bot, user.id, f"⏳ You can request again in {wait}m.")
         return
 
     # Queue cap check
-    if _pending_count() >= _QUEUE_CAP:
+    if _total_active() >= _queue_max():
         await _w(bot, user.id,
-                 f"🚫 Queue is full ({_QUEUE_CAP} songs). Try again soon!")
+                 f"🚫 Queue is full ({_queue_max()} songs). Try again soon!")
         return
 
-    await _w(bot, user.id, f"🔍 Searching YouTube for: {query[:60]}…")
+    await _w(bot, user.id, f"🔍 Searching: {query[:60]}…")
 
-    results = await _yt_search(query, max_results=5)
+    results = await _yt_search(query)
     if not results:
         await _w(bot, user.id,
                  "⚠️ No results found. Try a different search term.")
         return
 
-    _pending_searches[user.id] = results
+    _store_search(user.id, results)
 
-    lines = ["🎵 Pick a song — reply !pick <number>:"]
+    lines = ["🎵 Pick with !pick <number>:"]
     for i, r in enumerate(results, 1):
         lines.append(f"{i}. {r['title'][:45]} [{r['duration']}]")
     await _w(bot, user.id, "\n".join(lines)[:249])
@@ -284,10 +624,12 @@ async def handle_dj_request(
 async def handle_dj_pick(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!pick <1-5> — confirm a search result and add it to the queue."""
-    if user.id not in _pending_searches:
+    """!pick <1-5>  —  confirm a search result and add it to the queue."""
+    results = _peek_search(user.id)
+    if results is None:
         await _w(bot, user.id,
-                 "🎵 No active search. Use !request <song> first.")
+                 "🎵 No active search (results expire after 3 min).\n"
+                 "Use !request <song> to search again.")
         return
 
     if len(args) < 2 or not args[1].isdigit():
@@ -295,14 +637,32 @@ async def handle_dj_pick(
         return
 
     choice = int(args[1])
-    results = _pending_searches[user.id]
     if choice < 1 or choice > len(results):
         await _w(bot, user.id,
                  f"🎵 Pick a number between 1 and {len(results)}.")
         return
 
     pick = results[choice - 1]
-    del _pending_searches[user.id]   # clear pending search
+
+    # Duplicate guard
+    dupe = _is_duplicate(pick["url"], pick["title"])
+    if dupe:
+        pos_q = (
+            f"#{dupe['pos']}" if "pos" in dupe else "the queue"
+        )
+        await _w(bot, user.id,
+                 f"⚠️ Already in queue: {dupe['title'][:50]}\n"
+                 f"Position: {pos_q}")
+        return
+
+    # Queue cap (re-check — another user might have filled it)
+    if _total_active() >= _queue_max():
+        await _w(bot, user.id,
+                 f"🚫 Queue filled up ({_queue_max()} songs). Try again soon!")
+        return
+
+    # Consume the pending search
+    _pop_search(user.id)
 
     pos = _add_request(
         user.id, user.username,
@@ -312,118 +672,144 @@ async def handle_dj_pick(
         await _w(bot, user.id, "⚠️ Could not add your request. Try again.")
         return
 
-    name = user.username[:15]
+    # If this is the first song, promote it to 'playing' and fire backend
+    promoted = _promote_front()
+    if promoted:
+        await _backend.play(promoted.get("youtube_url", ""), promoted["title"])
+
+    dur = f" [{pick['duration']}]" if pick["duration"] else ""
+    url = f"\n{pick['url']}" if pick["url"] else ""
     await _w(bot, user.id,
-             f"✅ Added #{pos}: {pick['title'][:50]} [{pick['duration']}]")
-    await _chat(bot,
-        f"🎵 @{name} added: {pick['title'][:55]} (#{pos} in queue)"
-    )
+             f"✅ Added #{pos}: {pick['title'][:50]}{dur}{url}"[:249])
+
+    name = user.username[:15]
+    if promoted:
+        await _chat(
+            bot,
+            f"🎵 @{name} requested: {pick['title'][:50]}{dur}\n"
+            f"▶️ Now playing!{url}"[:249]
+        )
+    else:
+        await _chat(
+            bot,
+            f"🎵 @{name} added: {pick['title'][:55]}{dur} (#{pos} in queue)"
+        )
 
 
 async def handle_dj_queue(bot: "BaseBot", user: "User") -> None:
-    """!queue — show next 5 pending requests."""
-    rows = _get_queue(limit=5)
-    if not rows:
+    """!queue  —  show next 5 pending songs (not counting now-playing)."""
+    now = _get_nowplaying()
+    upcoming = _get_queue(limit=5)
+
+    if not now and not upcoming:
         await _w(bot, user.id,
-                 "🎵 Queue is empty. Use !request <song> to add one!")
+                 "🎵 Queue is empty! Use !request <song> to add one.")
         return
 
-    total = _pending_count()
-    lines = [f"🎵 DJ Queue ({total} pending):"]
-    for i, r in enumerate(rows, 1):
-        dur = f" [{r['duration']}]" if r.get("duration") else ""
-        lines.append(f"#{i} {r['title'][:38]}{dur}")
+    total_pending = _pending_count()
+    lines: list[str] = []
+
+    if now:
+        dur  = f" [{now['duration']}]" if now.get("duration") else ""
+        st   = "▶️" if now["status"] == "playing" else "🎵"
+        lines.append(f"{st} NOW: {now['title'][:40]}{dur}")
+
+    if upcoming:
+        lines.append(f"— Next {min(len(upcoming), 5)} of {total_pending} pending —")
+        for i, r in enumerate(upcoming, 1):
+            dur = f" [{r['duration']}]" if r.get("duration") else ""
+            lines.append(f"#{i} {r['title'][:38]}{dur}")
+
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 async def handle_dj_nowplaying(bot: "BaseBot", user: "User") -> None:
-    """!nowplaying / !np — show current track + link."""
-    rows = _get_queue(limit=2)
-    if not rows:
+    """!nowplaying / !np  —  show current song + link + skip vote status."""
+    now = _get_nowplaying()
+    if not now:
         await _w(bot, user.id,
-                 "🎵 Nothing queued. Use !request <song> to add one!")
+                 "🎵 Nothing playing. Use !request <song> to add one!")
         return
 
-    cur = rows[0]
-    dur = f" [{cur['duration']}]" if cur.get("duration") else ""
-    url = f"\n{cur['youtube_url']}" if cur.get("youtube_url") else ""
-    votes = len(_skip_votes)
-    vote_str = (f"\n👎 Skip votes: {votes}/{_SKIPVOTE_THRESHOLD}"
-                if votes > 0 else "")
-    msg = (
-        f"🎵 Now Playing{dur}:\n"
-        f"{cur['title'][:60]} (@{cur['username'][:15]})"
-        f"{url}{vote_str}"
+    dur   = f" [{now['duration']}]" if now.get("duration") else ""
+    url   = f"\n🔗 {now['youtube_url']}" if now.get("youtube_url") else ""
+    votes = len(_skip_votes.get(now["id"], set()))
+    thresh = _vote_thresh()
+    vote_str = (
+        f"\n👎 Skip votes: {votes}/{thresh} (use !skipvote)"
+        if votes > 0 else ""
     )
-    if len(rows) > 1:
-        nxt = rows[1]
-        ndur = f" [{nxt['duration']}]" if nxt.get("duration") else ""
-        msg += f"\nUp next: {nxt['title'][:35]}{ndur}"
+    upcoming = _get_queue(limit=1)
+    nxt_str = ""
+    if upcoming:
+        n = upcoming[0]
+        nd = f" [{n['duration']}]" if n.get("duration") else ""
+        nxt_str = f"\nUp next: {n['title'][:40]}{nd} (@{n['username'][:12]})"
+
+    msg = (
+        f"▶️ Now Playing{dur}:\n"
+        f"{now['title'][:60]}\n"
+        f"Requested by @{now['username'][:15]}"
+        f"{url}{vote_str}{nxt_str}"
+    )
     await _w(bot, user.id, msg[:249])
 
 
 async def handle_dj_skip(bot: "BaseBot", user: "User") -> None:
-    """!skip / !djskip — advance queue (manager+)."""
+    """!skip / !djskip  —  force-advance queue (manager+)."""
     if not can_manage_games(user.username):
-        await _w(bot, user.id, "🔒 Manager only. Use !skipvote to vote.")
+        await _w(bot, user.id,
+                 "🔒 Manager only. Players can use !skipvote.")
         return
 
-    skipped = _skip_current()
-    if skipped is None:
+    now = _get_nowplaying()
+    if not now:
         await _w(bot, user.id, "🎵 Queue is already empty.")
         return
 
-    nxt = _get_current()
-    if nxt:
-        url = f" {nxt['youtube_url']}" if nxt.get("youtube_url") else ""
-        await _chat(bot, f"⏭️ Skipped! Now up: {nxt['title'][:55]}{url}")
-    else:
-        await _chat(bot, "⏭️ Song skipped. Queue is now empty.")
+    await _do_advance(bot)
 
 
 async def handle_dj_skipvote(bot: "BaseBot", user: "User") -> None:
-    """!skipvote — public vote to skip current song."""
-    cur = _get_current()
-    if cur is None:
+    """!skipvote  —  public vote to skip current song."""
+    now = _get_nowplaying()
+    if now is None:
         await _w(bot, user.id, "🎵 Nothing is playing right now.")
         return
 
-    if user.id in _skip_votes:
+    row_id = now["id"]
+    if row_id not in _skip_votes:
+        _skip_votes[row_id] = set()
+
+    if user.id in _skip_votes[row_id]:
+        cur  = len(_skip_votes[row_id])
+        need = _vote_thresh() - cur
         await _w(bot, user.id,
-                 f"👎 You already voted to skip. "
-                 f"({len(_skip_votes)}/{_SKIPVOTE_THRESHOLD})")
+                 f"👎 Already voted. {need} more vote(s) needed to skip.")
         return
 
-    _skip_votes.add(user.id)
-    votes = len(_skip_votes)
+    _skip_votes[row_id].add(user.id)
+    votes  = len(_skip_votes[row_id])
+    thresh = _vote_thresh()
 
-    if votes >= _SKIPVOTE_THRESHOLD:
-        # Auto-skip
-        title = cur["title"]
-        _skip_current()
-        nxt = _get_current()
-        if nxt:
-            url = f" {nxt['youtube_url']}" if nxt.get("youtube_url") else ""
-            await _chat(bot,
-                f"👎 Vote skip passed! Skipping: {title[:40]}\n"
-                f"⏭️ Now up: {nxt['title'][:45]}{url}"
-            )
-        else:
-            await _chat(bot,
-                f"👎 Vote skip passed! Skipping: {title[:40]}\n"
-                f"🎵 Queue is now empty."
-            )
+    if votes >= thresh:
+        title = now["title"][:50]
+        await _chat(
+            bot,
+            f"👎 Vote skip passed ({votes}/{thresh})! Skipping: {title}"
+        )
+        await _do_advance(bot)
     else:
-        remaining = _SKIPVOTE_THRESHOLD - votes
+        remaining = thresh - votes
         name = user.username[:15]
-        await _chat(bot,
-            f"👎 @{name} voted to skip. "
-            f"{remaining} more vote(s) needed."
+        await _chat(
+            bot,
+            f"👎 @{name} voted to skip. {remaining} more vote(s) needed."
         )
 
 
 async def handle_dj_stopmusic(bot: "BaseBot", user: "User") -> None:
-    """!stopmusic — clear all pending requests (manager+)."""
+    """!stopmusic  —  clear all pending + playing entries (manager+)."""
     if not can_manage_games(user.username):
         await _w(bot, user.id, "🔒 Manager only.")
         return
@@ -433,5 +819,81 @@ async def handle_dj_stopmusic(bot: "BaseBot", user: "User") -> None:
         await _w(bot, user.id, "🎵 Queue was already empty.")
         return
 
-    await _w(bot, user.id, f"🛑 Queue cleared. {cleared} request(s) removed.")
-    await _chat(bot, f"🛑 DJ queue cleared by staff. ({cleared} removed)")
+    await _backend.stop()
+    await _w(bot, user.id, f"🛑 Queue cleared. {cleared} song(s) removed.")
+    await _chat(bot, f"🛑 DJ queue cleared. ({cleared} removed)")
+
+
+async def handle_dj_config(bot: "BaseBot", user: "User") -> None:
+    """!djconfig  —  show current DJ settings (manager+)."""
+    if not can_manage_games(user.username):
+        await _w(bot, user.id, "🔒 Manager only.")
+        return
+
+    qmax  = _queue_max()
+    cd    = _cooldown()
+    vt    = _vote_thresh()
+    total = _total_active()
+    bk    = type(_backend).__name__
+
+    await _w(
+        bot, user.id,
+        f"🎛️ DJ Settings:\n"
+        f"Queue: {total}/{qmax} | Cooldown: {cd}m | SkipVotes: {vt}\n"
+        f"Backend: {bk}\n"
+        f"Change with: !djset <queuemax|cooldown|votethreshold> <val>"
+    )
+
+
+async def handle_dj_set(
+    bot: "BaseBot", user: "User", args: list[str],
+) -> None:
+    """!djset <key> <value>  —  change a DJ setting (admin+)."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "🔒 Admin only.")
+        return
+
+    if len(args) < 3:
+        keys = " | ".join(_CFG_META.keys())
+        await _w(bot, user.id,
+                 f"🎛️ Usage: !djset <key> <value>\n"
+                 f"Keys: {keys}")
+        return
+
+    key_raw = args[1].lower()
+    val_raw = args[2]
+
+    if key_raw not in _CFG_META:
+        keys = " | ".join(_CFG_META.keys())
+        await _w(bot, user.id,
+                 f"⚠️ Unknown key '{key_raw}'.\nValid keys: {keys}")
+        return
+
+    setting_key, vmin, vmax = _CFG_META[key_raw]
+
+    if not val_raw.isdigit():
+        await _w(bot, user.id, f"⚠️ Value must be a number ({vmin}–{vmax}).")
+        return
+
+    val = int(val_raw)
+    if not (vmin <= val <= vmax):
+        await _w(bot, user.id,
+                 f"⚠️ {key_raw} must be between {vmin} and {vmax}.")
+        return
+
+    db.set_room_setting(setting_key, str(val))
+    await _w(bot, user.id, f"✅ {key_raw} set to {val}.")
+
+
+async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
+    """!djhelp  —  list all DJ commands."""
+    await _w(
+        bot, user.id,
+        "🎵 DJ Commands:\n"
+        "!request <song> — search YouTube\n"
+        "!pick <1-5> — confirm result\n"
+        "!queue — see upcoming songs\n"
+        "!np — now playing + link\n"
+        "!skipvote — vote to skip\n"
+        "Staff: !skip !stopmusic !djconfig !djset"
+    )
