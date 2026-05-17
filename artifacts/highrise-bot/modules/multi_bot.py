@@ -308,6 +308,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "ytrequest": "dj", "ytqueue": "dj", "ytstatus": "dj", "ytnow": "dj",
     "ytcooldown": "dj", "setytcooldown": "dj",
     "clearrequests": "dj", "requesthistory": "dj", "requestcleanup": "dj",
+    "playedrequests": "dj",
     "setnowpage": "dj",
     "djannounce": "dj", "announcequeue": "dj",
     "djlimits": "dj",

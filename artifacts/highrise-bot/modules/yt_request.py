@@ -46,8 +46,12 @@ import threading
 import time
 from typing import TYPE_CHECKING, Callable
 
+import config as _config
 import database as db
 from modules.permissions import is_admin, is_owner
+
+# DB file path — config.DB_PATH reads SHARED_DB_PATH env var (default highrise_hangout.db)
+_DB_PATH: str = _config.DB_PATH
 
 if TYPE_CHECKING:
     from highrise import BaseBot, User
@@ -201,7 +205,7 @@ def _update_job(jid: int, **kwargs: object) -> None:
 def _db_insert_job(job: dict) -> int:
     """Insert a pending job into yt_request_jobs. Returns new DB row id (0 on error)."""
     try:
-        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+        with sqlite3.connect(_DB_PATH) as conn:
             cur = conn.execute(
                 """INSERT INTO yt_request_jobs
                        (user_id, username, url, title, status, started_at)
@@ -234,7 +238,7 @@ def _db_update_job(db_id: int, **kwargs: object) -> None:
     set_clause = ", ".join(f"{k} = ?" for k in fields)
     values     = list(fields.values()) + [db_id]
     try:
-        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+        with sqlite3.connect(_DB_PATH) as conn:
             conn.execute(
                 f"UPDATE yt_request_jobs SET {set_clause} WHERE id = ?",
                 values,
@@ -245,14 +249,14 @@ def _db_update_job(db_id: int, **kwargs: object) -> None:
 
 
 def _db_check_dedup(url: str, window_secs: int) -> "dict | None":
-    """Return the most recent done job for this URL within window_secs, or None."""
+    """Return the most recent done/played job for this URL within window_secs, or None."""
     try:
-        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+        with sqlite3.connect(_DB_PATH) as conn:
             row = conn.execute(
                 """SELECT title, username, finished_at
                      FROM yt_request_jobs
                     WHERE url     = ?
-                      AND status  = 'done'
+                      AND status  IN ('done', 'played')
                       AND finished_at IS NOT NULL
                       AND finished_at >= datetime('now', ? || ' seconds')
                     ORDER BY finished_at DESC
@@ -269,7 +273,7 @@ def _db_check_dedup(url: str, window_secs: int) -> "dict | None":
 def _db_recent_jobs(limit: int = 10) -> list[dict]:
     """Return the most recent yt_request_jobs rows from DB, newest first."""
     try:
-        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+        with sqlite3.connect(_DB_PATH) as conn:
             rows = conn.execute(
                 """SELECT id, username, url, title, status, error,
                           started_at, finished_at
@@ -296,7 +300,7 @@ def _db_update_azura_ids(db_id: int, file_id: str, song_id: str) -> None:
     if not db_id:
         return
     try:
-        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+        with sqlite3.connect(_DB_PATH) as conn:
             conn.execute(
                 "UPDATE yt_request_jobs SET azura_file_id=?, azura_song_id=? WHERE id=?",
                 (str(file_id), song_id, db_id),
@@ -307,13 +311,13 @@ def _db_update_azura_ids(db_id: int, file_id: str, song_id: str) -> None:
 
 
 def _db_get_pending_cleanup() -> list[dict]:
-    """Return done jobs that have an azura_file_id but have not been cleaned yet."""
+    """Return done/played jobs that have an azura_file_id but have not been cleaned yet."""
     try:
-        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+        with sqlite3.connect(_DB_PATH) as conn:
             rows = conn.execute(
                 """SELECT id, title, azura_file_id, azura_song_id
                      FROM yt_request_jobs
-                    WHERE status        = 'done'
+                    WHERE status        IN ('done', 'played')
                       AND azura_file_id != ''
                       AND cleaned_at   IS NULL
                     ORDER BY id DESC""",
@@ -333,7 +337,7 @@ def _db_get_pending_cleanup() -> list[dict]:
 def _db_mark_cleaned(db_id: int) -> None:
     """Set cleaned_at = now on a job record to mark it as removed from AzuraCast."""
     try:
-        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+        with sqlite3.connect(_DB_PATH) as conn:
             conn.execute(
                 "UPDATE yt_request_jobs SET cleaned_at = datetime('now') WHERE id = ?",
                 (db_id,),
@@ -343,6 +347,46 @@ def _db_mark_cleaned(db_id: int) -> None:
         print(f"[YT_REQUEST] DB mark_cleaned error (non-fatal): {exc}")
 
 
+def _db_mark_played(db_id: int) -> None:
+    """Set status='played' and played_at=now (idempotent — only fires once per job)."""
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.execute(
+                """UPDATE yt_request_jobs
+                      SET status='played', played_at=datetime('now')
+                    WHERE id=? AND played_at IS NULL""",
+                (db_id,),
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB mark_played error (non-fatal): {exc}")
+
+
+def _db_recent_played(limit: int = 10) -> list[dict]:
+    """Return recently played request jobs (status='played'), newest first by played_at."""
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT id, username, title, played_at, cleaned_at
+                     FROM yt_request_jobs
+                    WHERE status IN ('played', 'done')
+                      AND played_at IS NOT NULL
+                    ORDER BY played_at DESC
+                    LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id":         r[0], "username":   r[1], "title":      r[2],
+                "played_at":  r[3], "cleaned_at": r[4],
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB recent played error (non-fatal): {exc}")
+    return []
+
+
 def _db_get_old_pending_cleanup(hours: int = 24) -> list[dict]:
     """
     Return done jobs whose azura_file_id is set, cleaned_at is NULL,
@@ -350,7 +394,7 @@ def _db_get_old_pending_cleanup(hours: int = 24) -> list[dict]:
     Used by !requestcleanup (REQUEST_AUTO_DELETE_HOURS-based sweep).
     """
     try:
-        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+        with sqlite3.connect(_DB_PATH) as conn:
             rows = conn.execute(
                 """SELECT id, title, azura_file_id, azura_song_id
                      FROM yt_request_jobs
@@ -376,7 +420,7 @@ def _db_get_old_pending_cleanup(hours: int = 24) -> list[dict]:
 def _db_request_history(limit: int = 10) -> list[dict]:
     """Return the last `limit` yt_request_jobs rows with lifecycle fields."""
     try:
-        with sqlite3.connect(db.SHARED_DB_PATH) as conn:
+        with sqlite3.connect(_DB_PATH) as conn:
             rows = conn.execute(
                 """SELECT id, username, title, url, status, started_at, cleaned_at
                      FROM yt_request_jobs
@@ -1214,13 +1258,42 @@ async def handle_ytpick(bot: "BaseBot", user: "User", args: list[str]) -> None:
 # AzuraCast cleanup — blocking helpers + background poll task
 # ─────────────────────────────────────────────────────────────────────────────
 
-_CLEANUP_POLL_SECS = 90  # how often to check AzuraCast play history
+_NOWPLAYING_POLL_SECS = 15   # how often to poll the Now Playing API
+_HISTORY_POLL_SECS   = 90   # how often to run the history fallback sweep
+
+# {azura_song_id: db_job_id} for requests currently being tracked in now-playing.
+# Module-level so it persists across loop iterations; mutated in-place (no global needed).
+_seen_playing: dict[str, int] = {}
 
 
 def _auto_delete_enabled() -> bool:
     """Return True unless REQUEST_AUTO_DELETE_AFTER_PLAY is explicitly falsy."""
     val = (os.environ.get("REQUEST_AUTO_DELETE_AFTER_PLAY") or "true").strip().lower()
     return val in ("1", "true", "yes")
+
+
+def _azura_fetch_nowplaying() -> "dict | None":
+    """
+    Blocking: GET /api/nowplaying/{station_id}
+    Returns the full now-playing response dict, or None on error.
+    The public now-playing endpoint does not require an API key.
+    """
+    import requests as req_lib
+
+    cfg = _azura_api_cfg()
+    if cfg is None:
+        return None
+    try:
+        resp = req_lib.get(
+            f"{cfg['base_url']}/api/nowplaying/{cfg['station_id']}",
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        print(f"[YT_NOWPLAY] Now-playing HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception as exc:
+        print(f"[YT_NOWPLAY] Now-playing fetch error: {exc}")
+    return None
 
 
 def _azura_fetch_history(rows: int = 150) -> list[dict]:
@@ -1284,29 +1357,97 @@ def _azura_delete_file(file_id: str) -> bool:
     return False
 
 
-async def _run_cleanup() -> None:
+async def _run_nowplaying_cycle(prev_song_id_ref: list[str]) -> None:
     """
-    One cleanup cycle: fetch recent AzuraCast history, match against our
-    tracked request files (by azura_song_id), delete any that have played,
-    and mark them cleaned in the DB.
+    One 15-second poll cycle:
+
+    Phase 1 — Now Playing detection:
+      • Fetch current now-playing song from AzuraCast.
+      • If it's one of our tracked request songs and we haven't seen it yet,
+        mark it as 'played' in the DB and record it in _seen_playing.
+
+    Phase 2 — Post-play deletion:
+      • If the previous song has transitioned out (different song now playing)
+        AND it was one of our requests (in _seen_playing), delete its file
+        from AzuraCast now.  AzuraCast will have already buffered + played
+        the song; deleting the file prevents any future replay.
+
+    History fallback (runs every _HISTORY_POLL_SECS / _NOWPLAYING_POLL_SECS cycles):
+      • Sweep play history for any tracked request songs that have played but
+        whose files have not been deleted yet.  This catches songs that played
+        while the bot was offline or before the now-playing loop was tracking them.
+    """
+    loop = asyncio.get_running_loop()
+
+    pending = _db_get_pending_cleanup()
+    # keyed by azura_song_id for O(1) lookup
+    pending_by_sid: dict[str, dict] = {
+        (j.get("azura_song_id") or "").strip(): j
+        for j in pending
+        if (j.get("azura_song_id") or "").strip()
+    }
+
+    # ── Phase 1 + 2: Now Playing ─────────────────────────────────────────────
+    np_data = await loop.run_in_executor(None, _azura_fetch_nowplaying)
+    current_song_id = ""
+    if np_data:
+        np_obj = np_data.get("now_playing") or {}
+        song   = np_obj.get("song") or {}
+        current_song_id = (song.get("id") or "").strip()
+
+    # Phase 1: new request song just started playing
+    if current_song_id and current_song_id in pending_by_sid:
+        if current_song_id not in _seen_playing:
+            job = pending_by_sid[current_song_id]
+            _seen_playing[current_song_id] = job["id"]
+            _db_mark_played(job["id"])
+            print(
+                f"[YT_NOWPLAY] Now playing (marked played): "
+                f"{(job.get('title') or '?')[:60]}"
+            )
+
+    # Phase 2: previous request song has finished → delete it now
+    prev_id = prev_song_id_ref[0]
+    if prev_id and prev_id != current_song_id and prev_id in _seen_playing:
+        job_id = _seen_playing.pop(prev_id)
+        # Re-fetch in case pending list changed since last cycle
+        job_match = next((j for j in pending if j["id"] == job_id), None)
+        if job_match and _auto_delete_enabled():
+            fid = (job_match.get("azura_file_id") or "").strip()
+            if fid:
+                ok = await loop.run_in_executor(None, _azura_delete_file, fid)
+                if ok:
+                    _db_mark_cleaned(job_match["id"])
+                    print(
+                        f"[YT_NOWPLAY] Deleted after play: "
+                        f"{(job_match.get('title') or '?')[:60]}"
+                    )
+
+    prev_song_id_ref[0] = current_song_id
+
+
+async def _run_history_fallback() -> None:
+    """
+    History-sweep fallback: fetch recent AzuraCast play history and delete
+    files for any tracked request songs that appear in it but haven't been
+    cleaned yet.  Runs at a slower cadence than the now-playing loop.
+    Handles songs that played while the bot was offline.
     """
     loop = asyncio.get_running_loop()
 
     pending = _db_get_pending_cleanup()
     if not pending:
-        return  # nothing to watch
+        return
 
     history = await loop.run_in_executor(None, _azura_fetch_history, 150)
     if not history:
         return
 
-    # Build set of song unique_ids that appear in the recent history
     played_ids: set[str] = set()
     for entry in history:
         if not isinstance(entry, dict):
             continue
-        song = entry.get("song") or {}
-        sid  = (song.get("id") or "").strip()
+        sid = ((entry.get("song") or {}).get("id") or "").strip()
         if sid:
             played_ids.add(sid)
 
@@ -1316,24 +1457,46 @@ async def _run_cleanup() -> None:
         azura_file_id = (job.get("azura_file_id") or "").strip()
         if not azura_song_id or azura_song_id not in played_ids:
             continue
-        # Song appeared in history → it played → delete from AzuraCast
         ok = await loop.run_in_executor(None, _azura_delete_file, azura_file_id)
         if ok:
+            _db_mark_played(job["id"])
             _db_mark_cleaned(job["id"])
+            _seen_playing.pop(azura_song_id, None)
             cleaned += 1
-            print(f"[YT_CLEANUP] Auto-deleted after play: {job['title'][:60]}")
+            print(f"[YT_CLEANUP] History-fallback deleted: {(job.get('title') or '?')[:60]}")
 
     if cleaned:
-        print(f"[YT_CLEANUP] {cleaned} played request file(s) removed this cycle.")
+        print(f"[YT_CLEANUP] {cleaned} request file(s) removed via history fallback.")
 
 
 async def _cleanup_loop() -> None:
-    """Infinite loop: wait _CLEANUP_POLL_SECS then run one cleanup cycle."""
-    print(f"[YT_CLEANUP] Poll loop started (interval={_CLEANUP_POLL_SECS}s).")
+    """
+    Infinite loop: poll AzuraCast Now Playing every 15 s.
+    Runs a history-based fallback sweep every ~90 s (every 6 now-playing cycles).
+
+    • Now-playing path (15 s): marks requests as played the instant they start,
+      then deletes the file the moment the song transitions — prevents ALL replays.
+    • History fallback (90 s): safety net for songs that played while the bot
+      was offline or before azura_song_id was recorded.
+    """
+    print(
+        f"[YT_CLEANUP] Poll loop started"
+        f" (now-playing every {_NOWPLAYING_POLL_SECS}s,"
+        f" history fallback every {_HISTORY_POLL_SECS}s)."
+    )
+    prev_song_id_ref: list[str] = [""]
+    history_cycles = _HISTORY_POLL_SECS // _NOWPLAYING_POLL_SECS
+    cycle = 0
+
     while True:
         try:
-            await asyncio.sleep(_CLEANUP_POLL_SECS)
-            await _run_cleanup()
+            await asyncio.sleep(_NOWPLAYING_POLL_SECS)
+            await _run_nowplaying_cycle(prev_song_id_ref)
+            cycle += 1
+            if cycle >= history_cycles:
+                cycle = 0
+                if _auto_delete_enabled():
+                    await _run_history_fallback()
         except asyncio.CancelledError:
             print("[YT_CLEANUP] Poll loop cancelled.")
             break
@@ -1475,3 +1638,20 @@ async def handle_requestcleanup(bot: "BaseBot", user: "User", _args: list[str]) 
     if failed:
         parts.append(f"⚠️ {failed} failed — check logs.")
     await _w(bot, user.id, " ".join(parts)[:249])
+
+
+async def handle_playedrequests(bot: "BaseBot", user: "User", _args: list[str]) -> None:
+    """!playedrequests — show the last 10 songs that played from DJ_DUDU requests."""
+    rows = _db_recent_played(10)
+    if not rows:
+        await _w(bot, user.id, "🎵 No songs have played from requests yet.")
+        return
+
+    lines = ["🎶 Recently played requests:"]
+    for r in rows:
+        title  = (r["title"] or "?")[:36]
+        uname  = (r["username"] or "?")[:12]
+        status = " ✓" if r.get("cleaned_at") else ""
+        lines.append(f"• {title} — @{uname}{status}")
+
+    await _w(bot, user.id, "\n".join(lines)[:249])
