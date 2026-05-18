@@ -32,20 +32,17 @@ if TYPE_CHECKING:
 _LOG = "[RQ]"
 
 # All in-flight statuses used for capacity / dedup checks (full pipeline).
-_ACTIVE = ("pending", "downloading", "uploading", "staged", "done", "queued", "playing")
+_ACTIVE = ("pending", "downloading", "downloaded", "uploading", "ready", "playing")
 _ACT_PH = ",".join("?" * len(_ACTIVE))
 
-# Statuses shown by !queue / dashboard — excludes pipeline stages and playing.
-# "done"    = uploaded, waiting for playback_engine to promote to "queued"
-# "staged"  = download done, waiting for /Requests slot (Option A)
-# "promoted" is an alias users expect; maps to "done" in the DB
-_DISPLAY_STATUSES = ("pending", "queued", "staged", "done")
+# Statuses shown by !queue / dashboard — all in-flight prep stages plus ready.
+# "ready"      = uploaded to AzuraCast Requests playlist, awaiting playback
+# "downloading"/"downloaded"/"uploading" = still preparing
+_DISPLAY_STATUSES = ("downloading", "downloaded", "uploading", "ready")
 _DSP_PH = ",".join("?" * len(_DISPLAY_STATUSES))
 
-# Statuses cancelled by !djclear / !clearqueue — same set as display.
-# "downloading" and "uploading" are active pipeline jobs; they are NOT
-# cancelled here (the running thread will complete or time out naturally).
-_CLEAR_STATUSES = ("pending", "queued", "staged", "done")
+# Statuses cancelled by !djclear / !clearqueue.
+_CLEAR_STATUSES = ("pending", "downloading", "downloaded", "uploading", "ready")
 _CLR_PH = ",".join("?" * len(_CLEAR_STATUSES))
 
 _COLS = (
@@ -93,12 +90,12 @@ def pending_jobs() -> list:
 
 def display_jobs() -> list:
     """
-    Jobs shown by !queue and the dashboard — only statuses a user cares about
-    waiting for: pending, queued, staged, done.
+    Jobs shown by !queue and the dashboard — all in-flight preparation stages
+    plus ready: downloading, downloaded, uploading, ready.
 
-    Excludes: downloading/uploading (pipeline in-progress), playing (already
-    on air), played/error (terminal).  Ordered oldest-first so queue position
-    numbers are stable.
+    Excludes: pending (transitions immediately to downloading), playing (on
+    air), played/error (terminal).  Oldest-first so queue position numbers
+    are stable.
 
     stage=queue_read is logged by the calling command handler.
     """
@@ -263,8 +260,8 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
                 )
 
         # ── 4. File cleanup ───────────────────────────────────────────────────
-        if status == "staged" and fn:
-            # Local staging file — not yet on SFTP; remove from disk.
+        if status in ("staged", "downloaded") and fn:
+            # Local staging file — downloaded but not yet in AzuraCast; delete from disk.
             try:
                 from modules.yt_request import STAGING_DIR as _sd
                 staged_path = os.path.join(_sd, fn)
@@ -280,7 +277,7 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
                     f" staging_delete_error jid={jid} fn={fn!r} err={exc!r}"
                 )
 
-        elif status in ("done", "queued") and fn:
+        elif status in ("done", "queued", "ready") and fn:
             # Uploaded file in AzuraCast /Requests — delete via API, SFTP fallback.
             ok = False
             if fid:
@@ -352,7 +349,7 @@ def active_count() -> int:
 
 def future_count() -> int:
     """
-    Count of jobs waiting to play: pending, queued, staged, done.
+    Count of jobs waiting to play: downloading, downloaded, uploading, ready.
 
     Excludes the currently-playing request and all terminal statuses so the
     queue position shown to users never includes the song already on air.

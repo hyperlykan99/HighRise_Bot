@@ -269,6 +269,12 @@ _jobs_lock = threading.Lock()
 _jobs: dict[int, dict] = {}
 _next_job_id = 1
 
+# ── Background prepare pipeline semaphores ────────────────────────────────────
+_download_sem     = asyncio.Semaphore(2)   # max 2 concurrent downloads
+_upload_sem       = asyncio.Semaphore(1)   # max 1 concurrent upload
+_prep_active_jids: set = set()             # job IDs currently in _run_job pipeline
+_prep_ids_lock    = threading.Lock()       # guards _prep_active_jids
+
 def _new_job(user_id: str, username: str, url: str,
              coins_charged: int = 0, payment_type: str = "free",
              priority: int = 0) -> dict:
@@ -371,7 +377,7 @@ def _db_check_dedup(url: str, window_secs: int) -> "dict | None":
                 """SELECT title, username, finished_at
                      FROM yt_request_jobs
                     WHERE url     = ?
-                      AND status  IN ('done', 'played')
+                      AND status  IN ('ready', 'played')
                       AND finished_at IS NOT NULL
                       AND finished_at >= datetime('now', ? || ' seconds')
                     ORDER BY finished_at DESC
@@ -593,7 +599,7 @@ def _db_get_pending_cleanup() -> list[dict]:
             rows = conn.execute(
                 """SELECT id, title, azura_file_id, azura_song_id, filename, video_id, username
                      FROM yt_request_jobs
-                    WHERE status        IN ('done', 'playing', 'played')
+                    WHERE status        IN ('ready', 'playing', 'played')
                       AND azura_file_id != ''
                       AND cleaned_at   IS NULL
                     ORDER BY id DESC""",
@@ -661,7 +667,7 @@ def _db_recent_played(limit: int = 10) -> list[dict]:
             rows = conn.execute(
                 """SELECT id, username, title, played_at, cleaned_at
                      FROM yt_request_jobs
-                    WHERE status IN ('played', 'done')
+                    WHERE status IN ('played', 'ready')
                       AND played_at IS NOT NULL
                     ORDER BY played_at DESC
                     LIMIT ?""",
@@ -690,7 +696,7 @@ def _db_get_old_pending_cleanup(hours: int = 24) -> list[dict]:
             rows = conn.execute(
                 """SELECT id, title, azura_file_id, azura_song_id
                      FROM yt_request_jobs
-                    WHERE status        = 'done'
+                    WHERE status        = 'ready'
                       AND azura_file_id != ''
                       AND cleaned_at   IS NULL
                       AND started_at   <= datetime('now', ? || ' hours')
@@ -755,7 +761,7 @@ def _db_lookup_for_now(song_id: str, np_title: str) -> "dict | None":
             row = conn.execute(
                 """SELECT username, title FROM yt_request_jobs
                     WHERE title = ?
-                      AND status IN ('done', 'played', 'playing')
+                      AND status IN ('ready', 'played', 'playing')
                     ORDER BY id DESC LIMIT 1""",
                 (np_title,),
             ).fetchone()
@@ -767,7 +773,7 @@ def _db_lookup_for_now(song_id: str, np_title: str) -> "dict | None":
             row = conn.execute(
                 """SELECT username, title FROM yt_request_jobs
                     WHERE filename = ? || '.mp3'
-                      AND status IN ('done', 'played', 'playing')
+                      AND status IN ('ready', 'played', 'playing')
                     ORDER BY id DESC LIMIT 1""",
                 (np_title,),
             ).fetchone()
@@ -1517,17 +1523,22 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
     uid    = job["user_id"]
     tmpdir = tempfile.mkdtemp(prefix="ytr_")
     loop   = asyncio.get_running_loop()
-    _stage = "unknown"   # tracks which pipeline stage raised
+    _stage      = "unknown"   # tracks which pipeline stage raised
+    _staged_mp3 = ""          # STAGING_DIR path; cleared on success
+
+    with _prep_ids_lock:
+        _prep_active_jids.add(jid)
 
     try:
         # ── Step 1: Download + convert ──────────────────────────────────────
         _stage = "download"
         _update_job(jid, status="downloading")
 
-        info, mp3_path = await asyncio.wait_for(
-            loop.run_in_executor(None, _download_step, job["url"], tmpdir),
-            timeout=_DOWNLOAD_TIMEOUT,
-        )
+        async with _download_sem:
+            info, mp3_path = await asyncio.wait_for(
+                loop.run_in_executor(None, _download_step, job["url"], tmpdir),
+                timeout=_DOWNLOAD_TIMEOUT,
+            )
         title        = (info.get("title") or "Unknown")[:160]
         yt_filename  = os.path.basename(mp3_path)
         video_id     = (info.get("id") or "")[:32]
@@ -1572,73 +1583,54 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
             )
             return
 
-        # ── Option A: one active file in /Requests at a time ─────────────────
-        # If a request (queued or playing) already has an active AzuraCast file,
-        # save the freshly-downloaded MP3 to STAGING_DIR and mark status='staged'.
-        # playback_engine promotes staged jobs after the active request finishes.
-        if not _has_requests_slot_free():
-            try:
-                os.makedirs(STAGING_DIR, exist_ok=True)
-            except Exception:
-                pass
-            staged_path = os.path.join(STAGING_DIR, yt_filename)
-            shutil.move(mp3_path, staged_path)
-            _update_job(jid, status="staged")
-            print(
-                f"[YT_STAGING] stage=request_staging"
-                f" request_id={job.get('db_id', jid)}"
-                f" username={job.get('username', '?')!r}"
-                f" title={title[:60]!r}"
-                f" filename={yt_filename!r}"
-                f" azuracast_path=Requests/{yt_filename}"
-                f" status=staged"
-                f" result=queued_waiting_for_slot"
-            )
-            return   # finally block cleans up the (now-empty) tmpdir
-
-        # ── Step 2: SFTP upload (fire-and-forget after put completes) ────────
-        _stage = "sftp"
-        _update_job(jid, status="uploading")
-        print(f"[YT_REQUEST] Job #{jid} — SFTP upload starting: {title[:80]}")
-
-        # asyncio.Event is set by the upload thread the moment sftp.put()
-        # returns.  _run_job unblocks HERE and whispers success immediately;
-        # the thread keeps running to close the SSH connection in the background.
-        upload_done: asyncio.Event               = asyncio.Event()
-        upload_exc:  list[BaseException | None]  = [None]
-
-        def _on_put_done() -> None:
-            loop.call_soon_threadsafe(upload_done.set)
-
-        def _upload_thread() -> None:
-            try:
-                _sftp_step(mp3_path, _on_put_done)
-                # on_put_done() already fired → success whispered to user.
-                # Now run API post-processing in this same background thread.
-                _azura_post_upload(os.path.basename(mp3_path), jid, bot=bot, loop=loop)
-            except Exception as exc:
-                # Only reached if _sftp_step raised BEFORE on_put_done() was called.
-                upload_exc[0] = exc
-                loop.call_soon_threadsafe(upload_done.set)
-
-        t = threading.Thread(
-            target=_upload_thread,
-            daemon=True,
-            name=f"ytr_upload_{jid}",
+        # ── Move downloaded file to staging dir ───────────────────────────────
+        os.makedirs(STAGING_DIR, exist_ok=True)
+        _staged_mp3 = os.path.join(STAGING_DIR, yt_filename)
+        shutil.move(mp3_path, _staged_mp3)
+        mp3_path = _staged_mp3
+        _update_job(jid, status="downloaded")
+        print(
+            f"[YT_REQUEST] Job #{jid} — downloaded:"
+            f" title={title[:60]!r} file={yt_filename!r}"
         )
-        upload_start = time.time()
-        t.start()
 
-        await upload_done.wait()          # unblocks as soon as put() finishes
-        upload_secs = time.time() - upload_start
+        # ── Step 2: SFTP upload + AzuraCast registration ─────────────────────
+        _stage = "sftp"
+        upload_secs = 0.0
+        async with _upload_sem:
+            _update_job(jid, status="uploading")
+            print(f"[YT_REQUEST] Job #{jid} — uploading: {title[:80]}")
+
+            upload_done: asyncio.Event               = asyncio.Event()
+            upload_exc:  list[BaseException | None]  = [None]
+
+            def _upload_thread() -> None:
+                try:
+                    _sftp_step(mp3_path, lambda: None)
+                    _azura_post_upload(os.path.basename(mp3_path), jid, bot=bot, loop=loop)
+                except Exception as exc:
+                    upload_exc[0] = exc
+                finally:
+                    loop.call_soon_threadsafe(upload_done.set)
+
+            t = threading.Thread(
+                target=_upload_thread,
+                daemon=True,
+                name=f"ytr_upload_{jid}",
+            )
+            upload_start = time.time()
+            t.start()
+
+            await upload_done.wait()      # unblocks after upload + API registration
+            upload_secs = time.time() - upload_start
 
         if upload_exc[0] is not None:
             raise upload_exc[0]
 
-        # ── Done: mark status + let playback engine handle the room announce ──
-        _update_job(jid, status="done", finished_at=time.time())
-        print(f"[YT_REQUEST] Job #{jid} — success in {upload_secs:.1f}s: {title[:80]}")
-        # Background thread is still closing the SSH connection — that's fine.
+        # ── Ready: uploaded + registered in AzuraCast Requests playlist ───────
+        _update_job(jid, status="ready", finished_at=time.time())
+        _staged_mp3 = ""  # clear so finally won't delete (file is now on AzuraCast)
+        print(f"[YT_REQUEST] Job #{jid} — ready in {upload_secs:.1f}s: {title[:80]}")
 
     except _YtBlockedError as exc:
         raw_err = str(exc)
@@ -1711,9 +1703,17 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
             _pres = _active_presence.get(uid)
             if _pres and _pres.get("job_id") == jid:
                 _active_presence.pop(uid, None)
+        # Clean up staging file on failure; _staged_mp3 is cleared on success
+        if _staged_mp3 and os.path.exists(_staged_mp3):
+            try:
+                os.unlink(_staged_mp3)
+            except Exception:
+                pass
         # Temp dir removed here; upload thread may still be running ssh.close()
         # but it holds no reference to tmpdir, so this is safe.
         shutil.rmtree(tmpdir, ignore_errors=True)
+        with _prep_ids_lock:
+            _prep_active_jids.discard(jid)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Staged-job promotion (Option A: one active file in /Requests at a time)
@@ -1766,7 +1766,7 @@ def radio_promote_staged_job(bot: "object | None", loop: "object | None") -> boo
 
     try:
         _sftp_step(staged_path, _noop)
-        _db_update_job(db_id, status="done", finished_at=time.time())
+        _db_update_job(db_id, status="ready", finished_at=time.time())
         print(
             f"[YT_STAGING] stage=request_promote"
             f" request_id={db_id}"
@@ -2239,7 +2239,7 @@ async def handle_ytstatus(bot: "BaseBot", user: "User", _args: list[str]) -> Non
     with _jobs_lock:
         total  = len(_jobs)
         active = sum(1 for j in _jobs.values() if j["status"] in ("pending", "downloading", "uploading"))
-        done   = sum(1 for j in _jobs.values() if j["status"] == "done")
+        done   = sum(1 for j in _jobs.values() if j["status"] == "ready")
         errors = sum(1 for j in _jobs.values() if j["status"] == "error")
 
     sftp_ok   = "✅" if ready else "❌ missing vars"
@@ -2260,7 +2260,7 @@ async def handle_ytstatus(bot: "BaseBot", user: "User", _args: list[str]) -> Non
 async def handle_ytnow(bot: "BaseBot", user: "User", _args: list[str]) -> None:
     """!ytnow — show the latest successfully requested song (public)."""
     rows = _db_recent_jobs(limit=20)
-    done = [r for r in rows if r["status"] == "done"]
+    done = [r for r in rows if r["status"] in ("ready", "playing", "played")]
     if not done:
         await _w(bot, user.id, "🎵 No songs added to radio via YT Request yet.")
         return
@@ -3664,6 +3664,66 @@ def radio_get_currently_playing_id() -> int:
     return _currently_playing_db_id
 
 
+async def radio_request_prepare_worker(
+    bot: "BaseBot",
+    stop_event: "threading.Event",
+) -> None:
+    """
+    Background coroutine started by playback_engine._startup_init_task.
+
+    Scans every 30 s for jobs stuck in pre-ready statuses that are NOT
+    currently being processed (bot restarted mid-pipeline).  Resets them
+    to 'pending' and relaunches _run_job so the pipeline resumes without
+    manual intervention.
+    """
+    print("[PREPARE] Background prepare worker started")
+    await asyncio.sleep(15)   # let the bot settle after startup
+
+    while not stop_event.is_set():
+        try:
+            stuck = ("pending", "downloading", "downloaded", "uploading")
+            with sqlite3.connect(_DB_PATH) as _conn:
+                rows = _conn.execute(
+                    "SELECT id, user_id, username, url, title, status, "
+                    "       coins_charged, payment_type "
+                    "FROM yt_request_jobs "
+                    "WHERE status IN (?,?,?,?) AND played_at IS NULL "
+                    "ORDER BY id ASC LIMIT 20",
+                    stuck,
+                ).fetchall()
+
+            for row in rows:
+                jid, uid, uname, url_val, title, status, coins, ptype = row
+                with _prep_ids_lock:
+                    if jid in _prep_active_jids:
+                        continue          # already being processed
+                    _prep_active_jids.add(jid)
+
+                job = {
+                    "id": jid, "user_id": uid, "username": uname,
+                    "url": url_val, "title": title or "", "status": status,
+                    "coins_charged": coins or 0, "payment_type": ptype or "free",
+                }
+
+                if status in ("downloading", "downloaded", "uploading"):
+                    # Reset stuck in-flight job so _run_job starts fresh
+                    print(f"[PREPARE] Resetting stuck job #{jid} ({status}→pending)")
+                    _update_job(jid, status="pending")
+                    job["status"] = "pending"
+
+                print(f"[PREPARE] Recovering job #{jid}: {(title or url_val or '')[:60]!r}")
+                asyncio.create_task(_run_job(bot, job))
+
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            print(f"[PREPARE] Worker tick error: {exc}")
+
+        await asyncio.sleep(30)
+
+    print("[PREPARE] Background prepare worker stopped")
+
+
 def radio_submit_job(
     bot: "BaseBot",
     user_id: str,
@@ -3674,6 +3734,8 @@ def radio_submit_job(
 ) -> None:
     """Create a new job record and launch the yt-dlp → SFTP pipeline."""
     job = _new_job(user_id, username, url, coins_charged, payment_type)
+    with _prep_ids_lock:
+        _prep_active_jids.add(job["id"])
     asyncio.create_task(_run_job(bot, job))
 
 

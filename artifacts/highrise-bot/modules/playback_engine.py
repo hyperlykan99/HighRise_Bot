@@ -48,6 +48,7 @@ _STATE_NS     = "playback_"
 _lock                   = threading.Lock()
 _stop_flag              = threading.Event()    # Set on shutdown; executor threads check this
 _stage_promotion_lock   = threading.Lock()     # Prevents concurrent staged-job promotions
+_submitted_jids:  set   = set()                # job IDs submitted to AzuraCast request queue
 _started:         bool  = False
 _mode:            str   = "vibe"    # "vibe" | "requests"
 _cur_song_id:     str   = ""        # AzuraCast song.id currently playing
@@ -58,7 +59,7 @@ _skip_task_active: bool = False     # True while a _verified_skip_task is runnin
 _cur_elapsed:     int   = 0         # AzuraCast elapsed seconds for current song
 _cur_duration:    int   = 0         # AzuraCast total duration of current song
 
-_ACT = ("pending", "downloading", "uploading", "staged", "done", "queued", "playing")
+_ACT = ("pending", "downloading", "downloaded", "uploading", "ready", "playing")
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
 
 _COLS = (
@@ -86,37 +87,37 @@ def _save(key: str, value: str) -> None:
 
 # ─── DB job queries ───────────────────────────────────────────────────────────
 
-def _db_find_oldest_queued() -> "dict | None":
-    """The oldest request with status='queued' that hasn't started playing yet."""
+def _db_find_oldest_ready() -> "dict | None":
+    """The oldest request with status='ready' that hasn't started playing yet."""
     try:
         with db.db_conn() as conn:
             row = conn.execute(
                 f"SELECT {_SEL} FROM yt_request_jobs "
-                "WHERE status='queued' AND played_at IS NULL "
+                "WHERE status='ready' AND played_at IS NULL "
                 "ORDER BY id ASC LIMIT 1",
             ).fetchone()
             return _jrow(row) if row else None
     except Exception as exc:
-        print(f"{_LOG} _db_find_oldest_queued: {exc}")
+        print(f"{_LOG} _db_find_oldest_ready: {exc}")
         return None
 
 
-def _db_find_new_done() -> list:
+def _db_find_new_ready() -> list:
     """
-    Jobs that have been uploaded + registered with AzuraCast (status='done',
-    azura_file_id set) but not yet promoted to 'queued'.
+    Jobs uploaded + registered with AzuraCast (status='ready', azura_file_id
+    set) that are candidates for submission to the AzuraCast request queue.
     """
     try:
         with db.db_conn() as conn:
             rows = conn.execute(
                 f"SELECT {_SEL} FROM yt_request_jobs "
-                "WHERE status='done' AND azura_file_id!='' "
+                "WHERE status='ready' AND azura_file_id!='' "
                 "  AND played_at IS NULL AND cleaned_at IS NULL "
                 "ORDER BY id ASC",
             ).fetchall()
             return [_jrow(r) for r in rows]
     except Exception as exc:
-        print(f"{_LOG} _db_find_new_done: {exc}")
+        print(f"{_LOG} _db_find_new_ready: {exc}")
         return []
 
 
@@ -165,14 +166,13 @@ def _db_count_staged() -> int:
 def _db_count_active_in_requests() -> int:
     """
     Count jobs with an active registered file in /Requests
-    (status IN ('queued','playing') AND azura_file_id set).
-    Used to decide whether the /Requests slot is free for a staged promotion.
+    (status IN ('ready','playing') AND azura_file_id set).
     """
     try:
         with db.db_conn() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) FROM yt_request_jobs "
-                "WHERE status IN ('queued','playing') "
+                "WHERE status IN ('ready','playing') "
                 "  AND azura_file_id != '' AND played_at IS NULL",
             ).fetchone()
             return row[0] if row else 0
@@ -1011,11 +1011,12 @@ async def _poll_loop(bot: "BaseBot") -> None:
         try:
             await asyncio.sleep(POLL_INTERVAL)
 
-            # ── Detect newly uploaded requests (status='done' + azura_file_id) ─
-            new_done = _db_find_new_done()
-            for j in new_done:
-                _db_set_status(j["id"], "queued")
-                print(f"{_LOG} Request promoted to queued: {j.get('title','?')!r}")
+            # ── Find ready requests (uploaded + registered in AzuraCast) ─────
+            all_ready = _db_find_new_ready()
+            # Sync _submitted_jids — remove IDs no longer status='ready'
+            if _submitted_jids:
+                ready_ids = {j["id"] for j in all_ready}
+                _submitted_jids.intersection_update(ready_ids)
 
             # ── Switch to REQUESTS mode if queue has items and we're in vibe mode ─
             with _lock:
@@ -1025,21 +1026,15 @@ async def _poll_loop(bot: "BaseBot") -> None:
                 print(f"{_LOG} Pending requests detected — switching to REQUESTS mode")
                 await _switch_to_requests(bot)  # playlists only, no skip
 
-            # ── Promote next staged job if the /Requests slot is free ────────
-            # Handles both the steady-state case (slot just freed by cleanup)
-            # and the startup-recovery case (staged jobs found on restart).
-            # _do_promote_staged acquires a lock so concurrent calls are safe.
-            if not new_done and _db_count_staged() > 0 and _db_count_active_in_requests() == 0:
-                loop.run_in_executor(None, _do_promote_staged, bot, loop)
-
-            # ── Submit request to AzuraCast when newly promoted ───────────────
+            # ── Submit oldest unsubmitted ready request to AzuraCast ─────────
             # Queues the song so AzuraCast plays it after the current track.
             # NEVER skips — only staff !skip may interrupt the current song.
-            if new_done and not skip_task_busy:
-                next_job = _db_find_oldest_queued()
-                if next_job:
+            if all_ready and not skip_task_busy:
+                next_job = _db_find_oldest_ready()
+                if next_job and next_job["id"] not in _submitted_jids:
                     uid = (next_job.get("azura_song_id") or "").strip()
                     if uid:
+                        _submitted_jids.add(next_job["id"])
                         print(
                             f"{_LOG} Queuing request for playback (no skip): "
                             f"{next_job.get('title','?')!r} uid={uid!r}"
@@ -1256,6 +1251,8 @@ async def _startup_init_task(bot: "BaseBot") -> None:
             await _apply_vibe_playlists()
 
         asyncio.create_task(_poll_loop(bot))
+        from modules.yt_request import radio_request_prepare_worker as _rpw
+        asyncio.create_task(_rpw(bot, _stop_flag))
         print(f"{_LOG} Playback engine ready ✓")
 
     except asyncio.CancelledError:

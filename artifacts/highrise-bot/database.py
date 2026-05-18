@@ -3290,6 +3290,16 @@ def _migrate_db():
     except Exception:
         pass  # column already exists
 
+    # 3.2AB — normalize request job statuses: staged/done/queued → ready
+    try:
+        conn.execute(
+            "UPDATE yt_request_jobs "
+            "SET status='ready' "
+            "WHERE status IN ('staged','done','queued') AND played_at IS NULL"
+        )
+    except Exception:
+        pass
+
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS request_blocked_tracks (

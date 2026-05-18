@@ -433,7 +433,7 @@ async def handle_pick(bot: "BaseBot", user: "User", args: list) -> None:
 
 async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     """
-    !queue / !q — waiting requests only (pending/queued/staged/done), compact ≤249 chars.
+    !queue / !q — preparing/ready requests (downloading/uploaded/ready), compact ≤249 chars.
 
     Fetches AzuraCast Now Playing first to filter out any request that is
     currently streaming.  Ensures the same song never appears in both
@@ -567,13 +567,14 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
 
     rows: list[str] = []
     for i, j in enumerate(filtered, 1):
-        t = (j.get("title") or "…").strip()[:_TTMAX]
-        a = (j.get("artist") or "").strip()[:15]
-        u = (j.get("username") or "?").strip()[:12]
+        t    = (j.get("title")    or "…").strip()[:_TTMAX]
+        a    = (j.get("artist")   or "").strip()[:15]
+        u    = (j.get("username") or "?").strip()[:12]
+        icon = "✅" if j.get("status") == "ready" else "⏳"
         if a:
-            rows.append(f"{i}. {t} - {a} - @{u}")
+            rows.append(f"{i}. {t} - {a} - @{u} {icon}")
         else:
-            rows.append(f"{i}. {t} - @{u}")
+            rows.append(f"{i}. {t} - @{u} {icon}")
 
     header = "🎧 UP NEXT:"
     shown  = total
