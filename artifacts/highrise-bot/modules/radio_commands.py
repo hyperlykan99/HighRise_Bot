@@ -50,6 +50,13 @@ if TYPE_CHECKING:
 
 _LOG = "[RADIO_CMD]"
 
+# ─── Bot-mode guard (same pattern as dj_music.py) ─────────────────────────────
+try:
+    from config import BOT_MODE as _rc_bot_mode
+except Exception:
+    _rc_bot_mode = ""
+_IS_DJ_BOT: bool = (_rc_bot_mode == "dj")
+
 # ─── Router log helper ────────────────────────────────────────────────────────
 
 def _rlog(cmd: str, handler: str, username: str) -> None:
@@ -1073,7 +1080,9 @@ async def handle_voteskip(bot: "BaseBot", user: "User", _args: list) -> None:
 # ─── !vibes ───────────────────────────────────────────────────────────────────
 
 async def handle_vibes(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!vibes — list all available vibes (anyone)."""
+    """!vibes — list all available vibes (DJ_DUDU only)."""
+    if not _IS_DJ_BOT:
+        return
     _rlog("vibes", "handle_vibes", user.username)
     static_list  = ", ".join(cs.VIBE_NAMES)
     dynamic_list = ", ".join(
@@ -1142,8 +1151,8 @@ _DYNAMIC_VIBE_FOLDER: "dict[str, str]" = {
 
 async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
     """
-    !vibe status   — show current vibe (anyone)
-    !vibe <name>   — switch vibe (staff only)
+    !vibe status   — show current vibe (anyone; DJ_DUDU only)
+    !vibe <name>   — switch vibe (staff only; DJ_DUDU only)
 
     Resolves vibes in order:
     1. Alias normalisation (djset / dj / dj set / dj-set / set → djset)
@@ -1154,6 +1163,9 @@ async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
 
     Requests playlist is NEVER disabled.
     """
+    if not _IS_DJ_BOT:
+        return
+
     # Join all tokens after "vibe" so "!vibe dj set" works
     sub = " ".join(args[1:]).lower().strip() if len(args) > 1 else "status"
 
