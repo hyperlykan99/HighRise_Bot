@@ -20,6 +20,7 @@ from modules.config_store import (
     chill_playlist_id,
     party_playlist_id,
     sftp_cfg,
+    get_dynamic_vibe_playlist,
 )
 
 _LOG = "[AZURA]"
@@ -183,6 +184,9 @@ def switch_vibe(new_vibe: str) -> dict:
     Enable only the selected vibe playlist; disable all other vibe playlists.
     The Requests playlist (AZURA_PLAYLIST_ID) is NEVER touched.
 
+    Checks env-var playlist ID first, then falls back to the DB-backed dynamic
+    playlist ID (set by folder-discovery flow in radio_commands.handle_vibe).
+
     Structured log fields:
         stage=vibe_switch  new_vibe=  playlist_id=  requests_playlist_id=
         enabled=  disabled=  result=  error=
@@ -192,7 +196,7 @@ def switch_vibe(new_vibe: str) -> dict:
         {"status": "partial", "enabled": pid, "disabled": [...], "errors": [...]}
         {"status": "no_config", "vibe": new_vibe}
     """
-    target_id = vibe_playlist_id(new_vibe)
+    target_id = vibe_playlist_id(new_vibe) or get_dynamic_vibe_playlist(new_vibe)
     req_id    = requests_playlist_id()
 
     if not target_id:
@@ -850,3 +854,195 @@ def reconcile_requests_playlist() -> dict:
         f" cleaned={cleaned} errors={errors}"
     )
     return {"status": "ok", "checked": len(rows), "cleaned": cleaned, "errors": errors}
+
+
+# ─── Dynamic folder / playlist discovery ──────────────────────────────────────
+
+def _norm_pl_name(name: str) -> str:
+    """Normalize a playlist/folder name for case-insensitive comparison.
+    Strips spaces, hyphens, underscores and lowercases.
+    DJSet = djset = DJ Set = dj-set = dj_set
+    """
+    import re
+    return re.sub(r"[\s\-_]+", "", name).lower()
+
+
+def list_playlists() -> list:
+    """
+    GET /api/station/{id}/playlists
+    Returns list of playlist dicts (id, name, num_songs, is_enabled, …).
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg:
+        return []
+    try:
+        resp = req_lib.get(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/playlists",
+            headers=_headers(cfg),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data if isinstance(data, list) else data.get("result", [])
+        print(f"{_LOG} list_playlists HTTP {resp.status_code}")
+    except Exception as exc:
+        print(f"{_LOG} list_playlists error: {exc}")
+    return []
+
+
+def find_playlist_by_name(name: str) -> "dict | None":
+    """Case-insensitive, space/hyphen-insensitive search for a playlist by name."""
+    target = _norm_pl_name(name)
+    for pl in list_playlists():
+        if _norm_pl_name(pl.get("name", "")) == target:
+            return pl
+    return None
+
+
+def create_playlist(name: str) -> "dict | None":
+    """
+    POST /api/station/{id}/playlist — create a shuffled auto-DJ playlist.
+    Returns the created playlist dict, or None on failure.
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg:
+        return None
+    try:
+        resp = req_lib.post(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/playlist",
+            json={
+                "name":             name,
+                "type":             "default",
+                "source":           "songs",
+                "order":            "shuffle",
+                "is_enabled":       True,
+                "is_jingle":        False,
+                "weight":           3,
+                "avoid_duplicates": True,
+            },
+            headers=_headers(cfg),
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            return resp.json()
+        print(f"{_LOG} create_playlist '{name}' → HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception as exc:
+        print(f"{_LOG} create_playlist error: {exc}")
+    return None
+
+
+def list_folder_files(folder_name: str) -> list:
+    """
+    GET /api/station/{id}/files?currentDirectory=<folder>
+    Returns list of media file dicts inside that folder (excludes sub-directories).
+    Handles both list and paginated-dict API response shapes.
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg:
+        return []
+    try:
+        resp = req_lib.get(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/files",
+            params={"currentDirectory": folder_name, "rowCount": 5000},
+            headers=_headers(cfg),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            rows = data if isinstance(data, list) else data.get("rows", [])
+            # Filter: keep actual media files (have unique_id or media subdict)
+            # Directories have neither and usually lack a file extension
+            result = []
+            for r in rows:
+                if r.get("unique_id"):
+                    result.append(r)
+                elif r.get("media"):
+                    result.append(r)
+                elif r.get("path") and "." in os.path.basename(r.get("path", "")):
+                    result.append(r)
+            print(f"{_LOG} list_folder_files({folder_name!r}) → {len(result)} files")
+            return result
+        print(f"{_LOG} list_folder_files({folder_name!r}) HTTP {resp.status_code}")
+    except Exception as exc:
+        print(f"{_LOG} list_folder_files error: {exc}")
+    return []
+
+
+def count_folder_files(folder_name: str) -> int:
+    """Count media files inside a folder in the AzuraCast media library."""
+    return len(list_folder_files(folder_name))
+
+
+def assign_folder_to_playlist(folder_name: str, playlist_id: str) -> bool:
+    """
+    Batch-assign all media files in a folder to a playlist.
+    POST /api/station/{id}/files/batch
+      body: {"do":"playlist","playlist":<pid>,"currentDirectory":<folder>}
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg or not playlist_id:
+        return False
+    try:
+        resp = req_lib.post(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/files/batch",
+            json={
+                "do":               "playlist",
+                "playlist":         playlist_id,
+                "currentDirectory": folder_name,
+            },
+            headers=_headers(cfg),
+            timeout=30,
+        )
+        ok = resp.status_code in (200, 204)
+        print(
+            f"{_LOG} assign_folder folder={folder_name!r} pl={playlist_id}"
+            f" → HTTP {resp.status_code} ok={ok}"
+        )
+        return ok
+    except Exception as exc:
+        print(f"{_LOG} assign_folder error: {exc}")
+    return False
+
+
+def switch_vibe_dynamic(target_playlist_id: str) -> dict:
+    """
+    Enable target_playlist_id; disable all env-var-configured vibe playlists.
+    The Requests playlist is NEVER touched.
+    Used for dynamically discovered folder-based vibes (e.g. DJSet).
+    """
+    req_id   = requests_playlist_id()
+    disabled = []
+    errors   = []
+
+    for v in VIBE_NAMES:
+        pid = vibe_playlist_id(v)
+        if not pid or pid == req_id or pid == target_playlist_id:
+            continue
+        ok = set_playlist_enabled(pid, False)
+        if ok:
+            disabled.append(pid)
+        else:
+            errors.append(pid)
+
+    ok = set_playlist_enabled(target_playlist_id, True)
+    if not ok:
+        errors.append(target_playlist_id)
+
+    result = "ok" if not errors else "partial"
+    print(
+        f"{_LOG} stage=vibe_switch_dynamic"
+        f" target={target_playlist_id!r}"
+        f" disabled={disabled!r}"
+        f" result={result!r}"
+        f" errors={errors!r}"
+    )
+    return {
+        "status":   result,
+        "enabled":  target_playlist_id,
+        "disabled": disabled,
+        "errors":   errors,
+    }

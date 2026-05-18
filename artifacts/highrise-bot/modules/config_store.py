@@ -45,9 +45,9 @@ VIBE_NAMES = (
 
 
 def vibe() -> str:
-    """Current room vibe. Default 'chill'."""
-    v = _get("vibe", "chill").lower()
-    return v if v in VIBE_NAMES else "chill"
+    """Current room vibe. Default 'chill'. Allows dynamic (folder-based) vibe names."""
+    v = (_get("vibe", "chill") or "chill").lower().strip()
+    return v if v else "chill"
 
 
 def set_vibe(v: str) -> None:
@@ -181,6 +181,18 @@ def party_playlist_id() -> str:
 def requests_playlist_id() -> str:
     """The priority 'Requests' playlist that uploaded songs are added to."""
     return (os.environ.get("AZURA_PLAYLIST_ID") or "").strip()
+
+
+# ─── Dynamic vibe playlist IDs (DB-backed, for folder-discovered vibes) ────────
+
+def set_dynamic_vibe_playlist(vibe_name: str, playlist_id: str) -> None:
+    """Store a discovered AzuraCast playlist ID for a folder-based vibe."""
+    _set(f"dynamic_pl_{vibe_name.lower()}", playlist_id)
+
+
+def get_dynamic_vibe_playlist(vibe_name: str) -> str:
+    """Return a previously stored dynamic playlist ID, or '' if not set."""
+    return _get(f"dynamic_pl_{vibe_name.lower()}", "")
 
 
 # ─── SFTP ─────────────────────────────────────────────────────────────────────

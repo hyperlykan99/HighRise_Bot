@@ -1074,8 +1074,15 @@ async def handle_voteskip(bot: "BaseBot", user: "User", _args: list) -> None:
 async def handle_vibes(bot: "BaseBot", user: "User", _args: list) -> None:
     """!vibes — list all available vibes (anyone)."""
     _rlog("vibes", "handle_vibes", user.username)
-    names = ", ".join(cs.VIBE_NAMES)
-    await _w(bot, user.id, f"🎶 Vibes:\n{names}\nUse: !vibe <name>")
+    static_list  = ", ".join(cs.VIBE_NAMES)
+    dynamic_list = ", ".join(
+        f"{_VIBE_DISPLAY.get(k, k)} (!vibe {k})" for k in _DYNAMIC_VIBE_FOLDER
+    )
+    msg = f"🎶 Vibes:\n{static_list}"
+    if dynamic_list:
+        msg += f"\nFolder vibes: {dynamic_list}"
+    msg += "\nUse: !vibe <name>"
+    await _w(bot, user.id, msg[:249])
 
 
 # ─── !vibe ────────────────────────────────────────────────────────────────────
@@ -1092,21 +1099,61 @@ _VIBE_DISPLAY: "dict[str, str]" = {
     "rnb":        "RNB",
     "hiphop":     "HipHop",
     "nightdrive": "NightDrive",
+    "djset":      "DJ Set",
+}
+
+# ── Alias map: normalized-input → canonical vibe key ─────────────────────────
+# Normalized = re.sub(r"[\s\-_]+", "", s.lower())
+# Handles: "dj set", "dj-set", "dj_set", "djset", "dj", "set" → "djset"
+_VIBE_ALIAS_MAP: "dict[str, str]" = {
+    # Static vibes (self-mapping)
+    "chill":       "chill",
+    "party":       "party",
+    "afrobeats":   "afrobeats",
+    "edm":         "edm",
+    "house":       "house",
+    "kpop":        "kpop",
+    "opm":         "opm",
+    "lofi":        "lofi",
+    "rnb":         "rnb",
+    "hiphop":      "hiphop",
+    "nightdrive":  "nightdrive",
+    # DJSet aliases
+    "djset":       "djset",
+    "dj":          "djset",
+    "set":         "djset",
+    "djsets":      "djset",
+}
+
+# Folder name in the AzuraCast media library for each dynamic vibe
+_DYNAMIC_VIBE_FOLDER: "dict[str, str]" = {
+    "djset": "DJSet",
 }
 
 
 async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
     """
-    !vibe status  — show current vibe (anyone)
-    !vibe <name>  — switch vibe (staff only)
-    """
-    sub = (args[1].lower().strip() if len(args) > 1 else "status")
+    !vibe status   — show current vibe (anyone)
+    !vibe <name>   — switch vibe (staff only)
 
+    Resolves vibes in order:
+    1. Alias normalisation (djset / dj / dj set / dj-set / set → djset)
+    2. Env-var playlist ID  (AZURA_PLAYLIST_<NAME>_ID)
+    3. AzuraCast playlist search by name  (case-insensitive)
+    4. AzuraCast media library folder     (case-insensitive)
+       → auto-creates playlist if not found, assigns all folder media
+
+    Requests playlist is NEVER disabled.
+    """
+    # Join all tokens after "vibe" so "!vibe dj set" works
+    sub = " ".join(args[1:]).lower().strip() if len(args) > 1 else "status"
+
+    # ── Status (public) ───────────────────────────────────────────────────────
     if sub == "status":
         v      = cs.vibe()
         price  = cs.request_price()
         req_id = cs.requests_playlist_id()
-        pl_id  = cs.vibe_playlist_id(v)
+        pl_id  = cs.vibe_playlist_id(v) or cs.get_dynamic_vibe_playlist(v)
         label  = _VIBE_DISPLAY.get(v, v.title())
         api_ok = "✓" if cs.azura_api_ready() else "✗"
         await _w(
@@ -1116,10 +1163,7 @@ async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
         )
         return
 
-    if sub not in cs.VIBE_NAMES:
-        await _w(bot, user.id, "❌ Unknown vibe. Use !vibes.")
-        return
-
+    # ── Guard: staff only for switching ──────────────────────────────────────
     if not _is_staff(user.username):
         await _w(bot, user.id, "🔒 Staff only.")
         return
@@ -1128,32 +1172,102 @@ async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, user.id, "📻 AzuraCast API not configured (AZURA_BASE_URL / AZURA_API_KEY).")
         return
 
-    pid = cs.vibe_playlist_id(sub)
+    # ── Normalise input → canonical key ──────────────────────────────────────
+    sub_norm  = re.sub(r"[\s\-_]+", "", sub)          # "dj set" → "djset"
+    canonical = _VIBE_ALIAS_MAP.get(sub_norm)
+    if canonical is None:
+        # Accept raw VIBE_NAMES inputs not in alias map (future-proof)
+        canonical = sub_norm if sub_norm in cs.VIBE_NAMES else None
+    if canonical is None:
+        await _w(bot, user.id, f"❌ Unknown vibe '{sub}'. Use !vibes for the list.")
+        return
+
+    loop          = asyncio.get_running_loop()
+    is_static     = canonical in cs.VIBE_NAMES
+    is_dynamic    = canonical in _DYNAMIC_VIBE_FOLDER
+    label         = _VIBE_DISPLAY.get(canonical, canonical.title())
+
+    # ── Path A: static env-var-backed vibe ───────────────────────────────────
+    if is_static:
+        pid = cs.vibe_playlist_id(canonical)
+        if not pid:
+            await _w(
+                bot, user.id,
+                f"❌ {label} playlist not configured "
+                f"(set AZURA_PLAYLIST_{canonical.upper()}_ID).",
+            )
+            return
+        count = await loop.run_in_executor(None, azura.get_playlist_media_count, pid)
+        if count == 0:
+            await _w(bot, user.id, f"❌ {label} has no songs yet.")
+            return
+        cs.set_vibe(canonical)
+        await engine.apply_vibe_change(bot)
+        await ann.announce_vibe_changed(bot, canonical)
+        mode = engine.get_playlist_mode()
+        note = "\n(Takes effect when request queue clears.)" if mode == "requests" else ""
+        await _w(bot, user.id, f"🎶 Vibe changed\nMode: {label}\nRequests: ON{note}")
+        return
+
+    # ── Path B: dynamic folder vibe (e.g. djset → DJSet) ─────────────────────
+    folder_name = _DYNAMIC_VIBE_FOLDER[canonical]
+    await _w(bot, user.id, f"🔍 Looking up '{label}'…")
+
+    # B1: check DB-cached playlist ID from a previous discovery
+    pid = cs.get_dynamic_vibe_playlist(canonical)
+
+    # B2: search AzuraCast playlists by folder name (case-insensitive)
     if not pid:
-        label = _VIBE_DISPLAY.get(sub, sub.title())
-        await _w(
-            bot, user.id,
-            f"❌ {label} playlist not configured "
-            f"(set AZURA_PLAYLIST_{sub.upper()}_ID).",
-        )
-        return
+        pl_data = await loop.run_in_executor(None, azura.find_playlist_by_name, folder_name)
+        if pl_data:
+            pid = str(pl_data.get("id", ""))
+            if pid:
+                cs.set_dynamic_vibe_playlist(canonical, pid)
+                print(f"[RADIO_CMD] vibe_discovery: found existing playlist '{folder_name}' id={pid}")
 
-    # Verify playlist has songs before switching
-    count = await asyncio.get_running_loop().run_in_executor(
-        None, azura.get_playlist_media_count, pid
+    # B3: no playlist → count folder files first, then create playlist
+    if not pid:
+        file_count = await loop.run_in_executor(None, azura.count_folder_files, folder_name)
+        if file_count == 0:
+            await _w(bot, user.id, f"❌ '{label}' has no songs yet.")
+            return
+        pl_data = await loop.run_in_executor(None, azura.create_playlist, folder_name)
+        if not pl_data:
+            await _w(bot, user.id, f"⚠️ Could not create '{label}' playlist. Check AzuraCast.")
+            return
+        pid = str(pl_data.get("id", ""))
+        if not pid:
+            await _w(bot, user.id, f"⚠️ Playlist created but ID missing. Check AzuraCast.")
+            return
+        cs.set_dynamic_vibe_playlist(canonical, pid)
+        await loop.run_in_executor(None, azura.assign_folder_to_playlist, folder_name, pid)
+        await _w(bot, user.id, f"📁 Created '{label}' playlist and assigned {file_count} songs.")
+
+    # B4: validate song count from playlist; if empty try assigning folder again
+    pl_count = await loop.run_in_executor(None, azura.get_playlist_media_count, pid)
+    if pl_count == 0:
+        file_count = await loop.run_in_executor(None, azura.count_folder_files, folder_name)
+        if file_count == 0:
+            await _w(bot, user.id, f"❌ '{label}' has no songs yet.")
+            return
+        await loop.run_in_executor(None, azura.assign_folder_to_playlist, folder_name, pid)
+        pl_count = file_count   # optimistic — folder has files, assignment attempted
+
+    # B5: enable this playlist, disable all env-var vibes (keep Requests)
+    res = await loop.run_in_executor(None, azura.switch_vibe_dynamic, pid)
+    cs.set_vibe(canonical)
+
+    mode      = engine.get_playlist_mode()
+    note      = "\n(Takes effect when request queue clears.)" if mode == "requests" else ""
+    ok_icon   = "✅" if res.get("status") == "ok" else "⚠️"
+    await _w(
+        bot, user.id,
+        f"{ok_icon} Vibe → {label}\n{pl_count} songs | Requests: ON{note}",
     )
-    if count == 0:
-        await _w(bot, user.id, "❌ That vibe has no songs yet.")
-        return
-
-    cs.set_vibe(sub)
-    await engine.apply_vibe_change(bot)
-    label = _VIBE_DISPLAY.get(sub, sub.title())
-    await ann.announce_vibe_changed(bot, sub)
-
-    mode = engine.get_playlist_mode()
-    note = "\n(Takes effect when request queue clears.)" if mode == "requests" else ""
-    await _w(bot, user.id, f"🎶 Vibe changed\nMode: {label}\nRequests: ON{note}")
+    try:
+        await bot.highrise.chat(f"🎶 Now playing: {label} vibes!"[:249])
+    except Exception:
+        pass
 
 
 # ─── !setrequestprice ─────────────────────────────────────────────────────────
