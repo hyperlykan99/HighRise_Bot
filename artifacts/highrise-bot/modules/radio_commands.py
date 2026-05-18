@@ -418,17 +418,22 @@ async def handle_pick(bot: "BaseBot", user: "User", args: list) -> None:
 # ─── !queue / !q ──────────────────────────────────────────────────────────────
 
 async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!queue / !q — pending songs only, compact ≤249 chars."""
-    pending = rq.pending_jobs()
-    waiting = [j for j in pending if j.get("status") != "playing"]
+    """!queue / !q — waiting requests only (pending/queued/staged/done), compact ≤249 chars."""
+    waiting = rq.display_jobs()
+    total   = len(waiting)
 
-    if not waiting:
+    print(
+        f"{_LOG} stage=queue_read command=queue"
+        f" statuses={list(rq._DISPLAY_STATUSES)!r}"
+        f" count={total}"
+    )
+
+    if not total:
         await _w(bot, user.id, "🎧 UP NEXT:\nEmpty")
         return
 
     _MAX   = 249
     _TTMAX = 35
-    total  = len(waiting)
 
     rows: list[str] = []
     for i, j in enumerate(waiting, 1):
@@ -593,39 +598,30 @@ async def handle_remove(bot: "BaseBot", user: "User", args: list) -> None:
 # ─── !clearqueue ──────────────────────────────────────────────────────────────
 
 async def handle_clearqueue(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!clearqueue — cancel all pending requests with refunds (admin+)."""
+    """!clearqueue — cancel all pending/queued/staged requests with refunds (admin+)."""
     if not _is_staff(user.username):
         await _w(bot, user.id, "🔒 Staff only.")
         return
 
-    pending = rq.pending_jobs()
-    if not pending:
+    loop   = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None, lambda: rq.queue_clear_all(command="clearqueue", refund=True)
+    )
+
+    count = result["count_before"]
+    ref   = result["refunded_coins"]
+
+    print(
+        f"{_LOG} stage=queue_clear command=clearqueue"
+        f" count_before={count} count_after={result['count_after']}"
+        f" refunded_coins={ref}"
+    )
+
+    if count == 0:
         await _w(bot, user.id, "✅ Queue is already empty.")
         return
 
-    await _w(bot, user.id, f"🧹 Clearing {len(pending)} request(s)…")
-
-    loop          = asyncio.get_running_loop()
-    total_refunded = 0
-
-    for j in pending:
-        uid   = j.get("user_id", "")
-        coins = j.get("coins_charged", 0)
-
-        rq.cancel_job(j["id"], "cleared_by_admin")
-
-        if coins > 0 and uid:
-            ps.refund(uid, coins, "queue_cleared")
-            total_refunded += coins
-
-        fid = (j.get("azura_file_id") or "").strip()
-        fn  = (j.get("filename")      or "").strip()
-        if fid:
-            await loop.run_in_executor(None, azura.delete_media_file, fid)
-        elif fn:
-            await loop.run_in_executor(None, azura.sftp_delete_file, fn)
-
-    await ann.announce_queue_cleared(bot, len(pending), total_refunded)
+    await ann.announce_queue_cleared(bot, count, ref)
 
 
 # ─── !history ─────────────────────────────────────────────────────────────────
@@ -916,10 +912,10 @@ async def handle_myrequests(bot: "BaseBot", user: "User", _args: list) -> None:
     if not rows:
         await _w(bot, user.id, "📋 You have no requests yet. Try !request <song>!")
         return
-    _ACTIVE_ST = {"pending", "downloading", "uploading", "done", "queued", "playing"}
+    _ACTIVE_ST = {"pending", "downloading", "uploading", "staged", "done", "queued", "playing"}
     _ICON = {
         "pending": "⏳", "downloading": "⬇️", "uploading": "📤",
-        "done": "✅", "queued": "📋", "playing": "▶",
+        "staged": "📦", "done": "✅", "queued": "📋", "playing": "▶",
         "played": "✅", "error": "❌",
     }
     active  = [r for r in rows if r["status"] in _ACTIVE_ST]

@@ -2008,13 +2008,28 @@ async def handle_dj_lock(
 
 
 async def handle_dj_clear(bot: "BaseBot", user: "User") -> None:
-    """!djclear  —  wipe entire queue, pending + playing (admin+)."""
+    """!djclear  —  wipe entire queue (pending/queued/staged/done) with refunds (admin+)."""
     global _playback_task, _playing_since, _repeat_song
     if not is_admin(user.username):
         await _w(bot, user.id, "🔒 Admin only.")
         return
 
-    cleared = _clear_queue()
+    import asyncio as _aio
+    import modules.request_queue as _rq
+
+    loop   = _aio.get_running_loop()
+    result = await loop.run_in_executor(
+        None, lambda: _rq.queue_clear_all(command="djclear", refund=True)
+    )
+    cleared = result["count_before"]
+    ref     = result["refunded_coins"]
+
+    print(
+        f"[DJ] stage=queue_clear command=djclear"
+        f" count_before={cleared} count_after={result['count_after']}"
+        f" refunded_coins={ref}"
+    )
+
     if _playback_task and not _playback_task.done():
         _playback_task.cancel()
     _playback_task = None
@@ -2026,7 +2041,8 @@ async def handle_dj_clear(bot: "BaseBot", user: "User") -> None:
         return
 
     await _backend.stop()
-    await _w(bot, user.id, f"🗑️ Queue wiped. {cleared} song(s) removed.")
+    ref_str = f" ({ref} coins refunded)" if ref > 0 else ""
+    await _w(bot, user.id, f"🗑️ Queue wiped. {cleared} request(s) removed.{ref_str}")
     await _chat(bot, f"🗑️ DJ queue wiped by staff. ({cleared} removed)")
 
 

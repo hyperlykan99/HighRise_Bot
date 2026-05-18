@@ -31,8 +31,22 @@ if TYPE_CHECKING:
 
 _LOG = "[RQ]"
 
+# All in-flight statuses used for capacity / dedup checks (full pipeline).
 _ACTIVE = ("pending", "downloading", "uploading", "staged", "done", "queued", "playing")
 _ACT_PH = ",".join("?" * len(_ACTIVE))
+
+# Statuses shown by !queue / dashboard — excludes pipeline stages and playing.
+# "done"    = uploaded, waiting for playback_engine to promote to "queued"
+# "staged"  = download done, waiting for /Requests slot (Option A)
+# "promoted" is an alias users expect; maps to "done" in the DB
+_DISPLAY_STATUSES = ("pending", "queued", "staged", "done")
+_DSP_PH = ",".join("?" * len(_DISPLAY_STATUSES))
+
+# Statuses cancelled by !djclear / !clearqueue — same set as display.
+# "downloading" and "uploading" are active pipeline jobs; they are NOT
+# cancelled here (the running thread will complete or time out naturally).
+_CLEAR_STATUSES = ("pending", "queued", "staged", "done")
+_CLR_PH = ",".join("?" * len(_CLEAR_STATUSES))
 
 _COLS = (
     "id", "user_id", "username", "url", "title", "status",
@@ -73,6 +87,187 @@ def pending_jobs() -> list:
     except Exception as exc:
         print(f"{_LOG} pending_jobs error: {exc}")
         return []
+
+
+def display_jobs() -> list:
+    """
+    Jobs shown by !queue and the dashboard — only statuses a user cares about
+    waiting for: pending, queued, staged, done.
+
+    Excludes: downloading/uploading (pipeline in-progress), playing (already
+    on air), played/error (terminal).  Ordered oldest-first so queue position
+    numbers are stable.
+
+    stage=queue_read is logged by the calling command handler.
+    """
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {_SEL} FROM yt_request_jobs "
+                f"WHERE status IN ({_DSP_PH}) AND played_at IS NULL "
+                "ORDER BY id ASC",
+                _DISPLAY_STATUSES,
+            ).fetchall()
+            return [_jrow(r) for r in rows]
+    except Exception as exc:
+        print(f"{_LOG} display_jobs error: {exc}")
+        return []
+
+
+def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
+    """
+    Cancel every clearable job (status in _CLEAR_STATUSES).
+
+    This is the single authoritative implementation used by BOTH
+    !djclear (dj_music.py) and !clearqueue (radio_commands.py).
+    Calling either command always touches the same rows.
+
+    Steps
+    ─────
+    1. Snapshot clearable jobs before any writes.
+    2. Cancel each job via cancel_job() — DB update to status='error'.
+    3. Refund coins if refund=True (via payment_service).
+    4. File cleanup:
+       - staged jobs  → delete local staging file (request_staging/<filename>)
+       - done/queued  → delete AzuraCast media (API first, SFTP fallback)
+       Never deletes the currently-playing job.
+    5. Count remaining after all cancellations.
+    6. Emit structured log: stage=queue_clear.
+
+    Returns
+    ───────
+    {
+        "count_before":   int,   # jobs that were clearable
+        "count_after":    int,   # should be 0 on success
+        "refunded_coins": int,
+        "cancelled_ids":  list[int],
+    }
+
+    Synchronous — call via loop.run_in_executor from async handlers.
+    """
+    import os
+    import modules.payment_service as ps
+    import modules.azuracast_controller as azura
+
+    # ── 1. Snapshot ───────────────────────────────────────────────────────────
+    try:
+        with db.db_conn() as conn:
+            before_rows = conn.execute(
+                f"SELECT {_SEL} FROM yt_request_jobs "
+                f"WHERE status IN ({_CLR_PH}) AND played_at IS NULL "
+                "ORDER BY id ASC",
+                _CLEAR_STATUSES,
+            ).fetchall()
+    except Exception as exc:
+        print(f"{_LOG} stage=queue_clear command={command} snapshot_error={exc!r}")
+        before_rows = []
+
+    jobs         = [_jrow(r) for r in before_rows]
+    count_before = len(jobs)
+
+    print(
+        f"{_LOG} stage=queue_clear command={command}"
+        f" statuses={list(_CLEAR_STATUSES)!r}"
+        f" count_before={count_before}"
+    )
+
+    refunded_coins = 0
+    cancelled_ids: list = []
+
+    for j in jobs:
+        jid    = j["id"]
+        uid    = j.get("user_id", "") or ""
+        coins  = int(j.get("coins_charged") or 0)
+        fn     = (j.get("filename")      or "").strip()
+        fid    = (j.get("azura_file_id") or "").strip()
+        status = j.get("status", "")
+
+        # ── 2. Cancel in DB ───────────────────────────────────────────────────
+        cancel_job(jid, "cleared_by_admin")
+        cancelled_ids.append(jid)
+
+        # ── 3. Refund ─────────────────────────────────────────────────────────
+        if refund and coins > 0 and uid:
+            try:
+                ps.refund(uid, coins, "queue_cleared")
+                refunded_coins += coins
+            except Exception as exc:
+                print(
+                    f"{_LOG} stage=queue_clear command={command}"
+                    f" refund_error jid={jid} err={exc!r}"
+                )
+
+        # ── 4. File cleanup ───────────────────────────────────────────────────
+        if status == "staged" and fn:
+            # Local staging file — not yet on SFTP; remove from disk.
+            try:
+                from modules.yt_request import STAGING_DIR as _sd
+                staged_path = os.path.join(_sd, fn)
+                if os.path.isfile(staged_path):
+                    os.remove(staged_path)
+                    print(
+                        f"{_LOG} stage=queue_clear command={command}"
+                        f" staging_delete=ok jid={jid} fn={fn!r}"
+                    )
+            except Exception as exc:
+                print(
+                    f"{_LOG} stage=queue_clear command={command}"
+                    f" staging_delete_error jid={jid} fn={fn!r} err={exc!r}"
+                )
+
+        elif status in ("done", "queued") and fn:
+            # Uploaded file in AzuraCast /Requests — delete via API, SFTP fallback.
+            ok = False
+            if fid:
+                try:
+                    ok = azura.delete_media_file(fid)
+                    print(
+                        f"{_LOG} stage=queue_clear command={command}"
+                        f" api_delete={'ok' if ok else 'fail'}"
+                        f" jid={jid} fid={fid!r}"
+                    )
+                except Exception as exc:
+                    print(
+                        f"{_LOG} stage=queue_clear command={command}"
+                        f" api_delete_error jid={jid} fid={fid!r} err={exc!r}"
+                    )
+            if not ok and fn:
+                try:
+                    ok2 = azura.sftp_delete_file(fn)
+                    print(
+                        f"{_LOG} stage=queue_clear command={command}"
+                        f" sftp_delete={'ok' if ok2 else 'fail'}"
+                        f" jid={jid} fn={fn!r}"
+                    )
+                except Exception as exc:
+                    print(
+                        f"{_LOG} stage=queue_clear command={command}"
+                        f" sftp_delete_error jid={jid} fn={fn!r} err={exc!r}"
+                    )
+
+    # ── 5. Count after ────────────────────────────────────────────────────────
+    try:
+        with db.db_conn() as conn:
+            count_after = conn.execute(
+                f"SELECT COUNT(*) FROM yt_request_jobs "
+                f"WHERE status IN ({_CLR_PH}) AND played_at IS NULL",
+                _CLEAR_STATUSES,
+            ).fetchone()[0]
+    except Exception:
+        count_after = 0
+
+    print(
+        f"{_LOG} stage=queue_clear command={command}"
+        f" count_before={count_before} count_after={count_after}"
+        f" refunded_coins={refunded_coins}"
+    )
+
+    return {
+        "count_before":   count_before,
+        "count_after":    count_after,
+        "refunded_coins": refunded_coins,
+        "cancelled_ids":  cancelled_ids,
+    }
 
 
 def active_count() -> int:

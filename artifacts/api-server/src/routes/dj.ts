@@ -16,9 +16,11 @@ const DB_PATH = path.isAbsolute(SHARED_DB) ? SHARED_DB : path.join(BOT_DIR, SHAR
 // AZURA_API_KEY is used only by the Python bot and must NEVER be forwarded here.
 const AZURACAST_STREAM_URL = process.env.AZURACAST_STREAM_URL?.trim() || null;
 
-// Statuses that represent songs waiting to play — mirrors !queue filter in radio_commands.py
-// (status != 'playing'; excludes played/error/cancelled)
-const PENDING_STATUSES = ["pending", "downloading", "uploading", "done", "queued"] as const;
+// Statuses that represent songs waiting to play — mirrors display_jobs() in request_queue.py.
+// "staged"  = download done, waiting for /Requests SFTP slot (Option A)
+// "done"    = uploaded, waiting for playback_engine to promote to "queued"
+// Excludes: downloading/uploading (pipeline in-progress), playing/played/error (terminal)
+const PENDING_STATUSES = ["pending", "staged", "done", "queued"] as const;
 
 interface NowPlaying {
   id: number;
