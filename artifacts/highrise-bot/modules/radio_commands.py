@@ -418,10 +418,75 @@ async def handle_pick(bot: "BaseBot", user: "User", args: list) -> None:
 # ─── !queue / !q ──────────────────────────────────────────────────────────────
 
 async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!queue / !q — waiting requests only (pending/queued/staged/done), compact ≤249 chars."""
-    waiting = rq.display_jobs()
-    total   = len(waiting)
+    """
+    !queue / !q — waiting requests only (pending/queued/staged/done), compact ≤249 chars.
 
+    Fetches AzuraCast Now Playing first to filter out any request that is
+    currently streaming.  Ensures the same song never appears in both
+    NOW PLAYING and UP NEXT.  If a display-list item matches NP, its DB
+    status is immediately updated to 'playing'.
+    """
+    loop = asyncio.get_running_loop()
+
+    # ── Fetch NP to build current-song identifier set ─────────────────────────
+    np       = await loop.run_in_executor(None, azura.fetch_nowplaying)
+    np_obj   = (np or {}).get("now_playing") or {}
+    np_song  = np_obj.get("song")  or {}
+    np_media = np_obj.get("media") or {}
+    np_sid   = (np_song.get("id")        or "").strip()
+    np_uid   = (np_song.get("unique_id") or "").strip()
+    np_title = (np_song.get("title")     or "").strip().lower()
+    np_fid   = str(np_media.get("id") or "").strip()
+    np_path  = (np_media.get("path") or "").strip()
+    np_fn    = np_path.rsplit("/", 1)[-1].lower() if np_path else ""
+
+    # ── Load display queue (already excludes 'playing' status) ────────────────
+    waiting = rq.display_jobs()
+
+    # ── Filter out any item that matches the current NP ───────────────────────
+    filtered: list = []
+    for j in waiting:
+        jfid   = (j.get("azura_file_id") or "").strip()
+        jsid   = (j.get("azura_song_id") or "").strip()
+        jfn    = (j.get("filename")      or "").lower()
+        jvid   = (j.get("video_id")      or "").strip()
+        jtitle = (j.get("title")         or "").lower().strip()
+
+        match_method: "str | None" = None
+        if np_fid and jfid and np_fid == jfid:
+            match_method = "media_id"
+        elif np_sid and jsid and (np_sid == jsid or np_uid == jsid):
+            match_method = "song_id"
+        elif np_fn and jfn and (jfn == np_fn or jfn in np_fn or np_fn in jfn):
+            match_method = "filename"
+        elif jvid and np_path and jvid in np_path:
+            match_method = "video_id"
+        elif (
+            jtitle and np_title and len(jtitle) >= 15
+            and (jtitle in np_title or np_title in jtitle
+                 or jtitle[:40] == np_title[:40])
+        ):
+            match_method = "title_fuzzy"
+
+        if match_method:
+            rq.mark_as_playing(j["id"])
+            print(
+                f"{_LOG} stage=queue_current_removed"
+                f" request_id={j['id']}"
+                f" match_method={match_method!r}"
+                f" title={j.get('title','?')!r}"
+                f" nowplaying_title={np_title!r}"
+            )
+        else:
+            filtered.append(j)
+
+    print(
+        f"{_LOG} stage=queue_nowplaying_filter"
+        f" count_before={len(waiting)} count_after={len(filtered)}"
+        f" np_title={np_title!r}"
+    )
+
+    total = len(filtered)
     print(
         f"{_LOG} stage=queue_read command=queue"
         f" statuses={list(rq._DISPLAY_STATUSES)!r}"
@@ -436,7 +501,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     _TTMAX = 35
 
     rows: list[str] = []
-    for i, j in enumerate(waiting, 1):
+    for i, j in enumerate(filtered, 1):
         t = (j.get("title") or "…").strip()[:_TTMAX]
         u = (j.get("username") or "?").strip()[:14]
         rows.append(f"{i}. {t} - @{u}")

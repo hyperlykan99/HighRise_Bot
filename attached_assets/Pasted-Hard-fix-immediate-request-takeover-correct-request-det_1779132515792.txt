@@ -1,0 +1,172 @@
+Hard fix immediate request takeover + correct request detection + UP NEXT filtering.
+
+Problem:
+Requests now appear in AzuraCast Requests playlist, but:
+1. AutoDJ does not always cut immediately.
+2. Bot sometimes labels request as AutoDJ.
+3. Current playing request still appears in !q / !queue / UP NEXT.
+
+Do NOT touch:
+- startup
+- reconnect/watchdog
+- room join
+- token handling
+- unrelated game modules
+
+PART 1 — Immediate request takeover
+
+After playlist_verify succeeds:
+1. Call AzuraCast backend skip:
+   POST /api/station/{station_id}/backend/skip
+
+2. Treat HTTP 200 or 204 as success.
+
+3. Poll AzuraCast Now Playing every 1 second for 15 seconds.
+
+4. If nowplaying is not the requested media after 5 seconds:
+   call backend skip one more time.
+
+5. If still not requested after 15 seconds:
+   keep request queued and say:
+   🎵 Request added. It will play next.
+
+6. Do not crash if skip fails.
+
+PART 2 — Strong request detection
+
+When reading AzuraCast Now Playing, match active request in this order:
+
+1. media_id / song_id
+2. AzuraCast unique_id
+3. file path starts with Requests/
+4. filename
+5. youtube_id stored in DB
+6. normalized/fuzzy title match only as last fallback
+
+Important:
+If now_playing path or filename is from Requests/, treat it as REQUEST, not AutoDJ.
+
+Do NOT rely on title-only matching because AzuraCast metadata can be long, changed, trimmed, or different from the YouTube title.
+
+PART 3 — When request is matched
+
+Immediately update DB:
+status = playing
+started_at = now
+playing_media_id = matched media_id if available
+playing_unique_id = matched unique_id if available
+
+Then announce once using dj_announcer.py only:
+
+▶ REQUEST LIVE
+🎵 {title}
+🙋 @{username}
+📻 ChillTopia Radio
+
+No duplicate announcements.
+
+PART 4 — Hard fix !q / !queue / UP NEXT
+
+When building !q / !queue:
+1. Fetch AzuraCast Now Playing first.
+2. Get current identifiers:
+   - media_id / song_id
+   - unique_id
+   - filename/path
+   - youtube_id if available
+   - normalized title
+
+3. Load display queue statuses:
+   pending, queued, staged, done
+
+4. Filter out any queue item that matches current Now Playing by:
+   - media_id / song_id
+   - unique_id
+   - filename/path
+   - youtube_id
+   - normalized/fuzzy title fallback
+
+5. If a queue item matches Now Playing:
+   immediately update DB row:
+   status = playing
+   started_at = now
+
+6. Then render UP NEXT.
+
+Expected:
+Never show the same song in NOW PLAYING and UP NEXT.
+
+If the only request is currently playing:
+🎧 UP NEXT:
+Empty
+
+PART 5 — When request leaves Now Playing
+
+When the matched request is no longer Now Playing:
+1. status = played
+2. played_at = now
+3. run cleanup:
+   - remove media from Requests playlist
+   - move file from Requests/ to PlayedRequests/
+   - rescan AzuraCast
+   - verify it is no longer active in Requests playlist
+
+PART 6 — AutoDJ announcement
+
+If Now Playing is not a request:
+announce once:
+
+▶ NOW PLAYING
+🎵 {track}
+🌙 AutoDJ • Chill
+📻 ChillTopia Radio
+
+or
+
+▶ NOW PLAYING
+🎵 {track}
+🔥 AutoDJ • Party
+📻 ChillTopia Radio
+
+Use duplicate guard:
+- same media_id/title should not announce twice.
+
+PART 7 — Logs
+
+Add structured logs:
+stage=request_force_skip
+stage=request_nowplaying_poll
+stage=request_takeover_success
+stage=request_takeover_timeout
+stage=request_detection
+stage=request_started
+stage=request_announcement
+stage=queue_nowplaying_filter
+stage=queue_current_removed
+stage=request_finished
+stage=request_cleanup_move_played
+
+Include:
+request_id=
+username=
+title=
+filename=
+path=
+media_id=
+song_id=
+unique_id=
+youtube_id=
+match_method=
+http_status=
+nowplaying_title=
+nowplaying_media_id=
+result=
+error=
+
+Expected final behavior:
+- Request is assigned to Requests playlist.
+- Bot skips AutoDJ immediately.
+- If request starts, it is removed from !q instantly.
+- Bot announces REQUEST LIVE.
+- Bot never labels Requests/ files as AutoDJ.
+- Played request is moved out of Requests and cannot replay.

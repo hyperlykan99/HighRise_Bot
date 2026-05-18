@@ -63,11 +63,11 @@ _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
 
 _COLS = (
     "id", "user_id", "username", "title", "filename",
-    "azura_file_id", "azura_song_id", "coins_charged", "status",
+    "azura_file_id", "azura_song_id", "coins_charged", "status", "video_id",
 )
 _SEL = (
     "id, user_id, username, title, filename, "
-    "azura_file_id, azura_song_id, coins_charged, status"
+    "azura_file_id, azura_song_id, coins_charged, status, video_id"
 )
 
 
@@ -238,11 +238,17 @@ def _db_match_request(
 ) -> "dict | None":
     """
     Try to match the currently-playing AzuraCast song to one of our queued requests.
+    Injects '_match_method' key into the returned dict for structured logging.
 
     Strategy 0: azura_file_id match by numeric media_id (most reliable when available).
-    Strategy 1: azura_song_id match by song.unique_id (reliable once AzuraCast indexes file).
-    Strategy 2: filename substring in NP media path (SFTP path matching).
-    Strategy 3: title substring match (fallback for freshly uploaded / unindexed files).
+    Strategy 1: azura_song_id match by song.unique_id (reliable once AzuraCast indexes).
+    Strategy 2: Requests/ path — file is definitively from the Requests playlist.
+                Sub-match by filename first; fallback to oldest active queued job.
+                Returns None early if path is Requests/ but queue is empty
+                (never mislabel a Requests/ track as AutoDJ).
+    Strategy 3: filename substring in NP media path (non-Requests paths only).
+    Strategy 4: video_id substring in media path or song hash.
+    Strategy 5: title substring match (last fallback — only without reliable path info).
     """
     active = ("done", "queued", "playing")
     ph     = ",".join("?" * len(active))
@@ -258,7 +264,9 @@ def _db_match_request(
                     (media_id, *active),
                 ).fetchone()
                 if row:
-                    return _jrow(row)
+                    j = _jrow(row)
+                    j["_match_method"] = "media_id"
+                    return j
         except Exception:
             pass
 
@@ -273,11 +281,48 @@ def _db_match_request(
                     (azura_song_id, *active),
                 ).fetchone()
                 if row:
-                    return _jrow(row)
+                    j = _jrow(row)
+                    j["_match_method"] = "song_unique_id"
+                    return j
         except Exception:
             pass
 
-    # Strategy 2: filename from NP media path (basename of the SFTP path)
+    # Strategy 2: Requests/ path — definitively from the Requests playlist
+    if media_path:
+        lpath = media_path.lstrip("/")
+        if lpath.lower().startswith("requests/"):
+            path_base = media_path.rsplit("/", 1)[-1].lower()
+            try:
+                with db.db_conn() as conn:
+                    rows = conn.execute(
+                        f"SELECT {_SEL} FROM yt_request_jobs "
+                        f"WHERE status IN ({ph}) AND played_at IS NULL "
+                        "  ORDER BY id ASC",
+                        active,
+                    ).fetchall()
+                    # Sub-match: filename within the Requests/ path
+                    if path_base:
+                        for row in rows:
+                            j   = _jrow(row)
+                            jfn = (j.get("filename") or "").lower()
+                            if jfn and (
+                                jfn == path_base
+                                or jfn in path_base
+                                or path_base in jfn
+                            ):
+                                j["_match_method"] = "requests_path_filename"
+                                return j
+                    # Fallback: oldest active job (path proves it's a request)
+                    if rows:
+                        j = _jrow(rows[0])
+                        j["_match_method"] = "requests_path_oldest"
+                        return j
+            except Exception:
+                pass
+            # Path is Requests/ but queue is empty — never label this as AutoDJ
+            return None
+
+    # Strategy 3: filename substring in NP media path (non-Requests paths)
     if media_path:
         path_base = media_path.rsplit("/", 1)[-1].lower()
         if path_base:
@@ -297,11 +342,34 @@ def _db_match_request(
                             or jfn in path_base
                             or path_base in jfn
                         ):
+                            j["_match_method"] = "filename"
                             return j
             except Exception:
                 pass
 
-    # Strategy 3: title substring match (fallback for freshly uploaded / unindexed files)
+    # Strategy 4: video_id substring in media path or song hash
+    if media_path or azura_song_id:
+        try:
+            with db.db_conn() as conn:
+                rows = conn.execute(
+                    f"SELECT {_SEL} FROM yt_request_jobs "
+                    f"WHERE status IN ({ph}) AND played_at IS NULL "
+                    "  AND video_id!='' ORDER BY id ASC",
+                    active,
+                ).fetchall()
+                for row in rows:
+                    j   = _jrow(row)
+                    vid = (j.get("video_id") or "").strip()
+                    if vid and (
+                        (media_path and vid in media_path)
+                        or (azura_song_id and vid in azura_song_id)
+                    ):
+                        j["_match_method"] = "video_id"
+                        return j
+        except Exception:
+            pass
+
+    # Strategy 5: title substring match (last fallback — only without reliable path)
     if np_title:
         norm = np_title.lower().strip()
         try:
@@ -316,6 +384,7 @@ def _db_match_request(
                     j  = _jrow(row)
                     jt = j["title"].lower().strip()
                     if jt and (jt in norm or norm in jt or jt[:40] == norm[:40]):
+                        j["_match_method"] = "title_fuzzy"
                         return j
         except Exception:
             pass
@@ -638,9 +707,26 @@ async def _on_new_track(
         _last_ann_id    = song_id
         _last_ann_title = norm_title
 
+    # ── Path-based source detection ───────────────────────────────────────────
+    # If NP media path starts with Requests/ it is definitively a request —
+    # never label it AutoDJ even if the DB match fails.
+    from_requests = bool(
+        media_path and media_path.lstrip("/").lower().startswith("requests/")
+    )
+
     # Use song.unique_id for DB matching (this is what yt_request stores as azura_song_id)
     match_uid = song_uid or song_id
     match = _db_match_request(match_uid, title, media_id, media_path)
+    match_method = (match.get("_match_method") or "unknown") if match else "none"
+
+    print(
+        f"{_LOG} stage=request_detection"
+        f" song_id={song_id!r} unique_id={song_uid!r}"
+        f" media_id={media_id!r} path={media_path!r}"
+        f" from_requests={from_requests}"
+        f" match_method={match_method!r}"
+        f" title={title!r}"
+    )
 
     if match:
         req_title = match.get("title") or title
@@ -666,6 +752,7 @@ async def _on_new_track(
                 f" filename={live_fn!r}"
                 f" title={req_title!r}"
                 f" username={req_uname!r}"
+                f" match_method={match_method!r}"
             )
             await ann.announce_request_live(bot, req_title, "", req_uname)
             print(
@@ -695,6 +782,16 @@ async def _on_new_track(
             print(f"{_LOG} Last active request — pre-switching playlists to VIBE")
             await _switch_to_vibe(bot)
 
+    elif from_requests:
+        # NP is from Requests/ folder but no DB record matched.
+        # Keep _cur_req_id=0 and suppress AutoDJ announcement.
+        with _lock:
+            _cur_req_id = 0
+        print(
+            f"{_LOG} NP from Requests/ but no DB match — suppressing AutoDJ announce"
+            f" path={media_path!r}"
+        )
+
     else:
         with _lock:
             _cur_req_id = 0
@@ -716,18 +813,19 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
 
     Flow
     ────
-    1. Fetch request metadata (title, artist, username) from DB.
-    2. Early-exit if the poll loop already detected it as playing.
-    3. Wait 4 s flat for AzuraCast to register the newly-uploaded file in its
-       internal media library / request queue (no HTTP polling needed here).
-    4. Re-submit the song to AzuraCast's request endpoint (idempotent) then
-       issue a single skip so AzuraCast advances to the request.
-    5. Poll the Now Playing API every 2 s for up to 14 s.
-       • Match by song ID first (exact), then by title (conservative substring).
-       • On match  → pre-set _last_ann_id (dedup the poll loop), mark DB status
-                     "playing", fire polished REQUEST LIVE room announcement.
-       • On timeout → fire "queued and ready" fallback so the room knows; the
-                     poll loop will catch and announce when the song plays next.
+    1. Fetch request metadata from DB; early-exit if already playing.
+    2. Brief 2 s settle wait (lets AzuraCast rescan complete after upload).
+    3. Submit AzuraCast request + issue first skip.
+       → logs stage=request_force_skip attempt=1
+    4. Poll Now Playing every 1 s for up to 15 s.
+       → logs stage=request_nowplaying_poll each second
+    5. At 5 s, if not yet confirmed: issue a second skip.
+       → logs stage=request_force_skip attempt=2
+    6. Match uses 6-strategy logic: media_id, song_unique_id, Requests/ path,
+       filename, video_id, title fuzzy.
+    7. On match  → logs stage=request_takeover_success; marks DB playing;
+                   fires REQUEST LIVE announcement; queues file cleanup.
+       On timeout → logs stage=request_takeover_timeout; fires queued-next whisper.
     """
     global _skip_task_active, _cur_req_id, _last_ann_id, _last_ann_title
     _skip_task_active = True
@@ -740,71 +838,127 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
             print(f"{_LOG} Verified-skip: job {job_id} not found — aborting")
             return
 
-        req_title  = (job.get("title")    or "Unknown").strip()
-        req_artist = (job.get("artist")   or "").strip()
-        req_uname  = (job.get("username") or "").strip()
+        req_title  = (job.get("title")        or "Unknown").strip()
+        req_artist = (job.get("artist")        or "").strip()
+        req_uname  = (job.get("username")      or "").strip()
+        req_fid    = (job.get("azura_file_id") or "").strip()
+        req_fn     = (job.get("filename")      or "").strip()
+        req_vid    = (job.get("video_id")      or "").strip()
 
-        # ── Early exit: poll loop already marked it playing ────────────────────
         if job.get("status") == "playing":
             print(f"{_LOG} Job {job_id} already playing — skip task done early")
             return
 
-        print(f"{_LOG} Verified-skip started: job={job_id} uid={unique_id!r} title={req_title!r}")
+        print(
+            f"{_LOG} Verified-skip started:"
+            f" job={job_id} uid={unique_id!r}"
+            f" title={req_title!r} filename={req_fn!r} youtube_id={req_vid!r}"
+        )
 
-        # ── Step 1: Flat 4 s wait for AzuraCast queue refresh ─────────────────
-        # (8 × 0.5 s so stop_flag is checked every half-second)
-        print(f"{_LOG} Waiting 4 s for AzuraCast queue refresh…")
-        for _ in range(8):
+        # ── Brief settle wait: 4 × 0.5 s = 2 s ──────────────────────────────
+        for _ in range(4):
             if _stop_flag.is_set():
                 return
             await asyncio.sleep(0.5)
 
-        # Re-check after the wait
         job = _db_get_job(job_id)
         if job and job.get("status") == "playing":
-            print(f"{_LOG} Job {job_id} started playing during queue wait — skip task done")
+            print(f"{_LOG} Job {job_id} started playing during settle wait — done")
             return
 
         if _stop_flag.is_set():
             return
 
-        # ── Step 2: Submit request to AzuraCast + skip ────────────────────────
+        # ── First skip ─────────────────────────────────────────────────────────
         if unique_id:
-            print(f"{_LOG} Submitting request {unique_id!r} to AzuraCast…")
             await loop.run_in_executor(None, azura.submit_request, unique_id)
-            await asyncio.sleep(1)   # brief settle before skip
+            await asyncio.sleep(0.3)
 
-        if _stop_flag.is_set():
-            return
+        skip_ok = await loop.run_in_executor(None, azura.skip_current, 1, 0)
+        print(
+            f"{_LOG} stage=request_force_skip"
+            f" request_id={job_id} username={req_uname!r}"
+            f" title={req_title!r} unique_id={unique_id!r}"
+            f" attempt=1 http_status={'200' if skip_ok else 'failed'}"
+        )
 
-        print(f"{_LOG} Issuing skip…")
-        await loop.run_in_executor(None, azura.skip_current, 1, 0)
+        # ── Poll Now Playing every 1 s for 15 s ────────────────────────────────
+        confirmed        = False
+        second_skip_done = False
 
-        # ── Step 3: Poll Now Playing for up to 14 s (7 × 2 s) ────────────────
-        print(f"{_LOG} Polling NP for up to 14 s to confirm {unique_id!r}…")
-        confirmed = False
-
-        for check in range(7):
+        for check in range(15):
             if _stop_flag.is_set():
                 return
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
             np = await loop.run_in_executor(None, azura.fetch_nowplaying)
             if not np:
                 continue
 
-            np_song   = ((np.get("now_playing") or {}).get("song") or {})
-            np_id     = (np_song.get("id")     or "").strip()
-            np_title  = (np_song.get("title")  or "").strip()
-            np_artist = (np_song.get("artist") or "").strip()
+            np_obj   = np.get("now_playing") or {}
+            np_song  = np_obj.get("song")   or {}
+            np_media = np_obj.get("media")  or {}
+            np_id    = (np_song.get("id")        or "").strip()
+            np_uid   = (np_song.get("unique_id") or "").strip()
+            np_title = (np_song.get("title")     or "").strip()
+            np_artist= (np_song.get("artist")    or "").strip()
+            np_fid   = str(np_media.get("id") or "").strip()
+            np_path  = (np_media.get("path") or "").strip()
+            np_fn    = np_path.rsplit("/", 1)[-1].lower() if np_path else ""
+            np_lpath = np_path.lstrip("/").lower()
 
-            id_match    = bool(unique_id and np_id and np_id == unique_id)
-            title_match = _title_matches(req_title, np_title)
+            # Multi-strategy match (mirrors _db_match_request priority order)
+            match_method: "str | None" = None
+            if req_fid and np_fid and req_fid == np_fid:
+                match_method = "media_id"
+            elif unique_id and np_id and np_id == unique_id:
+                match_method = "song_id"
+            elif unique_id and np_uid and np_uid == unique_id:
+                match_method = "unique_id"
+            elif np_lpath.startswith("requests/"):
+                if req_fn and np_fn and req_fn.lower() == np_fn:
+                    match_method = "requests_path_filename"
+                else:
+                    match_method = "requests_path"
+            elif req_fn and np_fn and req_fn.lower() == np_fn:
+                match_method = "filename"
+            elif req_vid and np_path and req_vid in np_path:
+                match_method = "video_id"
+            elif _title_matches(req_title, np_title):
+                match_method = "title_fuzzy"
 
-            if id_match or title_match:
-                reason = "song ID" if id_match else "title"
-                print(f"{_LOG} NP confirmed by {reason} (check {check + 1}): {np_title!r}")
+            print(
+                f"{_LOG} stage=request_nowplaying_poll"
+                f" request_id={job_id} elapsed_s={check + 1}"
+                f" nowplaying_title={np_title!r}"
+                f" nowplaying_media_id={np_fid!r}"
+                f" path={np_path!r}"
+                f" match_method={match_method!r}"
+            )
+
+            # At 5 s: issue second skip if still not confirmed
+            if check == 4 and not match_method and not second_skip_done:
+                second_skip_done = True
+                skip_ok2 = await loop.run_in_executor(None, azura.skip_current, 1, 0)
+                print(
+                    f"{_LOG} stage=request_force_skip"
+                    f" request_id={job_id} username={req_uname!r}"
+                    f" title={req_title!r} unique_id={unique_id!r}"
+                    f" attempt=2 http_status={'200' if skip_ok2 else 'failed'}"
+                )
+                continue
+
+            if match_method:
+                print(
+                    f"{_LOG} stage=request_takeover_success"
+                    f" request_id={job_id} elapsed_s={check + 1}"
+                    f" match_method={match_method!r}"
+                    f" username={req_uname!r}"
+                    f" title={req_title!r}"
+                    f" nowplaying_title={np_title!r}"
+                    f" media_id={np_fid!r}"
+                )
 
                 # Pre-set dedup vars so _on_new_track won't duplicate-announce
                 with _lock:
@@ -812,17 +966,15 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                     _last_ann_title = np_title.lower()[:80]
                     _cur_req_id     = job_id
 
-                _db_set_status(job_id, "playing")
+                _db_set_status(job_id, "playing", media_id=np_fid)
                 display_artist = req_artist or np_artist
                 await ann.announce_request_live(bot, req_title, display_artist, req_uname)
 
-                # ── Proactive deletion + pre-switch (skip-task path) ──────────
-                # _on_new_track will be suppressed by _last_ann_id dedup above,
-                # so we fire cleanup here directly.
+                # Proactive file cleanup
                 job_fresh = _db_get_job(job_id)
                 if job_fresh:
-                    _fid = (job_fresh.get("azura_file_id") or "").strip()
-                    _fn  = (job_fresh.get("filename")      or "").strip()
+                    _fid = (job_fresh.get("azura_file_id") or np_fid).strip()
+                    _fn  = (job_fresh.get("filename") or req_fn).strip()
                     if _fid or _fn:
                         loop.run_in_executor(
                             None, _delete_request_file,
@@ -840,7 +992,12 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 break
 
         if not confirmed:
-            print(f"{_LOG} Could not confirm {unique_id!r} in 14 s — announcing queued next")
+            print(
+                f"{_LOG} stage=request_takeover_timeout"
+                f" request_id={job_id} username={req_uname!r}"
+                f" title={req_title!r} unique_id={unique_id!r}"
+                f" elapsed_s=15"
+            )
             await ann.announce_request_queued_next(bot)
 
     except asyncio.CancelledError:

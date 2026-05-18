@@ -51,10 +51,11 @@ _CLR_PH = ",".join("?" * len(_CLEAR_STATUSES))
 _COLS = (
     "id", "user_id", "username", "url", "title", "status",
     "filename", "azura_file_id", "azura_song_id", "coins_charged", "started_at",
+    "video_id",
 )
 _SEL = (
     "id, user_id, username, url, title, status, "
-    "filename, azura_file_id, azura_song_id, coins_charged, started_at"
+    "filename, azura_file_id, azura_song_id, coins_charged, started_at, video_id"
 )
 
 
@@ -112,6 +113,29 @@ def display_jobs() -> list:
     except Exception as exc:
         print(f"{_LOG} display_jobs error: {exc}")
         return []
+
+
+def mark_as_playing(job_id: int) -> None:
+    """
+    Mark a request as playing in the DB.
+
+    Used by the !queue NP filter when a display-list item is found to already
+    be streaming — updates status and sets started_at if not already set.
+    Safe to call multiple times (idempotent via COALESCE).
+    """
+    if not job_id:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs "
+                "SET status='playing', "
+                "    started_at=COALESCE(NULLIF(started_at,''), datetime('now')) "
+                "WHERE id=? AND status NOT IN ('played','error')",
+                (job_id,),
+            )
+    except Exception as exc:
+        print(f"{_LOG} mark_as_playing({job_id}): {exc}")
 
 
 def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
