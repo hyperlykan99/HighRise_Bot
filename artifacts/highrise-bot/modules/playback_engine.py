@@ -811,21 +811,22 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
     """
     Background asyncio task — does NOT block the poll loop.
 
+    Submits the request to AzuraCast so it is queued for playback after the
+    current song ends.  Does NOT skip the current song — only staff !skip may
+    do that.
+
     Flow
     ────
     1. Fetch request metadata from DB; early-exit if already playing.
     2. Brief 2 s settle wait (lets AzuraCast rescan complete after upload).
-    3. Submit AzuraCast request + issue first skip.
-       → logs stage=request_force_skip attempt=1
-    4. Poll Now Playing every 1 s for up to 15 s.
+    3. Submit AzuraCast request (queues it — no skip).
+    4. Poll Now Playing every 1 s for up to 15 s to detect natural takeover.
        → logs stage=request_nowplaying_poll each second
-    5. At 5 s, if not yet confirmed: issue a second skip.
-       → logs stage=request_force_skip attempt=2
-    6. Match uses 6-strategy logic: media_id, song_unique_id, Requests/ path,
+    5. Match uses 6-strategy logic: media_id, song_unique_id, Requests/ path,
        filename, video_id, title fuzzy.
-    7. On match  → logs stage=request_takeover_success; marks DB playing;
+    6. On match  → logs stage=request_takeover_success; marks DB playing;
                    fires REQUEST LIVE announcement; queues file cleanup.
-       On timeout → logs stage=request_takeover_timeout; fires queued-next whisper.
+       On timeout → logs stage=request_takeover_timeout (song still waiting).
     """
     global _skip_task_active, _cur_req_id, _last_ann_id, _last_ann_title
     _skip_task_active = True
@@ -869,22 +870,21 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
         if _stop_flag.is_set():
             return
 
-        # ── First skip ─────────────────────────────────────────────────────────
+        # ── Submit request to AzuraCast queue ─────────────────────────────────
         if unique_id:
             await loop.run_in_executor(None, azura.submit_request, unique_id)
             await asyncio.sleep(0.3)
-
-        skip_ok = await loop.run_in_executor(None, azura.skip_current, 1, 0)
-        print(
-            f"{_LOG} stage=request_force_skip"
-            f" request_id={job_id} username={req_uname!r}"
-            f" title={req_title!r} unique_id={unique_id!r}"
-            f" attempt=1 http_status={'200' if skip_ok else 'failed'}"
-        )
+            print(
+                f"{_LOG} stage=request_submitted_no_skip"
+                f" request_id={job_id} username={req_uname!r}"
+                f" title={req_title!r} unique_id={unique_id!r}"
+                f" — queued in AzuraCast, current song will not be interrupted"
+            )
 
         # ── Poll Now Playing every 1 s for 15 s ────────────────────────────────
-        confirmed        = False
-        second_skip_done = False
+        # Passive monitor only — detects if the request starts playing naturally
+        # (e.g. it was already next when uploaded).  No additional skips.
+        confirmed = False
 
         for check in range(15):
             if _stop_flag.is_set():
@@ -936,18 +936,6 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 f" path={np_path!r}"
                 f" match_method={match_method!r}"
             )
-
-            # At 5 s: issue second skip if still not confirmed
-            if check == 4 and not match_method and not second_skip_done:
-                second_skip_done = True
-                skip_ok2 = await loop.run_in_executor(None, azura.skip_current, 1, 0)
-                print(
-                    f"{_LOG} stage=request_force_skip"
-                    f" request_id={job_id} username={req_uname!r}"
-                    f" title={req_title!r} unique_id={unique_id!r}"
-                    f" attempt=2 http_status={'200' if skip_ok2 else 'failed'}"
-                )
-                continue
 
             if match_method:
                 print(
@@ -1044,25 +1032,27 @@ async def _poll_loop(bot: "BaseBot") -> None:
             if not new_done and _db_count_staged() > 0 and _db_count_active_in_requests() == 0:
                 loop.run_in_executor(None, _do_promote_staged, bot, loop)
 
-            # ── Fire verified-skip task for newly-queued requests ─────────────
-            # Triggered only when new 'done' jobs were just promoted AND
-            # auto-skip is on AND no skip task is already running.
-            if new_done and cs.auto_skip_on_request() and not skip_task_busy:
+            # ── Submit request to AzuraCast when newly promoted ───────────────
+            # Queues the song so AzuraCast plays it after the current track.
+            # NEVER skips — only staff !skip may interrupt the current song.
+            if new_done and not skip_task_busy:
                 next_job = _db_find_oldest_queued()
                 if next_job:
                     uid = (next_job.get("azura_song_id") or "").strip()
                     if uid:
                         print(
-                            f"{_LOG} Firing verified-skip task for "
+                            f"{_LOG} Queuing request for playback (no skip): "
                             f"{next_job.get('title','?')!r} uid={uid!r}"
                         )
                         asyncio.create_task(
                             _verified_skip_task(bot, next_job["id"], uid)
                         )
                     else:
-                        # No unique_id — fall back to simple unverified skip.
-                        # run_in_executor returns a Future; do NOT wrap in create_task.
-                        loop.run_in_executor(None, azura.skip_current)
+                        print(
+                            f"{_LOG} stage=request_no_uid"
+                            f" job={next_job.get('id','?')!r}"
+                            f" — no AzuraCast unique_id yet, skipping submit"
+                        )
 
             # ── Fetch nowplaying from AzuraCast ──────────────────────────────
             np = await loop.run_in_executor(None, azura.fetch_nowplaying)

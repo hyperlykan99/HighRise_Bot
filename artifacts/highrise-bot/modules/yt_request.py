@@ -1489,59 +1489,13 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
                 _abort_request("playlist_assign_failed")
                 return
 
-        # ── 6. Wait 3s → backend skip → poll Now Playing 15s → announce ──────
-        # Resolve requester info for the room announcement
-        _ann_title = ""
-        _ann_uname = ""
-        if db_id:
-            try:
-                with sqlite3.connect(_DB_PATH) as _ac:
-                    _ar = _ac.execute(
-                        "SELECT title, username FROM yt_request_jobs WHERE id=?",
-                        (db_id,),
-                    ).fetchone()
-                if _ar:
-                    _ann_title = (_ar[0] or "").strip()
-                    _ann_uname = (_ar[1] or "").strip()
-            except Exception:
-                pass
-
-        _rlog("azuracast_skip", "waiting_3s", media_id=file_id)
-        time.sleep(3)
-
-        _skip_ok = _azura_skip_song()
-        _rlog("azuracast_skip", "success" if _skip_ok else "fail", media_id=file_id)
-
-        # Poll Now Playing for up to 15 seconds (5 × 3 s)
-        _live         = False
-        _live_song_id = ""
-        _stem = filename[:-4] if filename.lower().endswith(".mp3") else filename
-        for _p in range(5):
-            time.sleep(3)
-            _np = _azura_fetch_nowplaying()
-            if _np:
-                _np_song = (_np.get("now_playing") or {}).get("song") or {}
-                _np_sid  = (_np_song.get("id")        or "").strip()
-                _np_uid  = (_np_song.get("unique_id") or "").strip()
-                _np_ttl  = (_np_song.get("title")     or "").strip()
-                if unique_id and _np_uid and _np_uid == unique_id:
-                    _live = True
-                    _live_song_id = _np_sid
-                    _rlog("azuracast_skip", "now_playing_confirmed",
-                          media_id=file_id, poll=str(_p + 1))
-                    break
-                if _stem and _stem.lower() in _np_ttl.lower():
-                    _live = True
-                    _live_song_id = _np_sid
-                    _rlog("azuracast_skip", "now_playing_confirmed_by_stem",
-                          media_id=file_id, poll=str(_p + 1))
-                    break
-
-        if bot and loop and _ann_title and _live:
-            if _live_song_id:
-                _seen_announced.add(_live_song_id)
-            # Legacy in-thread announce suppressed — playback_engine handles
-            # REQUEST LIVE room announcements via announce_request_live()
+        # ── 6. (skip removed) ─────────────────────────────────────────────────
+        # Upload is complete — playback_engine's poll loop detects when this
+        # request naturally becomes the current song and fires REQUEST LIVE.
+        # We must NOT call backend/skip here; that would interrupt the current
+        # track.  Only the staff !skip command may do that.
+        _rlog("azuracast_skip", "suppressed_no_skip", media_id=file_id,
+              note="skip_removed_engine_handles_detection")
 
     except Exception as exc:
         print(f"[YT_API] Unexpected error in post-upload step (non-fatal): {exc}")
