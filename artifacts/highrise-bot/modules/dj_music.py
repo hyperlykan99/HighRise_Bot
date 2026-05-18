@@ -1579,70 +1579,9 @@ async def _autoplay_search() -> dict | None:
 async def handle_dj_request(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!request <song>  —  search YouTube, whisper top 5 results."""
-    if len(args) < 2:
-        await _w(bot, user.id,
-                 "🎵 Usage: !request <song title>\n"
-                 "Then use !pick <1-5> to confirm.")
-        return
-
-    query = " ".join(args[1:]).strip()[:120]
-    if not query:
-        await _w(bot, user.id, "🎵 Please include a song title.")
-        return
-
-    # DJ ban check — admins bypass
-    if not is_admin(user.username) and _is_dj_banned(user.id, user.username):
-        await _w(bot, user.id, "🚫 You are banned from DJ requests.")
-        return
-
-    # Queue lock — admins bypass
-    if _dj_locked() and not is_admin(user.username):
-        await _w(bot, user.id,
-                 "🔒 Song requests are paused. Check back soon!")
-        return
-
-    # Per-user pending limit — admins bypass
-    umax = _user_max()
-    if not is_admin(user.username) and _user_pending_count(user.id) >= umax:
-        await _w(bot, user.id,
-                 f"🎵 You already have {umax} song(s) in the queue.\n"
-                 f"Wait for them to play before requesting more.")
-        return
-
-    # Per-user cooldown — admins bypass
-    secs_ago = _user_cooldown_secs(user.id)
-    cooldown = _cooldown()
-    if not is_admin(user.username) and secs_ago < cooldown:
-        wait = cooldown - secs_ago
-        await _w(bot, user.id, f"⏳ You can request again in {wait}s.")
-        return
-
-    # Global queue cap check
-    if _total_active() >= _queue_max():
-        await _w(bot, user.id,
-                 f"🚫 Queue is full ({_queue_max()} songs). Try again soon!")
-        return
-
-    await _w(bot, user.id, f"🔍 Searching: {query[:60]}…")
-
-    results, error_detail = await _yt_search(query)
-    if not results:
-        await _w(bot, user.id,
-                 "⚠️ No results found. Try a different search term.")
-        # Whisper full debug info to admins when debug mode is on
-        if error_detail and (is_admin(user.username) or _debug_mode()):
-            for chunk_start in range(0, min(len(error_detail), 700), 245):
-                await _w(bot, user.id,
-                         f"[DJ DEBUG] {error_detail[chunk_start:chunk_start+245]}")
-        return
-
-    _store_search(user.id, results)
-
-    lines = ["🎵 Pick with !pick <number>:"]
-    for i, r in enumerate(results, 1):
-        lines.append(f"{i}. {r['title'][:45]} [{r['duration']}]")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    """Deprecated — delegates to radio_commands.handle_request (yt_request_jobs)."""
+    import modules.radio_commands as _rc
+    await _rc.handle_request(bot, user, args)
 
 
 async def handle_dj_pick(
@@ -1754,73 +1693,15 @@ async def handle_dj_pick(
 
 
 async def handle_dj_queue(bot: "BaseBot", user: "User") -> None:
-    """!queue  —  show next 5 pending songs (not counting now-playing)."""
-    now = _get_nowplaying()
-    upcoming = _get_queue(limit=5)
-
-    if not now and not upcoming:
-        await _w(bot, user.id,
-                 "🎵 Queue is empty! Use !request <song> to add one.")
-        return
-
-    total_pending = _pending_count()
-    lines: list[str] = []
-
-    if now:
-        dur  = f" [{now['duration']}]" if now.get("duration") else ""
-        st   = "▶️" if now["status"] == "playing" else "🎵"
-        lines.append(f"{st} NOW: {now['title'][:40]}{dur}")
-
-    if upcoming:
-        lines.append(f"— Next {min(len(upcoming), 5)} of {total_pending} pending —")
-        for i, r in enumerate(upcoming, 1):
-            dur   = f" [{r['duration']}]" if r.get("duration") else ""
-            p     = r.get("priority", 0)
-            badge = "[VIP]" if p == 2 else ("⭐" if p == 1 else "")
-            ded   = f" ♥{r['dedication'][:12]}" if r.get("dedication") else ""
-            lines.append(f"#{i}{badge} {r['title'][:30]}{dur}{ded}")
-
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    """Deprecated — delegates to radio_commands.handle_queue (yt_request_jobs)."""
+    import modules.radio_commands as _rc
+    await _rc.handle_queue(bot, user, [])
 
 
 async def handle_dj_nowplaying(bot: "BaseBot", user: "User") -> None:
-    """!nowplaying / !np  —  show current song + progress + link + skip votes."""
-    now = _get_nowplaying()
-    if not now:
-        await _w(bot, user.id,
-                 "🎵 Nothing playing. Use !request <song> to add one!")
-        return
-
-    # Progress bar — only when we have _playing_since + a parseable duration
-    progress_str = ""
-    if _playing_since > 0 and now.get("status") == "playing" and now.get("duration"):
-        elapsed   = int(time.time() - _playing_since)
-        total_sec = _parse_duration(now["duration"])
-        if total_sec > 0:
-            elapsed      = min(elapsed, total_sec)
-            progress_str = f"\n[{_fmt_secs(elapsed)} / {now['duration']}]"
-
-    url    = f"\n🔗 {now['youtube_url']}" if now.get("youtube_url") else ""
-    votes  = len(_skip_votes.get(now["id"], set()))
-    thresh = _vote_thresh()
-    vote_str = (
-        f"\n👎 Skip votes: {votes}/{thresh} (use !skipvote)"
-        if votes > 0 else ""
-    )
-    upcoming = _get_queue(limit=1)
-    nxt_str = ""
-    if upcoming:
-        n = upcoming[0]
-        nd = f" [{n['duration']}]" if n.get("duration") else ""
-        nxt_str = f"\nUp next: {n['title'][:40]}{nd} (@{n['username'][:12]})"
-
-    msg = (
-        f"▶️ Now Playing:\n"
-        f"{now['title'][:60]}\n"
-        f"Requested by @{now['username'][:15]}"
-        f"{progress_str}{url}{vote_str}{nxt_str}"
-    )
-    await _w(bot, user.id, msg[:249])
+    """Deprecated — delegates to radio_commands.handle_nowplaying."""
+    import modules.radio_commands as _rc
+    await _rc.handle_nowplaying(bot, user, [])
 
 
 async def handle_dj_skip(bot: "BaseBot", user: "User") -> None:
@@ -1839,64 +1720,14 @@ async def handle_dj_skip(bot: "BaseBot", user: "User") -> None:
 
 
 async def handle_dj_skipvote(bot: "BaseBot", user: "User") -> None:
-    """!skipvote  —  public vote to skip current song."""
-    now = _get_nowplaying()
-    if now is None:
-        await _w(bot, user.id, "🎵 Nothing is playing right now.")
-        return
-
-    row_id = now["id"]
-    if row_id not in _skip_votes:
-        _skip_votes[row_id] = set()
-
-    if user.id in _skip_votes[row_id]:
-        cur  = len(_skip_votes[row_id])
-        need = _vote_thresh() - cur
-        await _w(bot, user.id,
-                 f"👎 Already voted. {need} more vote(s) needed to skip.")
-        return
-
-    _skip_votes[row_id].add(user.id)
-    votes  = len(_skip_votes[row_id])
-    thresh = _vote_thresh()
-
-    if votes >= thresh:
-        title = now["title"][:50]
-        await _chat(
-            bot,
-            f"👎 Vote skip passed ({votes}/{thresh})! Skipping: {title}"
-        )
-        await _do_advance(bot)
-    else:
-        remaining = thresh - votes
-        name = user.username[:15]
-        await _chat(
-            bot,
-            f"👎 @{name} voted to skip. {remaining} more vote(s) needed."
-        )
+    """Deprecated — delegates to radio_commands.handle_voteskip."""
+    import modules.radio_commands as _rc
+    await _rc.handle_voteskip(bot, user, [])
 
 
 async def handle_dj_stopmusic(bot: "BaseBot", user: "User") -> None:
-    """!stopmusic  —  clear all pending + playing entries (manager+)."""
-    global _playback_task, _playing_since, _repeat_song
-    if not can_manage_games(user.username):
-        await _w(bot, user.id, "🔒 Manager only.")
-        return
-
-    cleared = _clear_queue()
-    if _playback_task and not _playback_task.done():
-        _playback_task.cancel()
-    _playback_task = None
-    _playing_since = 0.0
-    _repeat_song   = None
-
-    if cleared == 0:
-        await _w(bot, user.id, "🎵 Queue was already empty.")
-        return
-
-    await _backend.stop()
-    await _w(bot, user.id, f"🛑 Queue cleared. {cleared} song(s) removed.")
-    await _chat(bot, f"🛑 DJ queue cleared. ({cleared} removed)")
+    """Deprecated — delegates to handle_dj_clear (uses yt_request_jobs queue)."""
+    await handle_dj_clear(bot, user)
 
 
 async def handle_dj_config(bot: "BaseBot", user: "User") -> None:
@@ -2049,28 +1880,9 @@ async def handle_dj_clear(bot: "BaseBot", user: "User") -> None:
 async def handle_dj_remove(
     bot: "BaseBot", user: "User", args: list[str],
 ) -> None:
-    """!djremove <#>  —  remove a specific pending queue entry (admin+)."""
-    if not is_admin(user.username):
-        await _w(bot, user.id, "🔒 Admin only.")
-        return
-
-    if len(args) < 2 or not args[1].isdigit():
-        await _w(bot, user.id,
-                 "🎵 Usage: !djremove <position>\n"
-                 "Use !queue to see positions.")
-        return
-
-    pos = int(args[1])
-    removed = _remove_request_by_pos(pos)
-    if removed is None:
-        await _w(bot, user.id,
-                 f"⚠️ No pending song at position {pos}.\n"
-                 f"Use !queue to see the current list.")
-        return
-
-    title = removed["title"][:50]
-    by    = removed.get("username", "?")
-    await _w(bot, user.id, f"✅ Removed #{pos}: {title} (by {by})")
+    """Deprecated — delegates to radio_commands.handle_remove (yt_request_jobs)."""
+    import modules.radio_commands as _rc
+    await _rc.handle_remove(bot, user, args)
 
 
 # ---------------------------------------------------------------------------
@@ -2618,108 +2430,33 @@ async def handle_dj_stats(bot: "BaseBot", user: "User") -> None:
 
 
 async def handle_dj_favorite(bot: "BaseBot", user: "User") -> None:
-    """!favorite  —  save the currently playing song to favorites (public)."""
-    now = _get_nowplaying()
-    if not now:
-        await _w(bot, user.id,
-                 "🎵 Nothing is playing right now.\n"
-                 "Request a song with !request <song>!")
-        return
-    added = _add_favorite(
-        user.id, user.username,
-        now["title"], now.get("youtube_url", ""),
-    )
-    if added:
-        await _w(bot, user.id, f"⭐ Favorited: {now['title'][:55]}")
-    else:
-        await _w(bot, user.id,
-                 f"⭐ Already in your favorites: {now['title'][:50]}")
+    """Deprecated — delegates to radio_commands.handle_favorite (yt_request_jobs)."""
+    import modules.radio_commands as _rc
+    await _rc.handle_favorite(bot, user, [])
 
 
 async def handle_dj_favorites(bot: "BaseBot", user: "User") -> None:
-    """!favorites  —  list your saved songs (public)."""
-    rows = _get_user_favorites(user.id, limit=5)
-    if not rows:
-        await _w(bot, user.id,
-                 "⭐ No favorites yet!\n"
-                 "Use !favorite while a song is playing to save it.")
-        return
-    lines = ["⭐ Your favorites:"]
-    for i, r in enumerate(rows, 1):
-        lines.append(f"{i}. {r['title'][:52]}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    """Deprecated — delegates to radio_commands.handle_favorites (yt_request_jobs)."""
+    import modules.radio_commands as _rc
+    await _rc.handle_favorites(bot, user, [])
 
 
 async def handle_dj_unfavorite(bot: "BaseBot", user: "User") -> None:
-    """!unfavorite  —  remove the current song from your favorites (public)."""
-    now = _get_nowplaying()
-    if not now:
-        await _w(bot, user.id,
-                 "🎵 Nothing is playing right now.\n"
-                 "Request a song with !request <song>!")
-        return
-    removed = _remove_favorite(user.id, now["title"])
-    if removed:
-        await _w(bot, user.id, f"💔 Removed from favorites: {now['title'][:55]}")
-    else:
-        await _w(bot, user.id,
-                 f"⭐ {now['title'][:50]}\nis not in your favorites.")
+    """Deprecated — delegates to radio_commands.handle_unfavorite (yt_request_jobs)."""
+    import modules.radio_commands as _rc
+    await _rc.handle_unfavorite(bot, user, [])
 
 
 async def handle_dj_like(bot: "BaseBot", user: "User") -> None:
-    """!like  —  like the currently playing song (public)."""
-    now = _get_nowplaying()
-    if not now:
-        await _w(bot, user.id,
-                 "🎵 Nothing is playing right now.\n"
-                 "Request a song with !request <song>!")
-        return
-    wait = _check_like_cooldown(user.id)
-    if wait > 0:
-        print(f"[DJ] like spam blocked: user={user.username} wait={wait}s", flush=True)
-        await _w(bot, user.id, f"⏳ Wait {wait}s before rating again.")
-        return
-    _set_like_cooldown(user.id)
-    result  = _rate_song(user.id, user.username, now["title"], "like")
-    ratings = _get_song_ratings(now["title"])
-    score   = f"👍 {ratings['likes']} | 👎 {ratings['dislikes']}"
-    title40 = now["title"][:48]
-    if result == "same":
-        await _w(bot, user.id, f"👍 Already liked: {title40}\n{score}")
-    elif result == "changed":
-        await _w(bot, user.id, f"👍 Changed to like: {title40}\n{score}")
-    elif result == "added":
-        await _w(bot, user.id, f"👍 Liked: {now['title'][:58]}\n{score}")
-    else:
-        await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
+    """Deprecated — delegates to radio_commands.handle_like (yt_request_jobs)."""
+    import modules.radio_commands as _rc
+    await _rc.handle_like(bot, user, [])
 
 
 async def handle_dj_dislike(bot: "BaseBot", user: "User") -> None:
-    """!dislike  —  dislike the currently playing song (public)."""
-    now = _get_nowplaying()
-    if not now:
-        await _w(bot, user.id,
-                 "🎵 Nothing is playing right now.\n"
-                 "Request a song with !request <song>!")
-        return
-    wait = _check_like_cooldown(user.id)
-    if wait > 0:
-        print(f"[DJ] dislike spam blocked: user={user.username} wait={wait}s", flush=True)
-        await _w(bot, user.id, f"⏳ Wait {wait}s before rating again.")
-        return
-    _set_like_cooldown(user.id)
-    result  = _rate_song(user.id, user.username, now["title"], "dislike")
-    ratings = _get_song_ratings(now["title"])
-    score   = f"👍 {ratings['likes']} | 👎 {ratings['dislikes']}"
-    title44 = now["title"][:44]
-    if result == "same":
-        await _w(bot, user.id, f"👎 Already disliked: {title44}\n{score}")
-    elif result == "changed":
-        await _w(bot, user.id, f"👎 Changed to dislike: {title44}\n{score}")
-    elif result == "added":
-        await _w(bot, user.id, f"👎 Disliked: {now['title'][:55]}\n{score}")
-    else:
-        await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
+    """Deprecated — delegates to radio_commands.handle_dislike (yt_request_jobs)."""
+    import modules.radio_commands as _rc
+    await _rc.handle_dislike(bot, user, [])
 
 
 async def handle_dj_songrating(bot: "BaseBot", user: "User") -> None:
@@ -3085,21 +2822,9 @@ async def handle_dj_recent(bot: "BaseBot", user: "User") -> None:
 
 
 async def handle_dj_myrequests(bot: "BaseBot", user: "User") -> None:
-    """!myrequests  —  your currently queued songs (public)."""
-    reqs = _get_myrequests(user.id)
-    if not reqs:
-        await _w(bot, user.id,
-                 "🎵 You have no songs in the queue.\n"
-                 "Use !request <song> to add one!")
-        return
-    lines = [f"🎵 Your requests ({len(reqs)}):"]
-    for r in reqs:
-        ptype = r.get("priority", 0)
-        badge = " [VIP]" if ptype == 2 else (" [⭐]" if ptype == 1 else "")
-        dur   = f" [{r['duration']}]" if r.get("duration") else ""
-        tag   = "▶️" if r["status"] == "playing" else "🎵"
-        lines.append(f"{tag}{badge} {r['title'][:40]}{dur}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    """Deprecated — delegates to radio_commands.handle_myrequests (yt_request_jobs)."""
+    import modules.radio_commands as _rc
+    await _rc.handle_myrequests(bot, user, [])
 
 
 async def handle_dj_cancelrequest(

@@ -424,14 +424,12 @@ from modules.staff_alerts import (
     handle_reportalertdebug,
 )
 from modules.dj_music import (
-    handle_dj_request, handle_dj_pick, handle_dj_queue,
-    handle_dj_nowplaying, handle_dj_skip, handle_dj_skipvote,
-    handle_dj_stopmusic, handle_dj_config, handle_dj_set,
+    handle_dj_pick,
+    handle_dj_config, handle_dj_set,
     handle_dj_debug, handle_dj_lock, handle_dj_clear,
-    handle_dj_remove, handle_dj_radio,
+    handle_dj_radio,
     handle_dj_status, handle_dj_history, handle_dj_toprequests,
     handle_dj_upnext, handle_dj_stats,
-    handle_dj_favorite, handle_dj_favorites,
     handle_dj_repeat, handle_dj_shuffle, handle_dj_autoplay, handle_dj_vibes,
     handle_dj_djprice, handle_dj_setdjprice,
     handle_dj_priorityrequest, handle_dj_viprequest,
@@ -446,13 +444,12 @@ from modules.dj_music import (
     handle_dj_setradiomount, handle_dj_setradiometadata,
     handle_dj_webplayer, handle_dj_setwebplayer,
     handle_dj_nowpage, handle_dj_setnowpage,
-    handle_dj_unfavorite,
-    handle_dj_like, handle_dj_dislike, handle_dj_songrating,
+    handle_dj_songrating,
     handle_dj_announce, handle_dj_announcequeue,
     handle_dj_limits,
     handle_dj_setrequestcooldown, handle_dj_setmaxuserqueue, handle_dj_setmaxqueue,
     handle_dj_cleanup,
-    handle_dj_songinfo, handle_dj_recent, handle_dj_myrequests,
+    handle_dj_songinfo, handle_dj_recent,
     handle_dj_cancelrequest, handle_dj_requeststatus,
     handle_dj_check, handle_dj_health, handle_dj_resetstate, handle_dj_backup,
     handle_dj_testall,
@@ -7321,18 +7318,14 @@ class HangoutBot(BaseBot):
                 await rc_pick(self, user, args)
             else:
                 await handle_dj_pick(self, user, args)
-        elif cmd in ("queue", "q"):
+        elif cmd in ("queue", "q", "djqueue"):
             await rc_queue(self, user, args)
-        elif cmd == "djqueue":
-            await handle_dj_queue(self, user)
         elif cmd in ("now", "nowplaying", "np"):
             await rc_nowplaying(self, user, args)
         elif cmd in ("skip", "djskip"):
             await rc_skip(self, user, args)
-        elif cmd == "skipvote":
-            await handle_dj_skipvote(self, user)
         elif cmd in ("stopmusic", "djstop"):
-            await handle_dj_stopmusic(self, user)
+            await handle_dj_clear(self, user)
         elif cmd == "clearqueue":
             await rc_clearqueue(self, user, args)
         elif cmd in ("djconfig", "djsettings"):
@@ -7359,8 +7352,6 @@ class HangoutBot(BaseBot):
             await handle_dj_lock(self, user, args)
         elif cmd == "djclear":
             await handle_dj_clear(self, user)
-        elif cmd == "djremove":
-            await handle_dj_remove(self, user, args)
         elif cmd == "radio":
             await handle_dj_radio(self, user)
         elif cmd == "djstatus":
@@ -7481,9 +7472,9 @@ class HangoutBot(BaseBot):
             await handle_unbanrequester(self, user, args)
         elif cmd == "queueadmin":
             await handle_queueadmin(self, user, args)
-        elif cmd == "remove":
+        elif cmd in ("remove", "djremove"):
             await rc_remove(self, user, args)
-        elif cmd == "voteskip":
+        elif cmd in ("voteskip", "skipvote"):
             await rc_voteskip(self, user, args)
         elif cmd == "vibe":
             await rc_vibe(self, user, args)
