@@ -1647,7 +1647,8 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         coins_c = job.get("coins_charged", 0)
         if coins_c > 0:
             _refund_coins(uid, coins_c)
-        await _w(bot, uid, "❌ YouTube blocked this track. Try another version.")
+        refund_note = f" {coins_c:,} coins refunded." if coins_c > 0 else ""
+        await _w(bot, uid, f"❌ Couldn't prepare that song. Try another version.{refund_note}")
 
     except asyncio.TimeoutError:
         _update_job(
@@ -1662,7 +1663,8 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         coins_c = job.get("coins_charged", 0)
         if coins_c > 0:
             _refund_coins(uid, coins_c)
-        await _w(bot, uid, "❌ YouTube blocked this track. Try another version.")
+        refund_note = f" {coins_c:,} coins refunded." if coins_c > 0 else ""
+        await _w(bot, uid, f"❌ Couldn't prepare that song. Try again.{refund_note}")
 
     except Exception as exc:
         import traceback as _tb

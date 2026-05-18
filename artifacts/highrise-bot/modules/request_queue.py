@@ -347,6 +347,21 @@ def active_count() -> int:
         return 0
 
 
+def user_active_count(user_id: str) -> int:
+    """Count of in-flight jobs for a specific user (pending → playing)."""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM yt_request_jobs "
+                f"WHERE user_id=? AND status IN ({_ACT_PH}) AND played_at IS NULL",
+                (user_id, *_ACTIVE),
+            ).fetchone()
+            return row[0] if row else 0
+    except Exception as exc:
+        print(f"{_LOG} user_active_count error: {exc}")
+        return 0
+
+
 def future_count() -> int:
     """
     Count of jobs waiting to play: downloading, downloaded, uploading, ready.

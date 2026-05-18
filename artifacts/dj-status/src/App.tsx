@@ -393,6 +393,59 @@ function RecentStrip({ recent }: { recent: RecentEntry[] }) {
   );
 }
 
+/* ── Cleanup button ── */
+function CleanupCard() {
+  const [state, setState] = useState<"idle" | "loading" | "ok" | "err">("idle");
+  const [msg, setMsg] = useState("");
+
+  const handleCleanup = useCallback(async () => {
+    setState("loading");
+    try {
+      const resp = await fetch("/api/dj/cleanup", { method: "POST" });
+      const body = await resp.json().catch(() => ({}));
+      if (resp.ok) {
+        setMsg((body as { message?: string }).message ?? "Cleanup queued.");
+        setState("ok");
+      } else {
+        setMsg((body as { error?: string }).error ?? `HTTP ${resp.status}`);
+        setState("err");
+      }
+    } catch {
+      setMsg("Could not reach the API.");
+      setState("err");
+    }
+    setTimeout(() => setState("idle"), 6000);
+  }, []);
+
+  return (
+    <div className="card card-radio-info" style={{ marginTop: "0.75rem" }}>
+      <div className="card-header">
+        <span className="icon">🧹</span>
+        <span className="card-title">Maintenance</span>
+      </div>
+      <div style={{ padding: "0.75rem 1rem 1rem" }}>
+        <p style={{ color: "var(--text-2)", fontSize: "0.8rem", marginBottom: "0.75rem" }}>
+          Clears stale files from the AzuraCast Requests playlist. The bot processes this within 60 s.
+        </p>
+        <button
+          onClick={handleCleanup}
+          disabled={state === "loading"}
+          className="btn btn-radio"
+          style={{ opacity: state === "loading" ? 0.6 : 1, cursor: state === "loading" ? "wait" : "pointer" }}
+        >
+          {state === "loading" ? "⏳ Queuing…" : "🧹 Clean Requests Playlist"}
+        </button>
+        {state === "ok" && (
+          <p style={{ color: "var(--green)", fontSize: "0.8rem", marginTop: "0.5rem" }}>✅ {msg}</p>
+        )}
+        {state === "err" && (
+          <p style={{ color: "var(--red, #f87171)", fontSize: "0.8rem", marginTop: "0.5rem" }}>❌ {msg}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Root app ── */
 export default function App() {
   const [status, setStatus] = useState<DjStatus | null>(null);
@@ -495,6 +548,9 @@ export default function App() {
               streamLive={status.stream_live}
               radioUrl={status.radio_url}
             />
+
+            {/* Maintenance */}
+            <CleanupCard />
           </>
         )}
       </main>

@@ -243,6 +243,20 @@ def _progress_bar(elapsed: int, total: int, cells: int = 10) -> str:
     return "▰" * filled + "▱" * (cells - filled)
 
 
+# ─── Title noise stripper (for search results display) ────────────────────────
+_TITLE_NOISE = re.compile(
+    r"\s*[\(\[]\s*(?:official\s+(?:music\s+)?(?:video|audio|lyric\s+video|visualizer)"
+    r"|lyric(?:s|\s+video)?|visualizer|audio|hd|4k|full\s+(?:video|song)"
+    r"|official)\s*[\)\]]\s*",
+    re.IGNORECASE,
+)
+
+
+def _clean_title(title: str) -> str:
+    """Strip common YouTube noise for compact display (Official Video, Lyrics, etc.)."""
+    return _TITLE_NOISE.sub(" ", title).strip()
+
+
 async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
     try:
         await bot.highrise.send_whisper(uid, msg[:249])
@@ -305,6 +319,16 @@ async def _submit_url(
         )
         return
 
+    # Per-user queue limit
+    if not is_staff:
+        u_count = rq.user_active_count(uid)
+        if u_count >= cs.MAX_PER_USER_JOBS:
+            await _w(
+                bot, uid,
+                f"📋 You already have {u_count} song(s) queued. Wait for them to play first.",
+            )
+            return
+
     # Price + payment
     price = ps.request_cost_for(uname)
     ok, err = ps.charge(uid, price)
@@ -321,7 +345,7 @@ async def _submit_url(
     # Confirmation whisper — spec format (title/artist only when known from !pick)
     _title  = ((metadata.get("title")  or "") if metadata else "")[:55]
     _artist = ((metadata.get("artist") or metadata.get("uploader") or "") if metadata else "")[:30]
-    _lines  = ["✅ Added to UP NEXT"]
+    _lines  = ["✅ Added to queue"]
     if _title:
         _lines.append(f"Title: {_title}")
     if _artist:
@@ -392,11 +416,12 @@ async def handle_request(
 
     rq.set_pending_search(user.id, results)
     max_min = cs.MAX_DURATION_SECS // 60
-    lines   = ["🎵 Top results — reply !pick <1-5>:"]
+    lines   = ["🎵 Pick a result — reply !pick <1-5>:"]
     for i, r in enumerate(results, 1):
-        flag = " ⚠️" if r.get("duration_secs", 0) > cs.MAX_DURATION_SECS else ""
-        lines.append(f"{i}. {r['title'][:44]} [{r.get('duration', '?')}]{flag}")
-    lines.append(f"(Max {max_min}m/track)")
+        flag  = " ⚠️" if r.get("duration_secs", 0) > cs.MAX_DURATION_SECS else ""
+        clean = _clean_title(r["title"])[:36]
+        lines.append(f"{i}. {clean} [{r.get('duration', '?')}]{flag}")
+    lines.append(f"(Max {max_min}m)")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -570,7 +595,8 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         t    = (j.get("title")    or "…").strip()[:_TTMAX]
         a    = (j.get("artist")   or "").strip()[:15]
         u    = (j.get("username") or "?").strip()[:12]
-        icon = "✅" if j.get("status") == "ready" else "⏳"
+        st   = j.get("status", "")
+        icon = "✅" if st == "ready" else ("❌" if st in ("error", "failed_download") else "⏳")
         if a:
             rows.append(f"{i}. {t} - {a} - @{u} {icon}")
         else:
@@ -760,6 +786,61 @@ async def handle_remove(bot: "BaseBot", user: "User", args: list) -> None:
     await _w(bot, user.id, f"✅ Removed: {title}{note}")
 
 
+# ─── !cancel ──────────────────────────────────────────────────────────────────
+
+async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
+    """!cancel [#] — cancel your own pending request by position in your queue."""
+    uid  = user.id
+    all_pending = rq.pending_jobs()
+    user_jobs   = [j for j in all_pending if j.get("user_id") == uid
+                   and j.get("status") not in ("playing",)]
+
+    if not user_jobs:
+        await _w(bot, uid, "📋 You have no pending requests to cancel.")
+        return
+
+    if len(user_jobs) > 1 and (len(args) < 2 or not args[1].isdigit()):
+        lines = [f"📋 Your requests (use !cancel <#>):"]
+        for i, j in enumerate(user_jobs, 1):
+            t = (j.get("title") or "downloading…")[:30]
+            lines.append(f"  {i}. {t}")
+        await _w(bot, uid, "\n".join(lines)[:249])
+        return
+
+    if len(args) > 1 and args[1].isdigit():
+        idx = int(args[1]) - 1
+        if idx < 0 or idx >= len(user_jobs):
+            await _w(bot, uid, f"⚠️ You have {len(user_jobs)} request(s). Use !cancel 1–{len(user_jobs)}.")
+            return
+        job = user_jobs[idx]
+    else:
+        job = user_jobs[0]
+
+    jid   = job["id"]
+    title = (job.get("title") or "in progress")[:40]
+    coins = job.get("coins_charged", 0)
+
+    cancelled = rq.cancel_job(jid, "cancelled_by_user")
+    if not cancelled:
+        await _w(bot, uid, "⚠️ Could not cancel — it may have just started playing.")
+        return
+
+    note = ""
+    if coins > 0:
+        ps.refund(uid, coins, "cancelled_by_user")
+        note = f"\n💸 {coins:,} coins refunded."
+
+    loop = asyncio.get_running_loop()
+    fid  = (job.get("azura_file_id") or "").strip()
+    fn   = (job.get("filename")      or "").strip()
+    if fid:
+        loop.run_in_executor(None, azura.delete_media_file, fid)
+    elif fn:
+        loop.run_in_executor(None, azura.sftp_delete_file, fn)
+
+    await _w(bot, uid, f"✅ Cancelled: {title}{note}")
+
+
 # ─── !clearqueue ──────────────────────────────────────────────────────────────
 
 async def handle_clearqueue(bot: "BaseBot", user: "User", _args: list) -> None:
@@ -928,13 +1009,11 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
     """!radiohelp — whisper the radio command reference card."""
     price    = cs.request_price()
     cost_str = f"{price:,} coins" if price else "free"
-    thresh   = cs.voteskip_threshold()
     await _w(
         bot, user.id,
-        f"📻 Radio commands:\n"
-        f"!request <song/URL> ({cost_str}) | !queue (!q) | !nowplaying | !history\n"
-        f"!voteskip ({thresh} votes needed)\n"
-        f"Staff: !skip | !remove <#> | !clearqueue | !vibe <mode> | !setrequestprice",
+        f"📻 DJ DUDU commands:\n"
+        f"!request <song/URL> ({cost_str}) | !pick <1-5>\n"
+        f"!q | !now | !voteskip | !cancel | !radiohelp",
     )
 
 
@@ -1099,6 +1178,21 @@ async def handle_myrequests(bot: "BaseBot", user: "User", _args: list) -> None:
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
 
+async def _cleanup_poll_task() -> None:
+    """Poll every 60 s for the cleanup_requested DB flag and run reconcile when set."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            flag = db.get_room_setting("cleanup_requested", "0")
+            if flag == "1":
+                db.set_room_setting("cleanup_requested", "0")
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(None, azura.reconcile_requests_playlist)
+                print(f"{_LOG} stage=cleanup_poll result={result!r}")
+        except Exception as exc:
+            print(f"{_LOG} cleanup_poll error: {exc}")
+
+
 async def startup_radio(bot: "BaseBot") -> None:
     """
     Called from on_start for the DJ bot.
@@ -1107,6 +1201,7 @@ async def startup_radio(bot: "BaseBot") -> None:
     from modules.media_cleanup import start as _start_cleanup
     print(f"{_LOG} Starting radio / playback engine…")
     await _start_cleanup(bot)
+    asyncio.create_task(_cleanup_poll_task())
 
 
 # ─── Safety guard ─────────────────────────────────────────────────────────────
@@ -1154,3 +1249,4 @@ handle_unfavorite      = _safe(handle_unfavorite)
 handle_favorites       = _safe(handle_favorites)
 handle_removefavorite  = _safe(handle_removefavorite)
 handle_myrequests      = _safe(handle_myrequests)
+handle_cancel          = _safe(handle_cancel)

@@ -250,7 +250,7 @@ def _db_match_request(
     Strategy 4: video_id substring in media path or song hash.
     Strategy 5: title substring match (last fallback — only without reliable path info).
     """
-    active = ("done", "queued", "playing")
+    active = ("ready", "playing")
     ph     = ",".join("?" * len(active))
 
     # Strategy 0: match by numeric azura_file_id (= media.id from NP API)

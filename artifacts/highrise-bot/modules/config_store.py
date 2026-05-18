@@ -104,6 +104,7 @@ def admin_requests_ignore_leave() -> bool:
 MAX_DURATION_SECS: int = int(os.environ.get("REQUEST_MAX_DURATION", "600") or "600")
 DEDUP_WINDOW_SECS: int = 86400
 MAX_ACTIVE_JOBS:   int = int(os.environ.get("REQUEST_MAX_QUEUE", "5") or "5")
+MAX_PER_USER_JOBS: int = int(os.environ.get("REQUEST_MAX_PER_USER", "3") or "3")
 
 
 # ─── Auto-behaviours ──────────────────────────────────────────────────────────

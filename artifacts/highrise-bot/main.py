@@ -494,6 +494,7 @@ from modules.radio_commands import (
     handle_favorites       as rc_favorites,
     handle_removefavorite  as rc_removefavorite,
     handle_myrequests      as rc_myrequests,
+    handle_cancel          as rc_cancel,
     startup_radio,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7498,6 +7499,8 @@ class HangoutBot(BaseBot):
             await handle_dj_recent(self, user)
         elif cmd == "myrequests":
             await rc_myrequests(self, user, args)
+        elif cmd == "cancel":
+            await rc_cancel(self, user, args)
         elif cmd == "cancelrequest":
             await handle_dj_cancelrequest(self, user, args)
         elif cmd == "requeststatus":

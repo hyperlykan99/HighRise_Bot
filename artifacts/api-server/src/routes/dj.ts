@@ -16,11 +16,10 @@ const DB_PATH = path.isAbsolute(SHARED_DB) ? SHARED_DB : path.join(BOT_DIR, SHAR
 // AZURA_API_KEY is used only by the Python bot and must NEVER be forwarded here.
 const AZURACAST_STREAM_URL = process.env.AZURACAST_STREAM_URL?.trim() || null;
 
-// Statuses that represent songs waiting to play — mirrors display_jobs() in request_queue.py.
-// "staged"  = download done, waiting for /Requests SFTP slot (Option A)
-// "done"    = uploaded, waiting for playback_engine to promote to "queued"
-// Excludes: downloading/uploading (pipeline in-progress), playing/played/error (terminal)
-const PENDING_STATUSES = ["pending", "staged", "done", "queued"] as const;
+// Statuses that represent songs in the prepare pipeline — mirrors display_jobs() in request_queue.py.
+// "ready" = uploaded and registered in AzuraCast Requests playlist, awaiting playback
+// Excludes: playing (on air), played/error (terminal)
+const PENDING_STATUSES = ["pending", "downloading", "downloaded", "uploading", "ready"] as const;
 
 interface NowPlaying {
   id: number;
@@ -49,6 +48,10 @@ interface RecentEntry {
 
 function openDb(): Database.Database {
   return new Database(DB_PATH, { readonly: true, fileMustExist: true });
+}
+
+function openDbWrite(): Database.Database {
+  return new Database(DB_PATH, { readonly: false, fileMustExist: true });
 }
 
 function getSetting(db: Database.Database, key: string, fallback = ""): string {
@@ -229,6 +232,29 @@ router.get("/dj/status", (_req, res) => {
     }
   } finally {
     db?.close();
+  }
+});
+
+// ─── POST /dj/cleanup — queue a requests-playlist reconciliation ─────────────
+// Sets a flag in room_settings; the Python bot polls and runs reconcile within 60s.
+router.post("/dj/cleanup", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  let wdb: Database.Database | null = null;
+  try {
+    wdb = openDbWrite();
+    wdb
+      .prepare(
+        "INSERT INTO room_settings (key, value) VALUES ('cleanup_requested', '1') " +
+        "ON CONFLICT(key) DO UPDATE SET value = '1'",
+      )
+      .run();
+    res.json({ ok: true, message: "Cleanup queued — the bot will process it within 60s." });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "DJ cleanup trigger failed");
+    res.status(500).json({ error: msg });
+  } finally {
+    wdb?.close();
   }
 });
 
