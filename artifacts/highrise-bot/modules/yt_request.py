@@ -1264,15 +1264,33 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         # Background thread is still closing the SSH connection — that's fine.
 
     except Exception as exc:
-        err = str(exc)[:120]
-        _update_job(jid, status="error", error=err, finished_at=time.time())
+        import traceback as _tb
+        err = str(exc)
+        _update_job(jid, status="error", error=err[:200], finished_at=time.time())
         print(f"[YT_REQUEST] Job #{jid} — FAILED: {exc}")
+        _tb.print_exc()
         coins_c = job.get("coins_charged", 0)
+        # Classify error into a short user-friendly reason (≤ 249 chars total)
+        el = err.lower()
+        if any(k in el for k in ("unavailable", "private", "removed", "not available", "does not exist")):
+            err_short = "Video unavailable or private."
+        elif any(k in el for k in ("too long", "duration", "exceeds max")):
+            err_short = "Video is too long."
+        elif any(k in el for k in ("sftp", "upload", "ssh", "paramiko")):
+            err_short = "Upload failed — please try again."
+        elif "timeout" in el:
+            err_short = "Connection timed out — please try again."
+        elif any(k in el for k in ("403", "forbidden", "copyright", "blocked")):
+            err_short = "Video is region-locked or blocked."
+        elif any(k in el for k in ("no video", "no audio", "format", "codec")):
+            err_short = "No downloadable audio found."
+        else:
+            err_short = err[:60].strip() or "Unknown error."
         if coins_c > 0:
             _refund_coins(uid, coins_c)
-            await _w(bot, uid, "❌ Could not process your request. Your coins have been refunded.")
+            await _w(bot, uid, f"❌ Request failed: {err_short} {coins_c:,} coins refunded.")
         else:
-            await _w(bot, uid, "❌ Could not process your request.")
+            await _w(bot, uid, f"❌ Request failed: {err_short}")
 
     finally:
         # Clear presence tracking (job done or failed)

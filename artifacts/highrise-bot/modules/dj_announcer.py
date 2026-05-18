@@ -46,38 +46,19 @@ async def announce_now_playing(
     vibe: str = "chill",
 ) -> None:
     """
-    Polished multi-line room announcement for a new track.
+    Short 3-line room announcement for a new AutoDJ track.
 
-    If `requester` is provided the REQUEST LIVE format is used.
-    Otherwise the chill / party vibe format is used.
+    If `requester` is provided the REQUEST LIVE format is used instead.
     """
-    track = _track_label(title, artist)[:70]
-
     if requester:
         await announce_request_live(bot, title, artist, requester)
         return
 
+    track = _track_label(title, artist)[:70]
     if vibe == "party":
-        msg = (
-            f"🎙️  NOW PLAYING  🎙️\n"
-            f"{_DIV}\n"
-            f"🔥 Vibe: Party Mode\n"
-            f"🎵 {track}\n"
-            f"📻 {_STATION}\n"
-            f"{_DIV}\n"
-            f"Turn it up — party vibes 🪩"
-        )
+        msg = f"▶ NOW PLAYING\n🎵 {track}\n🔥 AutoDJ • Party"
     else:
-        msg = (
-            f"🎙️  NOW PLAYING  🎙️\n"
-            f"{_DIV}\n"
-            f"🌙 Vibe: Chill\n"
-            f"🎵 {track}\n"
-            f"📻 {_STATION}\n"
-            f"{_DIV}\n"
-            f"Relax & vibe ✨"
-        )
-
+        msg = f"▶ NOW PLAYING\n🎵 {track}\n🌙 AutoDJ • Chill"
     await _say(bot, msg)
 
 
@@ -90,20 +71,14 @@ async def announce_request_live(
     requester: str = "",
 ) -> None:
     """
-    Polished REQUEST LIVE room announcement fired when skip-verify confirms
+    Short 3-line REQUEST LIVE room announcement fired when skip-verify confirms
     the requested song is actually playing on AzuraCast.
     """
-    track    = _track_label(title, artist)[:70]
-    req_line = f"🙋 Requested by: @{requester[:20]}\n" if requester else ""
-    msg = (
-        f"🎧  REQUEST LIVE  🎧\n"
-        f"{_DIV}\n"
-        f"🎵 {track}\n"
-        f"{req_line}"
-        f"📻 {_STATION}\n"
-        f"{_DIV}\n"
-        f"Your request is on air 🔊"
-    )
+    track = _track_label(title, artist)[:70]
+    if requester:
+        msg = f"🎧 REQUEST LIVE\n🎵 {track}\n🙋 @{requester[:20]}"
+    else:
+        msg = f"🎧 REQUEST LIVE\n🎵 {track}"
     await _say(bot, msg)
 
 

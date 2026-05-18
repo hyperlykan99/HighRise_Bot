@@ -356,9 +356,13 @@ async def _on_new_track(bot: "BaseBot", song: dict) -> None:
         req_uname = match.get("username") or ""
         with _lock:
             _cur_req_id = match["id"]
-        if match.get("status") != "playing":
+        if match.get("status") == "playing":
+            # _verified_skip_task already set status + announced to the room —
+            # suppress the duplicate room announce here.
+            print(f"{_LOG} Request already announced by skip task — no duplicate announce")
+        else:
             _db_set_status(match["id"], "playing")
-        await ann.announce_request_live(bot, req_title, "", req_uname)
+            await ann.announce_request_live(bot, req_title, "", req_uname)
         print(f"{_LOG} Now playing REQUEST: {req_title!r} by @{req_uname}")
     else:
         with _lock:

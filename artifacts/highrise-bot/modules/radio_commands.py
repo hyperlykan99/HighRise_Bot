@@ -301,7 +301,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
 # ─── !nowplaying ──────────────────────────────────────────────────────────────
 
 async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!nowplaying / !now / !np — media-player style now-playing card."""
+    """!nowplaying / !now / !np — compact vertical now-playing card."""
     loop = asyncio.get_running_loop()
     np   = await loop.run_in_executor(None, azura.fetch_nowplaying)
 
@@ -324,40 +324,34 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
     else:
         track = title
 
-    # Vibe / mode label
+    # Source / mode label — AutoDJ vs Request
     cp = rq.currently_playing()
     if cp:
-        vibe_label = "Request 🎧"
+        req_uname   = (cp.get("username") or "")[:20]
+        source_line = f"🎧 Request • @{req_uname}" if req_uname else "🎧 Request"
     elif cs.vibe() == "party":
-        vibe_label = "Party Mode 🔥"
+        source_line = "🔥 AutoDJ • Party"
     else:
-        vibe_label = "Chill 🌙"
+        source_line = "🌙 AutoDJ • Chill"
 
     # Progress bar + time string
     if duration:
         bar      = _progress_bar(elapsed, duration)
-        time_str = f"{_fmt_secs(elapsed)} / {_fmt_secs(duration)}"
+        time_str = f"⏱ {_fmt_secs(elapsed)} / {_fmt_secs(duration)}"
     else:
-        bar      = "▰▰▰▱▱▱▱▱▱▱"
-        time_str = "Live stream"
+        bar      = None
+        time_str = "📡 Live Stream"
 
-    # Optional requester line
-    req_line = ""
-    if cp and cp.get("username"):
-        req_line = f"\n│ 🙋 @{cp['username'][:20]}"
+    lines = [
+        "▶ NOW PLAYING",
+        f"🎵 {track[:55]}",
+        source_line,
+        time_str,
+    ]
+    if bar:
+        lines.append(bar)
 
-    msg = (
-        f"╭─ 🎧 ChillTopia Player ─╮\n"
-        f"│ ▶ Now Playing\n"
-        f"│ 🎵 {track[:45]}\n"
-        f"│ 🌙 Vibe: {vibe_label}\n"
-        f"│ ⏱ {time_str}\n"
-        f"│ {bar}\n"
-        f"│ 📻 Live Radio"
-        f"{req_line}\n"
-        f"╰────────────────────╯"
-    )
-    await _w(bot, user.id, msg[:249])
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ─── !skip ────────────────────────────────────────────────────────────────────
