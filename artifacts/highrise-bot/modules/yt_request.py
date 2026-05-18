@@ -1125,27 +1125,35 @@ def _azura_api_cfg() -> "dict | None":
 def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = None, loop: "object | None" = None) -> None:
     """
     Blocking post-SFTP API step.  Called from the upload daemon thread AFTER
-    sftp.put() has returned and the success whisper has already been sent.
+    sftp.put() has returned.
 
     Steps
     ─────
     1. Wait _API_WAIT_SECS for AzuraCast to notice the file on disk.
-    2. POST rescan           (stage=media_rescan)   — index the Requests folder.
-    3. GET search + retry   (stage=media_lookup)   — find media_id by filename.
-       Re-triggers rescan on every other failed attempt.
-    4. POST/PUT assign      (stage=playlist_assign) — two methods tried in order:
+    2. POST rescan           (stage=media_rescan)    — index the Requests folder.
+    3. GET search + retry   (stage=media_lookup)    — find media_id by filename,
+       path, or title/youtube_id fallback.  Re-triggers rescan on every other
+       failed attempt.
+    4. Resolve playlist_id  (stage=playlist_lookup) — AZURA_PLAYLIST_ID env var
+       first; if not set, GET /playlists and match by name "Requests".
+       ABORT (refund + error whisper) if playlist_id cannot be resolved.
+    5. POST/PUT assign      (stage=playlist_assign)  — two methods tried in order:
          A. batch endpoint  POST /files/batch {"do":"playlist",...}
          B. direct PUT      PUT /file/{id}    {"playlists":[id]}
-    5. GET verify           (stage=playlist_verify) — confirm file is in playlist.
-       If not confirmed, retry once with method B then verify again.
-    6. POST request queue   (stage=azuracast_skip)  — submit for skip by
-       playback_engine._verified_skip_task.
+       ABORT (refund + error whisper) if both methods fail to verify.
+    6. GET verify           (stage=playlist_verify)  — confirm file is in playlist.
+    7. POST skip            (stage=azuracast_skip)   — skip current song so the
+       request plays immediately.
+
+    Abort behaviour (playlist_id missing OR assignment verification fails):
+      • Refund coins_charged to the requester.
+      • Whisper "❌ Request upload failed. Try again." to the requester.
+      • Set job status='error' in DB.
+      • Do NOT call skip — do NOT send any room announcement.
 
     Log fields on every line:
-      stage=  filename=  media_id=  playlist_id=  result=success|fail|...
-    All HTTP responses are logged in full.  Every error is non-fatal; this
-    function never raises.  Skipped silently when AZURA_BASE_URL / AZURA_API_KEY
-    are not set.
+      stage=  filename=  media_id=  playlist_id=  result=
+    All HTTP response bodies are logged.  Never raises.
     """
     import requests as req_lib
 
@@ -1223,7 +1231,88 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
             pass
         return False
 
+    def _lookup_playlist_by_name(*names: str) -> str:
+        """
+        GET /api/station/{sid}/playlists and return the id of the first playlist
+        whose name matches any of `names` (case-insensitive).  Returns '' on
+        error or no match.
+
+        stage=playlist_lookup  result=success|not_found|error|http_<N>
+        """
+        try:
+            r = req_lib.get(
+                f"{base}/api/station/{sid}/playlists",
+                headers=headers,
+                timeout=15,
+            )
+            _rlog("playlist_lookup", f"http_{r.status_code}",
+                  response_body=repr(r.text[:400]))
+            if r.status_code == 200:
+                items = r.json() if isinstance(r.json(), list) else []
+                targets = [n.lower().strip() for n in names]
+                for item in items:
+                    pl_name = (item.get("name") or "").strip().lower()
+                    if pl_name in targets:
+                        found = str(item.get("id") or "")
+                        _rlog("playlist_lookup", "success",
+                              found_id=repr(found),
+                              matched_name=repr(pl_name))
+                        return found
+            _rlog("playlist_lookup", "not_found",
+                  names_tried=repr(list(names)))
+        except Exception as exc:
+            _rlog("playlist_lookup", "error", exception=repr(str(exc)))
+        return ""
+
+    def _abort_request(reason: str) -> None:
+        """
+        Refund coins_charged, whisper error to requester, set job status=error.
+        Called when playlist assignment cannot be confirmed.  Non-fatal.
+        """
+        if _coins_charged > 0 and _uid:
+            try:
+                _refund_coins(_uid, _coins_charged)
+                _rlog("user_refund", "success",
+                      reason=reason, coins=str(_coins_charged))
+            except Exception as _re:
+                _rlog("user_refund", "error",
+                      reason=reason, exception=repr(str(_re)))
+        if db_id:
+            try:
+                _db_update_job(db_id, status="error",
+                               error=reason, finished_at=time.time())
+            except Exception:
+                pass
+        if bot and loop and _uid:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    bot.highrise.send_whisper(
+                        _uid, "❌ Request upload failed. Try again."
+                    ),
+                    loop,
+                ).result(5)
+            except Exception as _we:
+                _rlog("whisper_error", "fail",
+                      reason=reason, exception=repr(str(_we)))
+
     try:
+        # ── 0. Look up requester info for abort / refund handling ─────────
+        _uid:           str = ""
+        _coins_charged: int = 0
+        if db_id:
+            try:
+                with sqlite3.connect(_DB_PATH) as _uc:
+                    _ur = _uc.execute(
+                        "SELECT user_id, coins_charged"
+                        " FROM yt_request_jobs WHERE id=?",
+                        (db_id,),
+                    ).fetchone()
+                if _ur:
+                    _uid           = (_ur[0] or "").strip()
+                    _coins_charged = int(_ur[1] or 0)
+            except Exception:
+                pass
+
         # ── 1. Wait ──────────────────────────────────────────────────────────
         _rlog("media_rescan", "waiting", label=f"sleep_{_API_WAIT_SECS}s")
         time.sleep(_API_WAIT_SECS)
@@ -1323,68 +1412,82 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
                   note="aborting_playlist_assign_and_skip")
             return
 
-        # ── 4. Assign to Requests playlist (stage=playlist_assign) ───────────
-        # Do NOT rely on folder rules ("Apply to Folders") — explicitly assign.
-        # Method A: batch API  POST /files/batch {"do":"playlist",...}
-        # Method B: direct PUT PUT /file/{id}    {"playlists":[int(pid)]}
-        # Both are attempted; method B is always tried when A's verify fails.
+        # ── 4a. Resolve playlist_id — env var first, then name lookup ────────
+        # Never rely on "Apply to Folders" — always explicitly assign.
         if not playlist_id:
-            _rlog("playlist_assign", "skipped", media_id=file_id,
-                  note="AZURA_PLAYLIST_ID_not_set")
-        else:
-            # ── Method A: batch ───────────────────────────────────────────────
+            _rlog("playlist_lookup", "env_var_not_set",
+                  note="falling_back_to_name_lookup")
+            playlist_id = _lookup_playlist_by_name("Requests", "Request")
+
+        if not playlist_id:
+            _rlog("playlist_assign", "aborted", media_id=file_id,
+                  note="playlist_id_unavailable_no_env_var_and_name_lookup_failed")
+            _abort_request("playlist_id_not_found")
+            return
+
+        # ── 4. Assign to Requests playlist ────────────────────────────────────
+        # Method A: batch  POST /files/batch {"do":"playlist",...}
+        # Method B: direct PUT  PUT /file/{id} {"playlists":[pid]}
+        # If BOTH verify fail → abort: refund + error whisper + no skip.
+        try:
+            resp = req_lib.post(
+                batch_url,
+                json={"do": "playlist", "playlist": playlist_id, "files": [file_id]},
+                headers=headers,
+                timeout=15,
+            )
+            _rlog("playlist_assign", "success" if resp.status_code in (200, 204) else "fail",
+                  media_id=file_id, method="batch",
+                  http_status=str(resp.status_code),
+                  response_body=repr(resp.text[:300]))
+        except Exception as exc:
+            _rlog("playlist_assign", "error", media_id=file_id, method="batch",
+                  exception=repr(str(exc)))
+
+        # Small pause so AzuraCast can process the batch write
+        time.sleep(2)
+
+        # ── 5a. Verify method A ───────────────────────────────────────────────
+        in_pl = _check_in_playlist(file_id)
+        _rlog("playlist_verify", "success" if in_pl else "fail", media_id=file_id)
+
+        if not in_pl:
+            # ── Method B: direct PUT /file/{id} {"playlists":[pid]} ──────────
+            # Some AzuraCast versions silently ignore the batch playlist action;
+            # the PUT file-update endpoint is more reliable.
+            _rlog("playlist_assign", "trying_method_b", media_id=file_id, method="put")
             try:
-                resp = req_lib.post(
-                    batch_url,
-                    json={"do": "playlist", "playlist": playlist_id, "files": [file_id]},
+                try:
+                    pid_val: "int | str" = int(playlist_id)
+                except ValueError:
+                    pid_val = playlist_id
+                resp = req_lib.put(
+                    f"{base}/api/station/{sid}/file/{file_id}",
+                    json={"playlists": [pid_val]},
                     headers=headers,
                     timeout=15,
                 )
                 _rlog("playlist_assign", "success" if resp.status_code in (200, 204) else "fail",
-                      media_id=file_id, method="batch",
+                      media_id=file_id, method="put",
                       http_status=str(resp.status_code),
                       response_body=repr(resp.text[:300]))
             except Exception as exc:
-                _rlog("playlist_assign", "error", media_id=file_id, method="batch",
+                _rlog("playlist_assign", "error", media_id=file_id, method="put",
                       exception=repr(str(exc)))
 
-            # Small pause so AzuraCast can process the batch write
             time.sleep(2)
 
-            # ── Stage 5 (first check): verify method A worked ─────────────────
+            # ── 5b. Verify method B ───────────────────────────────────────────
             in_pl = _check_in_playlist(file_id)
-            _rlog("playlist_verify", "success" if in_pl else "fail", media_id=file_id)
+            _rlog("playlist_verify", "success" if in_pl else "fail",
+                  media_id=file_id, attempt="2")
 
             if not in_pl:
-                # ── Method B: direct PUT /file/{id} {"playlists":[pid]} ───────
-                # Some AzuraCast versions silently ignore the batch playlist action;
-                # the PUT file-update endpoint is more reliable.
-                _rlog("playlist_assign", "trying_method_b", media_id=file_id, method="put")
-                try:
-                    try:
-                        pid_val: "int | str" = int(playlist_id)
-                    except ValueError:
-                        pid_val = playlist_id
-                    resp = req_lib.put(
-                        f"{base}/api/station/{sid}/file/{file_id}",
-                        json={"playlists": [pid_val]},
-                        headers=headers,
-                        timeout=15,
-                    )
-                    _rlog("playlist_assign", "success" if resp.status_code in (200, 204) else "fail",
-                          media_id=file_id, method="put",
-                          http_status=str(resp.status_code),
-                          response_body=repr(resp.text[:300]))
-                except Exception as exc:
-                    _rlog("playlist_assign", "error", media_id=file_id, method="put",
-                          exception=repr(str(exc)))
-
-                time.sleep(2)
-
-                # ── Stage 5 (second check): verify method B worked ────────────
-                in_pl = _check_in_playlist(file_id)
-                _rlog("playlist_verify", "success" if in_pl else "fail",
-                      media_id=file_id, attempt="2")
+                # Both methods failed verification — abort, refund, notify user.
+                _rlog("playlist_assign", "final_fail", media_id=file_id,
+                      note="both_methods_failed_aborting_skip_user_notified")
+                _abort_request("playlist_assign_failed")
+                return
 
         # ── 6. Wait 3s → backend skip → poll Now Playing 15s → announce ──────
         # Resolve requester info for the room announcement
