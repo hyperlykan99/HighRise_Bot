@@ -44,11 +44,19 @@ interface Stats {
   preparing_count:     number;
 }
 
+interface Health {
+  azuracast:       boolean | null;
+  queue_worker:    boolean | null;
+  cleanup_worker:  boolean | null;
+  download_worker: boolean | null;
+}
+
 interface DjStatus {
   now_playing: NowPlaying | null;
   queue: QueueEntry[];
   recent: RecentEntry[];
   stats: Stats;
+  health: Health;
   radio_url: string | null;
   queue_open: boolean;
   updated_at: string;
@@ -186,6 +194,63 @@ function NowPlayingHero({ song, radioUrl }: { song: NowPlaying | null; radioUrl:
             <div className="vinyl-label">🎵</div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Health indicator dot ── */
+function HealthDot({ ok }: { ok: boolean | null }) {
+  if (ok === null) return <span className="health-dot health-dot-unknown" title="Unknown" />;
+  return ok
+    ? <span className="health-dot health-dot-ok" title="OK" />
+    : <span className="health-dot health-dot-err" title="Down" />;
+}
+
+function healthIcon(ok: boolean | null) {
+  if (ok === null) return "⚠️";
+  return ok ? "✅" : "❌";
+}
+
+/* ── System health panel ── */
+function HealthPanel({ health, stats }: { health: Health; stats: Stats }) {
+  const vibeLabel = stats.current_vibe
+    ? stats.current_vibe.charAt(0).toUpperCase() + stats.current_vibe.slice(1)
+    : "—";
+
+  const workers: { label: string; ok: boolean | null }[] = [
+    { label: "AzuraCast",        ok: health.azuracast       },
+    { label: "Queue Worker",     ok: health.queue_worker    },
+    { label: "Cleanup Worker",   ok: health.cleanup_worker  },
+    { label: "Download Worker",  ok: health.download_worker },
+  ];
+
+  const counters: { label: string; value: string | number }[] = [
+    { label: "Current Vibe",  value: vibeLabel                                        },
+    { label: "Queue Size",    value: stats.queue_size                                  },
+    { label: "Ready",         value: stats.ready_count ?? 0                            },
+    { label: "Preparing",     value: stats.preparing_count ?? 0                        },
+  ];
+
+  return (
+    <div className="card card-health">
+      <div className="card-header">
+        <span className="icon">🖥️</span>
+        <span className="card-title">System Health</span>
+      </div>
+      <div className="health-grid">
+        {workers.map((w) => (
+          <div key={w.label} className="health-cell">
+            <span className="health-icon">{healthIcon(w.ok)}</span>
+            <span className="health-label">{w.label}</span>
+          </div>
+        ))}
+        {counters.map((c) => (
+          <div key={c.label} className="health-cell health-cell-stat">
+            <span className="health-value">{c.value}</span>
+            <span className="health-label">{c.label}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -554,6 +619,9 @@ export default function App() {
 
             {/* Stats */}
             <StatsBar stats={status.stats} />
+
+            {/* Health */}
+            <HealthPanel health={status.health ?? { azuracast: null, queue_worker: null, cleanup_worker: null, download_worker: null }} stats={status.stats} />
 
             {/* Middle grid */}
             <div className="mid-grid">

@@ -1293,7 +1293,7 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
             try:
                 asyncio.run_coroutine_threadsafe(
                     bot.highrise.send_whisper(
-                        _uid, "❌ Request upload failed. Try again."
+                        _uid, "❌ Couldn't prepare that song. Try another version."
                     ),
                     loop,
                 ).result(5)
@@ -1664,7 +1664,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         if coins_c > 0:
             _refund_coins(uid, coins_c)
         refund_note = f" {coins_c:,} coins refunded." if coins_c > 0 else ""
-        await _w(bot, uid, f"❌ Couldn't prepare that song. Try again.{refund_note}")
+        await _w(bot, uid, f"❌ Couldn't prepare that song. Try another version.{refund_note}")
 
     except Exception as exc:
         import traceback as _tb
@@ -1677,27 +1677,10 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         )
         _tb.print_exc()
         coins_c = job.get("coins_charged", 0)
-        # Classify error for a user-friendly whisper
-        el = err.lower()
-        if any(k in el for k in ("unavailable", "private", "removed", "not available", "does not exist")):
-            err_short = "Video unavailable or private."
-        elif any(k in el for k in ("too long", "duration", "exceeds max")):
-            err_short = "Video is too long."
-        elif any(k in el for k in ("sftp", "upload", "ssh", "paramiko")):
-            err_short = "Upload failed — please try again."
-        elif "timeout" in el:
-            err_short = "Connection timed out — please try again."
-        elif any(k in el for k in ("403", "forbidden", "copyright", "blocked")):
-            err_short = "Video is region-locked or blocked."
-        elif any(k in el for k in ("no video", "no audio", "format", "codec")):
-            err_short = "No downloadable audio found."
-        else:
-            err_short = err[:60].strip() or "Unknown error."
         if coins_c > 0:
             _refund_coins(uid, coins_c)
-            await _w(bot, uid, f"❌ Request failed: {err_short} {coins_c:,} coins refunded.")
-        else:
-            await _w(bot, uid, "❌ Could not process your request. Check logs.")
+        refund_note = f" {coins_c:,} coins refunded." if coins_c > 0 else ""
+        await _w(bot, uid, f"❌ Couldn't prepare that song. Try another version.{refund_note}")
 
     finally:
         # Clear presence tracking (job done or failed)
@@ -2995,6 +2978,7 @@ async def _cleanup_loop(bot_inst: "BaseBot | None" = None) -> None:
     while True:
         try:
             await asyncio.sleep(_NOWPLAYING_POLL_SECS)
+            db.set_room_setting("radio_worker_heartbeat_cleanup", str(time.time()))
             await _run_nowplaying_cycle(prev_song_id_ref, bot_inst=bot_inst)
             cycle += 1
             if cycle >= history_cycles:
@@ -3683,6 +3667,7 @@ async def radio_request_prepare_worker(
 
     while not stop_event.is_set():
         try:
+            db.set_room_setting("radio_worker_heartbeat_prepare", str(time.time()))
             stuck = ("pending", "downloading", "downloaded", "uploading")
             with sqlite3.connect(_DB_PATH) as _conn:
                 rows = _conn.execute(

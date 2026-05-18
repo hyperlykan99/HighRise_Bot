@@ -113,6 +113,20 @@ MAX_ACTIVE_JOBS:   int = int(os.environ.get("REQUEST_MAX_QUEUE", "5") or "5")
 MAX_PER_USER_JOBS: int = int(os.environ.get("REQUEST_MAX_PER_USER", "3") or "3")
 
 
+# ─── Per-user queue limit (DB-backed, admin-editable) ─────────────────────────
+
+def per_user_queue_limit() -> int:
+    """Max pending songs per player (0 = unlimited). Default from env/3."""
+    try:
+        return max(0, int(_get("per_user_queue_limit", str(MAX_PER_USER_JOBS))))
+    except Exception:
+        return MAX_PER_USER_JOBS
+
+
+def set_per_user_queue_limit(n: int) -> None:
+    _set("per_user_queue_limit", str(max(0, int(n))))
+
+
 # ─── Auto-behaviours ──────────────────────────────────────────────────────────
 
 def auto_skip_on_request() -> bool:

@@ -507,6 +507,8 @@ from modules.radio_commands import (
     handle_dislikeslist    as rc_dislikeslist,
     handle_playedby        as rc_playedby,
     handle_myplayed        as rc_myplayed,
+    handle_queuelimit      as rc_queuelimit,
+    handle_setqueuelimit   as rc_setqueuelimit,
     startup_radio,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7517,6 +7519,10 @@ class HangoutBot(BaseBot):
             await rc_playedby(self, user, args)
         elif cmd in ("myplayed", "myrequested"):
             await rc_myplayed(self, user, args)
+        elif cmd == "queuelimit":
+            await rc_queuelimit(self, user, args)
+        elif cmd == "setqueuelimit":
+            await rc_setqueuelimit(self, user, args)
         elif cmd == "setrequestprice":
             await rc_setrequestprice(self, user, args)
         elif cmd == "radiohelp":

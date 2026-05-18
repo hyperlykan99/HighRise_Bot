@@ -30,6 +30,7 @@ Song Detection  (polls every POLL_INTERVAL seconds)
 from __future__ import annotations
 import asyncio
 import threading
+import time
 from typing import TYPE_CHECKING
 
 import database as db
@@ -1003,6 +1004,7 @@ async def _poll_loop(bot: "BaseBot") -> None:
     while True:
         try:
             await asyncio.sleep(POLL_INTERVAL)
+            db.set_room_setting("radio_worker_heartbeat_queue", str(time.time()))
 
             # ── Find ready requests (uploaded + registered in AzuraCast) ─────
             all_ready = _db_find_new_ready()
@@ -1046,6 +1048,7 @@ async def _poll_loop(bot: "BaseBot") -> None:
             np = await loop.run_in_executor(None, azura.fetch_nowplaying)
             if not np:
                 continue
+            db.set_room_setting("radio_worker_heartbeat_azura", str(time.time()))
 
             np_obj   = np.get("now_playing") or {}
             song     = np_obj.get("song")    or {}

@@ -417,6 +417,48 @@ code {
    STATS BAR
 ════════════════════════════════════════ */
 
+/* ── Health panel ────────────────────────────────────────────────────────── */
+.card-health {
+  margin-bottom: 1rem;
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 0;
+}
+
+.health-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.health-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.health-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary, #f0f0f0);
+}
+
+.health-label {
+  font-size: 0.68rem;
+  color: var(--text-muted, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.health-cell-stat .health-value {
+  color: var(--accent, #a78bfa);
+}
+
 /* ── Stats dashboard (3×3 grid) ── */
 .stats-dashboard {
   display: flex;

@@ -335,8 +335,9 @@ async def _submit_url(
 
     # Per-user queue limit
     if not is_staff:
+        limit   = cs.per_user_queue_limit()
         u_count = rq.user_active_count(uid)
-        if u_count >= cs.MAX_PER_USER_JOBS:
+        if limit > 0 and u_count >= limit:
             await _w(
                 bot, uid,
                 f"📋 You already have {u_count} song(s) queued. Wait for them to play first.",
@@ -1268,6 +1269,36 @@ async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
         await bot.highrise.chat(f"🎶 Now playing: {label} vibes!"[:249])
     except Exception:
         pass
+
+
+# ─── !queuelimit / !setqueuelimit ─────────────────────────────────────────────
+
+async def handle_queuelimit(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!queuelimit — show current per-player pending queue limit (anyone)."""
+    limit = cs.per_user_queue_limit()
+    label = f"{limit} songs per player" if limit else "unlimited"
+    await _w(bot, user.id, f"📋 Queue limit: {label}.")
+
+
+async def handle_setqueuelimit(bot: "BaseBot", user: "User", args: list) -> None:
+    """!setqueuelimit <number>  — set per-player queue limit (0 = unlimited). Admin/owner only."""
+    if not is_admin(user.username):
+        await _w(bot, user.id, "❌ Admins only.")
+        return
+
+    if len(args) < 2 or not args[1].isdigit():
+        limit = cs.per_user_queue_limit()
+        label = f"{limit} songs per player" if limit else "unlimited"
+        await _w(
+            bot, user.id,
+            f"📋 Queue limit: {label}.\nUsage: !setqueuelimit <number> (0 = unlimited)",
+        )
+        return
+
+    n = max(0, int(args[1]))
+    cs.set_per_user_queue_limit(n)
+    label = f"{n} songs per player" if n else "unlimited"
+    await _w(bot, user.id, f"⚙️ Queue limit set to {label}.")
 
 
 # ─── !setrequestprice ─────────────────────────────────────────────────────────

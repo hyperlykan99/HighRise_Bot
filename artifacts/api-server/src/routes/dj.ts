@@ -65,6 +65,14 @@ function getSetting(db: Database.Database, key: string, fallback = ""): string {
   }
 }
 
+function isWorkerAlive(db: Database.Database, key: string, maxAgeSecs: number): boolean | null {
+  const val = getSetting(db, key, "");
+  if (!val) return null;
+  const ts = parseFloat(val);
+  if (isNaN(ts)) return null;
+  return Date.now() / 1000 - ts < maxAgeSecs;
+}
+
 function tableExists(db: Database.Database, name: string): boolean {
   const row = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
@@ -211,6 +219,15 @@ router.get("/dj/status", (_req, res) => {
     // Current vibe from room_settings
     const currentVibe = getSetting(db, "vibe", "chill");
 
+    // ── Worker health (heartbeat timestamps written by bot workers) ────────
+    // Thresholds: queue/azura poll every 5s; cleanup every 10s; prepare every 30s
+    const health = {
+      azuracast:       isWorkerAlive(db, "radio_worker_heartbeat_azura",   30),
+      queue_worker:    isWorkerAlive(db, "radio_worker_heartbeat_queue",   30),
+      cleanup_worker:  isWorkerAlive(db, "radio_worker_heartbeat_cleanup", 60),
+      download_worker: isWorkerAlive(db, "radio_worker_heartbeat_prepare", 120),
+    };
+
     // ── Radio config (room_settings) ───────────────────────────────────────
     const dbRadioUrl = getSetting(db, "dj_radio_url").trim() || null;
     const radioUrl   = AZURACAST_STREAM_URL ?? dbRadioUrl;
@@ -235,6 +252,7 @@ router.get("/dj/status", (_req, res) => {
       now_playing: nowPlaying,
       queue: queueRows.map((r, i) => ({ ...r, pos: i + 1 })),
       recent,
+      health,
       stats: {
         total_queued:         queueRows.length,
         total_played_today:   playedToday,
