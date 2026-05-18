@@ -478,18 +478,25 @@ from modules.yt_request import (
     on_request_user_left,
 )
 from modules.radio_commands import (
-    handle_request      as rc_request,
-    handle_pick         as rc_pick,
-    handle_queue        as rc_queue,
-    handle_skip         as rc_skip,
-    handle_remove       as rc_remove,
-    handle_clearqueue   as rc_clearqueue,
-    handle_history      as rc_history,
-    handle_voteskip     as rc_voteskip,
-    handle_nowplaying   as rc_nowplaying,
-    handle_vibe         as rc_vibe,
+    handle_request         as rc_request,
+    handle_pick            as rc_pick,
+    handle_queue           as rc_queue,
+    handle_skip            as rc_skip,
+    handle_remove          as rc_remove,
+    handle_clearqueue      as rc_clearqueue,
+    handle_history         as rc_history,
+    handle_voteskip        as rc_voteskip,
+    handle_nowplaying      as rc_nowplaying,
+    handle_vibe            as rc_vibe,
     handle_setrequestprice as rc_setrequestprice,
-    handle_radiohelp    as rc_radiohelp,
+    handle_radiohelp       as rc_radiohelp,
+    handle_like            as rc_like,
+    handle_dislike         as rc_dislike,
+    handle_favorite        as rc_favorite,
+    handle_unfavorite      as rc_unfavorite,
+    handle_favorites       as rc_favorites,
+    handle_removefavorite  as rc_removefavorite,
+    handle_myrequests      as rc_myrequests,
     startup_radio,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7366,16 +7373,18 @@ class HangoutBot(BaseBot):
             await handle_dj_upnext(self, user)
         elif cmd == "djstats":
             await handle_dj_stats(self, user)
-        elif cmd == "favorite":
-            await handle_dj_favorite(self, user)
-        elif cmd == "favorites":
-            await handle_dj_favorites(self, user)
+        elif cmd in ("favorite", "fav", "addtoplaylist"):
+            await rc_favorite(self, user, args)
+        elif cmd in ("favorites", "favs", "myplaylist"):
+            await rc_favorites(self, user, args)
         elif cmd == "unfavorite":
-            await handle_dj_unfavorite(self, user)
+            await rc_unfavorite(self, user, args)
+        elif cmd == "removefavorite":
+            await rc_removefavorite(self, user, args)
         elif cmd == "like":
-            await handle_dj_like(self, user)
+            await rc_like(self, user, args)
         elif cmd == "dislike":
-            await handle_dj_dislike(self, user)
+            await rc_dislike(self, user, args)
         elif cmd == "songrating":
             await handle_dj_songrating(self, user)
         elif cmd == "repeat":
@@ -7497,7 +7506,7 @@ class HangoutBot(BaseBot):
         elif cmd == "recent":
             await handle_dj_recent(self, user)
         elif cmd == "myrequests":
-            await handle_dj_myrequests(self, user)
+            await rc_myrequests(self, user, args)
         elif cmd == "cancelrequest":
             await handle_dj_cancelrequest(self, user, args)
         elif cmd == "requeststatus":

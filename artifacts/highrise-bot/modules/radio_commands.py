@@ -35,6 +35,7 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
+import database as db
 import modules.azuracast_controller as azura
 import modules.config_store         as cs
 import modules.dj_announcer         as ann
@@ -47,6 +48,158 @@ if TYPE_CHECKING:
     from highrise import BaseBot, User
 
 _LOG = "[RADIO_CMD]"
+
+# ─── Router log helper ────────────────────────────────────────────────────────
+
+def _rlog(cmd: str, handler: str, username: str) -> None:
+    try:
+        from config import BOT_MODE as _bm
+    except Exception:
+        _bm = "unknown"
+    print(
+        f"[RADIO_ROUTER] stage=radio_command_router"
+        f" command={cmd!r} handler={handler!r}"
+        f" bot_mode={_bm!r} username={username!r}"
+    )
+
+# ─── Per-user like/dislike cooldown (in-memory, resets on restart) ────────────
+_like_cd: "dict[str, float]" = {}
+_LIKE_CD_SECS = 30
+
+# ─── DB helpers for favorites / ratings (read from shared dj_* tables) ────────
+
+def _azura_track() -> "dict | None":
+    """Return {title, artist, key} for the current AzuraCast track, or None."""
+    np = azura.fetch_nowplaying()
+    if not np:
+        return None
+    song  = ((np.get("now_playing") or {}).get("song") or {})
+    title = (song.get("title") or "").strip()
+    if not title:
+        return None
+    return {
+        "title":  title,
+        "artist": (song.get("artist") or "").strip(),
+        "key":    title.lower()[:150],
+    }
+
+
+def _fav_get(user_id: str, limit: int = 10) -> list:
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, title, youtube_url FROM dj_favorites "
+                "WHERE user_id=? ORDER BY favorited_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+            return [{"id": r[0], "title": r[1], "url": r[2]} for r in rows]
+    except Exception:
+        return []
+
+
+def _fav_add(user_id: str, username: str, title: str, url: str) -> bool:
+    """Insert into dj_favorites. Returns False if already there."""
+    try:
+        with db.db_conn() as conn:
+            if conn.execute(
+                "SELECT id FROM dj_favorites WHERE user_id=? AND lower(title)=lower(?)",
+                (user_id, title),
+            ).fetchone():
+                return False
+            conn.execute(
+                "INSERT INTO dj_favorites (user_id, username, title, youtube_url) "
+                "VALUES (?,?,?,?)",
+                (user_id, username.lower(), title, url),
+            )
+            return True
+    except Exception:
+        return False
+
+
+def _fav_remove_by_pos(user_id: str, pos: int) -> "str | None":
+    """Remove nth (1-indexed) favorite. Returns title if removed, None if out of range."""
+    rows = _fav_get(user_id, limit=20)
+    if pos < 1 or pos > len(rows):
+        return None
+    row = rows[pos - 1]
+    try:
+        with db.db_conn() as conn:
+            conn.execute("DELETE FROM dj_favorites WHERE id=?", (row["id"],))
+        return row["title"]
+    except Exception:
+        return None
+
+
+def _fav_remove_title(user_id: str, title: str) -> bool:
+    """Remove by title match (unfavorite current track)."""
+    try:
+        with db.db_conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM dj_favorites WHERE user_id=? AND lower(title)=lower(?)",
+                (user_id, title),
+            )
+            return cur.rowcount > 0
+    except Exception:
+        return False
+
+
+def _rate(user_id: str, username: str, key: str, rating: str) -> str:
+    """Upsert into dj_ratings. Returns 'added'|'changed'|'same'|'error'."""
+    try:
+        with db.db_conn() as conn:
+            existing = conn.execute(
+                "SELECT rating FROM dj_ratings WHERE user_id=? AND song_key=?",
+                (user_id, key),
+            ).fetchone()
+            if existing:
+                if existing[0] == rating:
+                    return "same"
+                conn.execute(
+                    "UPDATE dj_ratings SET rating=?, username=?, rated_at=datetime('now') "
+                    "WHERE user_id=? AND song_key=?",
+                    (rating, username.lower(), user_id, key),
+                )
+                return "changed"
+            conn.execute(
+                "INSERT INTO dj_ratings (user_id, username, song_key, rating) "
+                "VALUES (?,?,?,?)",
+                (user_id, username.lower(), key, rating),
+            )
+            return "added"
+    except Exception:
+        return "error"
+
+
+def _ratings(key: str) -> dict:
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT rating, COUNT(*) FROM dj_ratings WHERE song_key=? GROUP BY rating",
+                (key,),
+            ).fetchall()
+            result: dict = {"likes": 0, "dislikes": 0}
+            for r in rows:
+                if r[0] == "like":
+                    result["likes"] = r[1]
+                elif r[0] == "dislike":
+                    result["dislikes"] = r[1]
+            return result
+    except Exception:
+        return {"likes": 0, "dislikes": 0}
+
+
+def _user_job_history(user_id: str, limit: int = 5) -> list:
+    """User's most recent entries from yt_request_jobs (active + played)."""
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT title, status FROM yt_request_jobs "
+                "WHERE user_id=? ORDER BY id DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+            return [{"title": r[0], "status": r[1]} for r in rows]
+    except Exception:
+        return []
 
 # ─── YouTube URL pattern (same as yt_request.py) ──────────────────────────────
 _YT_RE = re.compile(
@@ -622,6 +775,165 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
     )
 
 
+# ─── !like ────────────────────────────────────────────────────────────────────
+
+async def handle_like(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!like — like the currently playing AzuraCast track."""
+    _rlog("like", "handle_like", user.username)
+    loop  = asyncio.get_running_loop()
+    track = await loop.run_in_executor(None, _azura_track)
+    if not track:
+        await _w(bot, user.id, "🎵 Nothing playing right now. Try !np to check the stream.")
+        return
+    wait = _LIKE_CD_SECS - int(time.time() - _like_cd.get(user.id, 0))
+    if wait > 0:
+        await _w(bot, user.id, f"⏳ Wait {wait}s before rating again.")
+        return
+    _like_cd[user.id] = time.time()
+    result = _rate(user.id, user.username, track["key"], "like")
+    counts = _ratings(track["key"])
+    score  = f"👍 {counts['likes']} | 👎 {counts['dislikes']}"
+    title  = track["title"][:48]
+    if result == "same":
+        await _w(bot, user.id, f"👍 Already liked: {title}\n{score}")
+    elif result == "changed":
+        await _w(bot, user.id, f"👍 Changed to like: {title}\n{score}")
+    elif result == "added":
+        await _w(bot, user.id, f"👍 Liked: {title}\n{score}")
+    else:
+        await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
+
+
+# ─── !dislike ─────────────────────────────────────────────────────────────────
+
+async def handle_dislike(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!dislike — dislike the currently playing AzuraCast track."""
+    _rlog("dislike", "handle_dislike", user.username)
+    loop  = asyncio.get_running_loop()
+    track = await loop.run_in_executor(None, _azura_track)
+    if not track:
+        await _w(bot, user.id, "🎵 Nothing playing right now. Try !np to check the stream.")
+        return
+    wait = _LIKE_CD_SECS - int(time.time() - _like_cd.get(user.id, 0))
+    if wait > 0:
+        await _w(bot, user.id, f"⏳ Wait {wait}s before rating again.")
+        return
+    _like_cd[user.id] = time.time()
+    result = _rate(user.id, user.username, track["key"], "dislike")
+    counts = _ratings(track["key"])
+    score  = f"👍 {counts['likes']} | 👎 {counts['dislikes']}"
+    title  = track["title"][:48]
+    if result == "same":
+        await _w(bot, user.id, f"👎 Already disliked: {title}\n{score}")
+    elif result == "changed":
+        await _w(bot, user.id, f"👎 Changed to dislike: {title}\n{score}")
+    elif result == "added":
+        await _w(bot, user.id, f"👎 Disliked: {title}\n{score}")
+    else:
+        await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
+
+
+# ─── !favorite / !fav / !addtoplaylist ───────────────────────────────────────
+
+async def handle_favorite(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!favorite / !fav / !addtoplaylist — save current AzuraCast track to favorites."""
+    _rlog("favorite", "handle_favorite", user.username)
+    loop  = asyncio.get_running_loop()
+    track = await loop.run_in_executor(None, _azura_track)
+    if not track:
+        await _w(bot, user.id, "🎵 Nothing playing right now. Try !np to check the stream.")
+        return
+    added = _fav_add(user.id, user.username, track["title"], "")
+    if added:
+        await _w(bot, user.id, f"⭐ Saved to favorites: {track['title'][:55]}")
+    else:
+        await _w(bot, user.id, f"⭐ Already in your favorites: {track['title'][:50]}")
+
+
+# ─── !unfavorite ─────────────────────────────────────────────────────────────
+
+async def handle_unfavorite(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!unfavorite — remove current AzuraCast track from favorites."""
+    _rlog("unfavorite", "handle_unfavorite", user.username)
+    loop  = asyncio.get_running_loop()
+    track = await loop.run_in_executor(None, _azura_track)
+    if not track:
+        await _w(bot, user.id, "🎵 Nothing playing right now. Try !np to check the stream.")
+        return
+    removed = _fav_remove_title(user.id, track["title"])
+    if removed:
+        await _w(bot, user.id, f"💔 Removed from favorites: {track['title'][:55]}")
+    else:
+        await _w(bot, user.id, f"⭐ Not in your favorites: {track['title'][:50]}")
+
+
+# ─── !favorites / !favs / !myplaylist ────────────────────────────────────────
+
+async def handle_favorites(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!favorites / !favs / !myplaylist — list your saved songs (newest first)."""
+    _rlog("favorites", "handle_favorites", user.username)
+    rows = _fav_get(user.id, limit=8)
+    if not rows:
+        await _w(bot, user.id, "⭐ No favorites yet! Use !favorite while a song plays.")
+        return
+    lines = [f"⭐ Your favorites ({len(rows)}):"]
+    for i, r in enumerate(rows, 1):
+        lines.append(f"{i}. {r['title'][:52]}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ─── !removefavorite <number> ────────────────────────────────────────────────
+
+async def handle_removefavorite(bot: "BaseBot", user: "User", args: list) -> None:
+    """!removefavorite <number> — remove a saved favorite by list position."""
+    _rlog("removefavorite", "handle_removefavorite", user.username)
+    if len(args) < 2 or not args[1].isdigit():
+        rows = _fav_get(user.id, limit=8)
+        if not rows:
+            await _w(bot, user.id, "⭐ No favorites yet.")
+            return
+        lines = ["⭐ Your favorites (use !removefavorite <#>):"]
+        for i, r in enumerate(rows, 1):
+            lines.append(f"{i}. {r['title'][:52]}")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+        return
+    pos   = int(args[1])
+    title = _fav_remove_by_pos(user.id, pos)
+    if title:
+        await _w(bot, user.id, f"💔 Removed #{pos}: {title[:55]}")
+    else:
+        await _w(bot, user.id, f"⚠️ No favorite #{pos}. Use !favorites to see your list.")
+
+
+# ─── !myrequests ─────────────────────────────────────────────────────────────
+
+async def handle_myrequests(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!myrequests — show your active and recent requests from the unified queue."""
+    _rlog("myrequests", "handle_myrequests", user.username)
+    rows = _user_job_history(user.id, limit=6)
+    if not rows:
+        await _w(bot, user.id, "📋 You have no requests yet. Try !request <song>!")
+        return
+    _ACTIVE_ST = {"pending", "downloading", "uploading", "done", "queued", "playing"}
+    _ICON = {
+        "pending": "⏳", "downloading": "⬇️", "uploading": "📤",
+        "done": "✅", "queued": "📋", "playing": "▶",
+        "played": "✅", "error": "❌",
+    }
+    active  = [r for r in rows if r["status"] in _ACTIVE_ST]
+    history = [r for r in rows if r["status"] not in _ACTIVE_ST]
+    lines: list = []
+    if active:
+        lines.append(f"🎵 Active ({len(active)}):")
+        for r in active:
+            lines.append(f"  {_ICON.get(r['status'], '•')} {r['title'][:42]}")
+    if history:
+        lines.append("📜 Recent:")
+        for r in history[:3]:
+            lines.append(f"  {_ICON.get(r['status'], '•')} {r['title'][:46]}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
 # ─── Startup ──────────────────────────────────────────────────────────────────
 
 async def startup_radio(bot: "BaseBot") -> None:
@@ -660,15 +972,22 @@ def _safe(fn):
     return _wrapper
 
 
-handle_request       = _safe(handle_request)
-handle_pick          = _safe(handle_pick)
-handle_queue         = _safe(handle_queue)
-handle_nowplaying    = _safe(handle_nowplaying)
-handle_skip          = _safe(handle_skip)
-handle_remove        = _safe(handle_remove)
-handle_clearqueue    = _safe(handle_clearqueue)
-handle_history       = _safe(handle_history)
-handle_voteskip      = _safe(handle_voteskip)
-handle_vibe          = _safe(handle_vibe)
+handle_request         = _safe(handle_request)
+handle_pick            = _safe(handle_pick)
+handle_queue           = _safe(handle_queue)
+handle_nowplaying      = _safe(handle_nowplaying)
+handle_skip            = _safe(handle_skip)
+handle_remove          = _safe(handle_remove)
+handle_clearqueue      = _safe(handle_clearqueue)
+handle_history         = _safe(handle_history)
+handle_voteskip        = _safe(handle_voteskip)
+handle_vibe            = _safe(handle_vibe)
 handle_setrequestprice = _safe(handle_setrequestprice)
-handle_radiohelp     = _safe(handle_radiohelp)
+handle_radiohelp       = _safe(handle_radiohelp)
+handle_like            = _safe(handle_like)
+handle_dislike         = _safe(handle_dislike)
+handle_favorite        = _safe(handle_favorite)
+handle_unfavorite      = _safe(handle_unfavorite)
+handle_favorites       = _safe(handle_favorites)
+handle_removefavorite  = _safe(handle_removefavorite)
+handle_myrequests      = _safe(handle_myrequests)
