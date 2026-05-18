@@ -528,13 +528,18 @@ def _db_update_azura_ids(db_id: int, file_id: str, song_id: str) -> None:
 
 
 def _db_get_pending_cleanup() -> list[dict]:
-    """Return done/played jobs that have an azura_file_id but have not been cleaned yet."""
+    """
+    Return jobs that have an azura_file_id but have not been cleaned yet.
+
+    Includes status='playing' so the safety-net catches files that are
+    currently streaming (proactive deletion prevents AzuraCast from looping them).
+    """
     try:
         with sqlite3.connect(_DB_PATH) as conn:
             rows = conn.execute(
                 """SELECT id, title, azura_file_id, azura_song_id, filename, video_id
                      FROM yt_request_jobs
-                    WHERE status        IN ('done', 'played')
+                    WHERE status        IN ('done', 'playing', 'played')
                       AND azura_file_id != ''
                       AND cleaned_at   IS NULL
                     ORDER BY id DESC""",

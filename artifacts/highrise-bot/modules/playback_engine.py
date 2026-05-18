@@ -53,6 +53,8 @@ _cur_song_id:     str   = ""        # AzuraCast song.id currently playing
 _cur_req_id:      int   = 0         # yt_request_jobs.id of the active request (0 = none)
 _last_ann_id:     str   = ""        # song.id last announced (dedup)
 _skip_task_active: bool = False     # True while a _verified_skip_task is running
+_cur_elapsed:     int   = 0         # AzuraCast elapsed seconds for current song
+_cur_duration:    int   = 0         # AzuraCast total duration of current song
 
 _ACT = ("pending", "downloading", "uploading", "done", "queued", "playing")
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
@@ -284,6 +286,62 @@ async def _switch_to_vibe(bot: "BaseBot") -> None:
     print(f"{_LOG} Switched → VIBE/{cs.vibe().upper()}")
 
 
+# ─── Request file cleanup helpers ────────────────────────────────────────────
+
+def _db_set_cleaned(db_id: int) -> None:
+    """Mark the request file as deleted by setting cleaned_at in the DB."""
+    if not db_id:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs SET cleaned_at=datetime('now') WHERE id=?",
+                (db_id,),
+            )
+    except Exception as exc:
+        print(f"{_LOG} _db_set_cleaned({db_id}): {exc}")
+
+
+def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
+    """
+    Blocking — MUST be called via run_in_executor.
+
+    Deletes the AzuraCast-hosted request file and marks cleaned_at.
+    Tries API delete (DELETE /file/{fid}) first; falls back to SFTP delete.
+    Both are idempotent: 404 / file-not-found are treated as success.
+
+    Logs every step with structured fields:
+      stage=request_cleanup  request_id=<id>  filename=<fn>  status=<...>
+    """
+    title_s = title[:50] if title else "?"
+    ok      = False
+
+    if fid:
+        ok = azura.delete_media_file(fid)
+        print(
+            f"{_LOG} stage=request_cleanup request_id={db_id}"
+            f" fid={fid!r} status={'deleted' if ok else 'api_delete_failed'}"
+        )
+    if not ok and fn:
+        ok = azura.sftp_delete_file(fn)
+        print(
+            f"{_LOG} stage=request_cleanup request_id={db_id}"
+            f" filename={fn!r} status={'deleted(sftp)' if ok else 'sftp_delete_failed'}"
+        )
+    if ok:
+        _db_set_cleaned(db_id)
+        print(
+            f"{_LOG} stage=request_cleanup request_id={db_id}"
+            f" filename={fn!r} status=cleaned title={title_s!r}"
+        )
+    else:
+        print(
+            f"{_LOG} stage=request_cleanup request_id={db_id}"
+            f" filename={fn!r} status=delete_failed title={title_s!r}"
+            f" — will retry on next cleanup cycle"
+        )
+
+
 # ─── Track event handlers ─────────────────────────────────────────────────────
 
 async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
@@ -294,22 +352,37 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
     job = _db_get_job(db_id)
     _db_set_status(db_id, "played")
 
+    fn_s = (job.get("filename") if job else None) or "?"
+    print(
+        f"{_LOG} stage=request_cleanup request_id={db_id}"
+        f" filename={fn_s!r} status=played"
+    )
+
     if job:
-        print(f"{_LOG} Request finished: {job.get('title','?')!r}")
-        fid = (job.get("azura_file_id") or "").strip()
-        fn  = (job.get("filename")      or "").strip()
-        loop = asyncio.get_running_loop()
-        if fid:
-            # Fire-and-forget: run_in_executor returns a Future tracked by the
-            # thread pool — do NOT wrap in create_task (Future ≠ coroutine).
-            loop.run_in_executor(None, azura.delete_media_file, fid)
-        elif fn:
-            loop.run_in_executor(None, azura.sftp_delete_file, fn)
+        fid  = (job.get("azura_file_id") or "").strip()
+        fn   = (job.get("filename")      or "").strip()
+        # Re-attempt deletion — idempotent: if _on_new_track already deleted
+        # the file, the API returns 404 and sftp returns file-not-found.
+        # Both are treated as success so cleaned_at is set.
+        if fid or fn:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(
+                None, _delete_request_file,
+                db_id, fid, fn, job.get("title", "?"),
+            )
 
     remaining = _db_count_active()
-    print(f"{_LOG} Remaining in queue: {remaining}")
+    print(
+        f"{_LOG} stage=request_cleanup request_id={db_id}"
+        f" remaining_in_queue={remaining}"
+    )
     if remaining == 0:
-        await _switch_to_vibe(bot)
+        with _lock:
+            cur_mode = _mode
+        if cur_mode != "vibe":
+            await _switch_to_vibe(bot)
+        else:
+            print(f"{_LOG} Already in VIBE mode — skipping redundant playlist switch")
 
 
 def _title_matches(req_title: str, np_title: str) -> bool:
@@ -354,16 +427,44 @@ async def _on_new_track(bot: "BaseBot", song: dict) -> None:
     if match:
         req_title = match.get("title") or title
         req_uname = match.get("username") or ""
+        db_id     = match["id"]
         with _lock:
-            _cur_req_id = match["id"]
+            _cur_req_id = db_id
+
         if match.get("status") == "playing":
             # _verified_skip_task already set status + announced to the room —
             # suppress the duplicate room announce here.
             print(f"{_LOG} Request already announced by skip task — no duplicate announce")
         else:
-            _db_set_status(match["id"], "playing")
+            _db_set_status(db_id, "playing")
             await ann.announce_request_live(bot, req_title, "", req_uname)
         print(f"{_LOG} Now playing REQUEST: {req_title!r} by @{req_uname}")
+
+        # ── Proactive file deletion ────────────────────────────────────────────
+        # Delete the file NOW while AzuraCast is playing it (already buffered).
+        # This prevents AzuraCast from looping/replaying the file after this
+        # play ends — the file won't exist in the Requests playlist anymore.
+        fid = (match.get("azura_file_id") or "").strip()
+        fn  = (match.get("filename")      or "").strip()
+        if fid or fn:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(
+                None, _delete_request_file, db_id, fid, fn, req_title
+            )
+        print(
+            f"{_LOG} stage=request_cleanup request_id={db_id}"
+            f" filename={fn!r} status=playing (proactive deletion queued)"
+        )
+
+        # ── Pre-switch playlists to VIBE if this is the last active request ───
+        # Disabling the Requests playlist now means AzuraCast transitions
+        # naturally to Chill/Party after this song ends — zero replay window.
+        # If more requests are queued (count > 1), leave Requests mode active.
+        remaining = _db_count_active()
+        if remaining <= 1:
+            print(f"{_LOG} Last active request — pre-switching playlists to VIBE")
+            await _switch_to_vibe(bot)
+
     else:
         with _lock:
             _cur_req_id = 0
@@ -477,6 +578,27 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 _db_set_status(job_id, "playing")
                 display_artist = req_artist or np_artist
                 await ann.announce_request_live(bot, req_title, display_artist, req_uname)
+
+                # ── Proactive deletion + pre-switch (skip-task path) ──────────
+                # _on_new_track will be suppressed by _last_ann_id dedup above,
+                # so we fire cleanup here directly.
+                job_fresh = _db_get_job(job_id)
+                if job_fresh:
+                    _fid = (job_fresh.get("azura_file_id") or "").strip()
+                    _fn  = (job_fresh.get("filename")      or "").strip()
+                    if _fid or _fn:
+                        loop.run_in_executor(
+                            None, _delete_request_file,
+                            job_id, _fid, _fn, req_title,
+                        )
+                    print(
+                        f"{_LOG} stage=request_cleanup request_id={job_id}"
+                        f" filename={_fn!r} status=playing (deletion queued by skip task)"
+                    )
+                if _db_count_active() <= 1:
+                    print(f"{_LOG} Last active request — pre-switching to vibe from skip task")
+                    await _switch_to_vibe(bot)
+
                 confirmed = True
                 break
 
@@ -547,16 +669,40 @@ async def _poll_loop(bot: "BaseBot") -> None:
             if not np:
                 continue
 
-            np_obj  = np.get("now_playing") or {}
-            song    = np_obj.get("song")    or {}
-            song_id = (song.get("id")       or "").strip()
+            np_obj   = np.get("now_playing") or {}
+            song     = np_obj.get("song")    or {}
+            song_id  = (song.get("id")       or "").strip()
+            elapsed  = int(np_obj.get("elapsed")  or 0)
+            duration = int(np_obj.get("duration") or 0)
 
             if not song_id:
                 continue
 
             with _lock:
-                prev_song_id = _cur_song_id
-                prev_req_id  = _cur_req_id
+                prev_song_id  = _cur_song_id
+                prev_req_id   = _cur_req_id
+                prev_elapsed  = _cur_elapsed
+                prev_duration = _cur_duration
+                _cur_elapsed  = elapsed
+                _cur_duration = duration
+
+            # ── Replay detection: same song_id but elapsed has reset ──────────
+            # AzuraCast looped the Requests playlist — the same file started
+            # playing again.  Treat this as the song having finished so cleanup
+            # fires and AzuraCast is moved back to vibe mode.
+            if (
+                song_id     == prev_song_id
+                and prev_req_id
+                and prev_duration > 30
+                and prev_elapsed  > prev_duration * 0.75
+                and elapsed       < min(POLL_INTERVAL * 2 + 2, 14)
+            ):
+                print(
+                    f"{_LOG} Replay detected: request {prev_req_id}"
+                    f" elapsed {prev_elapsed}→{elapsed} dur={prev_duration}"
+                    f" — treating as finished"
+                )
+                await _on_request_finished(bot, prev_req_id)
 
             if song_id == prev_song_id:
                 continue

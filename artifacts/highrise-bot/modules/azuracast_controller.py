@@ -148,7 +148,10 @@ def apply_vibe(vibe: str) -> "tuple[bool, bool]":
 # ─── Media file management ────────────────────────────────────────────────────
 
 def delete_media_file(file_id: str) -> bool:
-    """DELETE /api/station/{id}/file/{file_id}"""
+    """
+    DELETE /api/station/{id}/file/{file_id}
+    404 is treated as success — the file was already deleted (idempotent).
+    """
     import requests as req_lib
     cfg = azura_api_cfg()
     if not cfg or not file_id:
@@ -159,7 +162,8 @@ def delete_media_file(file_id: str) -> bool:
             headers=_headers(cfg),
             timeout=10,
         )
-        ok = resp.status_code in (200, 204)
+        # 404 = file already gone — treat as success so cleaned_at is set
+        ok = resp.status_code in (200, 204, 404)
         print(f"{_LOG} delete_media file_id={file_id} → HTTP {resp.status_code} ok={ok}")
         return ok
     except Exception as exc:
@@ -168,7 +172,10 @@ def delete_media_file(file_id: str) -> bool:
 
 
 def sftp_delete_file(filename: str) -> bool:
-    """Remove a file from the SFTP Requests folder by filename."""
+    """
+    Remove a file from the SFTP Requests folder by filename.
+    FileNotFoundError (errno 2) is treated as success — already deleted.
+    """
     import paramiko
     cfg = sftp_cfg()
     if not cfg["host"] or not cfg["user"]:
@@ -187,6 +194,14 @@ def sftp_delete_file(filename: str) -> bool:
         sftp.remove(remote_path)
         print(f"{_LOG} sftp_delete ✓ {remote_path}")
         return True
+    except IOError as exc:
+        # paramiko raises IOError(errno=2) when the file does not exist —
+        # treat as success (already deleted is the same as deleted).
+        if getattr(exc, "errno", None) == 2 or "No such file" in str(exc):
+            print(f"{_LOG} sftp_delete: already gone — {remote_path}")
+            return True
+        print(f"{_LOG} sftp_delete error ({filename}): {exc}")
+        return False
     except Exception as exc:
         print(f"{_LOG} sftp_delete error ({filename}): {exc}")
         return False
