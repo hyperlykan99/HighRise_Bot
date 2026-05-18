@@ -359,6 +359,69 @@ def get_media_file(file_id: "int | str") -> "dict | None":
     return None
 
 
+def clear_file_playlists(file_id: "int | str") -> bool:
+    """
+    PUT /api/station/{id}/file/{file_id}  {"playlists": []}
+
+    Immediately removes the file from ALL playlists so AzuraCast AutoDJ stops
+    queuing it for replay.  Called before delete_media_file during cleanup.
+    404 treated as success (file already gone).
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg or not file_id:
+        return False
+    try:
+        resp = req_lib.put(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/file/{file_id}",
+            json={"playlists": []},
+            headers=_headers(cfg),
+            timeout=15,
+        )
+        ok = resp.status_code in (200, 204, 404)
+        print(f"{_LOG} clear_playlists file_id={file_id} → HTTP {resp.status_code} ok={ok}")
+        return ok
+    except Exception as exc:
+        print(f"{_LOG} clear_playlists error ({file_id}): {exc}")
+    return False
+
+
+def rescan_requests_folder() -> bool:
+    """
+    POST batch rescan for the Requests media subfolder.
+
+    Derives the folder name from sftp_cfg so it matches what AzuraCast sees
+    as the media library subdirectory (e.g. 'Requests').  Call this after
+    deleting a file via SFTP to let AzuraCast update its internal media DB.
+    """
+    sftp_raw = sftp_cfg().get("folder", "Requests").strip()
+    folder   = os.path.basename(sftp_raw.rstrip("/")) or sftp_raw
+    return rescan_library(folder)
+
+
+def verify_file_deleted(filename: str, wait_secs: float = 3.0) -> bool:
+    """
+    Wait wait_secs then search for filename in the AzuraCast media library.
+
+    Returns True if:
+    - filename is empty (nothing to verify), or
+    - the file is no longer indexed in AzuraCast, or
+    - the file record exists but has no playlist assignments.
+
+    Returns False if the file is still found and still has playlist membership
+    (meaning AzuraCast could still queue it for replay).
+    """
+    if not filename:
+        return True
+    if wait_secs > 0:
+        time.sleep(wait_secs)
+    row = search_media(filename)
+    if row is None:
+        return True
+    playlists = row.get("playlists") or []
+    return len(playlists) == 0
+
+
 # ─── Verified-skip helpers ────────────────────────────────────────────────────
 
 def fetch_queue() -> list:

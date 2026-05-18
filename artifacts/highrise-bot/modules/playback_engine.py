@@ -306,40 +306,100 @@ def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
     """
     Blocking — MUST be called via run_in_executor.
 
-    Deletes the AzuraCast-hosted request file and marks cleaned_at.
-    Tries API delete (DELETE /file/{fid}) first; falls back to SFTP delete.
-    Both are idempotent: 404 / file-not-found are treated as success.
+    Full cleanup sequence for a completed request file.  All steps are
+    idempotent: 404 / file-not-found are treated as success.  Errors are
+    logged and never raised; nothing is shown to players.
 
-    Logs every step with structured fields:
-      stage=request_cleanup  request_id=<id>  filename=<fn>  status=<...>
+    Steps
+    ─────
+    1. Lookup media_id    — if azura_file_id is missing, search AzuraCast by
+                            filename so the API path is always preferred.
+    2. Remove from playlist (action=remove_from_playlist) — PUT playlists=[]
+                            so AutoDJ stops queuing the file immediately, even
+                            if the subsequent deletion takes a moment.
+    3. Delete via API     (action=delete_file method=api) — removes the media
+                            record and all playlist memberships at once.
+    4. SFTP fallback      (action=delete_file method=sftp) — physical file
+                            delete when the API path failed.
+    5. Rescan             (action=rescan) — tells AzuraCast to re-index the
+                            Requests folder so orphaned records are cleared.
+    6. Verify             (action=verify) — search confirms file is gone /
+                            no longer in any playlist.
+    7. Mark cleaned_at in DB on success.
+
+    Log fields: stage=request_cleanup  request_id=  media_id=  filename=
+                action=  result=success|fail  [error=]
     """
     title_s = title[:50] if title else "?"
-    ok      = False
+    cur_fid = fid   # working copy — may be updated by the lookup step
 
-    if fid:
-        ok = azura.delete_media_file(fid)
+    def _log(action: str, result: str, **extra: str) -> None:
+        extras = "".join(f" {k}={v}" for k, v in extra.items())
         print(
-            f"{_LOG} stage=request_cleanup request_id={db_id}"
-            f" fid={fid!r} status={'deleted' if ok else 'api_delete_failed'}"
+            f"{_LOG} stage=request_cleanup"
+            f" request_id={db_id}"
+            f" media_id={cur_fid!r}"
+            f" filename={fn!r}"
+            f" action={action}"
+            f" result={result}{extras}"
         )
+
+    # ── 1. Lookup media_id if azura_file_id was never stored ─────────────────
+    if not cur_fid and fn:
+        try:
+            row = azura.search_media(fn)
+            if row:
+                cur_fid = str(row.get("id") or "")
+                _log("lookup_media_id", "found" if cur_fid else "not_found",
+                     found_id=repr(cur_fid))
+                if cur_fid:
+                    try:
+                        with db.db_conn() as conn:
+                            conn.execute(
+                                "UPDATE yt_request_jobs SET azura_file_id=?"
+                                " WHERE id=?"
+                                " AND (azura_file_id IS NULL OR azura_file_id='')",
+                                (cur_fid, db_id),
+                            )
+                    except Exception:
+                        pass
+            else:
+                _log("lookup_media_id", "not_found")
+        except Exception as exc:
+            _log("lookup_media_id", "error", error=repr(str(exc)))
+
+    # ── 2. Remove from Requests playlist ─────────────────────────────────────
+    # Stops AutoDJ from re-queuing the file even before deletion completes.
+    if cur_fid:
+        ok_pl = azura.clear_file_playlists(cur_fid)
+        _log("remove_from_playlist", "success" if ok_pl else "fail")
+
+    # ── 3. Delete via AzuraCast API ──────────────────────────────────────────
+    ok = False
+    if cur_fid:
+        ok = azura.delete_media_file(cur_fid)
+        _log("delete_file", "success" if ok else "fail", method="api")
+
+    # ── 4. SFTP fallback ─────────────────────────────────────────────────────
     if not ok and fn:
         ok = azura.sftp_delete_file(fn)
-        print(
-            f"{_LOG} stage=request_cleanup request_id={db_id}"
-            f" filename={fn!r} status={'deleted(sftp)' if ok else 'sftp_delete_failed'}"
-        )
+        _log("delete_file", "success" if ok else "fail", method="sftp")
+
+    # ── 5. Rescan — let AzuraCast update its media DB ────────────────────────
+    ok_rescan = azura.rescan_requests_folder()
+    _log("rescan", "success" if ok_rescan else "fail")
+
+    # ── 6. Verify — confirm file is gone / not in any playlist ───────────────
+    verify_ok = azura.verify_file_deleted(fn, wait_secs=3.0)
+    _log("verify", "success" if verify_ok else "fail")
+
+    # ── 7. Mark cleaned_at ───────────────────────────────────────────────────
     if ok:
         _db_set_cleaned(db_id)
-        print(
-            f"{_LOG} stage=request_cleanup request_id={db_id}"
-            f" filename={fn!r} status=cleaned title={title_s!r}"
-        )
+        _log("cleanup_complete", "success", title=repr(title_s))
     else:
-        print(
-            f"{_LOG} stage=request_cleanup request_id={db_id}"
-            f" filename={fn!r} status=delete_failed title={title_s!r}"
-            f" — will retry on next cleanup cycle"
-        )
+        _log("cleanup_complete", "fail", title=repr(title_s),
+             note="will_retry_on_next_cycle")
 
 
 # ─── Track event handlers ─────────────────────────────────────────────────────

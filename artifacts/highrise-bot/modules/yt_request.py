@@ -2211,11 +2211,12 @@ def _azura_delete_file(file_id: str) -> bool:
             },
             timeout=15,
         )
+        ok = resp.status_code in (200, 204, 404)
         print(
             f"[YT_CLEANUP] DELETE file/{file_id}"
-            f" → HTTP {resp.status_code}: {resp.text[:200]}"
+            f" → HTTP {resp.status_code} ok={ok}: {resp.text[:200]}"
         )
-        return resp.status_code in (200, 204)
+        return ok
     except Exception as exc:
         print(f"[YT_CLEANUP] Delete file/{file_id} error: {exc}")
     return False
