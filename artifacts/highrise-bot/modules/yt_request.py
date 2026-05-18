@@ -339,7 +339,7 @@ def _db_update_job(db_id: int, **kwargs: object) -> None:
         return
     allowed = {"title", "status", "error", "finished_at", "filename",
                "azura_file_id", "azura_song_id",
-               "video_id", "yt_uploader",
+               "video_id", "yt_uploader", "artist",
                "coins_charged", "payment_type", "priority"}
     fields  = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
@@ -1594,12 +1594,16 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         yt_uploader  = (
             info.get("uploader") or info.get("channel") or ""
         )[:100]
+        yt_artist    = (
+            info.get("artist") or info.get("creator") or ""
+        )[:100]
         _update_job(
             jid,
             title=title,
             filename=yt_filename,
             video_id=video_id,
             yt_uploader=yt_uploader,
+            artist=yt_artist,
         )
         print(
             f"[YT_REQUEST] Job #{jid} downloaded:"

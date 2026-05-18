@@ -3282,6 +3282,14 @@ def _migrate_db():
         except Exception:
             pass  # column already exists
 
+    # 3.2AA — store artist name separately for clean announcement formatting
+    try:
+        conn.execute(
+            "ALTER TABLE yt_request_jobs ADD COLUMN artist TEXT NOT NULL DEFAULT ''"
+        )
+    except Exception:
+        pass  # column already exists
+
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS request_blocked_tracks (

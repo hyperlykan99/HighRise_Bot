@@ -1,0 +1,446 @@
+MAJOR FIX: DJ_DUDU radio queue lifecycle + clean media player system.
+
+Do NOT touch:
+- startup
+- reconnect/watchdog
+- respawn
+- room join
+- Highrise token handling
+- unrelated game modules
+- multi-bot lifecycle
+
+Only BOT_MODE=dj / DJ_DUDU handles radio commands.
+
+GOAL:
+Make DJ_DUDU the single queue authority.
+AzuraCast should only stream/output audio.
+
+Fix these current bugs:
+1. NOW PLAYING song still appears in !q / UP NEXT.
+2. Played/skipped songs stay in queue.
+3. Played songs stay in AzuraCast Requests playlist and replay.
+4. Requests folder and Requests playlist get out of sync.
+5. Adding a request sometimes restarts current song.
+6. Bot says “Request added / playing next” too early.
+7. Song start announcement does not trigger reliably.
+8. Requests are sometimes mislabeled as AutoDJ.
+9. Dashboard/media player is too basic and not synced.
+
+━━━━━━━━━━━━━━━━━━━━
+PART 1 — ONE QUEUE SYSTEM
+━━━━━━━━━━━━━━━━━━━━
+
+Audit all DJ/radio queue code.
+
+Find every file/handler that reads/writes music queue:
+- !play
+- !request
+- !pick
+- !q
+- !queue
+- !now
+- !np
+- !nowplaying
+- !skip
+- !clearqueue
+- !djclear
+- dashboard/API
+- playback_engine
+- nowplaying poller
+- cleanup job
+- old DJ/radio modules
+
+Single source of truth:
+yt_request_jobs table + request_queue.py helper functions.
+
+Disable or route old DJ module handlers into the new unified system.
+Do not let old DJ queue logic modify/show queue independently.
+
+Statuses:
+pending → staged → done/queued → playing → played
+
+Terminal statuses:
+failed
+cancelled
+skipped
+played
+
+━━━━━━━━━━━━━━━━━━━━
+PART 2 — CLEAN REQUEST PLAYER MESSAGES
+━━━━━━━━━━━━━━━━━━━━
+
+Remove spammy/misleading player messages:
+Do NOT say:
+- “Request added.”
+- “It will play next.”
+- “Request added to queue.”
+unless it is truly useful and accurate.
+
+When searching:
+🔎 Searching...
+
+After !pick succeeds and song is accepted:
+✅ Added to UP NEXT
+Title: {title}
+Artist: {artist}
+🙋 @{username}
+📻 ChillTopia Radio
+
+If queue position is known and compact:
+✅ Added to UP NEXT
+Title: {title}
+Artist: {artist}
+Position: #{position}
+🙋 @{username}
+
+Do NOT announce REQUEST LIVE until AzuraCast Now Playing confirms the song is actually live.
+
+All song display messages must separate:
+Title: {title}
+Artist: {artist}
+
+Avoid messy combined YouTube titles when clean metadata exists.
+
+━━━━━━━━━━━━━━━━━━━━
+PART 3 — REQUEST DETECTION
+━━━━━━━━━━━━━━━━━━━━
+
+When reading AzuraCast Now Playing, match request in this order:
+
+1. media_id / song_id
+2. AzuraCast unique_id
+3. file path starts with Requests/
+4. filename
+5. youtube_id stored in DB
+6. normalized/fuzzy title match only as last fallback
+
+Important:
+If now_playing path or filename is from Requests/, treat it as REQUEST, not AutoDJ.
+
+Do NOT rely on title-only matching because AzuraCast metadata may be long, trimmed, changed, or different from YouTube title.
+
+When a request is matched:
+- status = playing
+- started_at = now
+- playing_media_id = matched media_id if available
+- playing_unique_id = matched unique_id if available
+- remove it from !q / UP NEXT immediately
+
+━━━━━━━━━━━━━━━━━━━━
+PART 4 — !q / !queue HARD FIX
+━━━━━━━━━━━━━━━━━━━━
+
+Hard rule:
+!q / !queue must NEVER show the current AzuraCast Now Playing track.
+
+Fix handle_queue directly:
+1. Fetch AzuraCast Now Playing inside handle_queue before rendering.
+2. Get current identifiers:
+   - title
+   - artist
+   - media_id
+   - song_id
+   - unique_id
+   - path
+   - filename
+   - youtube_id if available
+
+3. Load display queue statuses only:
+   pending
+   staged
+   done
+   queued
+
+4. Compare Now Playing against every display job by:
+   - media_id / song_id
+   - unique_id
+   - Requests/ path
+   - filename
+   - youtube_id
+   - normalized title fallback
+
+5. If a queue row matches Now Playing:
+   - update DB row status='playing'
+   - set started_at=now
+   - remove it from UP NEXT output
+
+6. Render UP NEXT after filtering.
+
+Queue format:
+🎧 UP NEXT:
+1. Title - Artist - @user
+2. Title - Artist - @user
+
+If empty:
+🎧 UP NEXT:
+Empty
+
+Rules:
+- Max Highrise message length: 255 chars.
+- Show future songs only.
+- Never show playing, played, skipped, failed, cancelled.
+- If too many songs, show as many as fit then:
++N more
+
+Expected:
+If NOW PLAYING is Kodak Black - Tunnel Vision and there are no other requests:
+🎧 UP NEXT:
+Empty
+
+━━━━━━━━━━━━━━━━━━━━
+PART 5 — IMMEDIATE REQUEST TAKEOVER WITHOUT RESTART BUG
+━━━━━━━━━━━━━━━━━━━━
+
+Problem:
+Request appears in Requests playlist, but AutoDJ continues OR current song restarts when new request is added.
+
+Rules:
+- Adding a request to queue must NOT restart current song.
+- Do not restart Liquidsoap/station just because a request was added.
+- Do not reload whole station on enqueue.
+- Do not call skip until request is verified and intended to take over.
+
+After request is promoted and playlist_verify succeeds:
+1. Call AzuraCast backend skip:
+   POST /api/station/{station_id}/backend/skip
+
+2. Treat HTTP 200 or 204 as success.
+
+3. Poll Now Playing every 1 second for 15 seconds.
+
+4. If nowplaying is not requested media after 5 seconds:
+   call backend skip one more time.
+
+5. If still not requested after 15 seconds:
+   keep request queued silently or say compactly:
+   🎵 Added to UP NEXT.
+
+Do not say “playing next” unless it is actually next.
+
+━━━━━━━━━━━━━━━━━━━━
+PART 6 — START-OF-SONG ANNOUNCEMENTS
+━━━━━━━━━━━━━━━━━━━━
+
+At actual playback start only:
+
+For request:
+▶ REQUEST LIVE
+Title: {title}
+Artist: {artist}
+🙋 @{username}
+📻 ChillTopia Radio
+
+For AutoDJ Chill:
+▶ NOW PLAYING
+Title: {title}
+Artist: {artist}
+🌙 AutoDJ • Chill
+📻 ChillTopia Radio
+
+For AutoDJ Party:
+▶ NOW PLAYING
+Title: {title}
+Artist: {artist}
+🔥 AutoDJ • Party
+📻 ChillTopia Radio
+
+Use dj_announcer.py only.
+No duplicate announcements.
+Remove/disable old simple messages like:
+“Chill vibes: ...”
+
+Duplicate guard:
+- do not announce same media_id/title twice
+- store last_announced_media_id or normalized title
+
+━━━━━━━━━━━━━━━━━━━━
+PART 7 — PLAYED/SKIPPED CLEANUP
+━━━━━━━━━━━━━━━━━━━━
+
+When request leaves Now Playing:
+1. Mark DB row:
+   status = played
+   played_at = now
+
+If skipped:
+   status = skipped
+   played_at = now
+
+2. Cleanup/move file:
+From:
+Requests/<filename>.mp3
+
+To:
+PlayedRequests/<filename>.mp3
+
+If move is unavailable:
+- copy to PlayedRequests
+- delete from Requests
+
+3. Remove media from Requests playlist relation if API supports it.
+
+4. Rescan/import AzuraCast media.
+
+5. Verify:
+- file no longer exists in Requests/
+- media no longer active in Requests playlist
+- !q does not show it
+
+Never delete or move:
+- Chill
+- default
+- Party Remixes
+- DJ sets
+- any file not in DJ_DUDU request DB
+
+Only cleanup files:
+- path starts with Requests/
+- tracked in request DB
+- uploaded/promoted by DJ_DUDU
+
+Cleanup must be idempotent:
+- already moved = success
+- already deleted = success
+- not in playlist = success
+- already marked played/skipped = do nothing
+
+━━━━━━━━━━━━━━━━━━━━
+PART 8 — FIX REQUESTS FOLDER VS PLAYLIST DESYNC
+━━━━━━━━━━━━━━━━━━━━
+
+Current issue:
+Requests media folder count and Requests playlist count do not match.
+Example:
+Requests folder has 2 files, playlist shows 4 songs.
+
+Required:
+Create reconciliation function:
+reconcile_requests_playlist()
+
+It should:
+1. List active files in Requests/.
+2. List media assigned to Requests playlist.
+3. For each playlist item:
+   - if file is missing from Requests/
+   - OR DB status is played/skipped/failed/cancelled
+   - OR media is not tracked by DJ_DUDU
+   then remove it from Requests playlist.
+
+4. For each active DB pending/queued request:
+   - ensure file exists in Requests/
+   - ensure media assigned to Requests playlist.
+
+5. Run reconciliation:
+   - after upload/promote
+   - after cleanup
+   - on bot startup if safe
+   - when admin uses cleanup command
+
+Do not restart station during reconciliation.
+
+━━━━━━━━━━━━━━━━━━━━
+PART 9 — MEDIA PLAYER DASHBOARD / MODULE PREVIEW
+━━━━━━━━━━━━━━━━━━━━
+
+Add/repair DJ_DUDU media player UI.
+
+Dashboard/module preview should show:
+
+🎵 Media Player card:
+- Title:
+- Artist:
+- Requested by: @{user} OR AutoDJ
+- Source: Request / AutoDJ Chill / AutoDJ Party
+- elapsed / duration
+- progress bar
+- album art if available
+- stream player using radio URL
+
+Staff controls:
+- Skip
+- Clear Queue
+- Refresh
+
+UP NEXT:
+- pending future songs only
+- Title - Artist - @user
+- never show current song
+
+API:
+GET /api/dj/status must return:
+- now_playing
+- queue
+- recent
+- stats
+- radio_url
+- updated_at
+
+No stale mock data.
+No placeholder radio URL.
+No secrets exposed.
+
+Poll every 5–15 seconds.
+
+━━━━━━━━━━━━━━━━━━━━
+PART 10 — LOGS
+━━━━━━━━━━━━━━━━━━━━
+
+Add structured logs:
+
+stage=queue_audit
+stage=queue_read
+stage=queue_status_fix
+stage=queue_nowplaying_filter
+stage=queue_current_removed
+stage=queue_render
+
+stage=request_detection
+stage=request_started
+stage=request_finished
+stage=request_skipped
+stage=request_announcement
+
+stage=request_force_skip
+stage=request_nowplaying_poll
+stage=request_takeover_success
+stage=request_takeover_timeout
+
+stage=request_cleanup_move_played
+stage=request_cleanup_remove_playlist
+stage=request_cleanup_rescan
+stage=request_cleanup_verify
+
+stage=requests_playlist_reconcile
+
+Include:
+request_id=
+username=
+title=
+artist=
+filename=
+path=
+media_id=
+song_id=
+unique_id=
+youtube_id=
+match_method=
+status_before=
+status_after=
+http_status=
+result=
+error=
+
+━━━━━━━━━━━━━━━━━━━━
+EXPECTED FINAL BEHAVIOR
+━━━━━━━━━━━━━━━━━━━━
+
+1. Request is accepted with clean message.
+2. Request appears in UP NEXT only while waiting.
+3. When request starts, it disappears from UP NEXT immediately.
+4. Bot announces REQUEST LIVE only when actually playing.
+5. AutoDJ announcements happen at track start.
+6. Adding a request does not restart current song.
+7. Played/skipped request moves out of Requests/.
+8. Requests playlist no longer contains old/orphaned tracks.
+9. Old request songs cannot replay.
+10. Dashboard media player matches !now and !queue.

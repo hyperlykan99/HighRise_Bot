@@ -1015,7 +1015,7 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
 # ─── Main poll loop ───────────────────────────────────────────────────────────
 
 async def _poll_loop(bot: "BaseBot") -> None:
-    global _cur_song_id, _cur_req_id, _mode
+    global _cur_song_id, _cur_req_id, _cur_elapsed, _cur_duration, _mode
 
     print(f"{_LOG} Poll loop started (every {POLL_INTERVAL}s)")
     loop = asyncio.get_running_loop()

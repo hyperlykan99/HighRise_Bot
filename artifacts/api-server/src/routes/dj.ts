@@ -25,6 +25,7 @@ const PENDING_STATUSES = ["pending", "staged", "done", "queued"] as const;
 interface NowPlaying {
   id: number;
   title: string;
+  artist: string;
   username: string;
   dedication: string;
   youtube_url: string;
@@ -84,16 +85,17 @@ router.get("/dj/status", (_req, res) => {
     if (hasYtJobs) {
       const row = db
         .prepare(
-          "SELECT id, title, username, url, priority " +
+          "SELECT id, title, COALESCE(artist, '') AS artist, username, url, priority " +
           "FROM yt_request_jobs WHERE status = 'playing' ORDER BY id DESC LIMIT 1",
         )
         .get() as
-        | { id: number; title: string; username: string; url: string; priority: number }
+        | { id: number; title: string; artist: string; username: string; url: string; priority: number }
         | undefined;
       if (row) {
         nowPlaying = {
           id: row.id,
           title: row.title ?? "",
+          artist: row.artist ?? "",
           username: row.username ?? "",
           dedication: "",            // yt_request_jobs has no dedication column
           youtube_url: row.url ?? "",

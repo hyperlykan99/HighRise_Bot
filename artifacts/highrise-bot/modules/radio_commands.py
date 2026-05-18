@@ -253,7 +253,8 @@ async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
 # ─── Core request submission helper ──────────────────────────────────────────
 
 async def _submit_url(
-    bot: "BaseBot", user: "User", url: str
+    bot: "BaseBot", user: "User", url: str,
+    metadata: "dict | None" = None,
 ) -> None:
     """
     Validate, charge, and launch a job for a confirmed YouTube/audio URL.
@@ -317,8 +318,18 @@ async def _submit_url(
     # Compute queue position before submit (active_count = jobs already in flight)
     _pos = rq.active_count() + 1
 
-    # Confirm to user immediately so they know the request was accepted
-    if _pos == 1:
+    # Confirm to user — rich card when metadata is available (from !pick)
+    if metadata:
+        _title  = (metadata.get("title") or "")[:55]
+        _artist = (metadata.get("artist") or metadata.get("uploader") or "")[:30]
+        _lines  = ["✅ Request added!"]
+        if _title:
+            _lines.append(f"Title: {_title}")
+        if _artist:
+            _lines.append(f"Artist: {_artist}")
+        _lines.append("You're up next! 🎵" if _pos == 1 else f"Position: #{_pos}")
+        await _w(bot, uid, "\n".join(_lines)[:249])
+    elif _pos == 1:
         await _w(bot, uid, "🎵 Request added to queue. You're up next!")
     else:
         await _w(bot, uid, f"🎵 Request added to queue. Position: #{_pos}")
@@ -418,7 +429,7 @@ async def handle_pick(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, user.id, "❌ Could not get URL for that result. Try again.")
         return
 
-    await _submit_url(bot, user, url)
+    await _submit_url(bot, user, url, metadata=picked)
 
 
 # ─── !queue / !q ──────────────────────────────────────────────────────────────
@@ -555,13 +566,17 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         return
 
     _MAX   = 249
-    _TTMAX = 35
+    _TTMAX = 28
 
     rows: list[str] = []
     for i, j in enumerate(filtered, 1):
         t = (j.get("title") or "…").strip()[:_TTMAX]
-        u = (j.get("username") or "?").strip()[:14]
-        rows.append(f"{i}. {t} - @{u}")
+        a = (j.get("artist") or "").strip()[:15]
+        u = (j.get("username") or "?").strip()[:12]
+        if a:
+            rows.append(f"{i}. {t} - {a} - @{u}")
+        else:
+            rows.append(f"{i}. {t} - @{u}")
 
     header = "🎧 UP NEXT:"
     shown  = total

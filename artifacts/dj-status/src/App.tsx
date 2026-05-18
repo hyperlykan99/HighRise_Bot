@@ -6,6 +6,7 @@ const REFRESH_MS = 15_000;
 interface NowPlaying {
   id: number;
   title: string;
+  artist: string;
   username: string;
   dedication: string;
   youtube_url: string;
@@ -125,6 +126,9 @@ function NowPlayingHero({ song, radioUrl }: { song: NowPlaying | null; radioUrl:
           {song ? (
             <>
               <div className="hero-title">{song.title}</div>
+              {song.artist && (
+                <div className="hero-artist">{song.artist}</div>
+              )}
               <div className="hero-meta">
                 <span className="hero-user">
                   <span className="hero-user-at">@</span>{song.username}

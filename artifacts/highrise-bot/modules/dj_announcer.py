@@ -46,7 +46,7 @@ async def announce_now_playing(
     vibe: str = "chill",
 ) -> None:
     """
-    4-line room announcement for a new AutoDJ track.
+    Room announcement for a new AutoDJ track (separate Title/Artist lines).
 
     If `requester` is provided the REQUEST LIVE format is used instead.
     """
@@ -54,12 +54,14 @@ async def announce_now_playing(
         await announce_request_live(bot, title, artist, requester)
         return
 
-    track = _track_label(title, artist)[:70]
-    if vibe == "party":
-        msg = f"▶ NOW PLAYING\n🎵 {track}\n🔥 AutoDJ • Party\n📻 {_STATION}"
-    else:
-        msg = f"▶ NOW PLAYING\n🎵 {track}\n🌙 AutoDJ • Chill\n📻 {_STATION}"
-    await _say(bot, msg)
+    t = (title or "Unknown")[:60]
+    a = (artist or "").strip()[:40]
+    vibe_line = "🔥 AutoDJ • Party" if vibe == "party" else "🌙 AutoDJ • Chill"
+    lines = ["▶ NOW PLAYING", f"Title: {t}"]
+    if a:
+        lines.append(f"Artist: {a}")
+    lines.extend([vibe_line, f"📻 {_STATION}"])
+    await _say(bot, "\n".join(lines))
 
 
 # ─── Request confirmed playing ────────────────────────────────────────────────
@@ -71,14 +73,18 @@ async def announce_request_live(
     requester: str = "",
 ) -> None:
     """
-    4-line REQUEST LIVE room announcement fired when a queued request starts playing.
+    REQUEST LIVE room announcement with separate Title/Artist lines.
+    Fired when a queued request starts playing.
     """
-    track = _track_label(title, artist)[:70]
+    t = (title or "Unknown")[:60]
+    a = (artist or "").strip()[:40]
+    lines = ["▶ REQUEST LIVE", f"Title: {t}"]
+    if a:
+        lines.append(f"Artist: {a}")
     if requester:
-        msg = f"▶ REQUEST LIVE\n🎵 {track}\n🙋 @{requester[:20]}\n📻 {_STATION}"
-    else:
-        msg = f"▶ REQUEST LIVE\n🎵 {track}\n📻 {_STATION}"
-    await _say(bot, msg)
+        lines.append(f"🙋 @{requester[:20]}")
+    lines.append(f"📻 {_STATION}")
+    await _say(bot, "\n".join(lines))
 
 
 # ─── Request queued (fallback when skip couldn't confirm) ─────────────────────
