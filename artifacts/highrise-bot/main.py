@@ -1645,6 +1645,30 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "dedicate",
     "djhelp",
     "nowpage",
+    # Playlist / saved songs
+    "save",
+    "mysongs", "playlist", "myplaylist2",
+    "playmine",
+    "removefav", "delfav", "deletefav",
+    "removefavorite",
+    "fav", "addtoplaylist",
+    "favs",
+    # Voting / ratings
+    "likes", "votes",
+    "voters",
+    "likeslist", "dislikeslist",
+    "voteskip",
+    # History / discovery
+    "history", "radiohistory",
+    "playedby",
+    "myplayed", "myrequested",
+    # Queue management
+    "remove", "djremove",
+    "cancel",
+    # Misc public
+    "radiohelp",
+    "queuelimit", "setqueuelimit",
+    "setrequestprice",
     # Staff / admin
     "setradio", "setwebplayer",
     "radioconfig", "setradiotype", "setradiomount", "setradiometadata",
@@ -7327,7 +7351,10 @@ class HangoutBot(BaseBot):
         elif cmd == "followstatus":
             await handle_followstatus(self, user)
 
-        # ── DJ Music ──────────────────────────────────────────────────────────
+        # ── DJ Music: only BOT_MODE=dj (DJ_DUDU) responds ────────────────────
+        elif cmd in DJ_COMMANDS and BOT_MODE != "dj":
+            pass  # non-DJ bot silently ignores all music/radio commands
+
         elif cmd in ("play", "request", "sr", "req", "song", "requesy"):
             await rc_request(self, user, args)
         elif cmd in ("pick", "djpick"):
