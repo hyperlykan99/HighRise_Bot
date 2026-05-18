@@ -12,6 +12,11 @@ const BOT_DIR = path.join(WORKSPACE_ROOT, "artifacts/highrise-bot");
 const SHARED_DB = process.env.SHARED_DB_PATH ?? "highrise_hangout.db";
 const DB_PATH = path.isAbsolute(SHARED_DB) ? SHARED_DB : path.join(BOT_DIR, SHARED_DB);
 
+// Public AzuraCast stream URL — overrides the radio_url stored in the DB.
+// This is the audio stream URL only; the AzuraCast API key (AZURA_API_KEY)
+// is used only by the Python bot and must NEVER be read or forwarded here.
+const AZURACAST_STREAM_URL = process.env.AZURACAST_STREAM_URL?.trim() || null;
+
 interface NowPlaying {
   id: number;
   title: string;
@@ -95,7 +100,9 @@ router.get("/dj/status", (_req, res) => {
         .get(today) as { n: number }
     ).n;
 
-    const radioUrl = getSetting(db, "dj_radio_url").trim() || null;
+    // AZURACAST_STREAM_URL env var wins over the DB setting when present
+    const dbRadioUrl = getSetting(db, "dj_radio_url").trim() || null;
+    const radioUrl   = AZURACAST_STREAM_URL ?? dbRadioUrl;
     const queueLocked = getSetting(db, "dj_queue_locked") === "1";
 
     // Radio infrastructure fields

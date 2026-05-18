@@ -1,0 +1,17 @@
+{
+  "name": "chilltopia-dj-dashboard",
+  "version": "1.0.0",
+  "description": "Standalone ChillTopia DJ status dashboard — for VPS hosting",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "build": "bash build.sh"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "express": "^5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
