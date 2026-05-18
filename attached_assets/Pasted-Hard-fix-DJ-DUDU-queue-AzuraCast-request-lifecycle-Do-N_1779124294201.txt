@@ -1,0 +1,128 @@
+Hard fix DJ_DUDU queue + AzuraCast request lifecycle.
+
+Do NOT touch:
+- startup
+- reconnect/watchdog
+- room join
+- Highrise token handling
+- unrelated games/modules
+
+PART 1 — Fix !q / !queue output
+
+Problem:
+!queue currently shows current/played songs mixed with pending songs.
+Highrise max bot chat is 255 characters.
+
+Required:
+1. !queue and !q must show ONLY pending songs that are waiting to play.
+2. Do NOT show now playing in !queue.
+3. Do NOT show played/history songs in !queue.
+4. Format must be compact:
+
+QUEUE:
+1. Song Title - @user
+2. Song Title - @user
+3. Song Title - @user
+
+5. Max message length: 255 chars.
+6. Trim each title to fit.
+7. If too many songs, show as many as fit then:
++N more
+8. If empty:
+QUEUE:
+Empty
+
+PART 2 — Hard fix Requests playlist assignment
+
+Problem:
+Downloaded request file appears in AzuraCast media library /Requests folder, but takes too long or does not appear in Requests playlist.
+
+Required flow after upload:
+1. Upload to exact path:
+Requests/<filename>.mp3
+
+2. Trigger AzuraCast media rescan/import.
+
+3. Poll media library for the uploaded file for up to 30 seconds:
+- match by path
+- fallback match by filename
+- fallback match by title/youtube_id
+
+4. When media_id is found, explicitly attach that media_id to the Requests playlist using AzuraCast API.
+Do NOT rely only on folder auto-assignment or Apply to Folders.
+
+5. Verify the media item is assigned to Requests playlist.
+
+6. Only after verification:
+- wait 3 seconds
+- call backend skip
+- poll Now Playing for 15 seconds
+
+7. If request starts:
+announce REQUEST LIVE
+
+8. If not:
+say only:
+🎵 Request added. It will play next.
+
+PART 3 — Hard fix replay cleanup
+
+Problem:
+Played request stays in Requests playlist/file library and replays.
+
+Required cleanup:
+1. Track every uploaded request in DB:
+request_id
+username
+title
+youtube_id
+filename
+azuracast_path
+media_id
+playlist_id
+status
+
+2. When Now Playing detects request media_id/path:
+status = playing
+
+3. When that media_id/path leaves Now Playing:
+status = played
+
+4. Immediately cleanup:
+- remove media_id from Requests playlist
+- delete the media/file from AzuraCast media library or delete file through SFTP
+- rescan media
+- verify it is no longer in Requests playlist
+- verify file no longer exists in /Requests
+
+5. Cleanup must be idempotent:
+- already deleted = success
+- not in playlist = success
+- missing media_id = lookup by filename/path
+
+6. Never delete Chill, Party Remixes, DJSet, or default files.
+Only delete files with path starting:
+Requests/
+
+7. Do not delete anything unless it was uploaded by DJ_DUDU and exists in request DB.
+
+8. Logs only:
+stage=media_rescan
+stage=media_lookup
+stage=playlist_assign
+stage=playlist_verify
+stage=request_started
+stage=request_finished
+stage=request_cleanup_remove_playlist
+stage=request_cleanup_delete_file
+stage=request_cleanup_rescan
+stage=request_cleanup_verify
+
+9. Player-facing errors must be simple.
+No API/token/path errors in chat.
+
+Expected:
+- !queue only shows pending songs.
+- Requested song appears in Requests playlist quickly.
+- Requested song plays once.
+- After it finishes, it is removed/deleted and cannot replay.

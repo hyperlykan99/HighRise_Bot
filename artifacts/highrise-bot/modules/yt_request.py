@@ -537,7 +537,7 @@ def _db_get_pending_cleanup() -> list[dict]:
     try:
         with sqlite3.connect(_DB_PATH) as conn:
             rows = conn.execute(
-                """SELECT id, title, azura_file_id, azura_song_id, filename, video_id
+                """SELECT id, title, azura_file_id, azura_song_id, filename, video_id, username
                      FROM yt_request_jobs
                     WHERE status        IN ('done', 'playing', 'played')
                       AND azura_file_id != ''
@@ -549,6 +549,7 @@ def _db_get_pending_cleanup() -> list[dict]:
                 "id":            r[0], "title":         r[1],
                 "azura_file_id": r[2], "azura_song_id": r[3],
                 "filename":      r[4], "video_id":      r[5],
+                "username":      r[6],
             }
             for r in rows
         ]
@@ -583,6 +584,20 @@ def _db_mark_played(db_id: int) -> None:
             conn.commit()
     except Exception as exc:
         print(f"[YT_REQUEST] DB mark_played error (non-fatal): {exc}")
+
+
+def _db_mark_playing(db_id: int) -> None:
+    """Set status='playing' when Now Playing detects the request is live."""
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs SET status='playing'"
+                " WHERE id=? AND status NOT IN ('playing','played')",
+                (db_id,),
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[YT_REQUEST] DB mark_playing error (non-fatal): {exc}")
 
 
 def _db_recent_played(limit: int = 10) -> list[dict]:
@@ -1053,7 +1068,7 @@ def _azura_api_cfg() -> "dict | None":
         "folder":     media_dir,
     }
 
-def _azura_post_upload(filename: str, db_id: int = 0) -> None:
+def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = None, loop: "object | None" = None) -> None:
     """
     Blocking post-SFTP API step.  Called from the upload daemon thread AFTER
     sftp.put() has returned and the success whisper has already been sent.
@@ -1182,21 +1197,58 @@ def _azura_post_upload(filename: str, db_id: int = 0) -> None:
                 if resp.status_code == 200:
                     data = resp.json()
                     rows = data if isinstance(data, list) else data.get("rows", [])
+                    # One-time DB lookup for title/video_id fallback matching
+                    _job_vid_lc = ""
+                    _job_ttl_lc = ""
+                    if db_id and file_id is None:
+                        try:
+                            with sqlite3.connect(_DB_PATH) as _jc:
+                                _jr = _jc.execute(
+                                    "SELECT video_id, title FROM yt_request_jobs WHERE id=?",
+                                    (db_id,),
+                                ).fetchone()
+                            if _jr:
+                                _job_vid_lc = (_jr[0] or "").strip().lower()
+                                _job_ttl_lc = (_jr[1] or "").strip().lower()
+                        except Exception:
+                            pass
                     for row in rows:
-                        if os.path.basename(row.get("path", "")) == filename:
-                            raw_id    = row.get("id")
-                            file_id   = int(raw_id) if raw_id is not None else None
-                            unique_id = (
-                                row.get("unique_id")
-                                or row.get("song_unique_id")
-                                or (row.get("song") or {}).get("id")
-                                or ""
-                            )
-                            _rlog("media_lookup", "success", media_id=file_id,
-                                  unique_id=repr(unique_id),
-                                  path=repr(row.get("path")))
-                            _db_update_azura_ids(db_id, str(file_id), unique_id or "")
-                            break
+                        row_path  = row.get("path", "")
+                        row_title = (row.get("title") or
+                                     (row.get("song") or {}).get("title") or "").strip()
+                        # Strategy 1: full AzuraCast path match
+                        path_match = (
+                            row_path == f"{rescan_dir}/{filename}"
+                            or row_path == f"Requests/{filename}"
+                        )
+                        # Strategy 2: basename match
+                        base_match = os.path.basename(row_path) == filename
+                        # Strategy 3: video_id or title fallback
+                        fb_match   = bool(
+                            (_job_vid_lc and _job_vid_lc in row_path.lower())
+                            or (_job_ttl_lc and row_title.lower() == _job_ttl_lc)
+                        )
+                        if not (path_match or base_match or fb_match):
+                            continue
+                        raw_id    = row.get("id")
+                        file_id   = int(raw_id) if raw_id is not None else None
+                        unique_id = (
+                            row.get("unique_id")
+                            or row.get("song_unique_id")
+                            or (row.get("song") or {}).get("id")
+                            or ""
+                        )
+                        _strategy = (
+                            "path" if path_match else
+                            "basename" if base_match else
+                            "fallback"
+                        )
+                        _rlog("media_lookup", "success", media_id=file_id,
+                              unique_id=repr(unique_id),
+                              path=repr(row_path),
+                              strategy=_strategy)
+                        _db_update_azura_ids(db_id, str(file_id), unique_id or "")
+                        break
             except Exception as exc:
                 _rlog("media_lookup", "error",
                       attempt=f"{attempt}/{_API_RETRY_COUNT}",
@@ -1280,26 +1332,73 @@ def _azura_post_upload(filename: str, db_id: int = 0) -> None:
                 _rlog("playlist_verify", "success" if in_pl else "fail",
                       media_id=file_id, attempt="2")
 
-        # ── 6. Submit to request queue (stage=azuracast_skip) ─────────────────
-        if unique_id:
-            request_url = f"{base}/api/station/{sid}/request/{unique_id}"
-            _rlog("azuracast_skip", "submitting", media_id=file_id,
-                  unique_id=repr(unique_id))
+        # ── 6. Wait 3s → backend skip → poll Now Playing 15s → announce ──────
+        # Resolve requester info for the room announcement
+        _ann_title = ""
+        _ann_uname = ""
+        if db_id:
             try:
-                resp = req_lib.post(request_url, headers=headers, timeout=15)
-                _rlog("azuracast_skip", "success" if resp.status_code in (200, 204) else "fail",
-                      media_id=file_id, http_status=str(resp.status_code),
-                      response_body=repr(resp.text[:300]))
-            except Exception as exc:
-                _rlog("azuracast_skip", "error", media_id=file_id,
-                      exception=repr(str(exc)))
-        else:
-            _rlog("azuracast_skip", "skipped", note="unique_id_unavailable")
+                with sqlite3.connect(_DB_PATH) as _ac:
+                    _ar = _ac.execute(
+                        "SELECT title, username FROM yt_request_jobs WHERE id=?",
+                        (db_id,),
+                    ).fetchone()
+                if _ar:
+                    _ann_title = (_ar[0] or "").strip()
+                    _ann_uname = (_ar[1] or "").strip()
+            except Exception:
+                pass
 
-        # ── Auto-skip is owned by playback_engine._verified_skip_task ────────
-        # Skip is NOT issued here. playback_engine detects the upload, then
-        # handles submit + skip + verify in one coordinated task to prevent
-        # double-skips and duplicate room announcements.
+        _rlog("azuracast_skip", "waiting_3s", media_id=file_id)
+        time.sleep(3)
+
+        _skip_ok = _azura_skip_song()
+        _rlog("azuracast_skip", "success" if _skip_ok else "fail", media_id=file_id)
+
+        # Poll Now Playing for up to 15 seconds (5 × 3 s)
+        _live         = False
+        _live_song_id = ""
+        _stem = filename[:-4] if filename.lower().endswith(".mp3") else filename
+        for _p in range(5):
+            time.sleep(3)
+            _np = _azura_fetch_nowplaying()
+            if _np:
+                _np_song = (_np.get("now_playing") or {}).get("song") or {}
+                _np_sid  = (_np_song.get("id")        or "").strip()
+                _np_uid  = (_np_song.get("unique_id") or "").strip()
+                _np_ttl  = (_np_song.get("title")     or "").strip()
+                if unique_id and _np_uid and _np_uid == unique_id:
+                    _live = True
+                    _live_song_id = _np_sid
+                    _rlog("azuracast_skip", "now_playing_confirmed",
+                          media_id=file_id, poll=str(_p + 1))
+                    break
+                if _stem and _stem.lower() in _np_ttl.lower():
+                    _live = True
+                    _live_song_id = _np_sid
+                    _rlog("azuracast_skip", "now_playing_confirmed_by_stem",
+                          media_id=file_id, poll=str(_p + 1))
+                    break
+
+        if bot and loop and _ann_title:
+            if _live:
+                if _live_song_id:
+                    _seen_announced.add(_live_song_id)
+                _t_d = _ann_title[:70]
+                _u_d = _ann_uname[:20]
+                _msg = (
+                    f"🎵 REQUEST LIVE: {_t_d} — @{_u_d}" if _u_d
+                    else f"🎵 REQUEST LIVE: {_t_d}"
+                )[:249]
+            else:
+                _msg = "🎵 Request added. It will play next."
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    bot.highrise.chat(_msg), loop
+                ).result(5)
+            except Exception as _aexc:
+                _rlog("azuracast_skip", "announce_error",
+                      media_id=file_id, exception=repr(str(_aexc)))
 
     except Exception as exc:
         print(f"[YT_API] Unexpected error in post-upload step (non-fatal): {exc}")
@@ -1391,7 +1490,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
                 _sftp_step(mp3_path, _on_put_done)
                 # on_put_done() already fired → success whispered to user.
                 # Now run API post-processing in this same background thread.
-                _azura_post_upload(os.path.basename(mp3_path), jid)
+                _azura_post_upload(os.path.basename(mp3_path), jid, bot=bot, loop=loop)
             except Exception as exc:
                 # Only reached if _sftp_step raised BEFORE on_put_done() was called.
                 upload_exc[0] = exc
@@ -2279,6 +2378,139 @@ def _azura_sftp_delete(filename: str) -> bool:
             pass
 
 
+def _azura_full_cleanup(job: dict) -> bool:
+    """
+    Full post-play cleanup sequence (blocking — safe to call via run_in_executor).
+
+    Stages executed in order:
+        request_cleanup_remove_playlist — PUT /file/{id} {"playlists":[]}
+        request_cleanup_delete_file     — DELETE /file/{id}  (SFTP fallback if API fails)
+        request_cleanup_rescan          — POST /files/batch {"do":"rescan"}
+        request_cleanup_verify          — GET /files confirm file is gone
+
+    Safety:
+      • Only processes files whose filename ends in .mp3 (bot-uploaded requests only).
+      • Never touches non-Requests files — file_id was only written for uploads we made.
+      • Idempotent: 404 / already-gone = success.
+    Returns True if the file was confirmed deleted (or already absent).
+    """
+    import requests as _rq_lib
+
+    cfg         = _azura_api_cfg()
+    fid         = (job.get("azura_file_id") or "").strip()
+    fn          = (job.get("filename")      or "").strip()
+    playlist_id = (os.environ.get("AZURA_PLAYLIST_ID") or "").strip()
+
+    def _clog(stage: str, result: str, **kw: str) -> None:
+        extras = "".join(f" {k}={v}" for k, v in kw.items())
+        print(f"[YT_API] stage={stage} media_id={fid!r} filename={fn!r} result={result}{extras}")
+
+    if fn and not fn.lower().endswith(".mp3"):
+        _clog("request_cleanup_delete_file", "skipped", note="not_mp3_guard")
+        return False
+
+    deleted = False
+
+    # ── Step 1: remove from Requests playlist ────────────────────────────────
+    if cfg and fid:
+        _hdrs = {
+            "X-API-Key":    cfg["api_key"],
+            "Content-Type": "application/json",
+            "Accept":       "application/json",
+        }
+        if playlist_id:
+            try:
+                r = _rq_lib.put(
+                    f"{cfg['base_url']}/api/station/{cfg['station_id']}/file/{fid}",
+                    json={"playlists": []},
+                    headers=_hdrs,
+                    timeout=15,
+                )
+                _clog("request_cleanup_remove_playlist",
+                      "success" if r.status_code in (200, 204, 404) else "fail",
+                      http=str(r.status_code))
+            except Exception as exc:
+                _clog("request_cleanup_remove_playlist", "error",
+                      exception=repr(str(exc)))
+        else:
+            _clog("request_cleanup_remove_playlist", "skipped",
+                  note="AZURA_PLAYLIST_ID_not_set")
+
+        # ── Step 2: delete file via API ───────────────────────────────────────
+        try:
+            r = _rq_lib.delete(
+                f"{cfg['base_url']}/api/station/{cfg['station_id']}/file/{fid}",
+                headers={
+                    "X-API-Key": cfg["api_key"],
+                    "Accept":    "application/json",
+                },
+                timeout=15,
+            )
+            deleted = r.status_code in (200, 204, 404)
+            _clog("request_cleanup_delete_file",
+                  "success" if deleted else "fail",
+                  method="api", http=str(r.status_code))
+        except Exception as exc:
+            _clog("request_cleanup_delete_file", "error",
+                  method="api", exception=repr(str(exc)))
+
+    # Fallback: SFTP delete by filename
+    if not deleted and fn:
+        deleted = _azura_sftp_delete(fn)
+        _clog("request_cleanup_delete_file",
+              "success" if deleted else "fail", method="sftp")
+
+    if not deleted:
+        return False
+
+    # ── Step 3: rescan after deletion ─────────────────────────────────────────
+    if cfg:
+        sftp_raw   = (os.environ.get("AZURA_SFTP_PATH") or "Requests").strip()
+        rescan_dir = os.path.basename(sftp_raw.rstrip("/")) or sftp_raw
+        try:
+            r = _rq_lib.post(
+                f"{cfg['base_url']}/api/station/{cfg['station_id']}/files/batch",
+                json={"do": "rescan", "currentDirectory": rescan_dir},
+                headers={
+                    "X-API-Key":    cfg["api_key"],
+                    "Content-Type": "application/json",
+                    "Accept":       "application/json",
+                },
+                timeout=30,
+            )
+            _clog("request_cleanup_rescan",
+                  "success" if r.status_code in (200, 204) else "fail",
+                  http=str(r.status_code))
+        except Exception as exc:
+            _clog("request_cleanup_rescan", "error", exception=repr(str(exc)))
+
+        # ── Step 4: verify file is gone ───────────────────────────────────────
+        if fn:
+            time.sleep(2)
+            try:
+                r = _rq_lib.get(
+                    f"{cfg['base_url']}/api/station/{cfg['station_id']}/files",
+                    params={"searchPhrase": fn},
+                    headers={"X-API-Key": cfg["api_key"], "Accept": "application/json"},
+                    timeout=15,
+                )
+                if r.status_code == 200:
+                    _rows = r.json()
+                    _rows = _rows if isinstance(_rows, list) else _rows.get("rows", [])
+                    still_here = any(
+                        os.path.basename(_row.get("path", "")) == fn
+                        for _row in _rows
+                    )
+                    _clog("request_cleanup_verify",
+                          "fail_still_exists" if still_here else "success")
+                else:
+                    _clog("request_cleanup_verify", f"http_{r.status_code}")
+            except Exception as exc:
+                _clog("request_cleanup_verify", "error", exception=repr(str(exc)))
+
+    return True
+
+
 async def _run_nowplaying_cycle(
     prev_song_id_ref: list[str],
     bot_inst: "BaseBot | None" = None,
@@ -2373,16 +2605,22 @@ async def _run_nowplaying_cycle(
                 matched_job = pending_by_filename[np_title_lc]
                 print(f"[YT_NOWPLAY] Matched by filename stem: {np_title}")
 
-    # Phase 1: request song just started playing — mark played + track
+    # Phase 1: request song just started playing — mark playing + track
     # Use current_song_id as the tracking key (AzuraCast's stable per-song ID)
     track_key = current_song_id or ""
     if matched_job and track_key and track_key not in _seen_playing:
         _seen_playing[track_key] = matched_job["id"]
-        _db_mark_played(matched_job["id"])
+        _db_mark_playing(matched_job["id"])
         _currently_playing_db_id = matched_job["id"]
+        _fid_log = (matched_job.get("azura_file_id") or "")
+        _fn_log  = (matched_job.get("filename")      or "")
+        _uln_log = (matched_job.get("username")      or "?")
         print(
-            f"[YT_NOWPLAY] ▶ Request started playing: "
-            f"{(matched_job.get('title') or '?')[:60]}"
+            f"[YT_API] stage=request_started"
+            f" media_id={_fid_log!r}"
+            f" filename={_fn_log!r}"
+            f" title={(matched_job.get('title') or '?')[:60]!r}"
+            f" user={_uln_log!r}"
         )
 
     # ── Announce every new track once (chill / party / request) ──────────────
@@ -2412,40 +2650,28 @@ async def _run_nowplaying_cycle(
         with _radio_vote_lock:
             _radio_skip_votes.clear()
 
-    # Phase 2: previous request song finished → delete the file now
+    # Phase 2: previous request song finished → full cleanup sequence
     prev_id = prev_song_id_ref[0]
     if prev_id and prev_id != current_song_id and prev_id in _seen_playing:
         job_id    = _seen_playing.pop(prev_id)
         if _currently_playing_db_id == job_id:
             _currently_playing_db_id = 0
         job_match = next((j for j in pending if j["id"] == job_id), None)
-        if job_match and _auto_delete_enabled():
+        if job_match:
             fid       = (job_match.get("azura_file_id") or "").strip()
             fn        = (job_match.get("filename")      or "").strip()
-            title_log = (job_match.get("title") or "?")[:60]
-
-            ok = False
-            # Primary: AzuraCast API delete (uses stored numeric file_id)
-            if fid:
-                ok = await loop.run_in_executor(None, _azura_delete_file, fid)
+            title_log = (job_match.get("title")    or "?")[:60]
+            uname_log = (job_match.get("username") or "?")
+            print(
+                f"[YT_API] stage=request_finished"
+                f" media_id={fid!r} filename={fn!r}"
+                f" title={title_log!r} user={uname_log!r}"
+            )
+            _db_mark_played(job_match["id"])
+            if _auto_delete_enabled():
+                ok = await loop.run_in_executor(None, _azura_full_cleanup, job_match)
                 if ok:
-                    print(f"[YT_CLEANUP] ✓ API deleted after play: {title_log}")
-                else:
-                    print(f"[YT_CLEANUP] API delete failed for file_id={fid}, trying SFTP…")
-
-            # Fallback: direct SFTP delete by filename
-            if not ok and fn:
-                ok = await loop.run_in_executor(None, _azura_sftp_delete, fn)
-                if ok:
-                    print(f"[YT_CLEANUP] ✓ SFTP deleted after play: {title_log}")
-
-            if ok:
-                _db_mark_cleaned(job_match["id"])
-            else:
-                print(
-                    f"[YT_CLEANUP] ✗ Cleanup failed: {title_log}"
-                    f" (file_id={fid!r}, filename={fn!r})"
-                )
+                    _db_mark_cleaned(job_match["id"])
 
     prev_song_id_ref[0] = current_song_id
 

@@ -419,36 +419,39 @@ async def handle_pick(bot: "BaseBot", user: "User", args: list) -> None:
 # ─── !queue / !q ──────────────────────────────────────────────────────────────
 
 async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!queue / !q — show now-playing request and pending queue."""
-    loop    = asyncio.get_running_loop()
-    np      = await loop.run_in_executor(None, azura.fetch_nowplaying)
+    """!queue / !q — pending songs only, compact ≤249 chars."""
     pending = rq.pending_jobs()
+    waiting = [j for j in pending if j.get("status") != "playing"]
 
-    lines: list = []
+    if not waiting:
+        await _w(bot, user.id, "QUEUE:\nEmpty")
+        return
 
-    if np:
-        s   = ((np.get("now_playing") or {}).get("song") or {})
-        ttl = (s.get("title")  or "").strip()
-        art = (s.get("artist") or "").strip()
-        label = (f"{art} — {ttl}" if art and art.lower() not in ttl.lower() else ttl) or "Unknown"
-        cp = rq.currently_playing()
-        if cp:
-            req_by = (cp.get("username") or "")[:15]
-            lines.append(f"▶ {label[:60]} (req: @{req_by})" if req_by else f"▶ {label[:70]}")
-        else:
-            lines.append(f"▶ {label[:80]}")
+    _MAX   = 249
+    _TTMAX = 35
+    total  = len(waiting)
 
-    if not pending:
-        lines.append("📋 No pending requests. !request <song> to queue one!")
-    else:
-        for i, j in enumerate(pending[:5], 1):
-            t = (j.get("title") or "…downloading")[:30]
-            u = (j.get("username") or "?")[:12]
-            lines.append(f"{i}. {t} — @{u}")
-        if len(pending) > 5:
-            lines.append(f"(+{len(pending) - 5} more)")
+    rows: list[str] = []
+    for i, j in enumerate(waiting, 1):
+        t = (j.get("title") or "…").strip()[:_TTMAX]
+        u = (j.get("username") or "?").strip()[:14]
+        rows.append(f"{i}. {t} - @{u}")
 
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    header = "QUEUE:"
+    shown  = total
+    msg    = ""
+    while shown > 0:
+        body = "\n".join(rows[:shown])
+        rest = total - shown
+        tail = f"\n+{rest} more" if rest > 0 else ""
+        if len(header) + 1 + len(body) + len(tail) <= _MAX:
+            msg = header + "\n" + body + tail
+            break
+        shown -= 1
+    if not msg:
+        msg = f"{header}\n+{total} more"
+
+    await _w(bot, user.id, msg[:_MAX])
 
 
 # ─── !nowplaying ──────────────────────────────────────────────────────────────
