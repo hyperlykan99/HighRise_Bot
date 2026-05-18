@@ -787,6 +787,34 @@ def _yt_search_sync(query: str, max_results: int = 5) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+_DOWNLOAD_TIMEOUT = 300   # seconds — total budget for yt-dlp download + ffmpeg
+
+# Phrases (checked case-insensitively) that indicate YouTube is blocking the
+# download because of a sign-in/bot/age/privacy restriction.
+_YT_BLOCK_PHRASES = (
+    "sign in to confirm",
+    "confirm you're not a bot",
+    "video unavailable",
+    "private video",
+    "members-only",
+    "login required",
+    "this video may be inappropriate",
+    "age-restricted",
+    "age restricted",
+    "requires authentication",
+    "inappropriate for some users",
+)
+
+
+class _YtBlockedError(Exception):
+    """yt-dlp reported a restriction/block — show a clean message to the player."""
+
+
+def _is_yt_blocked(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(p in msg for p in _YT_BLOCK_PHRASES)
+
+
 # Blocking download step  (run in thread executor — must not touch event loop)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -800,12 +828,18 @@ def _download_step(url: str, tmpdir: str) -> tuple[dict, str]:
 
     # ── 1. Pre-flight: fetch metadata WITHOUT downloading ────────────────────
     _pre_opts: dict = {
-        "quiet":       True,
-        "no_warnings": True,
-        "noplaylist":  True,
+        "quiet":          True,
+        "no_warnings":    True,
+        "noplaylist":     True,
+        "socket_timeout": 30,
     }
-    with yt_dlp.YoutubeDL(_pre_opts) as ydl:
-        pre = ydl.extract_info(url, download=False)
+    try:
+        with yt_dlp.YoutubeDL(_pre_opts) as ydl:
+            pre = ydl.extract_info(url, download=False)
+    except Exception as _pre_exc:
+        if _is_yt_blocked(_pre_exc):
+            raise _YtBlockedError(str(_pre_exc)) from _pre_exc
+        raise
 
     # Unwrap single-entry playlist wrapper
     if isinstance(pre, dict) and pre.get("entries"):
@@ -830,11 +864,12 @@ def _download_step(url: str, tmpdir: str) -> tuple[dict, str]:
 
     # ── 2. Download + convert ────────────────────────────────────────────────
     ydl_opts: dict = {
-        "format":      "bestaudio/best",
-        "outtmpl":     os.path.join(tmpdir, "%(id)s.%(ext)s"),
-        "noplaylist":  True,
-        "quiet":       True,
-        "no_warnings": True,
+        "format":         "bestaudio/best",
+        "outtmpl":        os.path.join(tmpdir, "%(id)s.%(ext)s"),
+        "noplaylist":     True,
+        "quiet":          True,
+        "no_warnings":    True,
+        "socket_timeout": 30,
         "postprocessors": [
             {
                 "key":              "FFmpegExtractAudio",
@@ -849,8 +884,13 @@ def _download_step(url: str, tmpdir: str) -> tuple[dict, str]:
             },
         ],
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except Exception as _dl_exc:
+        if _is_yt_blocked(_dl_exc):
+            raise _YtBlockedError(str(_dl_exc)) from _dl_exc
+        raise
 
     # Unwrap playlist wrapper (safety — noplaylist=True should prevent this)
     if isinstance(info, dict) and info.get("entries"):
@@ -1175,8 +1215,9 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         _stage = "download"
         _update_job(jid, status="downloading")
 
-        info, mp3_path = await loop.run_in_executor(
-            None, _download_step, job["url"], tmpdir
+        info, mp3_path = await asyncio.wait_for(
+            loop.run_in_executor(None, _download_step, job["url"], tmpdir),
+            timeout=_DOWNLOAD_TIMEOUT,
         )
         title        = (info.get("title") or "Unknown")[:160]
         yt_filename  = os.path.basename(mp3_path)
@@ -1264,6 +1305,44 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         # once it verifies the track is actually playing on AzuraCast.
         await _w(bot, uid, f"✅ Uploaded! Queuing your request: {title[:80]}")
         # Background thread is still closing the SSH connection — that's fine.
+
+    except _YtBlockedError as exc:
+        raw_err = str(exc)
+        _update_job(
+            jid, status="failed_download", error=raw_err[:200], finished_at=time.time()
+        )
+        print(
+            f"[REQUEST_FAIL] stage=download"
+            f" video_id={job.get('video_id') or job['url']}"
+            f" title={job.get('title', 'unknown')!r}"
+            f" requester={job.get('username', '?')!r}"
+            f" raw_error={raw_err}"
+        )
+        coins_c = job.get("coins_charged", 0)
+        if coins_c > 0:
+            _refund_coins(uid, coins_c)
+        await _w(
+            bot, uid,
+            "❌ YouTube blocked this track. Try another result or different version.",
+        )
+
+    except asyncio.TimeoutError:
+        _update_job(
+            jid, status="failed_download", error="download_timeout", finished_at=time.time()
+        )
+        print(
+            f"[REQUEST_FAIL] stage=download type=TimeoutError"
+            f" url={job['url']!r}"
+            f" requester={job.get('username', '?')!r}"
+            f" raw_error=Download exceeded {_DOWNLOAD_TIMEOUT}s timeout"
+        )
+        coins_c = job.get("coins_charged", 0)
+        if coins_c > 0:
+            _refund_coins(uid, coins_c)
+        await _w(
+            bot, uid,
+            "❌ YouTube blocked this track. Try another result or different version.",
+        )
 
     except Exception as exc:
         import traceback as _tb
