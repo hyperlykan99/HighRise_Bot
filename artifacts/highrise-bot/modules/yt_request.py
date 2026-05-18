@@ -575,7 +575,7 @@ def _db_get_oldest_staged() -> "dict | None":
             row = conn.execute(
                 "SELECT id, filename, title, username FROM yt_request_jobs "
                 "WHERE status='staged' AND played_at IS NULL AND filename!='' "
-                "ORDER BY id ASC LIMIT 1",
+                "ORDER BY priority DESC, id ASC LIMIT 1",
             ).fetchone()
         if row:
             return {
@@ -3733,9 +3733,10 @@ def radio_submit_job(
     url: str,
     coins_charged: int = 0,
     payment_type: str = "paid",
+    priority: int = 0,
 ) -> None:
     """Create a new job record and launch the yt-dlp → SFTP pipeline."""
-    job = _new_job(user_id, username, url, coins_charged, payment_type)
+    job = _new_job(user_id, username, url, coins_charged, payment_type, priority)
     with _prep_ids_lock:
         _prep_active_jids.add(job["id"])
     asyncio.create_task(_run_job(bot, job))

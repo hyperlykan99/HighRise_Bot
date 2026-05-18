@@ -43,6 +43,7 @@ import modules.payment_service      as ps
 import modules.request_queue        as rq
 import modules.playback_engine      as engine
 from modules.permissions import is_admin, is_owner
+from modules.luxe import get_luxe_balance, deduct_luxe_balance, log_luxe_transaction
 
 if TYPE_CHECKING:
     from highrise import BaseBot, User
@@ -66,6 +67,17 @@ def _rlog(cmd: str, handler: str, username: str) -> None:
 _like_cd: "dict[str, float]" = {}
 _LIKE_CD_SECS = 30
 
+# ─── Priority request mode tracking (user IDs in priority search mode) ─────────
+_priority_mode: "set[str]" = set()
+
+
+def _priority_cost_tickets() -> int:
+    """Luxe tickets required for a priority request slot (0 = disabled)."""
+    try:
+        return max(0, int(db.get_room_setting("request_priority_cost_tickets", "100")))
+    except Exception:
+        return 100
+
 # ─── DB helpers for favorites / ratings (read from shared dj_* tables) ────────
 
 def _azura_track() -> "dict | None":
@@ -88,16 +100,16 @@ def _fav_get(user_id: str, limit: int = 10) -> list:
     try:
         with db.db_conn() as conn:
             rows = conn.execute(
-                "SELECT id, title, youtube_url FROM dj_favorites "
+                "SELECT id, title, youtube_url, COALESCE(artist,'') FROM dj_favorites "
                 "WHERE user_id=? ORDER BY favorited_at DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
-            return [{"id": r[0], "title": r[1], "url": r[2]} for r in rows]
+            return [{"id": r[0], "title": r[1], "url": r[2], "artist": r[3]} for r in rows]
     except Exception:
         return []
 
 
-def _fav_add(user_id: str, username: str, title: str, url: str) -> bool:
+def _fav_add(user_id: str, username: str, title: str, url: str, artist: str = "") -> bool:
     """Insert into dj_favorites. Returns False if already there."""
     try:
         with db.db_conn() as conn:
@@ -107,9 +119,9 @@ def _fav_add(user_id: str, username: str, title: str, url: str) -> bool:
             ).fetchone():
                 return False
             conn.execute(
-                "INSERT INTO dj_favorites (user_id, username, title, youtube_url) "
-                "VALUES (?,?,?,?)",
-                (user_id, username.lower(), title, url),
+                "INSERT INTO dj_favorites (user_id, username, title, youtube_url, artist) "
+                "VALUES (?,?,?,?,?)",
+                (user_id, username.lower(), title, url, artist),
             )
             return True
     except Exception:
@@ -269,10 +281,12 @@ async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
 async def _submit_url(
     bot: "BaseBot", user: "User", url: str,
     metadata: "dict | None" = None,
+    priority: int = 0,
 ) -> None:
     """
     Validate, charge, and launch a job for a confirmed YouTube/audio URL.
     Handles dedup, queue capacity, payment, and cooldown in one place.
+    priority=1 means the job was already paid with luxe tickets by caller.
     """
     uid      = user.id
     uname    = user.username
@@ -345,7 +359,8 @@ async def _submit_url(
     # Confirmation whisper — spec format (title/artist only when known from !pick)
     _title  = ((metadata.get("title")  or "") if metadata else "")[:55]
     _artist = ((metadata.get("artist") or metadata.get("uploader") or "") if metadata else "")[:30]
-    _lines  = ["✅ Added to queue"]
+    _header = "⭐ Priority added" if priority else "✅ Added to queue"
+    _lines  = [_header]
     if _title:
         _lines.append(f"Title: {_title}")
     if _artist:
@@ -360,6 +375,7 @@ async def _submit_url(
         bot, uid, uname, url,
         coins_charged=price,
         payment_type="paid" if price > 0 else "free",
+        priority=priority,
     )
 
 
@@ -425,10 +441,96 @@ async def handle_request(
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
+# ─── !priority ────────────────────────────────────────────────────────────────
+
+async def handle_priority(bot: "BaseBot", user: "User", args: list) -> None:
+    """
+    !priority <song/URL> — submit a priority request using luxe tickets.
+    Costs _priority_cost_tickets() luxe tickets (default 100).
+    For search queries, the charge is applied when !pick is confirmed.
+    For direct URLs, the charge is applied immediately.
+    """
+    if not cs.sftp_ready():
+        missing = cs.sftp_missing_vars()
+        await _w(bot, user.id, f"📻 Requests not available (missing: {', '.join(missing)}).")
+        return
+
+    if not cs.request_system_enabled():
+        await _w(bot, user.id, "📻 Song requests are currently disabled.")
+        return
+
+    cost = _priority_cost_tickets()
+    if cost <= 0:
+        await _w(bot, user.id, "⭐ Priority queue is not enabled right now.")
+        return
+
+    bal = get_luxe_balance(user.id)
+
+    if len(args) < 2:
+        await _w(
+            bot, user.id,
+            f"⭐ Priority Request\n!priority <song/URL>\n"
+            f"Cost: {cost} luxe tickets | Your balance: {bal}",
+        )
+        return
+
+    if bal < cost:
+        await _w(
+            bot, user.id,
+            f"🎟 Not enough luxe tickets.\nPriority costs {cost} tickets. You have {bal}.",
+        )
+        return
+
+    query = " ".join(args[1:]).strip()[:200]
+    if not query:
+        await _w(bot, user.id, "⭐ Please include a song name or YouTube URL.")
+        return
+
+    # Direct URL — charge immediately then submit with priority=1
+    if _is_any_url(query):
+        if not deduct_luxe_balance(user.id, user.username, cost):
+            await _w(bot, user.id, "⚠️ Could not charge luxe tickets. Try again.")
+            return
+        try:
+            log_luxe_transaction(
+                user.id, user.username,
+                "priority_request", cost, "luxe_tickets",
+                f"URL priority request",
+            )
+        except Exception:
+            pass
+        await _submit_url(bot, user, query, priority=1)
+        return
+
+    # Text search — charge on !pick confirmation
+    await _w(bot, user.id, f"🔍 Searching: {query[:60]}…")
+    loop = asyncio.get_running_loop()
+    try:
+        results = await loop.run_in_executor(None, rq.search_yt, query, 5)
+    except Exception as exc:
+        await _w(bot, user.id, f"❌ Search error: {str(exc)[:60]}")
+        return
+
+    if not results:
+        await _w(bot, user.id, "❌ No results found. Try a different search term.")
+        return
+
+    _priority_mode.add(user.id)
+    rq.set_pending_search(user.id, results)
+    max_min = cs.MAX_DURATION_SECS // 60
+    lines   = [f"⭐ Priority — pick a result (!pick <1-5>, costs {cost} tickets):"]
+    for i, r in enumerate(results, 1):
+        flag  = " ⚠️" if r.get("duration_secs", 0) > cs.MAX_DURATION_SECS else ""
+        clean = _clean_title(r["title"])[:36]
+        lines.append(f"{i}. {clean} [{r.get('duration', '?')}]{flag}")
+    lines.append(f"(Max {max_min}m)")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
 # ─── !pick ────────────────────────────────────────────────────────────────────
 
 async def handle_pick(bot: "BaseBot", user: "User", args: list) -> None:
-    """!pick <1-5>  — confirm a pending search result from !request."""
+    """!pick <1-5>  — confirm a pending search result from !request or !priority."""
     if not rq.has_pending_search(user.id):
         await _w(bot, user.id, "🎵 No pending search. Use !request <song> first.")
         return
@@ -445,13 +547,42 @@ async def handle_pick(bot: "BaseBot", user: "User", args: list) -> None:
 
     picked = results[idx]
     url    = picked.get("url", "")
+
+    # ── Priority mode: charge luxe tickets before clearing search ────────────
+    is_priority = user.id in _priority_mode
+    if is_priority:
+        cost = _priority_cost_tickets()
+        bal  = get_luxe_balance(user.id)
+        if bal < cost:
+            rq.clear_pending_search(user.id)
+            _priority_mode.discard(user.id)
+            await _w(
+                bot, user.id,
+                f"🎟 Not enough luxe tickets. Priority costs {cost} tickets. You have {bal}.",
+            )
+            return
+        if not deduct_luxe_balance(user.id, user.username, cost):
+            rq.clear_pending_search(user.id)
+            _priority_mode.discard(user.id)
+            await _w(bot, user.id, "⚠️ Could not charge luxe tickets. Try again.")
+            return
+        try:
+            log_luxe_transaction(
+                user.id, user.username,
+                "priority_request", cost, "luxe_tickets",
+                f"Priority pick: {(picked.get('title') or '')[:40]}",
+            )
+        except Exception:
+            pass
+        _priority_mode.discard(user.id)
+
     rq.clear_pending_search(user.id)
 
     if not url:
         await _w(bot, user.id, "❌ Could not get URL for that result. Try again.")
         return
 
-    await _submit_url(bot, user, url, metadata=picked)
+    await _submit_url(bot, user, url, metadata=picked, priority=1 if is_priority else 0)
 
 
 # ─── !queue / !q ──────────────────────────────────────────────────────────────
@@ -596,11 +727,13 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         a    = (j.get("artist")   or "").strip()[:15]
         u    = (j.get("username") or "?").strip()[:12]
         st   = j.get("status", "")
+        pri  = int(j.get("priority") or 0)
         icon = "✅" if st == "ready" else ("❌" if st in ("error", "failed_download") else "⏳")
+        pfx  = "⭐" if pri else ""
         if a:
-            rows.append(f"{i}. {t} - {a} - @{u} {icon}")
+            rows.append(f"{i}.{pfx} {t} - {a} - @{u} {icon}")
         else:
-            rows.append(f"{i}. {t} - @{u} {icon}")
+            rows.append(f"{i}.{pfx} {t} - @{u} {icon}")
 
     header = "🎧 UP NEXT:"
     shown  = total
@@ -668,12 +801,18 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
         else "⏱ Live stream"
     )
 
+    # Live like/dislike counts (reuse title already fetched from NP data)
+    _song_key   = title.lower()[:150] if title != "Unknown" else ""
+    _counts     = _ratings(_song_key) if _song_key else {"likes": 0, "dislikes": 0}
+    _likes_line = f"👍 {_counts['likes']} 👎 {_counts['dislikes']}"
+
     msg = "\n".join([
         header,
         f"🎵 {track[:42]}",
         source_line,
         time_str,
         bar,
+        _likes_line,
         "📻 ChillTopia Radio",
     ])
     await _w(bot, user.id, msg[:249])
@@ -1116,6 +1255,115 @@ async def handle_dislike(bot: "BaseBot", user: "User", _args: list) -> None:
         await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
 
 
+# ─── !likes / !votes ──────────────────────────────────────────────────────────
+
+async def handle_likes(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!likes / !votes — show like/dislike count for the current track."""
+    _rlog("likes", "handle_likes", user.username)
+    loop  = asyncio.get_running_loop()
+    track = await loop.run_in_executor(None, _azura_track)
+    if not track:
+        await _w(bot, user.id, "🎵 Nothing is playing right now.")
+        return
+    counts = _ratings(track["key"])
+    title  = track["title"][:50]
+    await _w(bot, user.id, f"👍 {counts['likes']} | 👎 {counts['dislikes']}\n{title}")
+
+
+# ─── !voters ──────────────────────────────────────────────────────────────────
+
+async def handle_voters(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!voters — show all voters for the current track (staff only)."""
+    if not _is_staff(user.username):
+        await _w(bot, user.id, "❌ Staff only.")
+        return
+    loop  = asyncio.get_running_loop()
+    track = await loop.run_in_executor(None, _azura_track)
+    if not track:
+        await _w(bot, user.id, "🎵 Nothing is playing right now.")
+        return
+    key = track["key"]
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT username, rating FROM dj_ratings "
+                "WHERE song_key=? ORDER BY rated_at ASC",
+                (key,),
+            ).fetchall()
+    except Exception:
+        rows = []
+    if not rows:
+        await _w(bot, user.id, f"🗳 No votes yet for: {track['title'][:50]}")
+        return
+    lines = [f"🗳 Votes ({track['title'][:35]}):"]
+    for r in rows[:12]:
+        icon = "👍" if r[1] == "like" else "👎"
+        lines.append(f"{icon} @{r[0][:15]}")
+    if len(rows) > 12:
+        lines.append(f"…+{len(rows)-12} more")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ─── !likeslist ───────────────────────────────────────────────────────────────
+
+async def handle_likeslist(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!likeslist — show usernames who liked the current track (staff only)."""
+    if not _is_staff(user.username):
+        await _w(bot, user.id, "❌ Staff only.")
+        return
+    loop  = asyncio.get_running_loop()
+    track = await loop.run_in_executor(None, _azura_track)
+    if not track:
+        await _w(bot, user.id, "🎵 Nothing is playing right now.")
+        return
+    key = track["key"]
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT username FROM dj_ratings "
+                "WHERE song_key=? AND rating='like' ORDER BY rated_at ASC",
+                (key,),
+            ).fetchall()
+    except Exception:
+        rows = []
+    if not rows:
+        await _w(bot, user.id, f"👍 No likes yet for: {track['title'][:50]}")
+        return
+    names = ", ".join(f"@{r[0]}" for r in rows[:15])
+    suffix = f" (+{len(rows)-15} more)" if len(rows) > 15 else ""
+    await _w(bot, user.id, f"👍 Liked by: {names}{suffix}"[:249])
+
+
+# ─── !dislikeslist ────────────────────────────────────────────────────────────
+
+async def handle_dislikeslist(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!dislikeslist — show usernames who disliked the current track (staff only)."""
+    if not _is_staff(user.username):
+        await _w(bot, user.id, "❌ Staff only.")
+        return
+    loop  = asyncio.get_running_loop()
+    track = await loop.run_in_executor(None, _azura_track)
+    if not track:
+        await _w(bot, user.id, "🎵 Nothing is playing right now.")
+        return
+    key = track["key"]
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT username FROM dj_ratings "
+                "WHERE song_key=? AND rating='dislike' ORDER BY rated_at ASC",
+                (key,),
+            ).fetchall()
+    except Exception:
+        rows = []
+    if not rows:
+        await _w(bot, user.id, f"👎 No dislikes yet for: {track['title'][:50]}")
+        return
+    names = ", ".join(f"@{r[0]}" for r in rows[:15])
+    suffix = f" (+{len(rows)-15} more)" if len(rows) > 15 else ""
+    await _w(bot, user.id, f"👎 Disliked by: {names}{suffix}"[:249])
+
+
 # ─── !favorite / !fav / !addtoplaylist ───────────────────────────────────────
 
 async def handle_favorite(bot: "BaseBot", user: "User", _args: list) -> None:
@@ -1126,7 +1374,9 @@ async def handle_favorite(bot: "BaseBot", user: "User", _args: list) -> None:
     if not track:
         await _w(bot, user.id, "🎵 Nothing playing right now. Try !np to check the stream.")
         return
-    added = _fav_add(user.id, user.username, track["title"], "")
+    cp  = rq.currently_playing()
+    url = (cp.get("url") or "") if cp else ""
+    added = _fav_add(user.id, user.username, track["title"], url, track.get("artist", ""))
     if added:
         await _w(bot, user.id, f"⭐ Saved to favorites: {track['title'][:55]}")
     else:
@@ -1186,6 +1436,77 @@ async def handle_removefavorite(bot: "BaseBot", user: "User", args: list) -> Non
         await _w(bot, user.id, f"💔 Removed #{pos}: {title[:55]}")
     else:
         await _w(bot, user.id, f"⚠️ No favorite #{pos}. Use !favorites to see your list.")
+
+
+# ─── !save ───────────────────────────────────────────────────────────────────
+
+async def handle_save(bot: "BaseBot", user: "User", args: list) -> None:
+    """!save — alias for !favorite: save current playing song with artist + URL."""
+    await handle_favorite(bot, user, args)
+
+
+# ─── !mysongs ─────────────────────────────────────────────────────────────────
+
+async def handle_mysongs(bot: "BaseBot", user: "User", args: list) -> None:
+    """!mysongs [page] — paginated list of saved songs (5 per page), newest first."""
+    _rlog("mysongs", "handle_mysongs", user.username)
+    per   = 5
+    page  = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+    rows  = _fav_get(user.id, limit=20)
+    if not rows:
+        await _w(bot, user.id, "⭐ No saved songs. Use !save while a song plays.")
+        return
+    total  = len(rows)
+    pages  = (total + per - 1) // per
+    start  = (page - 1) * per
+    chunk  = rows[start:start + per]
+    if not chunk:
+        await _w(bot, user.id, f"⭐ Page {page} of {pages}. Use !mysongs <page>.")
+        return
+    lines = [f"⭐ My songs p{page}/{pages}:"]
+    for i, r in enumerate(chunk, start + 1):
+        t = (r.get("title") or "?")[:30]
+        a = (r.get("artist") or "")[:18]
+        if a:
+            lines.append(f"{i}. {t} — {a}")
+        else:
+            lines.append(f"{i}. {t}")
+    lines.append("!playmine <#> to request")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ─── !removefav ──────────────────────────────────────────────────────────────
+
+async def handle_removefav(bot: "BaseBot", user: "User", args: list) -> None:
+    """!removefav <#> — alias for !removefavorite."""
+    await handle_removefavorite(bot, user, args)
+
+
+# ─── !playmine ────────────────────────────────────────────────────────────────
+
+async def handle_playmine(bot: "BaseBot", user: "User", args: list) -> None:
+    """!playmine <#> — re-request a saved song from your playlist by list position."""
+    _rlog("playmine", "handle_playmine", user.username)
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Usage: !playmine <#>  (see !mysongs for your list)")
+        return
+    pos  = int(args[1])
+    rows = _fav_get(user.id, limit=20)
+    if pos < 1 or pos > len(rows):
+        await _w(
+            bot, user.id,
+            f"⚠️ No saved song #{pos}. You have {len(rows)}. Use !mysongs.",
+        )
+        return
+    fav = rows[pos - 1]
+    url = (fav.get("url") or "").strip()
+    if not url:
+        await _w(
+            bot, user.id,
+            f"⚠️ '{fav['title'][:40]}' has no URL stored. Search with !request instead.",
+        )
+        return
+    await _submit_url(bot, user, url, metadata={"title": fav["title"], "artist": fav.get("artist", "")})
 
 
 # ─── !myrequests ─────────────────────────────────────────────────────────────
@@ -1292,3 +1613,12 @@ handle_favorites       = _safe(handle_favorites)
 handle_removefavorite  = _safe(handle_removefavorite)
 handle_myrequests      = _safe(handle_myrequests)
 handle_cancel          = _safe(handle_cancel)
+handle_priority        = _safe(handle_priority)
+handle_save            = _safe(handle_save)
+handle_mysongs         = _safe(handle_mysongs)
+handle_removefav       = _safe(handle_removefav)
+handle_playmine        = _safe(handle_playmine)
+handle_likes           = _safe(handle_likes)
+handle_voters          = _safe(handle_voters)
+handle_likeslist       = _safe(handle_likeslist)
+handle_dislikeslist    = _safe(handle_dislikeslist)

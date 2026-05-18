@@ -88,7 +88,7 @@ async def announce_now_playing(
     lines = ["▶ NOW PLAYING", f"Title: {t}"]
     if a:
         lines.append(f"Artist: {a}")
-    lines.extend([vibe_line, f"📻 {_STATION}"])
+    lines.extend([vibe_line, "👍 0 👎 0", f"📻 {_STATION}"])
     await _say(bot, "\n".join(lines))
 
 
@@ -111,6 +111,7 @@ async def announce_request_live(
         lines.append(f"Artist: {a}")
     if requester:
         lines.append(f"🙋 @{requester[:20]}")
+    lines.append("👍 0 👎 0")
     lines.append(f"📻 {_STATION}")
     await _say(bot, "\n".join(lines))
 

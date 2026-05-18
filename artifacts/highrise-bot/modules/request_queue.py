@@ -48,12 +48,13 @@ _CLR_PH = ",".join("?" * len(_CLEAR_STATUSES))
 _COLS = (
     "id", "user_id", "username", "url", "title", "status",
     "filename", "azura_file_id", "azura_song_id", "coins_charged", "started_at",
-    "video_id", "artist",
+    "video_id", "artist", "priority",
 )
 _SEL = (
     "id, user_id, username, url, title, status, "
     "filename, azura_file_id, azura_song_id, coins_charged, started_at, video_id, "
-    "COALESCE(artist, '') AS artist"
+    "COALESCE(artist, '') AS artist, "
+    "COALESCE(priority, 0) AS priority"
 )
 
 
@@ -104,7 +105,7 @@ def display_jobs() -> list:
             rows = conn.execute(
                 f"SELECT {_SEL} FROM yt_request_jobs "
                 f"WHERE status IN ({_DSP_PH}) AND played_at IS NULL "
-                "ORDER BY id ASC",
+                "ORDER BY priority DESC, id ASC",
                 _DISPLAY_STATUSES,
             ).fetchall()
             return [_jrow(r) for r in rows]
@@ -466,9 +467,10 @@ def submit_job(
     url: str,
     coins_charged: int = 0,
     payment_type: str = "paid",
+    priority: int = 0,
 ) -> None:
     """Create a job record and launch the yt-dlp → SFTP → AzuraCast pipeline."""
-    _rq().radio_submit_job(bot, user_id, username, url, coins_charged, payment_type)
+    _rq().radio_submit_job(bot, user_id, username, url, coins_charged, payment_type, priority)
 
 
 def cancel_job(jid: int, reason: str = "cancelled_by_admin") -> "dict | None":

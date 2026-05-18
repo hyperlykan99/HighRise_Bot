@@ -496,6 +496,15 @@ from modules.radio_commands import (
     handle_removefavorite  as rc_removefavorite,
     handle_myrequests      as rc_myrequests,
     handle_cancel          as rc_cancel,
+    handle_priority        as rc_priority,
+    handle_save            as rc_save,
+    handle_mysongs         as rc_mysongs,
+    handle_removefav       as rc_removefav,
+    handle_playmine        as rc_playmine,
+    handle_likes           as rc_likes,
+    handle_voters          as rc_voters,
+    handle_likeslist       as rc_likeslist,
+    handle_dislikeslist    as rc_dislikeslist,
     startup_radio,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7366,18 +7375,36 @@ class HangoutBot(BaseBot):
             await handle_dj_upnext(self, user)
         elif cmd == "djstats":
             await handle_dj_stats(self, user)
+        elif cmd in ("priority", "pr", "priorityreq"):
+            await rc_priority(self, user, args)
         elif cmd in ("favorite", "fav", "addtoplaylist"):
             await rc_favorite(self, user, args)
+        elif cmd == "save":
+            await rc_save(self, user, args)
         elif cmd in ("favorites", "favs", "myplaylist"):
             await rc_favorites(self, user, args)
         elif cmd == "unfavorite":
             await rc_unfavorite(self, user, args)
         elif cmd == "removefavorite":
             await rc_removefavorite(self, user, args)
+        elif cmd in ("removefav", "delfav", "deletefav"):
+            await rc_removefav(self, user, args)
+        elif cmd in ("mysongs", "playlist", "myplaylist2"):
+            await rc_mysongs(self, user, args)
+        elif cmd == "playmine":
+            await rc_playmine(self, user, args)
         elif cmd == "like":
             await rc_like(self, user, args)
         elif cmd == "dislike":
             await rc_dislike(self, user, args)
+        elif cmd in ("likes", "votes"):
+            await rc_likes(self, user, args)
+        elif cmd == "voters":
+            await rc_voters(self, user, args)
+        elif cmd == "likeslist":
+            await rc_likeslist(self, user, args)
+        elif cmd == "dislikeslist":
+            await rc_dislikeslist(self, user, args)
         elif cmd == "songrating":
             await handle_dj_songrating(self, user)
         elif cmd == "repeat":

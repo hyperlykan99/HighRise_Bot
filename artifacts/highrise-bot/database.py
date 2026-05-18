@@ -3148,6 +3148,14 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.2O-A — dj_favorites: add artist column for playlist display
+    try:
+        conn.execute(
+            "ALTER TABLE dj_favorites ADD COLUMN artist TEXT NOT NULL DEFAULT ''"
+        )
+    except Exception:
+        pass  # column already exists
+
     # 3.2P — DJ requests: add priority column (0=normal, 1=priority, 2=vip)
     try:
         conn.execute(

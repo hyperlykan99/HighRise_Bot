@@ -1,0 +1,156 @@
+Add monetized priority requests, personal playlists, and like/dislike voting.
+
+PART A — Priority Requests
+
+Add command:
+!priority <search or url>
+
+Cost:
+100 luxe tickets
+
+Behavior:
+1. Charge 100 luxe tickets only after a valid song is selected/confirmed.
+2. Priority request goes above normal requests.
+3. Priority must NOT interrupt currently playing song.
+4. Priority plays after current song ends, before normal queue.
+5. If download/upload fails, refund 100 luxe tickets.
+6. Staff can use priority free.
+
+Queue order:
+1. currently playing song
+2. priority queued songs
+3. normal queued songs
+
+Display in !q:
+🎧 UP NEXT:
+1. Title - Artist - @user ⭐
+2. Title - Artist - @user
+
+Messages:
+⭐ Priority request added
+Title: {title}
+Artist: {artist}
+Position: #{position}
+Cost: 100 luxe tickets
+
+PART B — Player Playlists
+
+Each player can save songs to their own playlist.
+
+Commands:
+!save
+- saves current playing song to user playlist
+
+!mysongs
+- shows user saved songs, max 5 per page
+
+!removefav <number>
+- removes song from user playlist
+
+!playmine <number>
+- requests a saved song again
+
+Rules:
+- Save title, artist, youtube_url/video_id, requester, saved_at.
+- Do not save duplicate song for same user.
+- Normal request rules still apply when using !playmine.
+- If user has no songs:
+  🎵 Your playlist is empty.
+
+PART C — Like / Dislike Current Song
+
+Commands:
+!like
+!dislike
+!likes
+!votes
+
+Anyone can like/dislike what is currently playing.
+
+Rules:
+1. One vote per user per track.
+2. User can change vote from like to dislike or dislike to like.
+3. Votes are tied to current track identity:
+   media_id / unique_id / filename / normalized title fallback.
+4. Reset votes per new track.
+5. Store vote history in DB.
+
+Show in !now:
+👍 {likes}  👎 {dislikes}
+
+Show in start announcement:
+▶ NOW PLAYING
+Title: {title}
+Artist: {artist}
+🎵 Request / 🌙 AutoDJ • Chill
+👍 0  👎 0
+📻 ChillTopia Radio
+
+For request:
+▶ REQUEST LIVE
+Title: {title}
+Artist: {artist}
+🙋 @{username}
+👍 0  👎 0
+📻 ChillTopia Radio
+
+PART D — Staff Vote Audit
+
+Staff-only commands:
+!voters
+!likeslist
+!dislikeslist
+
+Behavior:
+- Staff can see who liked/disliked current song.
+- Normal players cannot see voter names.
+- Normal players only see counts.
+
+Normal player response if they try:
+❌ Staff only.
+
+Staff output:
+👍 Likes:
+@user1, @user2
+
+👎 Dislikes:
+@user3
+
+Keep under 255 chars. If too long:
++N more
+
+PART E — Database Tables
+
+Add/migrate tables safely:
+request_votes:
+- track_key
+- user_id
+- username
+- vote_type
+- created_at
+- updated_at
+
+user_saved_songs:
+- user_id
+- username
+- title
+- artist
+- youtube_url
+- youtube_id
+- saved_at
+
+Priority request fields in request queue:
+- priority boolean
+- priority_cost
+- paid_currency
+- paid_at
+- refunded_at
+
+PART F — Safety
+
+- Never crash if luxe ticket charge/refund fails.
+- If payment fails, do not add priority request.
+- Normal request still works.
+- Like/dislike must not affect playback yet.
+- Do not expose voter names to normal players.
+- Keep all chat messages under 255 characters.
