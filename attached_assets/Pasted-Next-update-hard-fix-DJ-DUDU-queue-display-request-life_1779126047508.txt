@@ -1,0 +1,178 @@
+Next update: hard fix DJ_DUDU queue display + request lifecycle.
+
+Do NOT touch:
+- bot startup
+- reconnect/watchdog
+- respawn
+- room join
+- token handling
+- unrelated game modules
+- multi-bot lifecycle
+
+Only BOT_MODE=dj / DJ_DUDU handles radio commands.
+
+GOALS:
+1. Change !q / !queue from QUEUE to UP NEXT.
+2. Add clean emojis to player-facing radio messages.
+3. Fix Requests replay using Option A + B:
+   - Option A: only one active request file in /Requests at a time.
+   - Option B: after play, move played request file to /PlayedRequests instead of relying only on delete.
+4. Stop played songs from staying active in Requests playlist.
+
+PART 1 — !q / !queue display
+
+Commands:
+- !queue
+- !q
+
+Required format:
+🎧 UP NEXT:
+1. Song Title - @user
+2. Song Title - @user
+3. Song Title - @user
+
+Rules:
+- Show ONLY pending songs waiting to play.
+- Do NOT show currently playing song.
+- Do NOT show played/history songs.
+- Max Highrise message length: 255 characters.
+- Trim song title/artist if needed.
+- If too many songs, show as many as fit, then:
++N more
+- If empty:
+🎧 UP NEXT:
+Empty
+
+PART 2 — Emoji message polish
+
+Use short clean emoji messages:
+- request added: 🎵 Request added. It will play next.
+- request live: ▶ REQUEST LIVE
+- skip success: ⏭️ Skipped.
+- skip fail: ❌ Skip failed. Try again.
+- blocked YouTube: ❌ YouTube blocked this track. Try another version.
+- queue empty: 🎧 UP NEXT:\nEmpty
+- cleanup/internal failures: logs only, no technical chat.
+
+Keep messages compact. Highrise chat limit is 255 chars.
+
+PART 3 — Option A: one active request in /Requests
+
+Problem:
+AzuraCast takes too long to assign new files to Requests playlist, and old request files replay.
+
+New rule:
+/Requests should contain only the active/next request file currently intended to play.
+/PlayedRequests stores completed request files.
+/RequestStaging or bot temp folder stores waiting downloaded files if needed.
+
+Required flow:
+1. When a user requests a song, download it to staging/temp first, NOT directly into permanent active Requests if another request is already active.
+2. Keep real queue in DJ_DUDU database.
+3. Only promote/upload/move ONE request file into:
+   Requests/<filename>.mp3
+   when it is next to play.
+4. After promoting the next request:
+   - rescan/import media
+   - poll media library up to 30 seconds
+   - find media_id by path/filename/youtube_id/title
+   - explicitly attach media_id to Requests playlist
+   - verify media is in Requests playlist
+   - wait 3 seconds
+   - call AzuraCast backend skip
+   - poll Now Playing for 15 seconds
+
+5. If it starts playing:
+   status = playing
+   announce through dj_announcer.py only.
+
+6. If it does not start:
+   keep it queued and say:
+   🎵 Request added. It will play next.
+
+PART 4 — Option B: move played requests out of /Requests
+
+Problem:
+Played request song stays in Requests playlist and replays.
+
+Required cleanup:
+When a request leaves Now Playing:
+1. Mark status = played.
+2. Remove media_id from Requests playlist if API supports it.
+3. Move file from:
+   Requests/<filename>.mp3
+   to:
+   PlayedRequests/<filename>.mp3
+   using SFTP/remote file move if possible.
+4. If move is not available, copy to PlayedRequests then delete from Requests.
+5. Trigger AzuraCast rescan/import after move/delete.
+6. Verify file is no longer in /Requests.
+7. Verify media is no longer active in Requests playlist.
+8. Never delete/move Chill/default/Party Remixes/DJ set files.
+9. Only move files:
+   - path starts with Requests/
+   - exist in DJ_DUDU request DB
+   - were uploaded/promoted by DJ_DUDU
+
+Cleanup must be idempotent:
+- already moved = success
+- already deleted = success
+- already marked played = do nothing
+- missing media_id = lookup by filename/path
+
+PART 5 — Queue promotion logic
+
+After cleanup:
+1. Check DB for next pending request.
+2. Promote only the next pending request into /Requests.
+3. Assign it to Requests playlist.
+4. Skip/poll if appropriate.
+5. If no pending requests remain:
+   return to saved vibe: Chill or Party.
+
+PART 6 — Logs
+
+Add detailed logs only:
+stage=queue_display
+stage=request_staging
+stage=request_promote
+stage=media_rescan
+stage=media_lookup
+stage=playlist_assign
+stage=playlist_verify
+stage=request_started
+stage=request_finished
+stage=request_cleanup_move_played
+stage=request_cleanup_remove_playlist
+stage=request_cleanup_rescan
+stage=request_cleanup_verify
+stage=queue_promote_next
+
+Include:
+request_id=
+username=
+title=
+filename=
+azuracast_path=
+media_id=
+playlist_id=
+status=
+result=
+error=
+
+PART 7 — Safety
+
+- All download/upload/rescan/API/file operations must run in background task/thread.
+- Use try/except and timeouts.
+- Bot must never crash if AzuraCast/SFTP/API fails.
+- Player-facing errors must be simple.
+- Do not expose API keys, paths, stack traces, or tokens in chat.
+
+Expected result:
+- !q and !queue show only pending songs under “🎧 UP NEXT:”
+- message length stays under 255 chars
+- only one request file is active in /Requests
+- played request files move to /PlayedRequests
+- played songs cannot replay from Requests playlist
+- next pending request is promoted after cleanup
+- DJ_DUDU returns to Chill/Party when no requests remain

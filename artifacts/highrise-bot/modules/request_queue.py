@@ -11,6 +11,7 @@ Queue statuses used by this system (superset of yt_request originals):
   pending     — job created, waiting for pipeline
   downloading — yt-dlp step running
   uploading   — SFTP step running
+  staged      — download done, waiting for /Requests slot to free up (Option A)
   done        — file uploaded + AzuraCast registered, azura_file_id set
   queued      — promoted by playback_engine; Requests playlist is active
   playing     — song is currently streaming on AzuraCast
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
 
 _LOG = "[RQ]"
 
-_ACTIVE = ("pending", "downloading", "uploading", "done", "queued", "playing")
+_ACTIVE = ("pending", "downloading", "uploading", "staged", "done", "queued", "playing")
 _ACT_PH = ",".join("?" * len(_ACTIVE))
 
 _COLS = (

@@ -47,6 +47,7 @@ _STATE_NS     = "playback_"
 # ─── Module-level state ───────────────────────────────────────────────────────
 _lock                   = threading.Lock()
 _stop_flag              = threading.Event()    # Set on shutdown; executor threads check this
+_stage_promotion_lock   = threading.Lock()     # Prevents concurrent staged-job promotions
 _started:         bool  = False
 _mode:            str   = "vibe"    # "vibe" | "requests"
 _cur_song_id:     str   = ""        # AzuraCast song.id currently playing
@@ -56,7 +57,7 @@ _skip_task_active: bool = False     # True while a _verified_skip_task is runnin
 _cur_elapsed:     int   = 0         # AzuraCast elapsed seconds for current song
 _cur_duration:    int   = 0         # AzuraCast total duration of current song
 
-_ACT = ("pending", "downloading", "uploading", "done", "queued", "playing")
+_ACT = ("pending", "downloading", "uploading", "staged", "done", "queued", "playing")
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
 
 _COLS = (
@@ -143,6 +144,39 @@ def _db_count_active() -> int:
             return row[0] if row else 0
     except Exception as exc:
         print(f"{_LOG} _db_count_active: {exc}")
+        return 0
+
+
+def _db_count_staged() -> int:
+    """Count jobs with status='staged' waiting for the /Requests SFTP slot."""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM yt_request_jobs "
+                "WHERE status='staged' AND played_at IS NULL",
+            ).fetchone()
+            return row[0] if row else 0
+    except Exception as exc:
+        print(f"{_LOG} _db_count_staged: {exc}")
+        return 0
+
+
+def _db_count_active_in_requests() -> int:
+    """
+    Count jobs with an active registered file in /Requests
+    (status IN ('queued','playing') AND azura_file_id set).
+    Used to decide whether the /Requests slot is free for a staged promotion.
+    """
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM yt_request_jobs "
+                "WHERE status IN ('queued','playing') "
+                "  AND azura_file_id != '' AND played_at IS NULL",
+            ).fetchone()
+            return row[0] if row else 0
+    except Exception as exc:
+        print(f"{_LOG} _db_count_active_in_requests: {exc}")
         return 0
 
 
@@ -286,6 +320,34 @@ async def _switch_to_vibe(bot: "BaseBot") -> None:
     print(f"{_LOG} Switched → VIBE/{cs.vibe().upper()}")
 
 
+# ─── Staged-job promotion helper ─────────────────────────────────────────────
+
+def _do_promote_staged(bot: "BaseBot", loop: "asyncio.AbstractEventLoop") -> None:
+    """
+    Blocking wrapper called via loop.run_in_executor from the poll loop.
+
+    Acquires _stage_promotion_lock (non-blocking) so only one promotion runs
+    at a time across concurrent poll cycles.  Imports radio_promote_staged_job
+    lazily to avoid a circular-import at module load time.
+
+    Log field: stage=queue_promote_next
+    """
+    if not _stage_promotion_lock.acquire(blocking=False):
+        print(f"{_LOG} stage=queue_promote_next result=skipped reason=already_running")
+        return
+    try:
+        from modules.yt_request import radio_promote_staged_job as _promote
+        result = _promote(bot, loop)
+        print(
+            f"{_LOG} stage=queue_promote_next"
+            f" result={'promoted' if result else 'none_staged'}"
+        )
+    except Exception as exc:
+        print(f"{_LOG} stage=queue_promote_next result=error error={exc!r}")
+    finally:
+        _stage_promotion_lock.release()
+
+
 # ─── Request file cleanup helpers ────────────────────────────────────────────
 
 def _db_set_cleaned(db_id: int) -> None:
@@ -319,8 +381,9 @@ def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
                             if the subsequent deletion takes a moment.
     3. Delete via API     (action=delete_file method=api) — removes the media
                             record and all playlist memberships at once.
-    4. SFTP fallback      (action=delete_file method=sftp) — physical file
-                            delete when the API path failed.
+    4. SFTP move          (action=move_to_played) — move file from /Requests to
+                            /PlayedRequests for replay prevention and audit
+                            (Option B).  Falls back to SFTP delete if move fails.
     5. Rescan             (action=rescan) — tells AzuraCast to re-index the
                             Requests folder so orphaned records are cleared.
     6. Verify             (action=verify) — search confirms file is gone /
@@ -375,15 +438,23 @@ def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
         _log("remove_from_playlist", "success" if ok_pl else "fail")
 
     # ── 3. Delete via AzuraCast API ──────────────────────────────────────────
-    ok = False
+    ok_api = False
     if cur_fid:
-        ok = azura.delete_media_file(cur_fid)
-        _log("delete_file", "success" if ok else "fail", method="api")
+        ok_api = azura.delete_media_file(cur_fid)
+        _log("delete_file", "success" if ok_api else "fail", method="api")
 
-    # ── 4. SFTP fallback ─────────────────────────────────────────────────────
-    if not ok and fn:
-        ok = azura.sftp_delete_file(fn)
-        _log("delete_file", "success" if ok else "fail", method="sftp")
+    # ── 4. SFTP move to PlayedRequests (Option B) ────────────────────────────
+    # Move the physical file out of /Requests so AzuraCast cannot replay it.
+    # Falls back to SFTP delete if the move fails (e.g. cross-filesystem server).
+    ok_sftp = False
+    if fn:
+        ok_sftp = azura.sftp_move_to_played(fn)
+        _log("move_to_played", "success" if ok_sftp else "fail", method="sftp_rename_or_copy")
+        if not ok_sftp:
+            ok_sftp = azura.sftp_delete_file(fn)
+            _log("delete_file", "success" if ok_sftp else "fail", method="sftp_fallback")
+
+    ok = ok_api or ok_sftp
 
     # ── 5. Rescan — let AzuraCast update its media DB ────────────────────────
     ok_rescan = azura.rescan_requests_folder()
@@ -703,6 +774,13 @@ async def _poll_loop(bot: "BaseBot") -> None:
             if cur_mode != "requests" and _db_count_active() > 0:
                 print(f"{_LOG} Pending requests detected — switching to REQUESTS mode")
                 await _switch_to_requests(bot)  # playlists only, no skip
+
+            # ── Promote next staged job if the /Requests slot is free ────────
+            # Handles both the steady-state case (slot just freed by cleanup)
+            # and the startup-recovery case (staged jobs found on restart).
+            # _do_promote_staged acquires a lock so concurrent calls are safe.
+            if not new_done and _db_count_staged() > 0 and _db_count_active_in_requests() == 0:
+                loop.run_in_executor(None, _do_promote_staged, bot, loop)
 
             # ── Fire verified-skip task for newly-queued requests ─────────────
             # Triggered only when new 'done' jobs were just promoted AND

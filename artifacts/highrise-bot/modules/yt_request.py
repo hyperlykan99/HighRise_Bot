@@ -53,6 +53,16 @@ from modules.permissions import is_admin, is_owner, is_manager
 # DB file path — config.DB_PATH reads SHARED_DB_PATH env var (default highrise_hangout.db)
 _DB_PATH: str = _config.DB_PATH
 
+# Local staging directory — downloaded files wait here when /Requests slot is occupied (Option A).
+# Created automatically on first use.  Path: artifacts/highrise-bot/request_staging/
+STAGING_DIR: str = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "request_staging"
+)
+try:
+    os.makedirs(STAGING_DIR, exist_ok=True)
+except Exception:
+    pass
+
 if TYPE_CHECKING:
     from highrise import BaseBot, User
 
@@ -198,6 +208,27 @@ def _sftp_missing_vars() -> list[str]:
 
 def _sftp_ready() -> bool:
     return len(_sftp_missing_vars()) == 0
+
+
+def _has_requests_slot_free() -> bool:
+    """
+    True when no job currently has an active file in the /Requests SFTP folder.
+
+    A 'slot' is occupied when any job has status IN ('queued','playing')
+    AND azura_file_id is set (meaning a file was successfully registered with
+    AzuraCast).  Called before SFTP upload to decide whether to upload now or
+    save to STAGING_DIR (Option A: one active request in /Requests at a time).
+    """
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM yt_request_jobs "
+                "WHERE status IN ('queued','playing') "
+                "  AND azura_file_id != '' AND played_at IS NULL",
+            ).fetchone()
+        return (row[0] if row else 0) == 0
+    except Exception:
+        return True   # err on side of allowing upload so requests never stall
 
 def _log_sftp_env() -> None:
     """Log SFTP config at startup. Host printed as-is; credentials show length only."""
@@ -525,6 +556,29 @@ def _db_update_azura_ids(db_id: int, file_id: str, song_id: str) -> None:
             conn.commit()
     except Exception as exc:
         print(f"[YT_REQUEST] DB azura_ids update error (non-fatal): {exc}")
+
+
+def _db_get_oldest_staged() -> "dict | None":
+    """
+    Return the oldest job with status='staged' (downloaded file waiting in
+    STAGING_DIR for the /Requests slot to free up), or None if none exists.
+    Used by radio_promote_staged_job() and playback_engine's poll loop.
+    """
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT id, filename, title, username FROM yt_request_jobs "
+                "WHERE status='staged' AND played_at IS NULL AND filename!='' "
+                "ORDER BY id ASC LIMIT 1",
+            ).fetchone()
+        if row:
+            return {
+                "db_id": row[0], "filename": row[1],
+                "title": row[2], "username": row[3],
+            }
+    except Exception as exc:
+        print(f"[YT_STAGING] _db_get_oldest_staged error (non-fatal): {exc}")
+    return None
 
 
 def _db_get_pending_cleanup() -> list[dict]:
@@ -1471,6 +1525,30 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
             )
             return
 
+        # ── Option A: one active file in /Requests at a time ─────────────────
+        # If a request (queued or playing) already has an active AzuraCast file,
+        # save the freshly-downloaded MP3 to STAGING_DIR and mark status='staged'.
+        # playback_engine promotes staged jobs after the active request finishes.
+        if not _has_requests_slot_free():
+            try:
+                os.makedirs(STAGING_DIR, exist_ok=True)
+            except Exception:
+                pass
+            staged_path = os.path.join(STAGING_DIR, yt_filename)
+            shutil.move(mp3_path, staged_path)
+            _update_job(jid, status="staged")
+            print(
+                f"[YT_STAGING] stage=request_staging"
+                f" request_id={job.get('db_id', jid)}"
+                f" username={job.get('username', '?')!r}"
+                f" title={title[:60]!r}"
+                f" filename={yt_filename!r}"
+                f" azuracast_path=Requests/{yt_filename}"
+                f" status=staged"
+                f" result=queued_waiting_for_slot"
+            )
+            return   # finally block cleans up the (now-empty) tmpdir
+
         # ── Step 2: SFTP upload (fire-and-forget after put completes) ────────
         _stage = "sftp"
         _update_job(jid, status="uploading")
@@ -1510,12 +1588,9 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         if upload_exc[0] is not None:
             raise upload_exc[0]
 
-        # ── Done: whisper success + mark done (room announcement fires later) ──
+        # ── Done: mark status + let playback engine handle the room announce ──
         _update_job(jid, status="done", finished_at=time.time())
         print(f"[YT_REQUEST] Job #{jid} — success in {upload_secs:.1f}s: {title[:80]}")
-        # Whisper to requester only; the playback engine announces to the room
-        # once it verifies the track is actually playing on AzuraCast.
-        await _w(bot, uid, f"✅ Uploaded! Queuing your request: {title[:80]}")
         # Background thread is still closing the SSH connection — that's fine.
 
     except _YtBlockedError as exc:
@@ -1533,10 +1608,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         coins_c = job.get("coins_charged", 0)
         if coins_c > 0:
             _refund_coins(uid, coins_c)
-        await _w(
-            bot, uid,
-            "❌ YouTube blocked this track. Try another result or different version.",
-        )
+        await _w(bot, uid, "❌ YouTube blocked this track. Try another version.")
 
     except asyncio.TimeoutError:
         _update_job(
@@ -1551,10 +1623,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         coins_c = job.get("coins_charged", 0)
         if coins_c > 0:
             _refund_coins(uid, coins_c)
-        await _w(
-            bot, uid,
-            "❌ YouTube blocked this track. Try another result or different version.",
-        )
+        await _w(bot, uid, "❌ YouTube blocked this track. Try another version.")
 
     except Exception as exc:
         import traceback as _tb
@@ -1598,6 +1667,89 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         # Temp dir removed here; upload thread may still be running ssh.close()
         # but it holds no reference to tmpdir, so this is safe.
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Staged-job promotion (Option A: one active file in /Requests at a time)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def radio_promote_staged_job(bot: "object | None", loop: "object | None") -> bool:
+    """
+    Blocking.  Find the oldest staged job (status='staged'), upload its
+    pre-downloaded MP3 from STAGING_DIR to the SFTP /Requests folder, and run
+    the full AzuraCast post-upload step.
+
+    Called from playback_engine via loop.run_in_executor() after the current
+    request finishes and the /Requests slot is free.
+
+    Returns True if a job was promoted, False if none were staged or on error.
+    Log fields:  stage=request_promote  request_id=  filename=  result=
+    """
+    job = _db_get_oldest_staged()
+    if not job:
+        return False
+
+    db_id    = job["db_id"]
+    filename = job["filename"]
+    staged_path = os.path.join(STAGING_DIR, filename)
+
+    if not os.path.exists(staged_path):
+        print(
+            f"[YT_STAGING] stage=request_promote"
+            f" request_id={db_id}"
+            f" filename={filename!r}"
+            f" result=fail"
+            f" error=staged_file_missing"
+        )
+        _db_update_job(db_id, status="error", error="staged_file_missing",
+                       finished_at=time.time())
+        return False
+
+    print(
+        f"[YT_STAGING] stage=request_promote"
+        f" request_id={db_id}"
+        f" filename={filename!r}"
+        f" title={job.get('title', '?')[:60]!r}"
+        f" username={job.get('username', '?')!r}"
+        f" status=uploading"
+    )
+    _db_update_job(db_id, status="uploading")
+
+    def _noop() -> None:
+        pass
+
+    try:
+        _sftp_step(staged_path, _noop)
+        _db_update_job(db_id, status="done", finished_at=time.time())
+        print(
+            f"[YT_STAGING] stage=request_promote"
+            f" request_id={db_id}"
+            f" filename={filename!r}"
+            f" result=success"
+        )
+        # Post-upload: rescan → playlist assign → skip → room announce
+        _azura_post_upload(filename, db_id, bot=bot, loop=loop)
+        # Remove the local staging file; SFTP now has the copy
+        try:
+            os.remove(staged_path)
+        except Exception:
+            pass
+        return True
+
+    except Exception as exc:
+        print(
+            f"[YT_STAGING] stage=request_promote"
+            f" request_id={db_id}"
+            f" filename={filename!r}"
+            f" result=fail"
+            f" error={exc!r}"
+        )
+        # Revert to staged so the poll loop retries on the next cycle
+        try:
+            _db_update_job(db_id, status="staged")
+        except Exception:
+            pass
+        return False
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Command handlers

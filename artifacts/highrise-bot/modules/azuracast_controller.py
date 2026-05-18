@@ -198,6 +198,97 @@ def delete_media_file(file_id: str) -> bool:
     return False
 
 
+def sftp_move_to_played(filename: str) -> bool:
+    """
+    Move a file from the SFTP Requests folder to a PlayedRequests folder
+    (Option B: keep played files for audit instead of deleting them).
+
+    Strategy
+    ─────────
+    1. Try sftp.rename() — atomic on same-filesystem servers (most common).
+    2. Fallback: stream-copy within the same SFTP session, then delete source.
+    3. If source is already gone (errno 2 / "No such file"), treat as success.
+
+    The destination folder is:
+      AZURA_PLAYED_SFTP_PATH  env var (explicit override), or
+      <requests_folder>/../PlayedRequests  (derived from AZURA_SFTP_PATH).
+
+    Returns True on success or source-already-gone; False on unrecoverable error.
+    """
+    import paramiko
+    cfg = sftp_cfg()
+    if not cfg["host"] or not cfg["user"]:
+        print(f"{_LOG} sftp_move_to_played: SFTP not configured — skipping")
+        return False
+
+    src_folder    = cfg["folder"].rstrip("/")
+    played_folder = (
+        (os.environ.get("AZURA_PLAYED_SFTP_PATH") or "").strip()
+        or os.path.join(os.path.dirname(src_folder) or ".", "PlayedRequests")
+    ).rstrip("/")
+
+    src_path  = f"{src_folder}/{filename}"
+    dst_path  = f"{played_folder}/{filename}"
+
+    ssh  = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    sftp = None
+    try:
+        ssh.connect(
+            hostname=cfg["host"], port=cfg["port"],
+            username=cfg["user"], password=cfg["passwd"],
+            timeout=30, look_for_keys=False, allow_agent=False,
+        )
+        sftp = ssh.open_sftp()
+
+        # Ensure destination directory exists
+        try:
+            sftp.stat(played_folder)
+        except IOError:
+            try:
+                sftp.mkdir(played_folder)
+                print(f"{_LOG} sftp_move_to_played: created dir {played_folder!r}")
+            except Exception as mk_exc:
+                print(f"{_LOG} sftp_move_to_played: mkdir warning (ignored): {mk_exc}")
+
+        # Strategy 1: atomic rename (same-filesystem move)
+        try:
+            sftp.rename(src_path, dst_path)
+            print(f"{_LOG} sftp_move_to_played ✓ (rename) {src_path} → {dst_path}")
+            return True
+        except Exception as ren_exc:
+            print(f"{_LOG} sftp_move_to_played rename failed ({ren_exc!r}), trying stream-copy")
+
+        # Strategy 2: stream-copy within same SFTP session, then delete source
+        with sftp.file(src_path, "rb") as src_f:
+            data = src_f.read()
+        with sftp.file(dst_path, "wb") as dst_f:
+            dst_f.write(data)
+        sftp.remove(src_path)
+        print(f"{_LOG} sftp_move_to_played ✓ (copy+delete) {src_path} → {dst_path}")
+        return True
+
+    except IOError as exc:
+        if getattr(exc, "errno", None) == 2 or "No such file" in str(exc):
+            print(f"{_LOG} sftp_move_to_played: src already gone — {src_path}")
+            return True
+        print(f"{_LOG} sftp_move_to_played error ({filename}): {exc}")
+        return False
+    except Exception as exc:
+        print(f"{_LOG} sftp_move_to_played error ({filename}): {exc}")
+        return False
+    finally:
+        if sftp:
+            try:
+                sftp.close()
+            except Exception:
+                pass
+        try:
+            ssh.close()
+        except Exception:
+            pass
+
+
 def sftp_delete_file(filename: str) -> bool:
     """
     Remove a file from the SFTP Requests folder by filename.

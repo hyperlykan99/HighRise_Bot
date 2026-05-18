@@ -314,9 +314,8 @@ async def _submit_url(
     # Update cooldown after successful charge
     _cooldowns[uid] = time.time()
 
-    # Confirm to user
-    cost_str = f"{price:,} coins" if price else "free"
-    await _w(bot, uid, f"🎵 Got it ({cost_str})! Downloading & uploading your request…")
+    # Confirm to user immediately so they know the request was accepted
+    await _w(bot, uid, "🎵 Request added. It will play next.")
 
     # Launch pipeline
     rq.submit_job(
@@ -424,7 +423,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     waiting = [j for j in pending if j.get("status") != "playing"]
 
     if not waiting:
-        await _w(bot, user.id, "QUEUE:\nEmpty")
+        await _w(bot, user.id, "🎧 UP NEXT:\nEmpty")
         return
 
     _MAX   = 249
@@ -437,7 +436,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         u = (j.get("username") or "?").strip()[:14]
         rows.append(f"{i}. {t} - @{u}")
 
-    header = "QUEUE:"
+    header = "🎧 UP NEXT:"
     shown  = total
     msg    = ""
     while shown > 0:
@@ -531,9 +530,9 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
     ok = await loop.run_in_executor(None, azura.skip_current)
     if ok:
         await ann.announce_skip(bot, title_str)
-        await _w(bot, user.id, "✅ Skipped.")
+        await _w(bot, user.id, "⏭️ Skipped.")
     else:
-        await _w(bot, user.id, "❌ Skip failed. Try again in a few seconds.")
+        await _w(bot, user.id, "❌ Skip failed. Try again.")
 
 
 # ─── !remove ──────────────────────────────────────────────────────────────────
