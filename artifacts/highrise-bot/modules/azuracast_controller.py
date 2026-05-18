@@ -334,6 +334,31 @@ def add_file_to_playlist(file_id: "int | str", playlist_id: str) -> bool:
     return False
 
 
+def get_media_file(file_id: "int | str") -> "dict | None":
+    """
+    GET /api/station/{id}/file/{file_id}
+
+    Returns the full AzuraCast file record (including the 'playlists' array)
+    or None on error.  Used to verify playlist assignment after add_file_to_playlist.
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg or not file_id:
+        return None
+    try:
+        resp = req_lib.get(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/file/{file_id}",
+            headers=_headers(cfg),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        print(f"{_LOG} get_media_file({file_id}) → HTTP {resp.status_code}")
+    except Exception as exc:
+        print(f"{_LOG} get_media_file error ({file_id}): {exc}")
+    return None
+
+
 # ─── Verified-skip helpers ────────────────────────────────────────────────────
 
 def fetch_queue() -> list:
