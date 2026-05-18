@@ -1,0 +1,147 @@
+Targeted radio update only. Do NOT touch bot startup, reconnect, respawn, room join, token handling, or non-radio modules.
+
+Files to focus on:
+- artifacts/highrise-bot/modules/radio_commands.py
+- artifacts/highrise-bot/modules/dj_announcer.py
+- artifacts/highrise-bot/modules/playback_engine.py
+- artifacts/highrise-bot/modules/yt_request.py only if needed for request processing errors
+
+Main goals:
+1. Redesign !now / !nowplaying / !np so it fits Highrise chat.
+2. Remove duplicated now-playing announcements.
+3. Mark AutoDJ vs Request clearly.
+4. Keep request timing logic, but do not rewrite bot lifecycle.
+5. Make VIP users pay the same request price as regular users unless they are owner/admin.
+6. Improve logging for “Could not process your request” so the exact failure is visible.
+
+PART 1 — Replace the current !now player format
+
+Problem:
+The current bordered ChillTopia Player box is too wide. Highrise adds the bot name before the message, so the first line wraps and looks jumbled.
+
+Replace the !now / !nowplaying / !np output with short vertical formats.
+
+For AutoDJ / Chill / Party:
+
+▶ NOW PLAYING
+🎵 {track}
+🌙 AutoDJ • Chill
+⏱ {elapsed} / {duration}
+▰▰▰▰▱▱▱▱▱▱
+📻 ChillTopia Radio
+
+For Party AutoDJ:
+
+▶ NOW PLAYING
+🎵 {track}
+🔥 AutoDJ • Party
+⏱ {elapsed} / {duration}
+▰▰▰▰▱▱▱▱▱▱
+📻 ChillTopia Radio
+
+For request:
+
+▶ REQUEST LIVE
+🎵 {track}
+🙋 @{username}
+⏱ {elapsed} / {duration}
+▰▰▰▰▱▱▱▱▱▱
+📻 ChillTopia Radio
+
+Formatting rules:
+- No large borders.
+- No side border characters.
+- Keep each line short.
+- Trim track to 42 characters max.
+- If elapsed/duration is unavailable, show:
+  ⏱ Live stream
+- Progress bar must be 10 blocks.
+- Use ▰ for filled and ▱ for empty.
+- !now, !nowplaying, and !np must all use this exact same handler.
+- If current song matches a request job, show REQUEST LIVE.
+- Otherwise show AutoDJ with current vibe from config_store.
+
+PART 2 — Fix duplicate announcements
+
+Problem:
+The bot sometimes sends both:
+- polished NOW PLAYING block
+- simple “Chill vibes: …” message
+
+Required:
+- Only one room-wide announcement per track.
+- Use dj_announcer.py as the only announcement source.
+- Remove or disable any leftover simple “Chill vibes:” / “Party vibes:” room messages outside dj_announcer.py.
+- Keep last_announced song id/title dedup working.
+- Do not announce a request as live until playback_engine verifies it is actually playing.
+
+PART 3 — Request processing failure logging
+
+Problem:
+After !pick, bot says:
+❌ Could not process your request.
+But the user cannot tell whether it was yt-dlp, ffmpeg, SFTP, AzuraCast API, or playlist import.
+
+Required:
+- Keep user-facing message short.
+- Add detailed Replit console logs with stage name:
+  [REQUEST_FAIL] stage=download
+  [REQUEST_FAIL] stage=ffmpeg
+  [REQUEST_FAIL] stage=sftp
+  [REQUEST_FAIL] stage=azuracast_rescan
+  [REQUEST_FAIL] stage=azuracast_playlist
+  [REQUEST_FAIL] stage=unknown
+- Include exception type and message in logs.
+- Do not crash the bot.
+- Refund coins only if coins were actually charged.
+- If owner/admin request was free, say:
+  ❌ Could not process your request. Check logs.
+
+PART 4 — Payment rule
+
+Requirement:
+VIP is not free.
+All non-owner/non-admin users pay the editable request price.
+Default request price is 500 Chill Coins.
+Owner/admin may be free.
+Remove or ignore old vip_free_requests behavior for the main radio request flow.
+Do not break existing balance functions.
+
+PART 5 — Keep verified skip logic safe
+
+Do not rewrite playback_engine from scratch.
+Keep the existing verified-skip task idea:
+- wait for AzuraCast queue refresh
+- submit request if unique_id exists
+- skip
+- poll Now Playing to confirm
+- if confirmed, announce REQUEST LIVE
+- if not confirmed, announce queued next
+
+Only adjust if needed:
+- Do not skip before the request has azura_file_id and azura_song_id/unique_id when available.
+- Do not call skip repeatedly from both yt_request.py and playback_engine.py.
+- There must be only one component responsible for auto-skip.
+Preferred: playback_engine.py handles verified auto-skip.
+If yt_request.py still auto-skips after post-upload, disable that duplicate path.
+
+PART 6 — Safety rules
+
+- Do not edit respawn/reconnect/lifecycle code.
+- Do not block the main Highrise event loop.
+- All external calls must have timeouts.
+- All radio errors must be caught and logged.
+- If radio fails, the bot must stay online.
+- Do not touch non-radio game modules.
+
+Acceptance tests:
+1. Bots stay online after restart.
+2. !now shows compact vertical player.
+3. !now does not look jumbled after bot name.
+4. AutoDJ songs show “AutoDJ • Chill” or “AutoDJ • Party”.
+5. Request songs show “REQUEST LIVE” and requester name.
+6. Only one now-playing announcement appears per track.
+7. !play / !request search still works.
+8. !pick failure logs the exact failing stage.
+9. VIP users are charged the editable request price.
+10. Owner/admin can still request without breaking the payment flow.

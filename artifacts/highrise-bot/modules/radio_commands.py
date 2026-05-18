@@ -324,34 +324,35 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
     else:
         track = title
 
-    # Source / mode label — AutoDJ vs Request
+    # Header + source line — AutoDJ vs Request
     cp = rq.currently_playing()
     if cp:
+        header      = "▶ REQUEST LIVE"
         req_uname   = (cp.get("username") or "")[:20]
-        source_line = f"🎧 Request • @{req_uname}" if req_uname else "🎧 Request"
+        source_line = f"🙋 @{req_uname}" if req_uname else "🙋 Requested"
     elif cs.vibe() == "party":
+        header      = "▶ NOW PLAYING"
         source_line = "🔥 AutoDJ • Party"
     else:
+        header      = "▶ NOW PLAYING"
         source_line = "🌙 AutoDJ • Chill"
 
-    # Progress bar + time string
-    if duration:
-        bar      = _progress_bar(elapsed, duration)
-        time_str = f"⏱ {_fmt_secs(elapsed)} / {_fmt_secs(duration)}"
-    else:
-        bar      = None
-        time_str = "📡 Live Stream"
+    # Progress bar + time string (always 10 blocks)
+    bar      = _progress_bar(elapsed, duration) if duration else "▱" * 10
+    time_str = (
+        f"⏱ {_fmt_secs(elapsed)} / {_fmt_secs(duration)}" if duration
+        else "⏱ Live stream"
+    )
 
-    lines = [
-        "▶ NOW PLAYING",
-        f"🎵 {track[:55]}",
+    msg = "\n".join([
+        header,
+        f"🎵 {track[:42]}",
         source_line,
         time_str,
-    ]
-    if bar:
-        lines.append(bar)
-
-    await _w(bot, user.id, "\n".join(lines)[:249])
+        bar,
+        "📻 ChillTopia Radio",
+    ])
+    await _w(bot, user.id, msg[:249])
 
 
 # ─── !skip ────────────────────────────────────────────────────────────────────

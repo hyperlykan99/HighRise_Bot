@@ -1143,11 +1143,10 @@ def _azura_post_upload(filename: str, db_id: int = 0) -> None:
         else:
             print("[YT_API] unique_id unavailable — skipping request queue step")
 
-        # ── 6. Auto-skip current song to promote new request immediately ──────
-        # Disabled by setting env AZURA_AUTO_SKIP_ON_REQUEST=false
-        if (os.environ.get("AZURA_AUTO_SKIP_ON_REQUEST", "true").lower() != "false"):
-            print("[YT_API] Auto-skipping current song to promote new request…")
-            _azura_skip_with_retry(max_attempts=3, delay=2.0)
+        # ── 6. Auto-skip — owned by playback_engine._verified_skip_task ─────────
+        # Skip is NOT issued here. playback_engine detects the upload, then
+        # handles submit + skip + verify in one coordinated task to prevent
+        # double-skips and duplicate room announcements.
 
     except Exception as exc:
         print(f"[YT_API] Unexpected error in post-upload step (non-fatal): {exc}")
@@ -1169,9 +1168,11 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
     uid    = job["user_id"]
     tmpdir = tempfile.mkdtemp(prefix="ytr_")
     loop   = asyncio.get_running_loop()
+    _stage = "unknown"   # tracks which pipeline stage raised
 
     try:
         # ── Step 1: Download + convert ──────────────────────────────────────
+        _stage = "download"
         _update_job(jid, status="downloading")
 
         info, mp3_path = await loop.run_in_executor(
@@ -1218,6 +1219,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
             return
 
         # ── Step 2: SFTP upload (fire-and-forget after put completes) ────────
+        _stage = "sftp"
         _update_job(jid, status="uploading")
         print(f"[YT_REQUEST] Job #{jid} — SFTP upload starting: {title[:80]}")
 
@@ -1267,10 +1269,14 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         import traceback as _tb
         err = str(exc)
         _update_job(jid, status="error", error=err[:200], finished_at=time.time())
-        print(f"[YT_REQUEST] Job #{jid} — FAILED: {exc}")
+        print(
+            f"[REQUEST_FAIL] stage={_stage}"
+            f" type={type(exc).__name__}"
+            f" msg={err[:200]}"
+        )
         _tb.print_exc()
         coins_c = job.get("coins_charged", 0)
-        # Classify error into a short user-friendly reason (≤ 249 chars total)
+        # Classify error for a user-friendly whisper
         el = err.lower()
         if any(k in el for k in ("unavailable", "private", "removed", "not available", "does not exist")):
             err_short = "Video unavailable or private."
@@ -1290,7 +1296,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
             _refund_coins(uid, coins_c)
             await _w(bot, uid, f"❌ Request failed: {err_short} {coins_c:,} coins refunded.")
         else:
-            await _w(bot, uid, f"❌ Request failed: {err_short}")
+            await _w(bot, uid, "❌ Could not process your request. Check logs.")
 
     finally:
         # Clear presence tracking (job done or failed)
@@ -1646,7 +1652,6 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
         return
 
     # ── Payment logic ─────────────────────────────────────────────────────────
-    vip             = not _owner and not _admin and _is_vip(user.id)
     coins_to_charge = 0
     payment_type    = "free"
     priority        = 0
@@ -1654,10 +1659,9 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
     if _owner or _admin:
         payment_type = "admin"
         priority     = 1
-    elif vip and _vip_free_requests():
-        payment_type = "vip_free"
-        priority     = 1 if _vip_priority() else 0
     else:
+        # VIP users pay the same price as all other users.
+        # Only owner/admin get free requests.
         cost = _request_cost()
         if cost > 0:
             bal = db.get_balance(user.id)
@@ -1700,8 +1704,6 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
     pay_str = ""
     if coins_to_charge > 0:
         pay_str = f"\n💰 {coins_to_charge} coins charged."
-    elif payment_type == "vip_free":
-        pay_str = "\n⭐ VIP request — enjoy!"
     await _w(bot, user.id, f"🎵 Request received!\n{pos_str}{pay_str}"[:249])
 
     asyncio.create_task(_run_job(bot, job))
@@ -2204,24 +2206,13 @@ async def _run_nowplaying_cycle(
         else:
             song_text = np_title or "Unknown"
 
+        # Room announcement is handled exclusively by dj_announcer.py via
+        # playback_engine. Sending a chat here would create a duplicate message.
         if matched_job:
-            uname    = (matched_job.get("username") or "?")[:20]
-            announce = f"🎧 Request: {song_text[:80]} | Requested by @{uname}"
+            uname = (matched_job.get("username") or "?")[:20]
+            print(f"[YT_ANNOUNCE] Track noted (request @{uname}): {song_text[:80]}")
         else:
-            try:
-                from modules.radio_vibe import get_current_vibe as _gcv
-                _vibe = _gcv()
-            except Exception:
-                _vibe = "chill"
-            if _vibe == "party":
-                announce = f"🔥 Party mode: {song_text[:120]}"
-            else:
-                announce = f"🎶 Chill vibes: {song_text[:120]}"
-
-        try:
-            await bot_inst.highrise.chat(announce[:249])
-        except Exception as _ae:
-            print(f"[YT_ANNOUNCE] Chat error (non-fatal): {_ae}")
+            print(f"[YT_ANNOUNCE] Track noted (AutoDJ): {song_text[:80]}")
 
     # ── Reset radio vote-skip state on song change ────────────────────────────
     if current_song_id and current_song_id != prev_song_id_ref[0]:
