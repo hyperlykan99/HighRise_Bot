@@ -34,10 +34,19 @@ import asyncio
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 from typing import NamedTuple
 
 HERE = Path(__file__).parent
+
+# ─── Web Dashboard flag ───────────────────────────────────────────────────────
+# Set ENABLE_WEB_DASHBOARD=true to start a lightweight HTTP status server
+# alongside the bot (useful when deploying as a web application).
+# Default is false — the bot runs as a pure background WebSocket process.
+_ENABLE_WEB_DASHBOARD = (
+    os.environ.get("ENABLE_WEB_DASHBOARD", "false").strip().lower() == "true"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +216,72 @@ def _collect_bots() -> list[_BotSpec]:
 
 
 # ---------------------------------------------------------------------------
+# Optional web dashboard (status HTTP server)
+# ---------------------------------------------------------------------------
+
+async def _run_web_dashboard() -> None:
+    """
+    Minimal bot-status HTTP server.  Only started when ENABLE_WEB_DASHBOARD=true.
+    Serves GET /, /status, and /healthz — returns a JSON health payload.
+    Useful as a deployment health-check endpoint so the bot can publish as
+    a web application without serving a full dashboard.
+    The full DJ/radio dashboard runs as the separate dj-status artifact.
+    """
+    try:
+        from aiohttp import web as _web  # type: ignore[import]
+    except ImportError:
+        print(
+            "[DASHBOARD] stage=dashboard_startup enabled=true "
+            "error=aiohttp_missing — install aiohttp to use the web dashboard."
+        )
+        return
+
+    port = int(os.environ.get("PORT", "8080"))
+
+    async def _health(request: "_web.Request") -> "_web.Response":  # noqa: ARG001
+        return _web.Response(
+            text='{"status":"ok","service":"highrise-bot"}',
+            content_type="application/json",
+        )
+
+    app = _web.Application()
+    app.router.add_get("/",       _health)
+    app.router.add_get("/status", _health)
+    app.router.add_get("/healthz",_health)
+
+    runner = _web.AppRunner(app)
+    await runner.setup()
+    site = _web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"[DASHBOARD] stage=dashboard_startup enabled=true port={port}")
+
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        await runner.cleanup()
+        raise
+
+
+def _start_web_dashboard_thread() -> None:
+    """
+    Launch the web dashboard in a dedicated daemon thread.
+    Used in single-bot mode, where main.py owns the main asyncio loop and
+    we cannot add tasks to it from outside.
+    """
+    def _thread_main() -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_run_web_dashboard())
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=_thread_main, daemon=True, name="web-dashboard")
+    t.start()
+
+
+# ---------------------------------------------------------------------------
 # Subprocess runner (multi-bot mode)
 # ---------------------------------------------------------------------------
 
@@ -311,6 +386,11 @@ async def _run_all(specs: list[_BotSpec]) -> None:
     loop  = asyncio.get_running_loop()
     tasks = [asyncio.create_task(_run_bot_forever(s), name=s.label) for s in specs]
 
+    if _ENABLE_WEB_DASHBOARD:
+        tasks.append(asyncio.create_task(_run_web_dashboard(), name="web-dashboard"))
+    else:
+        print("[DASHBOARD] stage=dashboard_startup enabled=false")
+
     def _shutdown(sig: int) -> None:
         alive = sum(1 for t in tasks if not t.done())
         print(f"[SHUTDOWN] {signal.Signals(sig).name} received — "
@@ -369,6 +449,12 @@ def run() -> None:
         os.environ["BOT_USERNAME"]    = spec.bot_username
         os.environ["BOT_EXTRA_MODES"] = ",".join(spec.extra_modes)
         print(f"[RUNNER] Single bot mode — ID:{spec.bot_id} Mode:{spec.bot_mode}")
+        # Dashboard runs in a daemon thread so it never blocks bot startup.
+        # main.py owns the asyncio event loop; we can't inject tasks into it.
+        if _ENABLE_WEB_DASHBOARD:
+            _start_web_dashboard_thread()
+        else:
+            print("[DASHBOARD] stage=dashboard_startup enabled=false")
         from main import run as _main_run
         _main_run()
 
