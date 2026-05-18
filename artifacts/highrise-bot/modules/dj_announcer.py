@@ -88,7 +88,7 @@ async def announce_request_queued_next(bot: "BaseBot") -> None:
     Fired when the skip-verify task cannot confirm the request is playing
     within the poll window.  Lets the room know it will play next.
     """
-    await _say(bot, "🎧 Request queued and ready. It will play next.")
+    await _say(bot, "🎧 Request queued and ready. Up next!")
 
 
 # ─── Vibe ─────────────────────────────────────────────────────────────────────

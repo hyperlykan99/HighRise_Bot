@@ -1548,7 +1548,7 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
                     else f"🎵 REQUEST LIVE: {_t_d}"
                 )[:249]
             else:
-                _msg = "🎵 Request added. It will play next."
+                _msg = "🎵 Request added to queue."
             try:
                 asyncio.run_coroutine_threadsafe(
                     bot.highrise.chat(_msg), loop
@@ -2117,8 +2117,7 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list[str]) -> None:
     else:
         await _w(
             bot, user.id,
-            "⚠️ Skip sent but song may not have changed yet. "
-            "Request is queued and will play next.",
+            "⚠️ Skip sent but song may not have changed yet. Check !now in a moment.",
         )
 
 

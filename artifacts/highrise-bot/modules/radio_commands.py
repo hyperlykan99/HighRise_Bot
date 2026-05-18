@@ -314,8 +314,14 @@ async def _submit_url(
     # Update cooldown after successful charge
     _cooldowns[uid] = time.time()
 
+    # Compute queue position before submit (active_count = jobs already in flight)
+    _pos = rq.active_count() + 1
+
     # Confirm to user immediately so they know the request was accepted
-    await _w(bot, uid, "🎵 Request added. It will play next.")
+    if _pos == 1:
+        await _w(bot, uid, "🎵 Request added to queue. You're up next!")
+    else:
+        await _w(bot, uid, f"🎵 Request added to queue. Position: #{_pos}")
 
     # Launch pipeline
     rq.submit_job(
@@ -433,12 +439,23 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     np_obj   = (np or {}).get("now_playing") or {}
     np_song  = np_obj.get("song")  or {}
     np_media = np_obj.get("media") or {}
-    np_sid   = (np_song.get("id")        or "").strip()
-    np_uid   = (np_song.get("unique_id") or "").strip()
-    np_title = (np_song.get("title")     or "").strip().lower()
-    np_fid   = str(np_media.get("id") or "").strip()
-    np_path  = (np_media.get("path") or "").strip()
-    np_fn    = np_path.rsplit("/", 1)[-1].lower() if np_path else ""
+    np_sid    = (np_song.get("id")        or "").strip()
+    np_uid    = (np_song.get("unique_id") or "").strip()
+    np_title  = (np_song.get("title")     or "").strip().lower()
+    np_artist = (np_song.get("artist")    or "").strip().lower()
+    np_text   = (np_song.get("text")      or "").strip().lower()  # "Artist - Title"
+    np_fid    = str(np_media.get("id") or "").strip()
+    np_path   = (np_media.get("path") or "").strip()
+    np_fn     = np_path.rsplit("/", 1)[-1].lower() if np_path else ""
+
+    def _np_title_hit(jt: str) -> bool:
+        """True if job title matches any NP title variant (title, text, artist)."""
+        if not jt or len(jt) < 5:
+            return False
+        for ref in (np_title, np_text):
+            if ref and (jt in ref or ref in jt or jt[:30] == ref[:30]):
+                return True
+        return False
 
     # ── Queue audit: fix stale 'playing' rows before reading display queue ─────
     # Jobs can get stuck as status='playing' if the bot restarted between the
@@ -458,11 +475,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
             or (np_sid and jsid and (np_sid == jsid or np_uid == jsid))
             or (np_fn and jfn and (jfn == np_fn or jfn in np_fn or np_fn in jfn))
             or (jvid and np_path and jvid in np_path)
-            or (
-                jtitle and np_title and len(jtitle) >= 15
-                and (jtitle in np_title or np_title in jtitle
-                     or jtitle[:40] == np_title[:40])
-            )
+            or _np_title_hit(jtitle)
         )
         if not still_np:
             rq.mark_as_played(sp["id"])
@@ -503,11 +516,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
             match_method = "filename"
         elif jvid and np_path and jvid in np_path:
             match_method = "video_id"
-        elif (
-            jtitle and np_title and len(jtitle) >= 15
-            and (jtitle in np_title or np_title in jtitle
-                 or jtitle[:40] == np_title[:40])
-        ):
+        elif _np_title_hit(jtitle):
             match_method = "title_fuzzy"
 
         if match_method:
