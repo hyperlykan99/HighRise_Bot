@@ -1163,9 +1163,9 @@ async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
         )
         return
 
-    # ── Guard: staff only for switching ──────────────────────────────────────
-    if not _is_staff(user.username):
-        await _w(bot, user.id, "🔒 Staff only.")
+    # ── Guard: admin/owner only for switching ────────────────────────────────
+    if not is_admin(user.username):
+        await _w(bot, user.id, "❌ Admins only.")
         return
 
     if not cs.azura_api_ready():
@@ -1736,3 +1736,62 @@ handle_likes           = _safe(handle_likes)
 handle_voters          = _safe(handle_voters)
 handle_likeslist       = _safe(handle_likeslist)
 handle_dislikeslist    = _safe(handle_dislikeslist)
+
+
+# ─── !playedby / !myplayed ────────────────────────────────────────────────────
+
+def _get_played_by(username: str, limit: int = 5) -> list:
+    """Return [(title, artist), …] for a user's most recently played requests."""
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT title, COALESCE(artist,'') FROM yt_request_jobs "
+                "WHERE lower(username)=lower(?) AND status='played' AND played_at IS NOT NULL "
+                "ORDER BY played_at DESC LIMIT ?",
+                (username, limit),
+            ).fetchall()
+            return [(r[0] or "Unknown", r[1]) for r in rows]
+    except Exception:
+        return []
+
+
+async def _handle_playedby_raw(bot: "BaseBot", user: "User", args: list) -> None:
+    """
+    !playedby @username  — show recent requests by any player (staff only).
+    Normal players see their own history with !myplayed.
+    """
+    _rlog("playedby", "handle_playedby", user.username)
+    if not _is_staff(user.username):
+        await _w(bot, user.id, "🔒 Staff only.")
+        return
+    target = " ".join(args[1:]).lstrip("@").strip() if len(args) > 1 else ""
+    if not target:
+        await _w(bot, user.id, "Usage: !playedby @username")
+        return
+    rows = _get_played_by(target, 5)
+    if not rows:
+        await _w(bot, user.id, f"🎵 @{target} has no requests yet.")
+        return
+    lines = [f"🎵 @{target} played:"]
+    for i, (title, artist) in enumerate(rows, 1):
+        entry = f"{i}. {title}" + (f" - {artist}" if artist else "")
+        lines.append(entry[:70])
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+async def _handle_myplayed_raw(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!myplayed — show your own recent request history (anyone)."""
+    _rlog("myplayed", "handle_myplayed", user.username)
+    rows = _get_played_by(user.username, 5)
+    if not rows:
+        await _w(bot, user.id, "🎵 You haven't had any requests played yet.")
+        return
+    lines = ["🎵 Your recent requests:"]
+    for i, (title, artist) in enumerate(rows, 1):
+        entry = f"{i}. {title}" + (f" - {artist}" if artist else "")
+        lines.append(entry[:70])
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+handle_playedby = _safe(_handle_playedby_raw)
+handle_myplayed = _safe(_handle_myplayed_raw)

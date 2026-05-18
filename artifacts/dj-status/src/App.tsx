@@ -29,10 +29,19 @@ interface RecentEntry {
 }
 
 interface Stats {
-  total_queued: number;
-  total_played_today: number;
-  total_favorites: number;
-  total_likes: number;
+  total_queued:        number;
+  total_played_today:  number;
+  total_favorites:     number;
+  total_likes:         number;
+  requests_today:      number;
+  likes_today:         number;
+  dislikes_today:      number;
+  failed_today:        number;
+  top_requester_today: string | null;
+  current_vibe:        string;
+  queue_size:          number;
+  ready_count:         number;
+  preparing_count:     number;
 }
 
 interface DjStatus {
@@ -182,21 +191,41 @@ function NowPlayingHero({ song, radioUrl }: { song: NowPlaying | null; radioUrl:
   );
 }
 
-/* ── Stats bar ── */
+/* ── Stats dashboard ── */
 function StatsBar({ stats }: { stats: Stats }) {
-  const items = [
-    { icon: "📋", value: stats.total_queued, label: "In Queue", color: "var(--purple-h)" },
-    { icon: "🎵", value: stats.total_played_today, label: "Played Today", color: "var(--cyan)" },
-    { icon: "👍", value: stats.total_likes, label: "Total Likes", color: "var(--green)" },
-    { icon: "⭐", value: stats.total_favorites, label: "Favorites", color: "var(--yellow)" },
+  const vibeLabel = stats.current_vibe
+    ? stats.current_vibe.charAt(0).toUpperCase() + stats.current_vibe.slice(1)
+    : "—";
+
+  const rows: { icon: string; value: string | number; label: string; color: string }[][] = [
+    [
+      { icon: "🎙️", value: stats.requests_today,      label: "Requests Today",   color: "var(--purple-h)" },
+      { icon: "🎵", value: stats.total_played_today,   label: "Played Today",    color: "var(--cyan)"     },
+      { icon: "🔝", value: stats.top_requester_today ? `@${stats.top_requester_today}` : "—", label: "Top Requester", color: "var(--yellow)" },
+    ],
+    [
+      { icon: "👍", value: stats.likes_today,          label: "Likes Today",     color: "var(--green)"    },
+      { icon: "👎", value: stats.dislikes_today,       label: "Dislikes Today",  color: "var(--red,#f87171)" },
+      { icon: "❌", value: stats.failed_today,         label: "Failed Today",    color: "var(--text-3)"   },
+    ],
+    [
+      { icon: "🎶", value: vibeLabel,                  label: "Current Vibe",    color: "var(--cyan)"     },
+      { icon: "📋", value: stats.queue_size,           label: "Queue Size",      color: "var(--purple-h)" },
+      { icon: "⚙️", value: (stats.preparing_count ?? 0) + (stats.ready_count ?? 0), label: "In Pipeline", color: "var(--yellow)" },
+    ],
   ];
+
   return (
-    <div className="stats-bar">
-      {items.map((item, i) => (
-        <div key={i} className="stat">
-          <span className="stat-icon">{item.icon}</span>
-          <span className="stat-value" style={{ color: item.color }}>{item.value}</span>
-          <span className="stat-label">{item.label}</span>
+    <div className="stats-dashboard">
+      {rows.map((row, ri) => (
+        <div key={ri} className="stats-row">
+          {row.map((item, ci) => (
+            <div key={ci} className="stat">
+              <span className="stat-icon">{item.icon}</span>
+              <span className="stat-value" style={{ color: item.color }}>{item.value}</span>
+              <span className="stat-label">{item.label}</span>
+            </div>
+          ))}
         </div>
       ))}
     </div>

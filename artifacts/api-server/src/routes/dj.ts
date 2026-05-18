@@ -149,6 +149,9 @@ router.get("/dj/status", (_req, res) => {
     }
 
     // ── Stats ──────────────────────────────────────────────────────────────
+    const today = new Date().toISOString().slice(0, 10);
+    const hasRatings = tableExists(db, "dj_ratings");
+
     let totalFavs = 0;
     if (tableExists(db, "dj_favorites")) {
       totalFavs = (
@@ -157,26 +160,56 @@ router.get("/dj/status", (_req, res) => {
     }
 
     let totalLikes = 0;
-    if (tableExists(db, "dj_ratings")) {
+    let likesToday = 0;
+    let dislikesToday = 0;
+    if (hasRatings) {
       totalLikes = (
-        db
-          .prepare("SELECT COUNT(*) AS n FROM dj_ratings WHERE rating = 'like'")
-          .get() as { n: number }
+        db.prepare("SELECT COUNT(*) AS n FROM dj_ratings WHERE rating = 'like'").get() as { n: number }
+      ).n;
+      likesToday = (
+        db.prepare("SELECT COUNT(*) AS n FROM dj_ratings WHERE rating = 'like' AND rated_at >= ?").get(today) as { n: number }
+      ).n;
+      dislikesToday = (
+        db.prepare("SELECT COUNT(*) AS n FROM dj_ratings WHERE rating = 'dislike' AND rated_at >= ?").get(today) as { n: number }
       ).n;
     }
 
     let playedToday = 0;
+    let requestsToday = 0;
+    let failedToday = 0;
+    let readyCount = 0;
+    let preparingCount = 0;
+    let topRequesterToday: string | null = null;
     if (hasYtJobs) {
-      const today = new Date().toISOString().slice(0, 10);
       playedToday = (
-        db
-          .prepare(
-            "SELECT COUNT(*) AS n FROM yt_request_jobs " +
-            "WHERE status = 'played' AND played_at >= ?",
-          )
-          .get(today) as { n: number }
+        db.prepare("SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status = 'played' AND played_at >= ?").get(today) as { n: number }
       ).n;
+      requestsToday = (
+        db.prepare("SELECT COUNT(*) AS n FROM yt_request_jobs WHERE date(started_at) = ?").get(today) as { n: number }
+      ).n;
+      failedToday = (
+        db.prepare("SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status = 'error' AND date(started_at) = ?").get(today) as { n: number }
+      ).n;
+      readyCount = (
+        db.prepare("SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status = 'ready'").get() as { n: number }
+      ).n;
+      preparingCount = (
+        db.prepare(
+          "SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status IN ('pending','downloading','downloaded','uploading')"
+        ).get() as { n: number }
+      ).n;
+      const topRow = db
+        .prepare(
+          "SELECT username, COUNT(*) AS cnt FROM yt_request_jobs " +
+          "WHERE date(started_at) = ? AND username != '' " +
+          "GROUP BY lower(username) ORDER BY cnt DESC LIMIT 1"
+        )
+        .get(today) as { username: string; cnt: number } | undefined;
+      topRequesterToday = topRow?.username ?? null;
     }
+
+    // Current vibe from room_settings
+    const currentVibe = getSetting(db, "vibe", "chill");
 
     // ── Radio config (room_settings) ───────────────────────────────────────
     const dbRadioUrl = getSetting(db, "dj_radio_url").trim() || null;
@@ -203,10 +236,19 @@ router.get("/dj/status", (_req, res) => {
       queue: queueRows.map((r, i) => ({ ...r, pos: i + 1 })),
       recent,
       stats: {
-        total_queued: queueRows.length,
-        total_played_today: playedToday,
-        total_favorites: totalFavs,
-        total_likes: totalLikes,
+        total_queued:         queueRows.length,
+        total_played_today:   playedToday,
+        total_favorites:      totalFavs,
+        total_likes:          totalLikes,
+        requests_today:       requestsToday,
+        likes_today:          likesToday,
+        dislikes_today:       dislikesToday,
+        failed_today:         failedToday,
+        top_requester_today:  topRequesterToday,
+        current_vibe:         currentVibe,
+        queue_size:           queueRows.length,
+        ready_count:          readyCount,
+        preparing_count:      preparingCount,
       },
       radio_url: radioUrl,
       queue_open: queueOpen,

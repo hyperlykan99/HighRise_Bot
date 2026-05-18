@@ -505,6 +505,8 @@ from modules.radio_commands import (
     handle_voters          as rc_voters,
     handle_likeslist       as rc_likeslist,
     handle_dislikeslist    as rc_dislikeslist,
+    handle_playedby        as rc_playedby,
+    handle_myplayed        as rc_myplayed,
     startup_radio,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -7511,6 +7513,10 @@ class HangoutBot(BaseBot):
             await rc_vibe(self, user, args)
         elif cmd in ("history", "radiohistory"):
             await rc_history(self, user, args)
+        elif cmd == "playedby":
+            await rc_playedby(self, user, args)
+        elif cmd in ("myplayed", "myrequested"):
+            await rc_myplayed(self, user, args)
         elif cmd == "setrequestprice":
             await rc_setrequestprice(self, user, args)
         elif cmd == "radiohelp":
