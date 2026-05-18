@@ -46,7 +46,7 @@ async def announce_now_playing(
     vibe: str = "chill",
 ) -> None:
     """
-    Short 3-line room announcement for a new AutoDJ track.
+    4-line room announcement for a new AutoDJ track.
 
     If `requester` is provided the REQUEST LIVE format is used instead.
     """
@@ -56,9 +56,9 @@ async def announce_now_playing(
 
     track = _track_label(title, artist)[:70]
     if vibe == "party":
-        msg = f"▶ NOW PLAYING\n🎵 {track}\n🔥 AutoDJ • Party"
+        msg = f"▶ NOW PLAYING\n🎵 {track}\n🔥 AutoDJ • Party\n📻 {_STATION}"
     else:
-        msg = f"▶ NOW PLAYING\n🎵 {track}\n🌙 AutoDJ • Chill"
+        msg = f"▶ NOW PLAYING\n🎵 {track}\n🌙 AutoDJ • Chill\n📻 {_STATION}"
     await _say(bot, msg)
 
 
@@ -71,14 +71,13 @@ async def announce_request_live(
     requester: str = "",
 ) -> None:
     """
-    Short 3-line REQUEST LIVE room announcement fired when skip-verify confirms
-    the requested song is actually playing on AzuraCast.
+    4-line REQUEST LIVE room announcement fired when a queued request starts playing.
     """
     track = _track_label(title, artist)[:70]
     if requester:
-        msg = f"🎧 REQUEST LIVE\n🎵 {track}\n🙋 @{requester[:20]}"
+        msg = f"▶ REQUEST LIVE\n🎵 {track}\n🙋 @{requester[:20]}\n📻 {_STATION}"
     else:
-        msg = f"🎧 REQUEST LIVE\n🎵 {track}"
+        msg = f"▶ REQUEST LIVE\n🎵 {track}\n📻 {_STATION}"
     await _say(bot, msg)
 
 

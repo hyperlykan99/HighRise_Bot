@@ -53,6 +53,7 @@ _mode:            str   = "vibe"    # "vibe" | "requests"
 _cur_song_id:     str   = ""        # AzuraCast song.id currently playing
 _cur_req_id:      int   = 0         # yt_request_jobs.id of the active request (0 = none)
 _last_ann_id:     str   = ""        # song.id last announced (dedup)
+_last_ann_title:  str   = ""        # normalized title last announced (title-fallback dedup)
 _skip_task_active: bool = False     # True while a _verified_skip_task is running
 _cur_elapsed:     int   = 0         # AzuraCast elapsed seconds for current song
 _cur_duration:    int   = 0         # AzuraCast total duration of current song
@@ -180,7 +181,7 @@ def _db_count_active_in_requests() -> int:
         return 0
 
 
-def _db_set_status(db_id: int, status: str) -> None:
+def _db_set_status(db_id: int, status: str, media_id: str = "") -> None:
     if not db_id:
         return
     try:
@@ -191,6 +192,22 @@ def _db_set_status(db_id: int, status: str) -> None:
                     "SET status='played', played_at=datetime('now') WHERE id=?",
                     (db_id,),
                 )
+            elif status == "playing":
+                if media_id:
+                    conn.execute(
+                        "UPDATE yt_request_jobs "
+                        "SET status='playing', started_at=datetime('now'), "
+                        "azura_file_id=CASE WHEN (azura_file_id IS NULL OR azura_file_id='') "
+                        "THEN ? ELSE azura_file_id END "
+                        "WHERE id=?",
+                        (media_id, db_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE yt_request_jobs "
+                        "SET status='playing', started_at=datetime('now') WHERE id=?",
+                        (db_id,),
+                    )
             else:
                 conn.execute(
                     "UPDATE yt_request_jobs SET status=? WHERE id=?",
@@ -213,15 +230,39 @@ def _db_get_job(db_id: int) -> "dict | None":
         return None
 
 
-def _db_match_request(azura_song_id: str, np_title: str) -> "dict | None":
+def _db_match_request(
+    azura_song_id: str,
+    np_title: str,
+    media_id: str = "",
+    media_path: str = "",
+) -> "dict | None":
     """
     Try to match the currently-playing AzuraCast song to one of our queued requests.
-    Strategy 1: exact azura_song_id match (most reliable once AzuraCast has indexed the file).
-    Strategy 2: title substring match (fallback for freshly uploaded files).
+
+    Strategy 0: azura_file_id match by numeric media_id (most reliable when available).
+    Strategy 1: azura_song_id match by song.unique_id (reliable once AzuraCast indexes file).
+    Strategy 2: filename substring in NP media path (SFTP path matching).
+    Strategy 3: title substring match (fallback for freshly uploaded / unindexed files).
     """
     active = ("done", "queued", "playing")
     ph     = ",".join("?" * len(active))
 
+    # Strategy 0: match by numeric azura_file_id (= media.id from NP API)
+    if media_id:
+        try:
+            with db.db_conn() as conn:
+                row = conn.execute(
+                    f"SELECT {_SEL} FROM yt_request_jobs "
+                    f"WHERE azura_file_id=? AND status IN ({ph}) "
+                    "  AND played_at IS NULL LIMIT 1",
+                    (media_id, *active),
+                ).fetchone()
+                if row:
+                    return _jrow(row)
+        except Exception:
+            pass
+
+    # Strategy 1: azura_song_id exact match (song.unique_id stored at upload time)
     if azura_song_id:
         try:
             with db.db_conn() as conn:
@@ -236,6 +277,31 @@ def _db_match_request(azura_song_id: str, np_title: str) -> "dict | None":
         except Exception:
             pass
 
+    # Strategy 2: filename from NP media path (basename of the SFTP path)
+    if media_path:
+        path_base = media_path.rsplit("/", 1)[-1].lower()
+        if path_base:
+            try:
+                with db.db_conn() as conn:
+                    rows = conn.execute(
+                        f"SELECT {_SEL} FROM yt_request_jobs "
+                        f"WHERE status IN ({ph}) AND played_at IS NULL "
+                        "  AND filename!='' ORDER BY id ASC",
+                        active,
+                    ).fetchall()
+                    for row in rows:
+                        j   = _jrow(row)
+                        jfn = (j.get("filename") or "").lower()
+                        if jfn and (
+                            jfn == path_base
+                            or jfn in path_base
+                            or path_base in jfn
+                        ):
+                            return j
+            except Exception:
+                pass
+
+    # Strategy 3: title substring match (fallback for freshly uploaded / unindexed files)
     if np_title:
         norm = np_title.lower().strip()
         try:
@@ -483,10 +549,17 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
     job = _db_get_job(db_id)
     _db_set_status(db_id, "played")
 
-    fn_s = (job.get("filename") if job else None) or "?"
+    fn_s  = (job.get("filename")      if job else None) or "?"
+    fid_s = (job.get("azura_file_id") if job else None) or "?"
+    ttl_s = (job.get("title")         if job else None) or "?"
+    usr_s = (job.get("username")      if job else None) or "?"
     print(
-        f"{_LOG} stage=request_cleanup request_id={db_id}"
-        f" filename={fn_s!r} status=played"
+        f"{_LOG} stage=request_finished"
+        f" request_id={db_id}"
+        f" media_id={fid_s!r}"
+        f" filename={fn_s!r}"
+        f" title={ttl_s!r}"
+        f" username={usr_s!r}"
     )
 
     if job:
@@ -541,56 +614,82 @@ def _title_matches(req_title: str, np_title: str) -> bool:
     return False
 
 
-async def _on_new_track(bot: "BaseBot", song: dict) -> None:
-    global _cur_req_id, _last_ann_id
+async def _on_new_track(
+    bot: "BaseBot", song: dict, media: "dict | None" = None
+) -> None:
+    global _cur_req_id, _last_ann_id, _last_ann_title
 
-    song_id = (song.get("id")     or "").strip()
-    title   = (song.get("title")  or "").strip()
-    artist  = (song.get("artist") or "").strip()
+    song_id    = (song.get("id")        or "").strip()
+    song_uid   = (song.get("unique_id") or "").strip()   # stored as azura_song_id in DB
+    title      = (song.get("title")     or "").strip()
+    artist     = (song.get("artist")    or "").strip()
+    media_id   = str((media or {}).get("id") or "").strip()
+    media_path = ((media or {}).get("path") or "").strip()
 
+    # ── Duplicate-announcement guard ──────────────────────────────────────────
+    # Primary:  AzuraCast song.id (stable per unique audio content).
+    # Fallback: normalized title (guards when song.id is empty/missing).
+    norm_title = title.lower()[:80]
     with _lock:
         if song_id and song_id == _last_ann_id:
             return
-        _last_ann_id = song_id
+        if not song_id and norm_title and norm_title == _last_ann_title:
+            return
+        _last_ann_id    = song_id
+        _last_ann_title = norm_title
 
-    match = _db_match_request(song_id, title)
+    # Use song.unique_id for DB matching (this is what yt_request stores as azura_song_id)
+    match_uid = song_uid or song_id
+    match = _db_match_request(match_uid, title, media_id, media_path)
 
     if match:
         req_title = match.get("title") or title
         req_uname = match.get("username") or ""
         db_id     = match["id"]
+        fid       = (match.get("azura_file_id") or "").strip()
+        fn        = (match.get("filename")      or "").strip()
+        live_fid  = media_id or fid    # prefer live media_id from NP over stored
+        live_fn   = media_path or fn   # prefer NP path over stored filename
+
         with _lock:
             _cur_req_id = db_id
 
         if match.get("status") == "playing":
-            # _verified_skip_task already set status + announced to the room —
-            # suppress the duplicate room announce here.
+            # _verified_skip_task already set status + announced — suppress duplicate.
             print(f"{_LOG} Request already announced by skip task — no duplicate announce")
         else:
-            _db_set_status(db_id, "playing")
+            _db_set_status(db_id, "playing", media_id=live_fid)
+            print(
+                f"{_LOG} stage=request_started"
+                f" request_id={db_id}"
+                f" media_id={live_fid!r}"
+                f" filename={live_fn!r}"
+                f" title={req_title!r}"
+                f" username={req_uname!r}"
+            )
             await ann.announce_request_live(bot, req_title, "", req_uname)
+            print(
+                f"{_LOG} stage=request_announcement"
+                f" request_id={db_id}"
+                f" media_id={live_fid!r}"
+                f" title={req_title!r}"
+                f" username={req_uname!r}"
+            )
+
         print(f"{_LOG} Now playing REQUEST: {req_title!r} by @{req_uname}")
 
         # ── Proactive file deletion ────────────────────────────────────────────
-        # Delete the file NOW while AzuraCast is playing it (already buffered).
-        # This prevents AzuraCast from looping/replaying the file after this
-        # play ends — the file won't exist in the Requests playlist anymore.
-        fid = (match.get("azura_file_id") or "").strip()
-        fn  = (match.get("filename")      or "").strip()
-        if fid or fn:
+        if live_fid or live_fn:
             loop = asyncio.get_running_loop()
             loop.run_in_executor(
-                None, _delete_request_file, db_id, fid, fn, req_title
+                None, _delete_request_file, db_id, live_fid, live_fn, req_title
             )
         print(
             f"{_LOG} stage=request_cleanup request_id={db_id}"
-            f" filename={fn!r} status=playing (proactive deletion queued)"
+            f" filename={live_fn!r} status=playing (proactive deletion queued)"
         )
 
         # ── Pre-switch playlists to VIBE if this is the last active request ───
-        # Disabling the Requests playlist now means AzuraCast transitions
-        # naturally to Chill/Party after this song ends — zero replay window.
-        # If more requests are queued (count > 1), leave Requests mode active.
         remaining = _db_count_active()
         if remaining <= 1:
             print(f"{_LOG} Last active request — pre-switching playlists to VIBE")
@@ -600,6 +699,12 @@ async def _on_new_track(bot: "BaseBot", song: dict) -> None:
         with _lock:
             _cur_req_id = 0
         await ann.announce_now_playing(bot, title, artist, None, cs.vibe())
+        print(
+            f"{_LOG} stage=autodj_announcement"
+            f" title={title!r}"
+            f" artist={artist!r}"
+            f" vibe={cs.vibe()!r}"
+        )
         print(f"{_LOG} Now playing VIBE: {title!r}")
 
 
@@ -624,7 +729,7 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
        • On timeout → fire "queued and ready" fallback so the room knows; the
                      poll loop will catch and announce when the song plays next.
     """
-    global _skip_task_active, _cur_req_id, _last_ann_id
+    global _skip_task_active, _cur_req_id, _last_ann_id, _last_ann_title
     _skip_task_active = True
     try:
         loop = asyncio.get_running_loop()
@@ -701,10 +806,11 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 reason = "song ID" if id_match else "title"
                 print(f"{_LOG} NP confirmed by {reason} (check {check + 1}): {np_title!r}")
 
-                # Pre-set _last_ann_id so _on_new_track won't duplicate-announce
+                # Pre-set dedup vars so _on_new_track won't duplicate-announce
                 with _lock:
-                    _last_ann_id = np_id or unique_id
-                    _cur_req_id  = job_id
+                    _last_ann_id    = np_id or unique_id
+                    _last_ann_title = np_title.lower()[:80]
+                    _cur_req_id     = job_id
 
                 _db_set_status(job_id, "playing")
                 display_artist = req_artist or np_artist
@@ -809,6 +915,7 @@ async def _poll_loop(bot: "BaseBot") -> None:
 
             np_obj   = np.get("now_playing") or {}
             song     = np_obj.get("song")    or {}
+            media    = np_obj.get("media")   or {}
             song_id  = (song.get("id")       or "").strip()
             elapsed  = int(np_obj.get("elapsed")  or 0)
             duration = int(np_obj.get("duration") or 0)
@@ -853,7 +960,7 @@ async def _poll_loop(bot: "BaseBot") -> None:
             if prev_req_id:
                 await _on_request_finished(bot, prev_req_id)
 
-            await _on_new_track(bot, song)
+            await _on_new_track(bot, song, media)
 
         except asyncio.CancelledError:
             # Bot is disconnecting/restarting — signal all executor threads to stop early
