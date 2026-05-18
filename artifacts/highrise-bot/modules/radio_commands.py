@@ -1100,12 +1100,14 @@ _VIBE_DISPLAY: "dict[str, str]" = {
     "rnb":        "RNB",
     "hiphop":     "HipHop",
     "nightdrive": "NightDrive",
+    "phonk":      "Phonk",
     "djset":      "DJ Set",
 }
 
 # ── Alias map: normalized-input → canonical vibe key ─────────────────────────
 # Normalized = re.sub(r"[\s\-_]+", "", s.lower())
 # Handles: "dj set", "dj-set", "dj_set", "djset", "dj", "set" → "djset"
+# Case is lowered before normalization so "PHONK" / "Phonk" / "phonk" all work.
 _VIBE_ALIAS_MAP: "dict[str, str]" = {
     # Static vibes (self-mapping)
     "chill":       "chill",
@@ -1118,7 +1120,13 @@ _VIBE_ALIAS_MAP: "dict[str, str]" = {
     "lofi":        "lofi",
     "rnb":         "rnb",
     "hiphop":      "hiphop",
+    "hiphops":     "hiphop",
     "nightdrive":  "nightdrive",
+    "phonk":       "phonk",
+    "phonks":      "phonk",
+    # Party Remixes aliases
+    "remix":       "party",
+    "remixes":     "party",
     # DJSet aliases
     "djset":       "djset",
     "dj":          "djset",

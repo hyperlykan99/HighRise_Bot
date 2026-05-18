@@ -40,7 +40,7 @@ def set_request_price(price: int) -> None:
 
 VIBE_NAMES = (
     "chill", "party", "afrobeats", "edm", "house",
-    "kpop", "opm", "lofi", "rnb", "hiphop", "nightdrive",
+    "kpop", "opm", "lofi", "rnb", "hiphop", "nightdrive", "phonk",
 )
 
 

@@ -819,14 +819,27 @@ _cooldowns: dict[str, float] = {}   # user_id → last_request_timestamp
 # YouTube search — pending results for !request / !pick flow
 # ─────────────────────────────────────────────────────────────────────────────
 
-_yt_pending:      dict[str, list[dict]] = {}  # user_id → search results
-_yt_pending_lock: threading.Lock        = threading.Lock()
+_SEARCH_SESSION_TTL: int               = 180   # seconds — search sessions expire after 3 min
+_yt_pending:         dict[str, list]   = {}    # user_id → search results
+_yt_pending_ts:      dict[str, float]  = {}    # user_id → stored timestamp (time.time())
+_yt_pending_lock:    threading.Lock    = threading.Lock()
+
+
+def _yt_pending_is_fresh(user_id: str) -> bool:
+    """Call while holding _yt_pending_lock. Returns True if entry exists and is within TTL."""
+    if user_id not in _yt_pending:
+        return False
+    if time.time() - _yt_pending_ts.get(user_id, 0) > _SEARCH_SESSION_TTL:
+        _yt_pending.pop(user_id, None)
+        _yt_pending_ts.pop(user_id, None)
+        return False
+    return True
 
 
 def has_pending_yt_search(user_id: str) -> bool:
-    """True if the user has results from a !request search waiting for !pick."""
+    """True if the user has unexpired results from a search waiting for !pick."""
     with _yt_pending_lock:
-        return user_id in _yt_pending
+        return _yt_pending_is_fresh(user_id)
 
 
 def _yt_search_sync(query: str, max_results: int = 5) -> list[dict]:
@@ -1942,7 +1955,8 @@ async def handle_play(bot: "BaseBot", user: "User", args: list[str]) -> None:
         return
 
     with _yt_pending_lock:
-        _yt_pending[user.id] = results
+        _yt_pending[user.id]    = results
+        _yt_pending_ts[user.id] = time.time()
 
     max_min = _MAX_DURATION_SECS // 60
     lines = ["🎵 Top results — reply !pick <1-5>:"]
@@ -2335,7 +2349,8 @@ async def handle_request(bot: "BaseBot", user: "User", args: list[str]) -> None:
         return
 
     with _yt_pending_lock:
-        _yt_pending[user.id] = results
+        _yt_pending[user.id]    = results
+        _yt_pending_ts[user.id] = time.time()
 
     max_min = _MAX_DURATION_SECS // 60
     lines   = [f"🎵 Results — reply !pick <1-5>:"]
@@ -2353,7 +2368,7 @@ async def handle_ytpick(bot: "BaseBot", user: "User", args: list[str]) -> None:
     routing falls through to handle_dj_pick (in-room DJ queue).
     """
     with _yt_pending_lock:
-        results = _yt_pending.get(user.id)
+        results = _yt_pending.get(user.id) if _yt_pending_is_fresh(user.id) else None
 
     if not results:
         await _w(
@@ -2387,6 +2402,7 @@ async def handle_ytpick(bot: "BaseBot", user: "User", args: list[str]) -> None:
     # Consume the pending search (one-shot)
     with _yt_pending_lock:
         _yt_pending.pop(user.id, None)
+        _yt_pending_ts.pop(user.id, None)
 
     # Whisper what was picked, then let handle_ytrequest do all validation + upload
     await _w(
@@ -3778,19 +3794,23 @@ def radio_search_yt(query: str, max_results: int = 5) -> list:
 
 def radio_has_pending_search(user_id: str) -> bool:
     with _yt_pending_lock:
-        return user_id in _yt_pending
+        return _yt_pending_is_fresh(user_id)
 
 
 def radio_get_pending_search(user_id: str) -> "list | None":
     with _yt_pending_lock:
+        if not _yt_pending_is_fresh(user_id):
+            return None
         return _yt_pending.get(user_id)
 
 
 def radio_set_pending_search(user_id: str, results: list) -> None:
     with _yt_pending_lock:
-        _yt_pending[user_id] = results
+        _yt_pending[user_id]    = results
+        _yt_pending_ts[user_id] = time.time()
 
 
 def radio_clear_pending_search(user_id: str) -> None:
     with _yt_pending_lock:
         _yt_pending.pop(user_id, None)
+        _yt_pending_ts.pop(user_id, None)
