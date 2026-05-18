@@ -1,12 +1,14 @@
 # ChillTopia DJ Dashboard — VPS Deployment
 
 Standalone web dashboard for the DJ_DUDU / ChillTopia radio system.
-Reads live queue, now-playing, and stats from the shared bot database.
+Supports two data sources — pick the one that fits your current setup.
 
 ## Requirements
 
 - Node.js 20+
-- Access to the bot's `highrise_hangout.db` SQLite file (read-only)
+- One of:
+  - **Replit bot running** → use `REMOTE_STATUS_URL` (recommended, no DB copy needed)
+  - **Bot on same VPS** → use `DB_PATH` pointing at the shared SQLite file
 
 ---
 
@@ -18,13 +20,14 @@ Reads live queue, now-playing, and stats from the shared bot database.
 bash dashboard/build.sh
 ```
 
-This builds the React app with the correct base path (`/`) and copies the
-output into `dashboard/public/`. Run this whenever the dashboard UI changes.
+This builds the React app with base path `/` and copies output into
+`dashboard/public/`. Run again whenever the dashboard UI changes.
 
 ### 2. Copy the dashboard folder to your VPS
 
 ```bash
-rsync -av --exclude='.env' dashboard/ user@your-vps:/srv/chilltopia-dashboard/
+rsync -av --exclude='.env' --exclude='node_modules' \
+  dashboard/ user@your-vps:/srv/chilltopia-dashboard/
 ```
 
 ### 3. Install dependencies on the VPS
@@ -41,17 +44,35 @@ cp .env.example .env
 nano .env
 ```
 
-Key variables:
+---
 
-| Variable | Required | Description |
-|---|---|---|
-| `PORT` | no | HTTP port (default: `3000`) |
-| `DB_PATH` | **yes** | Absolute path to `highrise_hangout.db` |
-| `AZURACAST_STREAM_URL` | no | Public audio stream URL shown to listeners |
+## Data source: Mode A — Remote (Replit live data, recommended now)
 
-**Security note:** Never add `AZURA_API_KEY` to this server's config.
-The AzuraCast API key is used only by the Python bot and must never be
-sent to the browser.
+Use this when the bot is running on Replit and you don't want to run a second
+bot instance on the VPS. The dashboard proxies the Replit API — no database
+copy, no duplicate DJ_DUDU login.
+
+**How to find your Replit URL:**
+1. Open your Replit project
+2. Click "Open in new tab" in the preview pane header
+3. Your domain looks like `https://abc123.username.replit.dev`
+4. Append `/api/dj/status` to confirm it returns JSON
+
+Set in `.env`:
+```env
+REMOTE_STATUS_URL=https://YOUR-REPL-SLUG.replit.dev/api/dj/status
+```
+
+Leave `DB_PATH` commented out — it is not used in remote mode.
+
+**What data flows and what doesn't:**
+
+| Flows to VPS dashboard | Never leaves Replit |
+|---|---|
+| now_playing, queue, recent, stats | BOT_TOKEN (Highrise) |
+| radio_url (stream URL only) | AZURA_API_KEY |
+| queue_open, updated_at | Room passwords |
+| radio_type, radio_mount | Any user PII |
 
 ### 5. Start the server
 
@@ -59,27 +80,32 @@ sent to the browser.
 npm start
 ```
 
-The dashboard is now available at `http://your-vps:3000`.
+Expected startup output:
+```
+[DASHBOARD] stage=dashboard_startup mode=remote port=3000
+[DASHBOARD] data_source=remote url=https://YOUR-REPL.replit.dev/api/dj/status
+[DASHBOARD] Open: http://localhost:3000
+```
 
 ---
 
-## Keep the database in sync
+## Data source: Mode B — Local SQLite (future VPS migration)
 
-The dashboard reads from the same SQLite file the bot writes to. Options:
+Use this when the bot moves to the VPS and shares the same machine.
+Set `DB_PATH` to the absolute path of `highrise_hangout.db` and leave
+`REMOTE_STATUS_URL` unset.
 
-**Option A — Shared filesystem (easiest)**
-If your bot and dashboard run on the same machine, point `DB_PATH` directly
-at the bot's database file. SQLite's WAL mode allows safe concurrent reads.
-
-```
+```env
 DB_PATH=/home/chilltopia/highrise-bot/highrise_hangout.db
 ```
 
-**Option B — Periodic rsync (remote VPS)**
-Add a cron job that syncs the DB file from the bot server every few minutes:
+SQLite WAL mode allows safe concurrent reads while the bot is writing.
 
+**Keeping a remote DB in sync** (if bot stays on Replit temporarily):
 ```cron
-*/2 * * * * rsync -az --checksum user@bot-server:/path/to/highrise_hangout.db /srv/chilltopia-dashboard/highrise_hangout.db
+*/2 * * * * rsync -az --checksum \
+  user@replit-server:/path/to/highrise_hangout.db \
+  /srv/chilltopia-dashboard/highrise_hangout.db
 ```
 
 ---
@@ -113,13 +139,13 @@ systemctl enable --now chilltopia-dashboard
 
 ## Refresh rate
 
-The dashboard polls `/api/dj/status` every **15 seconds** and shows a
-countdown ring in the header. No changes needed — this is built into the
-React frontend.
+The dashboard polls `/api/dj/status` every **15 seconds** (built into the
+React frontend). In remote mode the VPS server forwards that request to Replit.
+No configuration needed.
 
 ---
 
-## Reverse proxy with nginx (optional)
+## Reverse proxy with nginx + SSL (recommended for public access)
 
 ```nginx
 server {
@@ -129,11 +155,26 @@ server {
         proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
 ```
 
-Then add SSL with Certbot:
+Add SSL:
 ```bash
 certbot --nginx -d dj.your-domain.com
 ```
+
+---
+
+## AZURACAST_STREAM_URL (optional override)
+
+If you want to override the stream URL shown to listeners (e.g. to point at a
+different CDN edge), set this in `.env`:
+
+```env
+AZURACAST_STREAM_URL=https://radio.example.com/listen/chilltopia/radio.mp3
+```
+
+This replaces whatever `radio_url` comes from Replit or the local DB.
+It is the **audio stream URL only** — never the AzuraCast API key.
