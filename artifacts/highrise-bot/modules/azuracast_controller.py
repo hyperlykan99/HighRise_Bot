@@ -53,51 +53,78 @@ def fetch_nowplaying() -> "dict | None":
 
 # ─── Skip with verification ───────────────────────────────────────────────────
 
-def skip_current(max_attempts: int = 3, delay: float = 2.0) -> bool:
+def skip_current(max_attempts: int = 2, delay: float = 2.0) -> bool:
     """
-    POST backend/skip.  Verifies the song actually changed before returning True.
-    Returns True when a song change is confirmed, or the skip was accepted but
-    verification is inconclusive.  Returns False on repeated HTTP errors.
+    POST /api/station/{station_id}/backend/skip.
+
+    Returns True immediately on HTTP 200 or 204 — AzuraCast's acceptance is
+    the authoritative success signal; song-change polling caused false failures
+    when AzuraCast transitions took longer than the poll window.
+
+    On non-2xx or network error: retries once (max_attempts=2 default) after
+    `delay` seconds.  All failures are logged with structured fields; nothing
+    is re-raised so the bot never goes offline due to a skip error.
+
+    Structured log fields:
+        stage=azuracast_skip  station_id=  api_url=  attempt=  http_status=
+        response_body=  exception=
     """
     import requests as req_lib
     cfg = azura_api_cfg()
     if not cfg:
-        print(f"{_LOG} skip_current: API not configured")
+        print(
+            f"{_LOG} stage=azuracast_skip"
+            f" station_id=<not_configured>"
+            f" api_url=<not_configured>"
+            f" exception=API_not_configured"
+        )
         return False
 
-    hdrs     = _headers(cfg)
-    skip_url = f"{cfg['base_url']}/api/station/{cfg['station_id']}/backend/skip"
-
-    id_before = ""
-    np = fetch_nowplaying()
-    if np:
-        id_before = (
-            ((np.get("now_playing") or {}).get("song") or {}).get("id", "")
-        ) or ""
+    station_id = cfg["station_id"]
+    base_url   = cfg["base_url"]
+    skip_url   = f"{base_url}/api/station/{station_id}/backend/skip"
+    hdrs       = _headers(cfg)
 
     for attempt in range(1, max_attempts + 1):
         try:
             resp = req_lib.post(skip_url, headers=hdrs, timeout=10)
-            print(f"{_LOG} skip attempt {attempt}/{max_attempts} → HTTP {resp.status_code}")
+            body = ""
+            try:
+                body = (resp.text or "")[:300]
+            except Exception:
+                pass
+            print(
+                f"{_LOG} stage=azuracast_skip"
+                f" station_id={station_id!r}"
+                f" api_url={base_url!r}"
+                f" attempt={attempt}/{max_attempts}"
+                f" http_status={resp.status_code}"
+                f" response_body={body!r}"
+            )
             if resp.status_code in (200, 204):
-                if not id_before:
-                    return True
-                time.sleep(delay)
-                np2 = fetch_nowplaying()
-                if np2:
-                    id_after = (
-                        ((np2.get("now_playing") or {}).get("song") or {}).get("id", "")
-                    ) or ""
-                    if id_after and id_after != id_before:
-                        print(f"{_LOG} skip verified ✓ (attempt {attempt})")
-                        return True
-                print(f"{_LOG} song unchanged after attempt {attempt}")
+                print(f"{_LOG} stage=azuracast_skip status=accepted attempt={attempt}")
+                return True
         except Exception as exc:
-            print(f"{_LOG} skip error attempt {attempt}: {exc}")
+            print(
+                f"{_LOG} stage=azuracast_skip"
+                f" station_id={station_id!r}"
+                f" api_url={base_url!r}"
+                f" attempt={attempt}/{max_attempts}"
+                f" exception={exc!r}"
+            )
         if attempt < max_attempts:
+            print(
+                f"{_LOG} stage=azuracast_skip"
+                f" status=retrying_in_{delay}s attempt={attempt}/{max_attempts}"
+            )
             time.sleep(delay)
 
-    print(f"{_LOG} skip unconfirmed after {max_attempts} attempts")
+    print(
+        f"{_LOG} stage=azuracast_skip"
+        f" station_id={station_id!r}"
+        f" api_url={base_url!r}"
+        f" status=all_attempts_failed"
+    )
     return False
 
 

@@ -1,0 +1,103 @@
+Add AzuraCast ↔ DJ_DUDU sync layer.
+
+Goal:
+DJ_DUDU should treat AzuraCast as the streaming backend, but the bot should stay synced with AzuraCast Now Playing, playlist state, skips, and request cleanup.
+
+Do NOT touch:
+- bot startup
+- reconnect/watchdog
+- room join
+- token handling
+- unrelated game modules
+
+Focus on:
+- playback_engine.py
+- radio_commands.py
+- request_queue.py
+- dj_announcer.py
+- AzuraCast API helper/config if existing
+
+Required behavior:
+
+1. Create/repair a background AzuraCast sync loop.
+   Poll AzuraCast Now Playing API every 8–10 seconds.
+
+2. Track:
+   - current track title
+   - artist if available
+   - playlist name
+   - elapsed time
+   - duration
+   - streamer/source
+   - song_id/media_id if available
+   - current request_id if matched
+
+3. Detect source:
+   - Requests playlist = REQUEST LIVE
+   - Chill/default playlist = AutoDJ Chill
+   - Party Remixes playlist = AutoDJ Party
+
+4. Bot DB should store latest AzuraCast state:
+   - current_title
+   - current_playlist
+   - current_elapsed
+   - current_duration
+   - current_source_type
+   - current_requester if request
+   - last_updated_at
+
+5. !now / !np / !nowplaying must use this synced state first.
+   If synced state is stale, fetch AzuraCast live once.
+
+6. Request lifecycle:
+   - when uploaded request appears in AzuraCast Now Playing, mark request as playing
+   - announce with dj_announcer.py only
+   - when request leaves Now Playing, mark it as played
+   - delete/cleanup uploaded request file
+   - do not allow it to replay
+
+7. Avoid duplicate announcements:
+   - only dj_announcer.py announces track starts
+   - disable old/simple messages like “Chill vibes: ...”
+
+8. Skip sync:
+   - !skip calls AzuraCast skip endpoint
+   - after skip, poll Now Playing until track changes or timeout
+   - update bot state after skip
+   - if skip fails, log exact API details but show clean player message
+
+9. Vibe sync:
+   - !vibe chill enables Chill/default, disables Party
+   - !vibe party enables Party, disables Chill/default
+   - Requests playlist stays enabled/priority
+   - save current vibe in DB
+   - after Requests finish, return to saved vibe
+
+10. Safety:
+   - sync loop must run in background task/thread
+   - every API call must have timeout
+   - all exceptions caught
+   - bot must never crash if AzuraCast is down
+   - player-facing errors must be simple
+
+11. Logs:
+   Add clear logs:
+   stage=azuracast_sync
+   stage=nowplaying_poll
+   stage=request_detected_playing
+   stage=request_marked_played
+   stage=request_cleanup
+   stage=azuracast_skip
+   stage=vibe_sync
+
+12. Do not change the working upload path:
+   Requests/<filename>.mp3
+
+Expected result:
+- DJ_DUDU always knows what AzuraCast is playing.
+- !now always matches the real stream.
+- Requests play once only.
+- Requests are cleaned after play.
+- Skip updates bot state correctly.
+- Chill/Party vibe returns after requests finish.
+- No duplicate announcements.

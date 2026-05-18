@@ -377,7 +377,7 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
         await ann.announce_skip(bot, title_str)
         await _w(bot, user.id, "✅ Skipped.")
     else:
-        await _w(bot, user.id, "❌ Skip failed. Check AzuraCast API connectivity.")
+        await _w(bot, user.id, "❌ Skip failed. Try again in a few seconds.")
 
 
 # ─── !remove ──────────────────────────────────────────────────────────────────
