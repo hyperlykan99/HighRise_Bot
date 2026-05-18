@@ -996,9 +996,8 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 f"{_LOG} stage=request_takeover_timeout"
                 f" request_id={job_id} username={req_uname!r}"
                 f" title={req_title!r} unique_id={unique_id!r}"
-                f" elapsed_s=15"
+                f" elapsed_s=15 — queued, no room announcement"
             )
-            await ann.announce_request_queued_next(bot)
 
     except asyncio.CancelledError:
         _stop_flag.set()

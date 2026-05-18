@@ -1537,25 +1537,11 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
                           media_id=file_id, poll=str(_p + 1))
                     break
 
-        if bot and loop and _ann_title:
-            if _live:
-                if _live_song_id:
-                    _seen_announced.add(_live_song_id)
-                _t_d = _ann_title[:70]
-                _u_d = _ann_uname[:20]
-                _msg = (
-                    f"🎵 REQUEST LIVE: {_t_d} — @{_u_d}" if _u_d
-                    else f"🎵 REQUEST LIVE: {_t_d}"
-                )[:249]
-            else:
-                _msg = "🎵 Request added to queue."
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    bot.highrise.chat(_msg), loop
-                ).result(5)
-            except Exception as _aexc:
-                _rlog("azuracast_skip", "announce_error",
-                      media_id=file_id, exception=repr(str(_aexc)))
+        if bot and loop and _ann_title and _live:
+            if _live_song_id:
+                _seen_announced.add(_live_song_id)
+            # Legacy in-thread announce suppressed — playback_engine handles
+            # REQUEST LIVE room announcements via announce_request_live()
 
     except Exception as exc:
         print(f"[YT_API] Unexpected error in post-upload step (non-fatal): {exc}")

@@ -350,6 +350,26 @@ def active_count() -> int:
         return 0
 
 
+def future_count() -> int:
+    """
+    Count of jobs waiting to play: pending, queued, staged, done.
+
+    Excludes the currently-playing request and all terminal statuses so the
+    queue position shown to users never includes the song already on air.
+    """
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM yt_request_jobs "
+                f"WHERE status IN ({_DSP_PH}) AND played_at IS NULL",
+                _DISPLAY_STATUSES,
+            ).fetchone()
+            return row[0] if row else 0
+    except Exception as exc:
+        print(f"{_LOG} future_count error: {exc}")
+        return 0
+
+
 def user_pending_count(user_id: str) -> int:
     try:
         with db.db_conn() as conn:

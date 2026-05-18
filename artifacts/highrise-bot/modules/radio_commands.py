@@ -315,24 +315,21 @@ async def _submit_url(
     # Update cooldown after successful charge
     _cooldowns[uid] = time.time()
 
-    # Compute queue position before submit (active_count = jobs already in flight)
-    _pos = rq.active_count() + 1
+    # Compute queue position: count only future songs, excluding currently playing
+    _pos = rq.future_count() + 1
 
-    # Confirm to user — rich card when metadata is available (from !pick)
-    if metadata:
-        _title  = (metadata.get("title") or "")[:55]
-        _artist = (metadata.get("artist") or metadata.get("uploader") or "")[:30]
-        _lines  = ["✅ Request added!"]
-        if _title:
-            _lines.append(f"Title: {_title}")
-        if _artist:
-            _lines.append(f"Artist: {_artist}")
-        _lines.append("You're up next! 🎵" if _pos == 1 else f"Position: #{_pos}")
-        await _w(bot, uid, "\n".join(_lines)[:249])
-    elif _pos == 1:
-        await _w(bot, uid, "🎵 Request added to queue. You're up next!")
-    else:
-        await _w(bot, uid, f"🎵 Request added to queue. Position: #{_pos}")
+    # Confirmation whisper — spec format (title/artist only when known from !pick)
+    _title  = ((metadata.get("title")  or "") if metadata else "")[:55]
+    _artist = ((metadata.get("artist") or metadata.get("uploader") or "") if metadata else "")[:30]
+    _lines  = ["✅ Added to UP NEXT"]
+    if _title:
+        _lines.append(f"Title: {_title}")
+    if _artist:
+        _lines.append(f"Artist: {_artist}")
+    _lines.append(f"Position: #{_pos}")
+    _lines.append(f"🙋 @{uname[:20]}")
+    _lines.append("📻 ChillTopia Radio")
+    await _w(bot, uid, "\n".join(_lines)[:249])
 
     # Launch pipeline
     rq.submit_job(
