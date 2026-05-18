@@ -38,10 +38,16 @@ def set_request_price(price: int) -> None:
 
 # ─── Vibe ─────────────────────────────────────────────────────────────────────
 
+VIBE_NAMES = (
+    "chill", "party", "afrobeats", "edm", "house",
+    "kpop", "opm", "lofi", "rnb", "hiphop", "nightdrive",
+)
+
+
 def vibe() -> str:
-    """Current room vibe: 'chill' or 'party'. Default 'chill'."""
+    """Current room vibe. Default 'chill'."""
     v = _get("vibe", "chill").lower()
-    return v if v in ("chill", "party") else "chill"
+    return v if v in VIBE_NAMES else "chill"
 
 
 def set_vibe(v: str) -> None:
@@ -143,12 +149,33 @@ def azura_api_ready() -> bool:
 
 # ─── Playlist IDs ─────────────────────────────────────────────────────────────
 
+_VIBE_ENV: "dict[str, str]" = {
+    "chill":      "AZURA_PLAYLIST_CHILL_ID",
+    "party":      "AZURA_PLAYLIST_PARTY_ID",
+    "afrobeats":  "AZURA_PLAYLIST_AFROBEATS_ID",
+    "edm":        "AZURA_PLAYLIST_EDM_ID",
+    "house":      "AZURA_PLAYLIST_HOUSE_ID",
+    "kpop":       "AZURA_PLAYLIST_KPOP_ID",
+    "opm":        "AZURA_PLAYLIST_OPM_ID",
+    "lofi":       "AZURA_PLAYLIST_LOFI_ID",
+    "rnb":        "AZURA_PLAYLIST_RNB_ID",
+    "hiphop":     "AZURA_PLAYLIST_HIPHOP_ID",
+    "nightdrive": "AZURA_PLAYLIST_NIGHTDRIVE_ID",
+}
+
+
+def vibe_playlist_id(vibe_name: str) -> str:
+    """Return the AzuraCast playlist ID for the given vibe name (read from env)."""
+    env_key = _VIBE_ENV.get(vibe_name.lower(), "")
+    return (os.environ.get(env_key) or "").strip() if env_key else ""
+
+
 def chill_playlist_id() -> str:
-    return (os.environ.get("AZURA_PLAYLIST_CHILL_ID") or "").strip()
+    return vibe_playlist_id("chill")
 
 
 def party_playlist_id() -> str:
-    return (os.environ.get("AZURA_PLAYLIST_PARTY_ID") or "").strip()
+    return vibe_playlist_id("party")
 
 
 def requests_playlist_id() -> str:

@@ -395,47 +395,40 @@ def _db_match_request(
 # ─── Playlist control ─────────────────────────────────────────────────────────
 
 async def _apply_requests_playlists() -> None:
-    """Enable Requests playlist only. Disable Chill and Party."""
-    loop     = asyncio.get_running_loop()
-    req_id   = cs.requests_playlist_id()
-    chill_id = cs.chill_playlist_id()
-    party_id = cs.party_playlist_id()
+    """Enable Requests playlist. Disable all vibe playlists."""
+    loop   = asyncio.get_running_loop()
+    req_id = cs.requests_playlist_id()
 
-    if chill_id:
-        await loop.run_in_executor(None, azura.set_playlist_enabled, chill_id, False)
-    if party_id:
-        await loop.run_in_executor(None, azura.set_playlist_enabled, party_id, False)
     if req_id:
         await loop.run_in_executor(None, azura.set_playlist_enabled, req_id, True)
+
+    for _v in cs.VIBE_NAMES:
+        _pid = cs.vibe_playlist_id(_v)
+        if _pid and _pid != req_id:
+            await loop.run_in_executor(None, azura.set_playlist_enabled, _pid, False)
 
     _save("playlist_mode", "requests")
     print(f"{_LOG} Playlists → REQUESTS (req={req_id or 'unset'})")
 
 
 async def _apply_vibe_playlists() -> None:
-    """Enable the current vibe playlist only. Disable Requests + the other vibe."""
-    loop     = asyncio.get_running_loop()
-    v        = cs.vibe()
-    req_id   = cs.requests_playlist_id()
-    chill_id = cs.chill_playlist_id()
-    party_id = cs.party_playlist_id()
+    """
+    Enable the current vibe playlist; disable all other vibe playlists.
+    Requests playlist is left ALWAYS ON — never disabled here.
+    """
+    loop   = asyncio.get_running_loop()
+    v      = cs.vibe()
+    req_id = cs.requests_playlist_id()
 
+    # Requests always stays on
     if req_id:
-        await loop.run_in_executor(None, azura.set_playlist_enabled, req_id, False)
+        await loop.run_in_executor(None, azura.set_playlist_enabled, req_id, True)
 
-    if v == "party":
-        if chill_id:
-            await loop.run_in_executor(None, azura.set_playlist_enabled, chill_id, False)
-        if party_id:
-            await loop.run_in_executor(None, azura.set_playlist_enabled, party_id, True)
-    else:
-        if chill_id:
-            await loop.run_in_executor(None, azura.set_playlist_enabled, chill_id, True)
-        if party_id:
-            await loop.run_in_executor(None, azura.set_playlist_enabled, party_id, False)
+    # Enable selected vibe playlist, disable all others
+    await loop.run_in_executor(None, azura.switch_vibe, v)
 
     _save("playlist_mode", "vibe")
-    print(f"{_LOG} Playlists → VIBE/{v.upper()}")
+    print(f"{_LOG} Playlists → VIBE/{v.upper()} (Requests always ON)")
 
 
 async def _switch_to_requests(bot: "BaseBot") -> None:

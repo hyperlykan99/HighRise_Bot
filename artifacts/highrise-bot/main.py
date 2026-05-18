@@ -484,6 +484,7 @@ from modules.radio_commands import (
     handle_history         as rc_history,
     handle_voteskip        as rc_voteskip,
     handle_nowplaying      as rc_nowplaying,
+    handle_vibes           as rc_vibes,
     handle_vibe            as rc_vibe,
     handle_setrequestprice as rc_setrequestprice,
     handle_radiohelp       as rc_radiohelp,
@@ -7477,6 +7478,8 @@ class HangoutBot(BaseBot):
             await rc_remove(self, user, args)
         elif cmd in ("voteskip", "skipvote"):
             await rc_voteskip(self, user, args)
+        elif cmd == "vibes":
+            await rc_vibes(self, user, args)
         elif cmd == "vibe":
             await rc_vibe(self, user, args)
         elif cmd in ("history", "radiohistory"):

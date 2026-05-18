@@ -14,6 +14,9 @@ import time
 
 from modules.config_store import (
     azura_api_cfg,
+    VIBE_NAMES,
+    vibe_playlist_id,
+    requests_playlist_id,
     chill_playlist_id,
     party_playlist_id,
     sftp_cfg,
@@ -151,25 +154,99 @@ def set_playlist_enabled(playlist_id: str, enabled: bool) -> bool:
     return False
 
 
+def get_playlist_media_count(playlist_id: str) -> int:
+    """
+    GET /api/station/{id}/playlist/{pid}  → num_songs field.
+    Returns 0 on any error (safe default: treats empty/unknown as 0).
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg or not playlist_id:
+        return 0
+    try:
+        resp = req_lib.get(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/playlist/{playlist_id}",
+            headers=_headers(cfg),
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return max(0, int(data.get("num_songs", 0)))
+        print(f"{_LOG} playlist_info HTTP {resp.status_code} pl={playlist_id}")
+    except Exception as exc:
+        print(f"{_LOG} playlist_info error ({playlist_id}): {exc}")
+    return 0
+
+
+def switch_vibe(new_vibe: str) -> dict:
+    """
+    Enable only the selected vibe playlist; disable all other vibe playlists.
+    The Requests playlist (AZURA_PLAYLIST_ID) is NEVER touched.
+
+    Structured log fields:
+        stage=vibe_switch  new_vibe=  playlist_id=  requests_playlist_id=
+        enabled=  disabled=  result=  error=
+
+    Returns:
+        {"status": "ok",      "enabled": pid, "disabled": [...]}
+        {"status": "partial", "enabled": pid, "disabled": [...], "errors": [...]}
+        {"status": "no_config", "vibe": new_vibe}
+    """
+    target_id = vibe_playlist_id(new_vibe)
+    req_id    = requests_playlist_id()
+
+    if not target_id:
+        print(
+            f"{_LOG} stage=vibe_switch new_vibe={new_vibe!r}"
+            f" result=no_config error=env_var_not_set"
+        )
+        return {"status": "no_config", "vibe": new_vibe}
+
+    disabled: "list[str]" = []
+    errors:   "list[str]" = []
+
+    for v in VIBE_NAMES:
+        pid = vibe_playlist_id(v)
+        if not pid or pid == req_id:   # never touch Requests
+            continue
+        if pid == target_id:
+            ok = set_playlist_enabled(pid, True)
+            if not ok:
+                errors.append(pid)
+        else:
+            ok = set_playlist_enabled(pid, False)
+            if ok:
+                disabled.append(pid)
+            else:
+                errors.append(pid)
+
+    result = "ok" if not errors else "partial"
+    print(
+        f"{_LOG} stage=vibe_switch"
+        f" new_vibe={new_vibe!r}"
+        f" playlist_id={target_id!r}"
+        f" requests_playlist_id={req_id!r}"
+        f" enabled={target_id!r}"
+        f" disabled={disabled!r}"
+        f" result={result!r}"
+        f" error={errors!r}"
+    )
+    return {
+        "status":   result,
+        "enabled":  target_id,
+        "disabled": disabled,
+        "errors":   errors,
+    }
+
+
 def apply_vibe(vibe: str) -> "tuple[bool, bool]":
     """
-    Deterministically switch playlists for the given vibe.
-    chill → enable chill playlist, disable party playlist
-    party → disable chill playlist, enable party playlist
-    The Requests playlist is always left untouched.
-    Returns (chill_ok, party_ok).
+    Backward-compatible wrapper around switch_vibe().
+    Returns (ok, ok) — callers that still use this signature keep working.
     """
-    chill_id = chill_playlist_id()
-    party_id = party_playlist_id()
-
-    if vibe == "party":
-        chill_ok = set_playlist_enabled(chill_id, False) if chill_id else True
-        party_ok = set_playlist_enabled(party_id, True)  if party_id else True
-    else:  # chill
-        chill_ok = set_playlist_enabled(chill_id, True)  if chill_id else True
-        party_ok = set_playlist_enabled(party_id, False) if party_id else True
-
-    return chill_ok, party_ok
+    res = switch_vibe(vibe)
+    ok  = res.get("status") in ("ok", "partial")
+    return (ok, ok)
 
 
 # ─── Media file management ────────────────────────────────────────────────────

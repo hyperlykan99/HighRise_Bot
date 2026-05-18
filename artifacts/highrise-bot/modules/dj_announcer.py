@@ -15,6 +15,34 @@ _LOG     = "[DJ_ANN]"
 _STATION = "ChillTopia Radio"
 _DIV     = "━━━━━━━━━━━━━"   # 13-char divider line
 
+_VIBE_LABELS: "dict[str, str]" = {
+    "chill":      "Chill",
+    "party":      "Party Remixes",
+    "afrobeats":  "Afrobeats",
+    "edm":        "EDM",
+    "house":      "House",
+    "kpop":       "KPop",
+    "opm":        "OPM",
+    "lofi":       "LoFi",
+    "rnb":        "RNB",
+    "hiphop":     "HipHop",
+    "nightdrive": "NightDrive",
+}
+
+_VIBE_LINE: "dict[str, str]" = {
+    "chill":      "🌙 AutoDJ • Chill",
+    "party":      "🔥 AutoDJ • Party Remixes",
+    "afrobeats":  "🎺 AutoDJ • Afrobeats",
+    "edm":        "⚡ AutoDJ • EDM",
+    "house":      "🏠 AutoDJ • House",
+    "kpop":       "🌸 AutoDJ • KPop",
+    "opm":        "🎤 AutoDJ • OPM",
+    "lofi":       "☕ AutoDJ • LoFi",
+    "rnb":        "💜 AutoDJ • RNB",
+    "hiphop":     "🎵 AutoDJ • HipHop",
+    "nightdrive": "🌙 AutoDJ • NightDrive",
+}
+
 
 async def _say(bot: "BaseBot", msg: str) -> None:
     try:
@@ -56,7 +84,7 @@ async def announce_now_playing(
 
     t = (title or "Unknown")[:60]
     a = (artist or "").strip()[:40]
-    vibe_line = "🔥 AutoDJ • Party" if vibe == "party" else "🌙 AutoDJ • Chill"
+    vibe_line = _VIBE_LINE.get(vibe, "🌙 AutoDJ • Chill")
     lines = ["▶ NOW PLAYING", f"Title: {t}"]
     if a:
         lines.append(f"Artist: {a}")
@@ -100,10 +128,8 @@ async def announce_request_queued_next(bot: "BaseBot") -> None:
 # ─── Vibe ─────────────────────────────────────────────────────────────────────
 
 async def announce_vibe_changed(bot: "BaseBot", vibe: str) -> None:
-    if vibe == "party":
-        await _say(bot, "🔥 Switching to PARTY mode! Let's gooo! 🔥")
-    else:
-        await _say(bot, "🎶 Switching to CHILL vibes. Sit back and relax. 🎶")
+    label = _VIBE_LABELS.get(vibe, vibe.title())
+    await _say(bot, f"🎶 Vibe changed\nMode: {label}\nRequests: ON")
 
 
 # ─── Skip ─────────────────────────────────────────────────────────────────────

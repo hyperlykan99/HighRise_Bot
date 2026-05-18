@@ -656,12 +656,10 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
         header      = "▶ REQUEST LIVE"
         req_uname   = (cp.get("username") or "")[:20]
         source_line = f"🙋 @{req_uname}" if req_uname else "🙋 Requested"
-    elif cs.vibe() == "party":
-        header      = "▶ NOW PLAYING"
-        source_line = "🔥 AutoDJ • Party"
     else:
+        from modules.dj_announcer import _VIBE_LINE as _vl
         header      = "▶ NOW PLAYING"
-        source_line = "🌙 AutoDJ • Chill"
+        source_line = _vl.get(cs.vibe(), "🌙 AutoDJ • Chill")
 
     # Progress bar + time string (always 10 blocks)
     bar      = _progress_bar(elapsed, duration) if duration else "▱" * 10
@@ -932,32 +930,55 @@ async def handle_voteskip(bot: "BaseBot", user: "User", _args: list) -> None:
         await ann.announce_voteskip_progress(bot, user.username, votes, thresh, label)
 
 
+# ─── !vibes ───────────────────────────────────────────────────────────────────
+
+async def handle_vibes(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!vibes — list all available vibes (anyone)."""
+    _rlog("vibes", "handle_vibes", user.username)
+    names = ", ".join(cs.VIBE_NAMES)
+    await _w(bot, user.id, f"🎶 Vibes:\n{names}\nUse: !vibe <name>")
+
+
 # ─── !vibe ────────────────────────────────────────────────────────────────────
+
+_VIBE_DISPLAY: "dict[str, str]" = {
+    "chill":      "Chill",
+    "party":      "Party Remixes",
+    "afrobeats":  "Afrobeats",
+    "edm":        "EDM",
+    "house":      "House",
+    "kpop":       "KPop",
+    "opm":        "OPM",
+    "lofi":       "LoFi",
+    "rnb":        "RNB",
+    "hiphop":     "HipHop",
+    "nightdrive": "NightDrive",
+}
+
 
 async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
     """
-    !vibe status           — show current vibe and playlist config
-    !vibe chill / !vibe party  — switch vibe (admin+)
+    !vibe status  — show current vibe (anyone)
+    !vibe <name>  — switch vibe (staff only)
     """
-    sub = (args[1].lower() if len(args) > 1 else "status")
+    sub = (args[1].lower().strip() if len(args) > 1 else "status")
 
     if sub == "status":
-        v        = cs.vibe()
-        price    = cs.request_price()
-        chill_id = cs.chill_playlist_id()
-        party_id = cs.party_playlist_id()
-        req_id   = cs.requests_playlist_id()
-        api_ok   = "✓" if cs.azura_api_ready() else "✗"
-        pl_ok    = "✓" if (chill_id and party_id) else "✗ (set AZURA_PLAYLIST_CHILL/PARTY_ID)"
+        v      = cs.vibe()
+        price  = cs.request_price()
+        req_id = cs.requests_playlist_id()
+        pl_id  = cs.vibe_playlist_id(v)
+        label  = _VIBE_DISPLAY.get(v, v.title())
+        api_ok = "✓" if cs.azura_api_ready() else "✗"
         await _w(
             bot, user.id,
-            f"📻 Vibe: {v.upper()} | Price: {price:,} coins | "
-            f"API: {api_ok} | Playlists: {pl_ok} | Requests pl: {'✓' if req_id else '✗'}",
+            f"📻 Vibe: {label} | Price: {price:,} coins | "
+            f"API: {api_ok} | Requests: {'✓' if req_id else '✗'} | Playlist: {'✓' if pl_id else '✗'}",
         )
         return
 
-    if sub not in ("chill", "party"):
-        await _w(bot, user.id, "🎛️ Usage: !vibe chill | !vibe party | !vibe status")
+    if sub not in cs.VIBE_NAMES:
+        await _w(bot, user.id, "❌ Unknown vibe. Use !vibes.")
         return
 
     if not _is_staff(user.username):
@@ -968,12 +989,32 @@ async def handle_vibe(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, user.id, "📻 AzuraCast API not configured (AZURA_BASE_URL / AZURA_API_KEY).")
         return
 
+    pid = cs.vibe_playlist_id(sub)
+    if not pid:
+        label = _VIBE_DISPLAY.get(sub, sub.title())
+        await _w(
+            bot, user.id,
+            f"❌ {label} playlist not configured "
+            f"(set AZURA_PLAYLIST_{sub.upper()}_ID).",
+        )
+        return
+
+    # Verify playlist has songs before switching
+    count = await asyncio.get_running_loop().run_in_executor(
+        None, azura.get_playlist_media_count, pid
+    )
+    if count == 0:
+        await _w(bot, user.id, "❌ That vibe has no songs yet.")
+        return
+
     cs.set_vibe(sub)
     await engine.apply_vibe_change(bot)
+    label = _VIBE_DISPLAY.get(sub, sub.title())
     await ann.announce_vibe_changed(bot, sub)
+
     mode = engine.get_playlist_mode()
-    note = " (request queue active — vibe takes effect when queue clears)" if mode == "requests" else ""
-    await _w(bot, user.id, f"✅ Vibe set to {sub.upper()}.{note}")
+    note = "\n(Takes effect when request queue clears.)" if mode == "requests" else ""
+    await _w(bot, user.id, f"🎶 Vibe changed\nMode: {label}\nRequests: ON{note}")
 
 
 # ─── !setrequestprice ─────────────────────────────────────────────────────────
@@ -1239,6 +1280,7 @@ handle_remove          = _safe(handle_remove)
 handle_clearqueue      = _safe(handle_clearqueue)
 handle_history         = _safe(handle_history)
 handle_voteskip        = _safe(handle_voteskip)
+handle_vibes           = _safe(handle_vibes)
 handle_vibe            = _safe(handle_vibe)
 handle_setrequestprice = _safe(handle_setrequestprice)
 handle_radiohelp       = _safe(handle_radiohelp)
