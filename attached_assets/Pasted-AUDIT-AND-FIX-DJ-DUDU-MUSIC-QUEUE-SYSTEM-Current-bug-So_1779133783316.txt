@@ -1,0 +1,91 @@
+AUDIT AND FIX DJ_DUDU MUSIC QUEUE SYSTEM.
+
+Current bug:
+- Song currently playing still appears in !q / UP NEXT.
+- Songs already played or skipped still appear in !q.
+- Requests are not moving through statuses correctly.
+- Queue display is reading stale pending rows.
+
+Do NOT touch:
+- startup
+- reconnect/watchdog
+- room join
+- token handling
+- unrelated game modules
+
+Required audit:
+1. Find every file/handler that reads or writes DJ queue:
+   - !q
+   - !queue
+   - !request
+   - !play
+   - !pick
+   - !now
+   - !skip
+   - !clearqueue
+   - !djclear
+   - dashboard queue
+   - playback engine
+   - nowplaying poller
+   - cleanup job
+
+2. Remove/disable old DJ queue logic.
+Only one queue source of truth:
+yt_request_jobs table + request_queue.py helper functions.
+
+Required status lifecycle:
+pending → staged → done/queued → playing → played
+failed/cancelled are terminal.
+
+Hard rules:
+1. !q / !queue must show ONLY:
+   pending, staged, done, queued
+
+2. !q / !queue must NEVER show:
+   playing, played, failed, cancelled, skipped
+
+3. Before rendering !q:
+   - fetch AzuraCast Now Playing
+   - match current track against queued rows by:
+     media_id/song_id
+     unique_id
+     Requests/ path
+     filename
+     youtube_id
+     normalized title fallback
+   - if matched, immediately update row to status=playing
+   - remove it from UP NEXT
+
+4. When !skip succeeds:
+   - mark current playing request as skipped or played
+   - remove from queue display immediately
+   - run cleanup/move out of Requests
+
+5. When Now Playing changes:
+   - previous request becomes played
+   - new request becomes playing
+   - cleanup previous request
+
+6. Played/skipped requests must be moved from:
+   Requests/
+   to:
+   PlayedRequests/
+   then AzuraCast rescan.
+
+7. Add logs:
+stage=queue_audit
+stage=queue_read
+stage=queue_status_fix
+stage=nowplaying_match
+stage=request_started
+stage=request_finished
+stage=request_skipped
+stage=request_cleanup
+stage=queue_render
+
+Expected:
+If !now shows a song, that same song cannot appear in !q.
+If song is done/skipped, it cannot appear in !q.
+If no pending songs:
+🎧 UP NEXT:
+Empty

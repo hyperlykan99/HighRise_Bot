@@ -1143,6 +1143,61 @@ def get_current_request() -> "dict | None":
     return _db_find_playing()
 
 
+async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
+    """
+    Public — called by the !skip command handler after AzuraCast confirms
+    the skip succeeded.
+
+    Mirrors _on_request_finished but logs stage=request_skipped so audit
+    logs can distinguish staff-initiated skips from natural end-of-song
+    transitions.  Queues file cleanup (move to PlayedRequests/, rescan)
+    and switches playlists back to VIBE mode if the queue is now empty.
+    """
+    global _cur_req_id
+    with _lock:
+        if _cur_req_id == job_id:
+            _cur_req_id = 0
+
+    job = _db_get_job(job_id)
+    _db_set_status(job_id, "played")
+
+    fn_s  = (job.get("filename")      if job else None) or "?"
+    fid_s = (job.get("azura_file_id") if job else None) or "?"
+    ttl_s = (job.get("title")         if job else None) or "?"
+    usr_s = (job.get("username")      if job else None) or "?"
+    print(
+        f"{_LOG} stage=request_skipped"
+        f" request_id={job_id}"
+        f" media_id={fid_s!r}"
+        f" filename={fn_s!r}"
+        f" title={ttl_s!r}"
+        f" username={usr_s!r}"
+    )
+
+    if job:
+        fid = (job.get("azura_file_id") or "").strip()
+        fn  = (job.get("filename")      or "").strip()
+        if fid or fn:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(
+                None, _delete_request_file,
+                job_id, fid, fn, job.get("title", "?"),
+            )
+
+    remaining = _db_count_active()
+    print(
+        f"{_LOG} stage=request_cleanup request_id={job_id}"
+        f" remaining_in_queue={remaining} source=skip"
+    )
+    if remaining == 0:
+        with _lock:
+            cur_mode = _mode
+        if cur_mode != "vibe":
+            await _switch_to_vibe(bot)
+        else:
+            print(f"{_LOG} Already in VIBE mode — skipping redundant playlist switch")
+
+
 async def apply_vibe_change(bot: "BaseBot") -> None:
     """
     Called by the !vibe command after config_store.set_vibe() has been saved.

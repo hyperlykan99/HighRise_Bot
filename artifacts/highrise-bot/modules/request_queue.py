@@ -138,6 +138,46 @@ def mark_as_playing(job_id: int) -> None:
         print(f"{_LOG} mark_as_playing({job_id}): {exc}")
 
 
+def mark_as_played(job_id: int) -> None:
+    """
+    Mark a request as finished/played in the DB.  Sets played_at=now.
+    Idempotent — safe to call even if already played.
+    Used by !skip and queue_audit to move rows out of display immediately.
+    """
+    if not job_id:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs "
+                "SET status='played', "
+                "    played_at=COALESCE(NULLIF(played_at,''), datetime('now')) "
+                "WHERE id=? AND status NOT IN ('error')",
+                (job_id,),
+            )
+    except Exception as exc:
+        print(f"{_LOG} mark_as_played({job_id}): {exc}")
+
+
+def stale_playing_jobs() -> list:
+    """
+    Return all jobs with status='playing' and played_at IS NULL.
+    Used by the queue audit to detect rows that are stuck as 'playing'
+    after the bot restarted or the poll loop missed the song change.
+    """
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {_SEL} FROM yt_request_jobs "
+                "WHERE status='playing' AND played_at IS NULL "
+                "ORDER BY id ASC",
+            ).fetchall()
+            return [_jrow(r) for r in rows]
+    except Exception as exc:
+        print(f"{_LOG} stale_playing_jobs error: {exc}")
+        return []
+
+
 def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
     """
     Cancel every clearable job (status in _CLEAR_STATUSES).

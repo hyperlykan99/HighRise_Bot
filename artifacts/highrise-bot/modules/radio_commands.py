@@ -440,6 +440,48 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     np_path  = (np_media.get("path") or "").strip()
     np_fn    = np_path.rsplit("/", 1)[-1].lower() if np_path else ""
 
+    # ── Queue audit: fix stale 'playing' rows before reading display queue ─────
+    # Jobs can get stuck as status='playing' if the bot restarted between the
+    # song starting and the poll loop detecting the song change.  Check each
+    # one against NP — if it no longer matches, mark it played immediately.
+    stale = rq.stale_playing_jobs()
+    audit_fixed = 0
+    for sp in stale:
+        jfid   = (sp.get("azura_file_id") or "").strip()
+        jsid   = (sp.get("azura_song_id") or "").strip()
+        jfn    = (sp.get("filename")      or "").lower()
+        jvid   = (sp.get("video_id")      or "").strip()
+        jtitle = (sp.get("title")         or "").lower().strip()
+
+        still_np = bool(
+            (np_fid and jfid and np_fid == jfid)
+            or (np_sid and jsid and (np_sid == jsid or np_uid == jsid))
+            or (np_fn and jfn and (jfn == np_fn or jfn in np_fn or np_fn in jfn))
+            or (jvid and np_path and jvid in np_path)
+            or (
+                jtitle and np_title and len(jtitle) >= 15
+                and (jtitle in np_title or np_title in jtitle
+                     or jtitle[:40] == np_title[:40])
+            )
+        )
+        if not still_np:
+            rq.mark_as_played(sp["id"])
+            audit_fixed += 1
+            print(
+                f"{_LOG} stage=queue_status_fix"
+                f" request_id={sp['id']}"
+                f" old_status=playing new_status=played"
+                f" title={sp.get('title','?')!r}"
+                f" reason=np_mismatch"
+            )
+
+    print(
+        f"{_LOG} stage=queue_audit"
+        f" playing_rows_checked={len(stale)}"
+        f" fixed={audit_fixed}"
+        f" np_title={np_title!r}"
+    )
+
     # ── Load display queue (already excludes 'playing' status) ────────────────
     waiting = rq.display_jobs()
 
@@ -471,11 +513,17 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         if match_method:
             rq.mark_as_playing(j["id"])
             print(
-                f"{_LOG} stage=queue_current_removed"
+                f"{_LOG} stage=nowplaying_match"
                 f" request_id={j['id']}"
                 f" match_method={match_method!r}"
                 f" title={j.get('title','?')!r}"
                 f" nowplaying_title={np_title!r}"
+            )
+            print(
+                f"{_LOG} stage=queue_status_fix"
+                f" request_id={j['id']}"
+                f" old_status={j.get('status','?')!r} new_status=playing"
+                f" reason=nowplaying_match"
             )
         else:
             filtered.append(j)
@@ -520,6 +568,11 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     if not msg:
         msg = f"{header}\n+{total} more"
 
+    print(
+        f"{_LOG} stage=queue_render"
+        f" total={total} visible_count={shown}"
+        f" message_len={len(msg)}"
+    )
     await _w(bot, user.id, msg[:_MAX])
 
 
@@ -583,12 +636,24 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
 # ─── !skip ────────────────────────────────────────────────────────────────────
 
 async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!skip — immediately skip the current song (admin+)."""
+    """
+    !skip — immediately skip the current song (admin+).
+
+    After a confirmed skip:
+    - Marks the playing request as 'played' immediately (don't wait for the
+      poll loop to detect the song change).  This ensures !q shows it gone.
+    - Queues file cleanup via playback engine (move to PlayedRequests/, rescan).
+    - Logs stage=request_skipped for audit trail.
+    """
     if not _is_staff(user.username):
         await _w(bot, user.id, "🔒 Staff only.")
         return
 
     loop = asyncio.get_running_loop()
+
+    # Snapshot the current playing request BEFORE the skip
+    cp = rq.currently_playing()
+
     np   = await loop.run_in_executor(None, azura.fetch_nowplaying)
     title_str = ""
     if np:
@@ -599,6 +664,19 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
 
     ok = await loop.run_in_executor(None, azura.skip_current)
     if ok:
+        # Immediately mark the playing request as played so it vanishes from !q
+        # without waiting for the poll loop to detect the song transition.
+        if cp:
+            job_id = cp.get("id")
+            if job_id:
+                print(
+                    f"{_LOG} stage=request_skipped"
+                    f" request_id={job_id}"
+                    f" title={cp.get('title','?')!r}"
+                    f" username={cp.get('username','?')!r}"
+                    f" skipped_by={user.username!r}"
+                )
+                asyncio.create_task(engine.on_request_skipped(bot, job_id))
         await ann.announce_skip(bot, title_str)
         await _w(bot, user.id, "⏭️ Skipped.")
     else:
