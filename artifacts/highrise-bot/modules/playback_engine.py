@@ -752,7 +752,7 @@ async def _on_new_track(
                 f" username={req_uname!r}"
                 f" match_method={match_method!r}"
             )
-            await ann.announce_request_live(bot, req_title, "", req_uname)
+            await ann.announce_request_live(bot, req_title, artist, req_uname)
             with _lock:
                 _live_req = {
                     "title":      req_title,

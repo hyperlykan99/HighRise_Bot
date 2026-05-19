@@ -636,11 +636,18 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     NOW PLAYING and UP NEXT.  If a display-list item matches NP, its DB
     status is immediately updated to 'playing'.
     """
+    from modules.track_resolver import resolve_current_track
     loop = asyncio.get_running_loop()
 
     # ── Fetch NP to build current-song identifier set ─────────────────────────
     np       = await loop.run_in_executor(None, azura.fetch_nowplaying)
     np_obj   = (np or {}).get("now_playing") or {}
+
+    # ── Resolve current track — populates _live_req as a side-effect ──────────
+    # This ensures match_and_recover() runs and marks the playing request before
+    # the queue filter below, so !q never shows the current song in UP NEXT.
+    if np:
+        resolve_current_track(np)
     np_song  = np_obj.get("song")  or {}
     np_media = np_obj.get("media") or {}
     np_sid    = (np_song.get("id")        or "").strip()
@@ -801,6 +808,8 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
 
 async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
     """!nowplaying / !now / !np — compact vertical now-playing card."""
+    from modules.track_resolver import resolve_current_track, render_now_playing
+
     loop = asyncio.get_running_loop()
     np   = await loop.run_in_executor(None, azura.fetch_nowplaying)
 
@@ -811,85 +820,8 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
         )
         return
 
-    np_obj   = np.get("now_playing") or {}
-    song     = np_obj.get("song") or {}
-    elapsed  = int(np_obj.get("elapsed")  or 0)
-    duration = int(np_obj.get("duration") or song.get("length") or 0)
-    title    = (song.get("title")  or "").strip() or "Unknown"
-    artist   = (song.get("artist") or "").strip()
-
-    if artist and artist.lower() not in title.lower():
-        track = f"{artist} — {title}"
-    else:
-        track = title
-
-    # ── Live request cache — primary source of truth ─────────────────────────
-    cp = engine.get_live_request()
-
-    # ── Self-correct: try multi-strategy DB match if cache is empty ───────────
-    if cp is None:
-        np_media = np_obj.get("media") or {}
-        cp = engine.match_and_recover(
-            song_id    = (song.get("id")        or "").strip(),
-            song_uid   = (song.get("unique_id") or "").strip(),
-            np_title   = title,
-            media_id   = str(np_media.get("id") or "").strip(),
-            media_path = (np_media.get("path")  or "").strip(),
-            np_artist  = artist,
-        )
-
-    # ── Vibe label — never hardcoded ──────────────────────────────────────────
-    from modules.dj_announcer import _VIBE_LINE as _vl
-    _vibe       = cs.vibe()
-    _vibe_label = _vl.get(_vibe, f"🌙 AutoDJ • {_vibe.title()}")
-
-    # ── Debug log (visible in workflow console) ───────────────────────────────
-    if cp:
-        print(
-            f"[NOW] source=request"
-            f" requestedBy={cp.get('username', '?')!r}"
-            f" title={cp.get('title', '?')!r}"
-            f" job_id={cp.get('job_id', '?')}"
-        )
-    else:
-        print(f"[NOW] source=autodj vibe={cs.vibe()!r} np_title={title!r}")
-
-    # ── Build display lines ───────────────────────────────────────────────────
-    if cp:
-        req_uname   = (cp.get("username") or "")[:20]
-        disp_title  = ((cp.get("title")  or "").strip() or title)[:42]
-        disp_artist = (cp.get("artist")  or artist or "").strip()[:38]
-        _song_key   = disp_title.lower()[:150]
-        _counts     = _ratings(_song_key)
-        lines: list[str] = [
-            "▶ REQUEST LIVE",
-            f"Title: {disp_title}",
-        ]
-        if disp_artist:
-            lines.append(f"Artist: {disp_artist}")
-        lines += [
-            f"🙋 @{req_uname}" if req_uname else "🙋 Requested",
-            f"👍 {_counts['likes']} 👎 {_counts['dislikes']}",
-            "📻 ChillTopia Radio",
-        ]
-    else:
-        disp_title  = title[:42]
-        disp_artist = artist[:38]
-        _song_key   = title.lower()[:150] if title != "Unknown" else ""
-        _counts     = _ratings(_song_key) if _song_key else {"likes": 0, "dislikes": 0}
-        lines = [
-            "▶ NOW PLAYING",
-            f"Title: {disp_title}",
-        ]
-        if disp_artist:
-            lines.append(f"Artist: {disp_artist}")
-        lines += [
-            _vibe_label,
-            f"👍 {_counts['likes']} 👎 {_counts['dislikes']}",
-            "📻 ChillTopia Radio",
-        ]
-
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    track = resolve_current_track(np)
+    await _w(bot, user.id, render_now_playing(track))
 
 
 # ─── !skip ────────────────────────────────────────────────────────────────────

@@ -1,0 +1,146 @@
+FIX EMOTE DISCOVERY — LOAD FULL HIGHRISE EMOTE CATALOG
+
+Problem:
+!emotes is not loading all emotes.
+Other Highrise bots have around 174 emotes, but ours only shows a small list.
+
+Cause:
+Bot is likely using fallback hardcoded candidates only, not the full SDK/catalog source.
+
+Goal:
+Load the complete Highrise emote list dynamically and cache all working emotes.
+
+━━━━━━━━━━
+1. Add Multiple Emote Sources
+━━━━━━━━━━
+
+Build emote registry from these sources in order:
+
+1. Highrise SDK emote definitions if exposed
+2. Highrise package files/resources
+3. local full_emotes.json
+4. fallback candidate list only if no source found
+
+Do NOT rely only on fallback list.
+
+Search installed highrise package for:
+- emote
+- emotes
+- reactions
+- dance
+- asset_id
+- emote_id
+
+Use Python introspection:
+- inspect highrise module
+- dir(highrise)
+- inspect.getmembers(highrise)
+- inspect submodules
+- pkgutil.walk_packages(highrise.__path__)
+
+━━━━━━━━━━
+2. Add Full Local Catalog File
+━━━━━━━━━━
+
+Create:
+data/highrise_emotes.json
+
+Format:
+[
+  {
+    "name": "dance",
+    "display": "Dance",
+    "id": "emote-dance"
+  }
+]
+
+Load this file if SDK discovery does not expose all emotes.
+
+Make sure normalized names are one word:
+"Fist Pump" -> "fistpump"
+"Fashion Pose" -> "fashionpose"
+
+━━━━━━━━━━
+3. Discovery Command
+━━━━━━━━━━
+
+Admin command:
+!reloademotes
+
+Behavior:
+- scan SDK/package/local catalog
+- collect candidates
+- test each candidate safely
+- save working emotes
+- report count
+
+Example:
+🎭 Emotes loaded: 174 active, 12 failed
+
+━━━━━━━━━━
+4. Do Not Visibly Spam Room
+━━━━━━━━━━
+
+When testing emotes:
+- prefer test on bot only
+- throttle tests
+- do not announce every emote
+- only final result message
+
+━━━━━━━━━━
+5. Active Cache
+━━━━━━━━━━
+
+Save active emotes to:
+data/active_emotes.json
+
+Each entry:
+{
+  "name": "fistpump",
+  "display": "Fist Pump",
+  "id": "emote-fist-pump",
+  "enabled": true
+}
+
+━━━━━━━━━━
+6. !emotes Listing
+━━━━━━━━━━
+
+!emotes should list all active emotes.
+Auto-send continuous pages.
+Max 255 chars per message.
+No page command needed.
+
+Example:
+🎭 Emotes 1/8:
+dance, wave, clap, laugh...
+
+🎭 Emotes 2/8:
+fistpump, fashionpose...
+
+━━━━━━━━━━
+7. Debug Command
+━━━━━━━━━━
+
+Add:
+!emotesource
+
+Shows:
+SDK: {count}
+Package: {count}
+Local: {count}
+Active: {count}
+Failed: {count}
+
+━━━━━━━━━━
+8. Important
+━━━━━━━━━━
+
+If active count is below 100:
+warn admin:
+⚠️ Only {count} emotes loaded. Full catalog may be missing.
+
+Expected:
+!reloademotes loads around 170+ working emotes if available.
+!emotecount shows near 174.
+!emotes displays all active emotes in continuous pages.

@@ -1,0 +1,138 @@
+Continue from point 2.
+
+resolve_current_track() must also extract/return:
+- media_id
+- song_id
+- unique_id
+- path
+- filename
+- playlist
+- source
+- requester
+- request_id
+- vibe
+- started_at
+
+━━━━━━━━━━
+2. Request Match Comes First
+━━━━━━━━━━
+
+Request detection order:
+
+1. media_id / song_id
+2. AzuraCast unique_id
+3. path starts with Requests/
+4. filename match
+5. youtube_id stored in DB
+6. normalized title + artist
+7. fuzzy title match last
+
+If matched:
+- source = "request"
+- set current_request
+- set requester
+- set started_at
+- remove from queue/up next
+- DO NOT show AutoDJ
+
+If not matched:
+- source = "autodj"
+
+━━━━━━━━━━
+3. Fix AutoDJ Vibe
+━━━━━━━━━━
+
+If source == autodj:
+show actual active vibe.
+
+Never hardcode Chill.
+
+Vibe resolution order:
+1. active vibe set by !vibe
+2. AzuraCast playlist name
+3. active enabled playlist
+4. fallback "AutoDJ"
+
+Examples:
+🌙 AutoDJ • Bgcnights
+🌙 AutoDJ • Chill
+🌙 AutoDJ • Phonk
+
+━━━━━━━━━━
+4. Single Renderer
+━━━━━━━━━━
+
+Create:
+render_now_playing(track)
+
+ALL systems must use this:
+- !now
+- automatic now playing
+- queue cleanup
+- request live
+- overlays/cards
+
+If source == request:
+
+▶️ REQUEST LIVE
+Title: {title}
+Artist: {artist}
+👤 @{requester}
+👍 {likes} 👎 {dislikes}
+📻 ChillTopia Radio
+
+If source == autodj:
+
+▶️ NOW PLAYING
+Title: {title}
+Artist: {artist}
+🌙 AutoDJ • {vibe}
+👍 {likes} 👎 {dislikes}
+📻 ChillTopia Radio
+
+━━━━━━━━━━
+5. Queue Self Correction
+━━━━━━━━━━
+
+Before !q:
+- resolve_current_track()
+- remove current playing request from queue
+- mark request as playing
+
+If only current request exists:
+UP NEXT should be empty.
+
+━━━━━━━━━━
+6. Remove Duplicate Announcements
+━━━━━━━━━━
+
+Do NOT send both:
+- REQUEST LIVE
+and
+- NOW PLAYING
+
+Requested songs only send:
+▶️ REQUEST LIVE
+
+AutoDJ songs only send:
+▶️ NOW PLAYING
+
+━━━━━━━━━━
+7. Debug Logs
+━━━━━━━━━━
+
+Add logs:
+
+[NOW_RESOLVE] title=
+[NOW_RESOLVE] media_id=
+[NOW_RESOLVE] path=
+[NOW_RESOLVE] matched_request=
+[NOW_RESOLVE] source=
+[NOW_RESOLVE] vibe=
+
+Expected:
+Requested song:
+source=request
+
+AutoDJ song:
+source=autodj

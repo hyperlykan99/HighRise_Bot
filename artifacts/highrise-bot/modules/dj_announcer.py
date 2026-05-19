@@ -77,19 +77,22 @@ async def announce_now_playing(
     Room announcement for a new AutoDJ track (separate Title/Artist lines).
 
     If `requester` is provided the REQUEST LIVE format is used instead.
+    Uses render_now_playing() — the single canonical renderer.
     """
     if requester:
         await announce_request_live(bot, title, artist, requester)
         return
 
-    t = (title or "Unknown")[:60]
-    a = (artist or "").strip()[:40]
-    vibe_line = _VIBE_LINE.get(vibe, "🌙 AutoDJ • Chill")
-    lines = ["▶ NOW PLAYING", f"Title: {t}"]
-    if a:
-        lines.append(f"Artist: {a}")
-    lines.extend([vibe_line, "👍 0 👎 0", f"📻 {_STATION}"])
-    await _say(bot, "\n".join(lines))
+    from modules.track_resolver import render_now_playing
+    track = {
+        "source":    "autodj",
+        "title":     title,
+        "artist":    artist,
+        "vibe":      vibe,
+        "likes":     0,
+        "dislikes":  0,
+    }
+    await _say(bot, render_now_playing(track))
 
 
 # ─── Request confirmed playing ────────────────────────────────────────────────
@@ -103,17 +106,18 @@ async def announce_request_live(
     """
     REQUEST LIVE room announcement with separate Title/Artist lines.
     Fired when a queued request starts playing.
+    Uses render_now_playing() — the single canonical renderer.
     """
-    t = (title or "Unknown")[:60]
-    a = (artist or "").strip()[:40]
-    lines = ["▶ REQUEST LIVE", f"Title: {t}"]
-    if a:
-        lines.append(f"Artist: {a}")
-    if requester:
-        lines.append(f"🙋 @{requester[:20]}")
-    lines.append("👍 0 👎 0")
-    lines.append(f"📻 {_STATION}")
-    await _say(bot, "\n".join(lines))
+    from modules.track_resolver import render_now_playing
+    track = {
+        "source":    "request",
+        "title":     title,
+        "artist":    artist,
+        "requester": requester,
+        "likes":     0,
+        "dislikes":  0,
+    }
+    await _say(bot, render_now_playing(track))
 
 
 # ─── Request queued (fallback when skip couldn't confirm) ─────────────────────
