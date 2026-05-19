@@ -1968,58 +1968,9 @@ async def handle_play(bot: "BaseBot", user: "User", args: list[str]) -> None:
 
 
 async def handle_now(bot: "BaseBot", user: "User", _args: list[str]) -> None:
-    """!now / !np / !nowplaying — show what's currently playing on ChillTopia Radio."""
-    loop = asyncio.get_running_loop()
-    np_data = await loop.run_in_executor(None, _azura_fetch_nowplaying)
-
-    if not np_data:
-        if _azura_api_cfg() is None:
-            await _w(bot, user.id, "📻 AzuraCast not configured.")
-        else:
-            await _w(bot, user.id, "📻 Radio is offline or unreachable right now.")
-        return
-
-    np_obj   = np_data.get("now_playing") or {}
-    song     = np_obj.get("song") or {}
-    song_id  = (song.get("id") or "").strip()
-    np_title = (song.get("title") or "").strip()
-
-    # Cross-reference DB: get real YouTube title and requester.
-    # Handles cases where AzuraCast shows the filename instead of real title
-    # (e.g. "KFMYX1TibeQ") because ID3 tags were missing on the uploaded file.
-    db_job = _db_lookup_for_now(song_id, np_title)
-    if db_job:
-        real_title = (db_job.get("title") or np_title or "Unknown Track").strip()
-        requester  = (db_job.get("username") or "").strip()
-    else:
-        real_title = np_title or "Unknown Track"
-        requester  = ""
-
-    raw_artist = (song.get("artist") or "").strip()
-    if raw_artist and raw_artist.lower() not in real_title.lower():
-        display = f"{raw_artist} — {real_title}"
-    else:
-        display = real_title
-    display = display[:48]
-
-    elapsed  = int(np_obj.get("elapsed")  or 0)
-    duration = int(np_obj.get("duration") or 0)
-
-    req_line  = f"👤 Requested by: @{requester[:20]}" if requester else "👤 AutoDJ"
-
-    elapsed_str  = _fmt_secs(elapsed)
-    duration_str = _fmt_secs(duration) if duration > 0 else "--:--"
-    bar          = _progress_bar(elapsed, duration)
-
-    msg = (
-        "🎧 ChillTopia Radio\n"
-        f"▶ Now Playing: {display}\n"
-        f"{req_line}\n"
-        f"⏱ {elapsed_str} / {duration_str}\n"
-        f"{bar}\n"
-        "📻 DJ_DUDU is live"
-    )
-    await _w(bot, user.id, msg[:249])
+    """!now / !np / !nowplaying — delegates to unified resolver + renderer."""
+    import modules.radio_commands as _rc
+    await _rc.handle_nowplaying(bot, user, _args)
 
 
 async def handle_skip(bot: "BaseBot", user: "User", _args: list[str]) -> None:

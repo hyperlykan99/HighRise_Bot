@@ -7577,8 +7577,8 @@ class HangoutBot(BaseBot):
         elif cmd == "ytstatus":
             await handle_ytstatus(self, user, args)
         elif cmd == "ytnow":
-            # !ytnow is now an alias for !now
-            await handle_yt_now(self, user, args)
+            # !ytnow is an alias for !now — uses unified resolver + renderer
+            await rc_nowplaying(self, user, args)
         elif cmd == "ytcooldown":
             await handle_ytcooldown(self, user, args)
         elif cmd == "setytcooldown":

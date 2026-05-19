@@ -178,10 +178,14 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
     filename = path.rsplit("/", 1)[-1] if path else ""
     playlist = (np_obj.get("playlist") or "").strip()
 
+    # ── Emit spec-required NP field logs ─────────────────────────────────────
+    print(f"[NOW_RESOLVE] title={title!r}")
+    print(f"[NOW_RESOLVE] media_id={media_id!r}")
+    print(f"[NOW_RESOLVE] path={path!r}")
+
     # ── Step 1: in-memory live request cache ──────────────────────────────────
     cp = engine.get_live_request()
-    print(f"[NOW_RESOLVE] step=get_live_request result={'found' if cp else 'none'}"
-          f" title={title!r} media_id={media_id!r} path={path!r}")
+    print(f"[NOW_RESOLVE] step=get_live_request result={'found' if cp else 'none'}")
 
     # ── Step 2: multi-strategy DB match ───────────────────────────────────────
     if cp is None:
@@ -222,10 +226,9 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
         song_key   = req_title.lower()[:150]
         counts     = _get_ratings(song_key)
 
-        print(
-            f"[NOW_RESOLVE] matched_request=True source=request"
-            f" requester={req_uname!r} request_id={job_id}"
-        )
+        print(f"[NOW_RESOLVE] matched_request=True")
+        print(f"[NOW_RESOLVE] source=request")
+        print(f"[NOW_RESOLVE] vibe=n/a")
         return {
             "title":      req_title,
             "artist":     req_artist,
@@ -251,9 +254,9 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
         counts   = _get_ratings(song_key)
         started  = (time.time() - elapsed) if elapsed > 0 else 0.0
 
-        print(
-            f"[NOW_RESOLVE] matched_request=False source=autodj vibe={vibe!r}"
-        )
+        print(f"[NOW_RESOLVE] matched_request=False")
+        print(f"[NOW_RESOLVE] source=autodj")
+        print(f"[NOW_RESOLVE] vibe={vibe!r}")
         return {
             "title":      title,
             "artist":     artist,
