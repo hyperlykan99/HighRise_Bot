@@ -1,0 +1,1730 @@
+{
+  "emotes": {
+    "emote-aboutdamntime": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:47:42"
+    },
+    "emote-angry": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:47:46"
+    },
+    "emote-antihero": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:47:52"
+    },
+    "emote-applause": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:47:56"
+    },
+    "emote-asitwas": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:01"
+    },
+    "emote-astronaut": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:07"
+    },
+    "emote-badguy": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:12"
+    },
+    "emote-ballet": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:18"
+    },
+    "emote-balloon": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:24"
+    },
+    "emote-basketball": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:28"
+    },
+    "emote-bellydance": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:33"
+    },
+    "emote-blase": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:38"
+    },
+    "emote-blindinglights": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:44"
+    },
+    "emote-blowkiss": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:49"
+    },
+    "emote-boo": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:54"
+    },
+    "emote-bounce": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:48:59"
+    },
+    "emote-bouncedance": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:05"
+    },
+    "emote-bow": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:11"
+    },
+    "emote-bow2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:15"
+    },
+    "emote-bow3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:22"
+    },
+    "emote-bow4": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:28"
+    },
+    "emote-boxing": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:32"
+    },
+    "emote-breakdance": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:37"
+    },
+    "emote-breakdance2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:42"
+    },
+    "emote-butterfly": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:46"
+    },
+    "emote-cabbagepatch": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:51"
+    },
+    "emote-cartwheel": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:49:55"
+    },
+    "emote-catwalk": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:00"
+    },
+    "emote-celebrate": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:06"
+    },
+    "emote-chacha": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:11"
+    },
+    "emote-cheer": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:15"
+    },
+    "emote-cheerleader": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:20"
+    },
+    "emote-clap": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:25"
+    },
+    "emote-clap2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:30"
+    },
+    "emote-clap3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:36"
+    },
+    "emote-coffee": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:41"
+    },
+    "emote-confetti": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:46"
+    },
+    "emote-confused": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:51"
+    },
+    "emote-cooking": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:50:56"
+    },
+    "emote-crawl": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:01"
+    },
+    "emote-crown": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:14"
+    },
+    "emote-cry": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:20"
+    },
+    "emote-cry2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:26"
+    },
+    "emote-cry3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:30"
+    },
+    "emote-cupid": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:35"
+    },
+    "emote-curtsey": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:40"
+    },
+    "emote-curtsy": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:46"
+    },
+    "emote-dab": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:52"
+    },
+    "emote-dab2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:51:57"
+    },
+    "emote-dance": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:02"
+    },
+    "emote-dance10": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:07"
+    },
+    "emote-dance11": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:12"
+    },
+    "emote-dance12": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:17"
+    },
+    "emote-dance13": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:23"
+    },
+    "emote-dance14": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:28"
+    },
+    "emote-dance15": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:33"
+    },
+    "emote-dance16": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:39"
+    },
+    "emote-dance17": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:44"
+    },
+    "emote-dance18": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:50"
+    },
+    "emote-dance19": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:52:54"
+    },
+    "emote-dance2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:00"
+    },
+    "emote-dance20": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:06"
+    },
+    "emote-dance21": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:12"
+    },
+    "emote-dance22": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:18"
+    },
+    "emote-dance23": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:24"
+    },
+    "emote-dance24": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:28"
+    },
+    "emote-dance3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:33"
+    },
+    "emote-dance4": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:39"
+    },
+    "emote-dance5": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:44"
+    },
+    "emote-dance6": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:50"
+    },
+    "emote-dance7": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:53:55"
+    },
+    "emote-dance8": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:00"
+    },
+    "emote-dance9": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:05"
+    },
+    "emote-deathdrop": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:11"
+    },
+    "emote-disco": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:16"
+    },
+    "emote-disgusted": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:21"
+    },
+    "emote-dive": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:27"
+    },
+    "emote-dj": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:33"
+    },
+    "emote-dontstartnow": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:37"
+    },
+    "emote-dribble": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:43"
+    },
+    "emote-drink": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:49"
+    },
+    "emote-drum2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:54:54"
+    },
+    "emote-drums": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:00"
+    },
+    "emote-eat": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:05"
+    },
+    "emote-elf": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:10"
+    },
+    "emote-enthusiastic": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:16"
+    },
+    "emote-excited": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:21"
+    },
+    "emote-eyeroll": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:26"
+    },
+    "emote-facepalm": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:32"
+    },
+    "emote-fail1": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:36"
+    },
+    "emote-fall": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:42"
+    },
+    "emote-fighting": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:46"
+    },
+    "emote-finger": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:51"
+    },
+    "emote-firework": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:55:57"
+    },
+    "emote-fistbump": {
+      "status": "social_only",
+      "tested_at": "2026-05-19T20:56:02"
+    },
+    "emote-flap": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:02"
+    },
+    "emote-flex": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:09"
+    },
+    "emote-flex2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:13"
+    },
+    "emote-flip": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:18"
+    },
+    "emote-float": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:24"
+    },
+    "emote-floss": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:28"
+    },
+    "emote-floss2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:33"
+    },
+    "emote-floss3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:38"
+    },
+    "emote-fly": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:42"
+    },
+    "emote-foxtrot": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:47"
+    },
+    "emote-frankenstein": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:52"
+    },
+    "emote-freeze": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:56:57"
+    },
+    "emote-gangnam": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:03"
+    },
+    "emote-ghost": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:08"
+    },
+    "emote-golf": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:14"
+    },
+    "emote-greet": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:19"
+    },
+    "emote-greet2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:24"
+    },
+    "emote-griddy": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:30"
+    },
+    "emote-guitar": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:35"
+    },
+    "emote-handshake": {
+      "status": "social_only",
+      "tested_at": "2026-05-19T20:57:40"
+    },
+    "emote-handstand": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:40"
+    },
+    "emote-headbang": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:45"
+    },
+    "emote-headbang2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:51"
+    },
+    "emote-heart": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:57:56"
+    },
+    "emote-heartdance": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:01"
+    },
+    "emote-heartshape": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:07"
+    },
+    "emote-hello": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:11"
+    },
+    "emote-highfive": {
+      "status": "social_only",
+      "tested_at": "2026-05-19T20:58:16"
+    },
+    "emote-hip": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:16"
+    },
+    "emote-hiphop": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:21"
+    },
+    "emote-hiphop2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:26"
+    },
+    "emote-hitchhike": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:32"
+    },
+    "emote-holdback": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:36"
+    },
+    "emote-hug": {
+      "status": "social_only",
+      "tested_at": "2026-05-19T20:58:41"
+    },
+    "emote-hug2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:42"
+    },
+    "emote-hustle": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:48"
+    },
+    "emote-idle2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:54"
+    },
+    "emote-idle3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:58:58"
+    },
+    "emote-idle4": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:04"
+    },
+    "emote-idle5": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:09"
+    },
+    "emote-idle6": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:15"
+    },
+    "emote-idle_crouch": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:20"
+    },
+    "emote-idle_enthusiastic": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:25"
+    },
+    "emote-idle_laydown": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:29"
+    },
+    "emote-idle_look": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:34"
+    },
+    "emote-idle_loop": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:40"
+    },
+    "emote-idle_sitfloor": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:45"
+    },
+    "emote-impatient": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:51"
+    },
+    "emote-interact": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T20:59:56"
+    },
+    "emote-invisible": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:01"
+    },
+    "emote-jive": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:05"
+    },
+    "emote-judo": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:10"
+    },
+    "emote-juggle": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:15"
+    },
+    "emote-jump": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:20"
+    },
+    "emote-jump2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:25"
+    },
+    "emote-karate": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:31"
+    },
+    "emote-killbill": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:35"
+    },
+    "emote-kiss": {
+      "status": "social_only",
+      "tested_at": "2026-05-19T21:00:39"
+    },
+    "emote-kiss2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:40"
+    },
+    "emote-lasso": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:45"
+    },
+    "emote-laugh": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:51"
+    },
+    "emote-laugh2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:55"
+    },
+    "emote-laugh3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:00:59"
+    },
+    "emote-lean": {
+      "status": "social_only",
+      "tested_at": "2026-05-19T21:01:05"
+    },
+    "emote-leanback": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:05"
+    },
+    "emote-leanbounce": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:11"
+    },
+    "emote-levitate": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:17"
+    },
+    "emote-levitating": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:21"
+    },
+    "emote-limbo": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:27"
+    },
+    "emote-linedance": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:32"
+    },
+    "emote-look": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:36"
+    },
+    "emote-macarena": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:41"
+    },
+    "emote-magic": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:45"
+    },
+    "emote-magic2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:51"
+    },
+    "emote-magic3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:01:57"
+    },
+    "emote-magic4": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:01"
+    },
+    "emote-meditate": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:06"
+    },
+    "emote-mime": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:12"
+    },
+    "emote-model": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:16"
+    },
+    "emote-moonwalk": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:22"
+    },
+    "emote-mummy": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:27"
+    },
+    "emote-nickiminaj": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:31"
+    },
+    "emote-no": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:37"
+    },
+    "emote-nod": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:42"
+    },
+    "emote-noodle": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:48"
+    },
+    "emote-opera": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:54"
+    },
+    "emote-orangejustice": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:02:59"
+    },
+    "emote-paint": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:05"
+    },
+    "emote-peace": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:10"
+    },
+    "emote-peek": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:15"
+    },
+    "emote-penguin": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:21"
+    },
+    "emote-phone": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:27"
+    },
+    "emote-piano": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:32"
+    },
+    "emote-pogo": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:36"
+    },
+    "emote-point": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:42"
+    },
+    "emote-polka": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:48"
+    },
+    "emote-pose": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:52"
+    },
+    "emote-pose2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:03:57"
+    },
+    "emote-pose3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:02"
+    },
+    "emote-pose4": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:06"
+    },
+    "emote-pose5": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:11"
+    },
+    "emote-pose6": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:17"
+    },
+    "emote-pose7": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:23"
+    },
+    "emote-pose8": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:28"
+    },
+    "emote-pray": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:32"
+    },
+    "emote-pumpkin": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:38"
+    },
+    "emote-punch": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:44"
+    },
+    "emote-pushit": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:49"
+    },
+    "emote-pushup": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:04:54"
+    },
+    "emote-raise": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:00"
+    },
+    "emote-raisehands": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:06"
+    },
+    "emote-read": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:12"
+    },
+    "emote-reindeer": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:18"
+    },
+    "emote-relax": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:24"
+    },
+    "emote-renegade": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:29"
+    },
+    "emote-roar": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:34"
+    },
+    "emote-robot": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:39"
+    },
+    "emote-rock": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:43"
+    },
+    "emote-rocket": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:49"
+    },
+    "emote-roll": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:05:55"
+    },
+    "emote-rollerskate": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:00"
+    },
+    "emote-royaldance": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:06"
+    },
+    "emote-rugby": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:11"
+    },
+    "emote-run": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:16"
+    },
+    "emote-run2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:21"
+    },
+    "emote-runningman": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:26"
+    },
+    "emote-sad": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:31"
+    },
+    "emote-salsa": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:36"
+    },
+    "emote-salsa2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:41"
+    },
+    "emote-salute": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:46"
+    },
+    "emote-samba": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:51"
+    },
+    "emote-santa": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:06:57"
+    },
+    "emote-savage": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:02"
+    },
+    "emote-scared": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:07"
+    },
+    "emote-scream": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:12"
+    },
+    "emote-selfie": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:16"
+    },
+    "emote-shake": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:22"
+    },
+    "emote-shimmy": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:26"
+    },
+    "emote-shimmy2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:32"
+    },
+    "emote-shimmy3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:37"
+    },
+    "emote-show": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:43"
+    },
+    "emote-shrug": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:48"
+    },
+    "emote-shrug2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:52"
+    },
+    "emote-shuffle": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:07:58"
+    },
+    "emote-shuffle2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:04"
+    },
+    "emote-sidestep": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:09"
+    },
+    "emote-sing": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:14"
+    },
+    "emote-sit": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:18"
+    },
+    "emote-sit2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:23"
+    },
+    "emote-sit3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:27"
+    },
+    "emote-sit4": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:32"
+    },
+    "emote-sit5": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:36"
+    },
+    "emote-sit6": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:42"
+    },
+    "emote-sit7": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:47"
+    },
+    "emote-sit8": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:51"
+    },
+    "emote-skateboard": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:08:57"
+    },
+    "emote-skeleton": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:03"
+    },
+    "emote-ski": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:08"
+    },
+    "emote-skip": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:14"
+    },
+    "emote-skip2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:19"
+    },
+    "emote-sleep": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:25"
+    },
+    "emote-slide": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:31"
+    },
+    "emote-slip": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:36"
+    },
+    "emote-slow": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:42"
+    },
+    "emote-smoke": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:48"
+    },
+    "emote-snake": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:52"
+    },
+    "emote-sneak": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:09:57"
+    },
+    "emote-sniff": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:03"
+    },
+    "emote-snowangel": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:07"
+    },
+    "emote-snowball": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:12"
+    },
+    "emote-snowboard": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:16"
+    },
+    "emote-snowflake": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:21"
+    },
+    "emote-soccer": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:25"
+    },
+    "emote-sorry": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:31"
+    },
+    "emote-sparkle": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:36"
+    },
+    "emote-spin": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:42"
+    },
+    "emote-splits": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:47"
+    },
+    "emote-sprinkler": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:53"
+    },
+    "emote-squat": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:10:58"
+    },
+    "emote-standstill": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:05"
+    },
+    "emote-star": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:09"
+    },
+    "emote-stargaze": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:14"
+    },
+    "emote-starjump": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:20"
+    },
+    "emote-stay": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:25"
+    },
+    "emote-stomp": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:29"
+    },
+    "emote-stomp2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:34"
+    },
+    "emote-stomp3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:40"
+    },
+    "emote-stretch": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:46"
+    },
+    "emote-stunned": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:50"
+    },
+    "emote-superfreaky": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:11:55"
+    },
+    "emote-superhero": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:00"
+    },
+    "emote-surfboard": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:05"
+    },
+    "emote-surprise": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:11"
+    },
+    "emote-swagger": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:15"
+    },
+    "emote-swan": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:20"
+    },
+    "emote-sway": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:24"
+    },
+    "emote-swim": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:29"
+    },
+    "emote-swing": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:34"
+    },
+    "emote-swipe": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:39"
+    },
+    "emote-swordfight": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:43"
+    },
+    "emote-tackle": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:48"
+    },
+    "emote-tango": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:54"
+    },
+    "emote-tap": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:12:59"
+    },
+    "emote-tapdance": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:03"
+    },
+    "emote-taunt": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:08"
+    },
+    "emote-telekinesis": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:14"
+    },
+    "emote-tennis": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:19"
+    },
+    "emote-think": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:23"
+    },
+    "emote-thriller": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:29"
+    },
+    "emote-throw": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:35"
+    },
+    "emote-thumbsdown": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:40"
+    },
+    "emote-thumbsup": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:47"
+    },
+    "emote-tiptoe": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:52"
+    },
+    "emote-toosieslide": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:13:56"
+    },
+    "emote-tremble": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:01"
+    },
+    "emote-trip": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:06"
+    },
+    "emote-trophy": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:12"
+    },
+    "emote-trot": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:19"
+    },
+    "emote-twirl": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:23"
+    },
+    "emote-type": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:28"
+    },
+    "emote-uppercut": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:33"
+    },
+    "emote-vampire": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:40"
+    },
+    "emote-victory": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:46"
+    },
+    "emote-vogue": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:51"
+    },
+    "emote-walk": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:14:56"
+    },
+    "emote-waltz": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:02"
+    },
+    "emote-wander": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:07"
+    },
+    "emote-wap": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:12"
+    },
+    "emote-watergun": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:17"
+    },
+    "emote-wave": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:22"
+    },
+    "emote-wave2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:27"
+    },
+    "emote-wave3": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:32"
+    },
+    "emote-wave4": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:37"
+    },
+    "emote-wave5": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:43"
+    },
+    "emote-wheelbarrow": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:48"
+    },
+    "emote-wiggle": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:53"
+    },
+    "emote-wink": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:15:57"
+    },
+    "emote-wink2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:03"
+    },
+    "emote-witch": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:07"
+    },
+    "emote-woah": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:13"
+    },
+    "emote-worm": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:17"
+    },
+    "emote-wrestle": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:22"
+    },
+    "emote-wrist": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:27"
+    },
+    "emote-yawn": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:32"
+    },
+    "emote-yes": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:38"
+    },
+    "emote-yoga": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:44"
+    },
+    "emote-yoga2": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:49"
+    },
+    "emote-zap": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:16:54"
+    },
+    "emote-zombie": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-19T21:21:18"
+    }
+  },
+  "scan": {
+    "scan_list": [
+      "emote-aboutdamntime",
+      "emote-angry",
+      "emote-antihero",
+      "emote-applause",
+      "emote-asitwas",
+      "emote-astronaut",
+      "emote-badguy",
+      "emote-ballet",
+      "emote-balloon",
+      "emote-basketball",
+      "emote-bellydance",
+      "emote-blase",
+      "emote-blindinglights",
+      "emote-blowkiss",
+      "emote-boo",
+      "emote-bounce",
+      "emote-bouncedance",
+      "emote-bow",
+      "emote-bow2",
+      "emote-bow3",
+      "emote-bow4",
+      "emote-boxing",
+      "emote-breakdance",
+      "emote-breakdance2",
+      "emote-butterfly",
+      "emote-cabbagepatch",
+      "emote-cartwheel",
+      "emote-catwalk",
+      "emote-celebrate",
+      "emote-chacha",
+      "emote-cheer",
+      "emote-cheerleader",
+      "emote-clap",
+      "emote-clap2",
+      "emote-clap3",
+      "emote-coffee",
+      "emote-confetti",
+      "emote-confused",
+      "emote-cooking",
+      "emote-crawl",
+      "emote-crown",
+      "emote-cry",
+      "emote-cry2",
+      "emote-cry3",
+      "emote-cupid",
+      "emote-curtsey",
+      "emote-curtsy",
+      "emote-dab",
+      "emote-dab2",
+      "emote-dance",
+      "emote-dance10",
+      "emote-dance11",
+      "emote-dance12",
+      "emote-dance13",
+      "emote-dance14",
+      "emote-dance15",
+      "emote-dance16",
+      "emote-dance17",
+      "emote-dance18",
+      "emote-dance19",
+      "emote-dance2",
+      "emote-dance20",
+      "emote-dance21",
+      "emote-dance22",
+      "emote-dance23",
+      "emote-dance24",
+      "emote-dance3",
+      "emote-dance4",
+      "emote-dance5",
+      "emote-dance6",
+      "emote-dance7",
+      "emote-dance8",
+      "emote-dance9",
+      "emote-deathdrop",
+      "emote-disco",
+      "emote-disgusted",
+      "emote-dive",
+      "emote-dj",
+      "emote-dontstartnow",
+      "emote-dribble",
+      "emote-drink",
+      "emote-drum2",
+      "emote-drums",
+      "emote-eat",
+      "emote-elf",
+      "emote-enthusiastic",
+      "emote-excited",
+      "emote-eyeroll",
+      "emote-facepalm",
+      "emote-fail1",
+      "emote-fall",
+      "emote-fighting",
+      "emote-finger",
+      "emote-firework",
+      "emote-fistbump",
+      "emote-flap",
+      "emote-flex",
+      "emote-flex2",
+      "emote-flip",
+      "emote-float",
+      "emote-floss",
+      "emote-floss2",
+      "emote-floss3",
+      "emote-fly",
+      "emote-foxtrot",
+      "emote-frankenstein",
+      "emote-freeze",
+      "emote-gangnam",
+      "emote-ghost",
+      "emote-golf",
+      "emote-greet",
+      "emote-greet2",
+      "emote-griddy",
+      "emote-guitar",
+      "emote-handshake",
+      "emote-handstand",
+      "emote-headbang",
+      "emote-headbang2",
+      "emote-heart",
+      "emote-heartdance",
+      "emote-heartshape",
+      "emote-hello",
+      "emote-highfive",
+      "emote-hip",
+      "emote-hiphop",
+      "emote-hiphop2",
+      "emote-hitchhike",
+      "emote-holdback",
+      "emote-hug",
+      "emote-hug2",
+      "emote-hustle",
+      "emote-idle2",
+      "emote-idle3",
+      "emote-idle4",
+      "emote-idle5",
+      "emote-idle6",
+      "emote-idle_crouch",
+      "emote-idle_enthusiastic",
+      "emote-idle_laydown",
+      "emote-idle_look",
+      "emote-idle_loop",
+      "emote-idle_sitfloor",
+      "emote-impatient",
+      "emote-interact",
+      "emote-invisible",
+      "emote-jive",
+      "emote-judo",
+      "emote-juggle",
+      "emote-jump",
+      "emote-jump2",
+      "emote-karate",
+      "emote-killbill",
+      "emote-kiss",
+      "emote-kiss2",
+      "emote-lasso",
+      "emote-laugh",
+      "emote-laugh2",
+      "emote-laugh3",
+      "emote-lean",
+      "emote-leanback",
+      "emote-leanbounce",
+      "emote-levitate",
+      "emote-levitating",
+      "emote-limbo",
+      "emote-linedance",
+      "emote-look",
+      "emote-macarena",
+      "emote-magic",
+      "emote-magic2",
+      "emote-magic3",
+      "emote-magic4",
+      "emote-meditate",
+      "emote-mime",
+      "emote-model",
+      "emote-moonwalk",
+      "emote-mummy",
+      "emote-nickiminaj",
+      "emote-no",
+      "emote-nod",
+      "emote-noodle",
+      "emote-opera",
+      "emote-orangejustice",
+      "emote-paint",
+      "emote-peace",
+      "emote-peek",
+      "emote-penguin",
+      "emote-phone",
+      "emote-piano",
+      "emote-pogo",
+      "emote-point",
+      "emote-polka",
+      "emote-pose",
+      "emote-pose2",
+      "emote-pose3",
+      "emote-pose4",
+      "emote-pose5",
+      "emote-pose6",
+      "emote-pose7",
+      "emote-pose8",
+      "emote-pray",
+      "emote-pumpkin",
+      "emote-punch",
+      "emote-pushit",
+      "emote-pushup",
+      "emote-raise",
+      "emote-raisehands",
+      "emote-read",
+      "emote-reindeer",
+      "emote-relax",
+      "emote-renegade",
+      "emote-roar",
+      "emote-robot",
+      "emote-rock",
+      "emote-rocket",
+      "emote-roll",
+      "emote-rollerskate",
+      "emote-royaldance",
+      "emote-rugby",
+      "emote-run",
+      "emote-run2",
+      "emote-runningman",
+      "emote-sad",
+      "emote-salsa",
+      "emote-salsa2",
+      "emote-salute",
+      "emote-samba",
+      "emote-santa",
+      "emote-savage",
+      "emote-scared",
+      "emote-scream",
+      "emote-selfie",
+      "emote-shake",
+      "emote-shimmy",
+      "emote-shimmy2",
+      "emote-shimmy3",
+      "emote-show",
+      "emote-shrug",
+      "emote-shrug2",
+      "emote-shuffle",
+      "emote-shuffle2",
+      "emote-sidestep",
+      "emote-sing",
+      "emote-sit",
+      "emote-sit2",
+      "emote-sit3",
+      "emote-sit4",
+      "emote-sit5",
+      "emote-sit6",
+      "emote-sit7",
+      "emote-sit8",
+      "emote-skateboard",
+      "emote-skeleton",
+      "emote-ski",
+      "emote-skip",
+      "emote-skip2",
+      "emote-sleep",
+      "emote-slide",
+      "emote-slip",
+      "emote-slow",
+      "emote-smoke",
+      "emote-snake",
+      "emote-sneak",
+      "emote-sniff",
+      "emote-snowangel",
+      "emote-snowball",
+      "emote-snowboard",
+      "emote-snowflake",
+      "emote-soccer",
+      "emote-sorry",
+      "emote-sparkle",
+      "emote-spin",
+      "emote-splits",
+      "emote-sprinkler",
+      "emote-squat",
+      "emote-standstill",
+      "emote-star",
+      "emote-stargaze",
+      "emote-starjump",
+      "emote-stay",
+      "emote-stomp",
+      "emote-stomp2",
+      "emote-stomp3",
+      "emote-stretch",
+      "emote-stunned",
+      "emote-superfreaky",
+      "emote-superhero",
+      "emote-surfboard",
+      "emote-surprise",
+      "emote-swagger",
+      "emote-swan",
+      "emote-sway",
+      "emote-swim",
+      "emote-swing",
+      "emote-swipe",
+      "emote-swordfight",
+      "emote-tackle",
+      "emote-tango",
+      "emote-tap",
+      "emote-tapdance",
+      "emote-taunt",
+      "emote-telekinesis",
+      "emote-tennis",
+      "emote-think",
+      "emote-thriller",
+      "emote-throw",
+      "emote-thumbsdown",
+      "emote-thumbsup",
+      "emote-tiptoe",
+      "emote-toosieslide",
+      "emote-tremble",
+      "emote-trip",
+      "emote-trophy",
+      "emote-trot",
+      "emote-twirl",
+      "emote-type",
+      "emote-uppercut",
+      "emote-vampire",
+      "emote-victory",
+      "emote-vogue",
+      "emote-walk",
+      "emote-waltz",
+      "emote-wander",
+      "emote-wap",
+      "emote-watergun",
+      "emote-wave",
+      "emote-wave2",
+      "emote-wave3",
+      "emote-wave4",
+      "emote-wave5",
+      "emote-wheelbarrow",
+      "emote-wiggle",
+      "emote-wink",
+      "emote-wink2",
+      "emote-witch",
+      "emote-woah",
+      "emote-worm",
+      "emote-wrestle",
+      "emote-wrist",
+      "emote-yawn",
+      "emote-yes",
+      "emote-yoga",
+      "emote-yoga2",
+      "emote-zap",
+      "emote-zombie"
+    ],
+    "current_index": 343,
+    "started_at": "2026-05-19T20:47:41"
+  }
+}

@@ -485,37 +485,79 @@ _PAGE_SIZE = 20
 
 
 async def handle_workingemotes(bot: "BaseBot", user: "User", args: list) -> None:
+    """!workingemotes [confirmed|sdkok|all] [page]
+
+    confirmed — only visually confirmed / event-confirmed emotes
+    sdkok     — only SDK-accepted but not yet visually confirmed
+    all / (default) — confirmed + SDK-accepted combined
+    """
     uid   = user.id
     uname = user.username
     if not _is_admin_user(uname):
         await _w(bot, uid, "👑 Admin only.")
         return
 
-    working = sorted(VERIFIED_WORKING_BOT_EMOTES)
-    if not working:
+    # Parse subcommand and page number from args
+    filter_mode = "all"
+    page        = 1
+    for tok in args[1:]:
+        if tok.lower() in ("confirmed", "sdkok", "all"):
+            filter_mode = tok.lower()
+        else:
+            try:
+                page = int(tok)
+            except ValueError:
+                pass
+
+    # Build the list for the chosen filter
+    confirmed_ids = sorted(VERIFIED_WORKING_BOT_EMOTES)
+    sdkok_ids     = sorted(
+        eid for eid, info in _CACHE["emotes"].items()
+        if info.get("status") == "sdk_accepted_needs_visual"
+    )
+
+    if filter_mode == "confirmed":
+        pool      = confirmed_ids
+        label     = "✅ Confirmed working"
+        tip       = "Use !workingemotes sdkok to see SDK-accepted."
+    elif filter_mode == "sdkok":
+        pool      = sdkok_ids
+        label     = "⚠️ SDK-accepted (needs visual check)"
+        tip       = "Use !markemoteworks <name> to confirm, !workingemotes confirmed for confirmed."
+    else:  # "all"
+        seen: set[str] = set()
+        pool = []
+        for eid in confirmed_ids + sdkok_ids:
+            if eid not in seen:
+                seen.add(eid)
+                pool.append(eid)
+        pool.sort()
+        label = "✅+⚠️ Usable emotes (confirmed + SDK-accepted)"
+        tip   = "Use !workingemotes confirmed / sdkok to filter."
+
+    if not pool:
+        hints = {
+            "confirmed": "Run !emotediag <name> then !markemoteworks <name>.",
+            "sdkok":     "Run !scanallbotemotes first.",
+            "all":       "Run !scanallbotemotes first.",
+        }
         await _w(bot, uid,
-            "No confirmed working emotes yet.\n"
-            "Run !emotediag <name>, then !markemoteworks <name>.\n"
-            "Or use !scanallbotemotes to test all emotes.")
+            f"No emotes in '{filter_mode}' category yet.\n{hints[filter_mode]}")
         return
 
-    try:
-        page = int(args[1]) if len(args) > 1 else 1
-    except ValueError:
-        page = 1
-
-    total_pages = max(1, (len(working) + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    total_pages = max(1, (len(pool) + _PAGE_SIZE - 1) // _PAGE_SIZE)
     page  = max(1, min(page, total_pages))
     start = (page - 1) * _PAGE_SIZE
-    chunk = working[start : start + _PAGE_SIZE]
+    chunk = pool[start : start + _PAGE_SIZE]
     names = [e.replace("emote-", "") for e in chunk]
 
     await _w(bot, uid,
         (
-            f"✅ Working emotes (p{page}/{total_pages},"
-            f" {len(working)} total):\n"
+            f"{label} (p{page}/{total_pages}, {len(pool)} total):\n"
             f"{', '.join(names)}"
         )[:249])
+    if total_pages > 1 and page == 1:
+        await _w(bot, uid, tip[:249])
 
 
 # ---------------------------------------------------------------------------
