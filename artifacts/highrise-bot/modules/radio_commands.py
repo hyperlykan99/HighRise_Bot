@@ -823,11 +823,19 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
     else:
         track = title
 
-    # Header + source line — AutoDJ vs Request
-    cp = rq.currently_playing()
+    # Header + source line — live-request cache first, then AutoDJ
+    # engine.get_live_request() is the source of truth: set at announcement time,
+    # cleared on finish/skip/AutoDJ.  Falls back to DB on restart.
+    cp = engine.get_live_request()
     if cp:
-        header      = "▶ REQUEST LIVE"
-        req_uname   = (cp.get("username") or "")[:20]
+        header     = "▶ REQUEST LIVE"
+        req_uname  = (cp.get("username") or "")[:20]
+        cp_title   = (cp.get("title")  or "").strip() or title
+        cp_artist  = (cp.get("artist") or "").strip()
+        if cp_artist and cp_artist.lower() not in cp_title.lower():
+            track = f"{cp_artist} — {cp_title}"
+        else:
+            track = cp_title
         source_line = f"🙋 @{req_uname}" if req_uname else "🙋 Requested"
     else:
         from modules.dj_announcer import _VIBE_LINE as _vl

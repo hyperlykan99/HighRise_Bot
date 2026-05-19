@@ -59,6 +59,8 @@ _last_ann_title:  str   = ""        # normalized title last announced (title-fal
 _skip_task_active: bool = False     # True while a _verified_skip_task is running
 _cur_elapsed:     int   = 0         # AzuraCast elapsed seconds for current song
 _cur_duration:    int   = 0         # AzuraCast total duration of current song
+_live_req: "dict | None" = None     # In-memory cache of the currently-playing request; set at
+                                    # announcement time, cleared on finish/skip/AutoDJ
 
 _ACT = ("pending", "downloading", "downloaded", "uploading", "ready", "playing")
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
@@ -605,9 +607,11 @@ def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
 # ─── Track event handlers ─────────────────────────────────────────────────────
 
 async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
-    global _cur_req_id
+    global _cur_req_id, _live_req
     with _lock:
         _cur_req_id = 0
+        _live_req   = None
+    print(f"{_LOG} stage=request_live_clear request_id={db_id}")
 
     job = _db_get_job(db_id)
     _db_set_status(db_id, "played")
@@ -680,7 +684,7 @@ def _title_matches(req_title: str, np_title: str) -> bool:
 async def _on_new_track(
     bot: "BaseBot", song: dict, media: "dict | None" = None
 ) -> None:
-    global _cur_req_id, _last_ann_id, _last_ann_title
+    global _cur_req_id, _last_ann_id, _last_ann_title, _live_req
 
     song_id    = (song.get("id")        or "").strip()
     song_uid   = (song.get("unique_id") or "").strip()   # stored as azura_song_id in DB
@@ -749,6 +753,18 @@ async def _on_new_track(
                 f" match_method={match_method!r}"
             )
             await ann.announce_request_live(bot, req_title, "", req_uname)
+            with _lock:
+                _live_req = {
+                    "title":      req_title,
+                    "artist":     artist,
+                    "username":   req_uname,
+                    "started_at": time.time(),
+                    "job_id":     db_id,
+                }
+            print(
+                f"{_LOG} stage=request_live_start"
+                f" request_id={db_id} username={req_uname!r} title={req_title!r}"
+            )
             print(
                 f"{_LOG} stage=request_announcement"
                 f" request_id={db_id}"
@@ -789,6 +805,8 @@ async def _on_new_track(
     else:
         with _lock:
             _cur_req_id = 0
+            _live_req   = None
+        print(f"{_LOG} stage=autodj_resume title={title!r}")
         await ann.announce_now_playing(bot, title, artist, None, cs.vibe())
         print(
             f"{_LOG} stage=autodj_announcement"
@@ -822,7 +840,7 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                    fires REQUEST LIVE announcement; queues file cleanup.
        On timeout → logs stage=request_takeover_timeout (song still waiting).
     """
-    global _skip_task_active, _cur_req_id, _last_ann_id, _last_ann_title
+    global _skip_task_active, _cur_req_id, _last_ann_id, _last_ann_title, _live_req
     _skip_task_active = True
     try:
         loop = asyncio.get_running_loop()
@@ -951,6 +969,18 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 _db_set_status(job_id, "playing", media_id=np_fid)
                 display_artist = req_artist or np_artist
                 await ann.announce_request_live(bot, req_title, display_artist, req_uname)
+                with _lock:
+                    _live_req = {
+                        "title":      req_title,
+                        "artist":     display_artist,
+                        "username":   req_uname,
+                        "started_at": time.time(),
+                        "job_id":     job_id,
+                    }
+                print(
+                    f"{_LOG} stage=request_live_start source=skip_task"
+                    f" request_id={job_id} username={req_uname!r} title={req_title!r}"
+                )
 
                 # Proactive file cleanup
                 job_fresh = _db_get_job(job_id)
@@ -1123,6 +1153,33 @@ def get_current_request() -> "dict | None":
     return _db_find_playing()
 
 
+def get_live_request() -> "dict | None":
+    """Source-of-truth for whether a request is currently live.
+
+    Priority order:
+      1. _live_req (in-memory) — set at announcement, cleared on finish/skip/AutoDJ.
+      2. _db_find_playing()    — DB fallback for restart safety.
+
+    Logs stage=now_playing_mode source=memory|db|none.
+    """
+    with _lock:
+        cached = _live_req
+    if cached is not None:
+        print(
+            f"{_LOG} stage=now_playing_mode source=memory"
+            f" job_id={cached.get('job_id')} username={cached.get('username')!r}"
+        )
+        return cached
+    db_row = _db_find_playing()
+    if db_row:
+        print(
+            f"{_LOG} stage=now_playing_mode source=db"
+            f" job_id={db_row.get('id')}"
+        )
+        return db_row
+    return None
+
+
 async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
     """
     Public — called by the !skip command handler after AzuraCast confirms
@@ -1133,10 +1190,12 @@ async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
     transitions.  Queues file cleanup (move to PlayedRequests/, rescan)
     and switches playlists back to VIBE mode if the queue is now empty.
     """
-    global _cur_req_id
+    global _cur_req_id, _live_req
     with _lock:
         if _cur_req_id == job_id:
             _cur_req_id = 0
+        _live_req = None
+    print(f"{_LOG} stage=autodj_resume source=skip request_id={job_id}")
 
     job = _db_get_job(job_id)
     _db_set_status(job_id, "played")
