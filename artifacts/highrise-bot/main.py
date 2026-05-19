@@ -916,6 +916,7 @@ from modules.emote_system import (
     handle_swordfight,
     handle_force_emote,
     handle_room_emote,
+    handle_emotemode,
 )
 from modules.emote_registry import (
     handle_reloademotes,
@@ -7330,6 +7331,8 @@ class HangoutBot(BaseBot):
         # ── Emotes ────────────────────────────────────────────────────────────
         elif cmd == "emotes":
             await handle_emotes_auto(self, user, args)
+        elif cmd == "emotemode":
+            await handle_emotemode(self, user, args)
         elif cmd == "emoteinfo":
             await handle_emoteinfo(self, user, args)
         elif cmd == "emote":

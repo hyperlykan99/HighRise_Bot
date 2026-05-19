@@ -472,6 +472,7 @@ REGISTRY: dict[str, Cmd] = {
     # ── DJ: emote info (new) ─────────────────────────────────────────────────
     "emoteinfo":        Cmd("dj","social", True, True, False),
     # ── DJ: emote admin ──────────────────────────────────────────────────────
+    "emotemode":        Cmd("dj","admin",  False, True,  False, perm="admin"),
     "emotecount":       Cmd("dj","admin",  False, True,  False, perm="manager"),
     "reloademotes":     Cmd("dj","admin",  False, False, False, perm="admin"),
     "testemote":        Cmd("dj","admin",  False, False, True,  perm="admin"),

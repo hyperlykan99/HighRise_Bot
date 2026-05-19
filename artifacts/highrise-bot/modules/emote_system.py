@@ -205,19 +205,88 @@ _NORM_MAP: dict[str, str] = {_normalize(k): v for k, v in EMOTE_REGISTRY.items()
 _EMOTE_PREFIX = "emote"
 
 
+# ── Free emote catalog (data/timed_free_emotes.py) ───────────────────────────
+# Built from timed_free_emotes_list: confirmed working emotes with precise timing.
+# Used in the default "free" emote mode.
+_FREE_EMOTE_REGISTRY:    dict[str, str]   = {}  # cmd → emote_id
+_FREE_EMOTE_DURATIONS:   dict[str, float] = {}  # emote_id → loop interval (s)
+_FREE_ONE_SHOT_EMOTES:   set[str]         = set()
+_FREE_NORM_MAP:          dict[str, str]   = {}  # normalized_cmd → emote_id
+_FREE_PLAYER_EMOTE_NAMES: frozenset[str]  = frozenset()
+
+
+def _load_free_emotes() -> None:
+    """Load data/timed_free_emotes.py and populate free-mode data structures."""
+    global _FREE_PLAYER_EMOTE_NAMES
+    import importlib.util as _iutil
+    _path = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "data", "timed_free_emotes.py")
+    )
+    try:
+        spec = _iutil.spec_from_file_location("_hr_free_data", _path)
+        mod  = _iutil.module_from_spec(spec)   # type: ignore[arg-type]
+        spec.loader.exec_module(mod)           # type: ignore[union-attr]
+        for entry in getattr(mod, "timed_free_emotes_list", []):
+            text  = str(entry.get("text",  "")).strip()
+            value = str(entry.get("value", "")).strip()
+            t     = entry.get("time")
+            if not value:
+                continue
+            cmd = _normalize(text)
+            if cmd:
+                _FREE_EMOTE_REGISTRY[cmd] = value
+                _FREE_NORM_MAP[cmd] = value
+            if t == 0:
+                _FREE_ONE_SHOT_EMOTES.add(value)
+            else:
+                dur = float(t) if t is not None else 5.0
+                _FREE_EMOTE_DURATIONS[value] = dur
+                _EMOTE_DURATIONS[value] = dur   # refine main timing dict with precise value
+        _FREE_PLAYER_EMOTE_NAMES = frozenset(_FREE_NORM_MAP.keys())
+        print(f"[EMOTE_SYS] free catalog loaded: "
+              f"{len(_FREE_EMOTE_REGISTRY)} emotes "
+              f"({len(_FREE_ONE_SHOT_EMOTES)} one-shot)")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"[EMOTE_SYS] timed_free_emotes load error: {exc}")
+
+
+_load_free_emotes()
+
+
+# ---------------------------------------------------------------------------
+# Emote mode — "free" (default) or "all"
+# ---------------------------------------------------------------------------
+def get_emote_mode() -> str:
+    """Return the active emote catalog mode: 'free' (default) or 'all'."""
+    return db.get_room_setting("emote_mode", "free")
+
+
+def get_free_emote_names() -> list[str]:
+    """Return sorted command names from the confirmed-free catalog."""
+    return sorted(_FREE_EMOTE_REGISTRY.keys())
+
+
 def lookup_emote(name: str) -> str | None:
     """Return SDK emote-ID for a player-typed name, or None if unknown.
 
-    Resolution order:
-      1. EMOTE_REGISTRY (includes aliases)     — fast dict lookup
-      2. Strip leading "emote" prefix variant  — handles "emote-dance" input
-      3. emote_registry alias/candidate map    — community aliases
-      4. Unverified construction               — only when allow_unverified is on
+    In 'free' mode (default): only resolves emotes in timed_free_emotes_list.
+    In 'all' mode: resolves from the full EMOTE_REGISTRY + community catalog.
     """
     norm = _normalize(name)
+    if get_emote_mode() == "free":
+        result = _FREE_NORM_MAP.get(norm)
+        if result:
+            return result
+        if norm.startswith(_EMOTE_PREFIX):
+            stripped = norm[len(_EMOTE_PREFIX):]
+            return _FREE_NORM_MAP.get(stripped)
+        return None   # strict free mode — no fallthrough to full catalog
+
+    # "all" mode — full lookup
     if norm in _NORM_MAP:
         return _NORM_MAP[norm]
-    # Strip leading "emote" prefix so "emotedance" or "emote-dance" also works
     if norm.startswith(_EMOTE_PREFIX):
         stripped = norm[len(_EMOTE_PREFIX):]
         if stripped in _NORM_MAP:
@@ -225,7 +294,6 @@ def lookup_emote(name: str) -> str | None:
         candidate = f"emote-{stripped}"
         if candidate in set(EMOTE_REGISTRY.values()):
             return candidate
-    # Extended fallback: check emote_registry alias / candidate map
     try:
         from modules.emote_registry import resolve_emote_id
         eid = resolve_emote_id(name)
@@ -236,13 +304,44 @@ def lookup_emote(name: str) -> str | None:
     return None
 
 
-# Frozenset of all valid plain-text trigger names (normalised)
+# Frozenset of all valid plain-text trigger names — full catalog (all mode)
 PLAYER_EMOTE_NAMES: frozenset[str] = frozenset(_normalize(k) for k in EMOTE_REGISTRY)
 
 
 def is_plain_emote(text: str) -> bool:
-    """True if the exact chat message (no ! prefix) matches a known emote name."""
-    return _normalize(text.strip()) in PLAYER_EMOTE_NAMES
+    """True if the chat message matches a known emote name in the active catalog."""
+    norm = _normalize(text.strip())
+    if get_emote_mode() == "free":
+        return norm in _FREE_PLAYER_EMOTE_NAMES
+    return norm in PLAYER_EMOTE_NAMES
+
+
+async def handle_emotemode(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emotemode [free|all] — get or switch the active emote catalog.
+
+    free (default) — only confirmed timed_free_emotes_list emotes are playable
+    all            — full experimental catalog (EMOTE_REGISTRY + community)
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        return
+    if len(args) < 2:
+        mode   = get_emote_mode()
+        free_n = len(_FREE_EMOTE_REGISTRY)
+        all_n  = len(EMOTE_REGISTRY)
+        await _w(bot, uid,
+            f"🎭 Emote mode: {mode} | free={free_n} | all={all_n} emotes")
+        return
+    new_mode = args[1].lower()
+    if new_mode not in ("free", "all"):
+        await _w(bot, uid, "🎭 Usage: !emotemode free|all")
+        return
+    db.set_room_setting("emote_mode", new_mode)
+    n = len(_FREE_EMOTE_REGISTRY) if new_mode == "free" else len(EMOTE_REGISTRY)
+    await _w(bot, uid,
+        f"🎭 Emote mode → {new_mode} ({n} emotes active).")
+    _log("emote_mode_set", admin=uname, mode=new_mode)
 
 
 # ---------------------------------------------------------------------------

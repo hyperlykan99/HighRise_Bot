@@ -544,6 +544,13 @@ def _timed_catalog_path() -> str:
     )
 
 
+def _timed_free_catalog_path() -> str:
+    """Absolute path to the confirmed-free emote catalog (data/timed_free_emotes.py)."""
+    return os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "data", "timed_free_emotes.py")
+    )
+
+
 def _parse_emote_json(data: object) -> list[tuple[str, str]]:
     """Parse a JSON object from any of the supported emote catalog formats.
 
@@ -589,11 +596,12 @@ def _load_candidates() -> list[tuple[str, str]]:
     """Return full candidate list from all sources.
 
     Priority order:
-      0. data/timed_emotes.py      — timed catalog (primary source, text+value+time)
-      1. data/highrise_emotes.py   — Python catalog (display_name, emote_id)
-      2. data/highrise_emotes.json — community JSON catalog
-      3. emotes.json               — legacy local override
-      4. _CANDIDATES tuple         — always included as base
+      0. data/timed_free_emotes.py — confirmed-free catalog (highest priority)
+      1. data/timed_emotes.py      — full timed catalog
+      2. data/highrise_emotes.py   — Python catalog (display_name, emote_id)
+      3. data/highrise_emotes.json — community JSON catalog
+      4. emotes.json               — legacy local override
+      5. _CANDIDATES tuple         — always included as base
 
     Side effect: refreshes _CAND_BY_NAME with all loaded entries, then
     reapplies _ALIAS_OVERRIDES so explicit command mappings always win.
@@ -630,7 +638,26 @@ def _load_candidates() -> list[tuple[str, str]]:
             print(f"{_LOG} {label} load error: {exc}")
             return 0
 
-    # Priority 0: data/timed_emotes.py (timed catalog — primary source)
+    # Priority 0: data/timed_free_emotes.py (confirmed-free catalog — top priority)
+    freecat_n = 0
+    try:
+        import importlib.util as _iutil_f
+        _f_path = _timed_free_catalog_path()
+        spec_f = _iutil_f.spec_from_file_location("_hr_free_reg", _f_path)
+        mod_f  = _iutil_f.module_from_spec(spec_f)   # type: ignore[arg-type]
+        spec_f.loader.exec_module(mod_f)              # type: ignore[union-attr]
+        raw_f: list[dict] = getattr(mod_f, "timed_free_emotes_list", [])
+        pairs_f = [
+            (_norm(str(e.get("text", ""))), str(e["value"]))
+            for e in raw_f if e.get("value") and e.get("text")
+        ]
+        freecat_n = _merge_pairs(pairs_f, "timed_free_emotes.py")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"{_LOG} timed_free_emotes.py load error: {exc}")
+
+    # Priority 1: data/timed_emotes.py (timed catalog — primary source)
     timedcat_n = 0
     try:
         import importlib.util as _iutil_t
@@ -699,6 +726,7 @@ def _load_candidates() -> list[tuple[str, str]]:
 
     _source_counts = {
         "builtin":   builtin_n,
+        "freecat":   freecat_n,
         "timedcat":  timedcat_n,
         "pycatalog": pycatalog_n,
         "community": community_n,
@@ -1328,14 +1356,23 @@ async def handle_emotes_paged(bot: "BaseBot", user: "User", _args: list) -> None
     !emotes — whisper all active emote names in auto-paged messages (≤249 chars).
     Falls back to the static EMOTE_REGISTRY if no active emotes are cached yet.
     """
-    names = get_active_emote_names()
-
-    if not names:
-        try:
-            from modules.emote_system import EMOTE_REGISTRY
-            names = sorted(EMOTE_REGISTRY.keys())
-        except Exception:
-            names = []
+    try:
+        from modules.emote_system import get_emote_mode, get_free_emote_names
+        if get_emote_mode() == "free":
+            names = get_free_emote_names()
+        else:
+            names = get_active_emote_names()
+            if not names:
+                from modules.emote_system import EMOTE_REGISTRY
+                names = sorted(EMOTE_REGISTRY.keys())
+    except Exception:
+        names = get_active_emote_names()
+        if not names:
+            try:
+                from modules.emote_system import EMOTE_REGISTRY
+                names = sorted(EMOTE_REGISTRY.keys())
+            except Exception:
+                names = []
 
     if not names:
         await _w(bot, user.id, "🎭 No emotes available yet. An admin can run !reloademotes.")
