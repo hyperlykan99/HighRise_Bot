@@ -1343,7 +1343,7 @@ ALL_KNOWN_COMMANDS = (
         # ── Room utility — public ─────────────────────────────────────────────
         "players", "roomlist", "online", "staffonline", "vipsinroom", "rolelist",
         "emotes", "emote", "stopemote", "dance", "wave", "sit", "clap",
-        "swordfight", "botemote", "botemoteid", "stopbotemote",
+        "swordfight", "botemote", "stopbotemote",
         "heart", "hearts", "heartlb", "giveheart", "reactheart",
         "hug", "kiss", "slap", "punch", "highfive", "boop", "waveat", "cheer",
         "social", "blocksocial", "unblocksocial", "socialhelp",
@@ -1780,6 +1780,7 @@ EMOTE_DIAG_SCAN_COMMANDS: frozenset[str] = frozenset({
     "exportworkingemotes", "autoconfirmedemotes", "sdkokemotes",
     "addworkingemote", "removeworkingemote", "workingcount", "experimentalemotes",
     "resolveemote", "testemoteid",
+    "botemoteid", "removewoekingemote",
 })
 
 
@@ -7448,8 +7449,6 @@ class HangoutBot(BaseBot):
             await handle_testemote(self, user, args)
         elif cmd == "botemote":
             await handle_botemote(self, user, args)
-        elif cmd == "botemoteid":
-            await handle_botemoteid(self, user, args)
         elif cmd == "stopbotemote":
             await handle_stopbotemote(self, user, args)
         elif cmd in (
@@ -7460,6 +7459,7 @@ class HangoutBot(BaseBot):
             "exportworkingemotes", "autoconfirmedemotes", "sdkokemotes",
             "addworkingemote", "removeworkingemote", "workingcount", "experimentalemotes",
             "resolveemote", "testemoteid",
+            "botemoteid", "removewoekingemote",
         ):
             if BOT_MODE != "dj":
                 return
@@ -7501,6 +7501,10 @@ class HangoutBot(BaseBot):
                 await handle_resolveemote(self, user, args)
             elif cmd == "testemoteid":
                 await handle_testemoteid(self, user, args)
+            elif cmd == "botemoteid":
+                await handle_botemoteid(self, user, args)
+            elif cmd == "removewoekingemote":
+                await handle_removeworkingemote(self, user, args)
             else:
                 await handle_exportworkingemotes(self, user, args)
         elif cmd == "highfive":
