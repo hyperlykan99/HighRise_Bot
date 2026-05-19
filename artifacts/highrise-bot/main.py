@@ -919,6 +919,8 @@ from modules.emote_system import (
     handle_emotemode,
     handle_emotediag,
     handle_unsupportedemotes,
+    handle_markemoteworks,
+    handle_markemoteunsupported,
     notify_emote_event,
 )
 from modules.emote_registry import (
@@ -7418,15 +7420,20 @@ class HangoutBot(BaseBot):
             await handle_botemote(self, user, args)
         elif cmd == "stopbotemote":
             await handle_stopbotemote(self, user, args)
-        elif cmd in ("emoteresolve", "emotediag", "unsupportedemotes"):
+        elif cmd in ("emoteresolve", "emotediag", "unsupportedemotes",
+                     "markemoteworks", "markemoteunsupported"):
             if BOT_MODE != "dj":
                 return
             if cmd == "emoteresolve":
                 await handle_emoteresolve(self, user, args)
             elif cmd == "emotediag":
                 await handle_emotediag(self, user, args)
-            else:
+            elif cmd == "unsupportedemotes":
                 await handle_unsupportedemotes(self, user, args)
+            elif cmd == "markemoteworks":
+                await handle_markemoteworks(self, user, args)
+            else:
+                await handle_markemoteunsupported(self, user, args)
         elif cmd == "highfive":
             await handle_highfive(self, user, args)
         elif cmd == "boop":

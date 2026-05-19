@@ -747,33 +747,51 @@ def notify_emote_event(user_id: str, emote_id: str) -> None:
 
 
 def _record_bot_emote_result(eid: str, category: str, error: str = "") -> None:
-    """Track a bot emote failure result.
+    """Track a bot emote result in the runtime diagnostics cache.
 
-    After _SILENT_THRESHOLD consecutive silent successes, marks the emote as
-    player_only / unsupported so the bot loop auto-skips it.
+    Rules for unsupported_for_bots:
+      - "social"    → True  (emote structurally requires a paired target)
+      - "api_fail"  → True  (SDK raised an exception; emote cannot be sent)
+      - "no_event_confirmation" → False (SDK accepted it; on_emote event just
+            didn't arrive — this is normal for bot self-emotes on Highrise)
+      - "manual_unsupported"   → True  (admin manually marked it broken)
+      - "manual_works"         → False (admin manually confirmed it works)
+
+    A missing on_emote event alone NEVER marks an emote unsupported.
     """
     entry = UNSUPPORTED_BOT_EMOTES.setdefault(eid, {
-        "fail_count": 0, "silent_count": 0,
+        "no_event_count": 0, "fail_count": 0,
         "category": category, "unsupported_for_bots": False, "last_error": "",
     })
     if error:
         entry["last_error"] = error
-    if category == "silent":
-        entry["silent_count"] = entry.get("silent_count", 0) + 1
-        entry["category"] = "silent"
-        if entry["silent_count"] >= _SILENT_THRESHOLD:
-            entry["category"] = "player_only"
-            entry["unsupported_for_bots"] = True
-            print(
-                f"[EMOTE_DIAG] {eid!r} marked player_only after"
-                f" {entry['silent_count']} silent failures"
-            )
-    elif category == "social":
+
+    if category == "social":
         entry["category"] = "social"
         entry["unsupported_for_bots"] = True
-    else:
+
+    elif category == "api_fail":
         entry["fail_count"] = entry.get("fail_count", 0) + 1
-        entry["category"] = category
+        entry["category"] = "api_fail"
+        entry["unsupported_for_bots"] = True
+        print(f"[EMOTE_DIAG] {eid!r} api_fail (count={entry['fail_count']})")
+
+    elif category == "no_event_confirmation":
+        # Informational only — SDK accepted the call, just no on_emote echo.
+        entry["no_event_count"] = entry.get("no_event_count", 0) + 1
+        # Only update category if not already manually classified.
+        if entry.get("category") not in ("manual_works", "manual_unsupported",
+                                          "social", "api_fail"):
+            entry["category"] = "no_event_confirmation"
+        # Never mark unsupported from missing event alone.
+
+    elif category == "manual_works":
+        entry["category"] = "manual_works"
+        entry["unsupported_for_bots"] = False
+
+    elif category == "manual_unsupported":
+        entry["category"] = "manual_unsupported"
+        entry["unsupported_for_bots"] = True
 
 
 # ---------------------------------------------------------------------------
@@ -856,20 +874,24 @@ async def handle_emotediag(bot: "BaseBot", user: "User", args: list) -> None:
         except asyncio.TimeoutError:
             _emote_event_listeners.pop(key, None)
 
+    short = eid.replace("emote-", "")
     if animation_seen:
         await _w(bot, uid,
-            f"✅ [EMOTE OK] {eid!r}\nAnimation event confirmed ✓")
+            f"✅ SDK accepted: {eid}\nAnimation event confirmed ✓")
     else:
-        _record_bot_emote_result(eid, "silent")
+        # SDK accepted the call — missing on_emote is normal for bot self-emotes.
+        # Record informational only; do NOT mark as unsupported.
+        _record_bot_emote_result(eid, "no_event_confirmation")
         entry = UNSUPPORTED_BOT_EMOTES.get(eid, {})
-        sc    = entry.get("silent_count", 1)
-        cat   = entry.get("category", "silent")
-        mark  = "🔴 PLAYER_ONLY" if cat == "player_only" else "⚠️ SILENT"
+        nc    = entry.get("no_event_count", 1)
+        await _w(bot, uid,
+            f"✅ SDK accepted: {eid}"[:249])
+        await asyncio.sleep(0.15)
         await _w(bot, uid,
             (
-                f"⚠️ SDK accepted but no animation in 3s.\n"
-                f"{mark} ({sc}/{_SILENT_THRESHOLD}x)"
-                f" — may be player-only or backend-disabled."
+                f"⚠️ No event confirmation (x{nc}). "
+                f"If you saw the bot animate, run:\n"
+                f"!markemoteworks {short}"
             )[:249])
 
 
@@ -878,15 +900,15 @@ async def handle_emotediag(bot: "BaseBot", user: "User", args: list) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_unsupportedemotes(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!unsupportedemotes — admin: show runtime-detected non-functional bot emotes.
+    """!unsupportedemotes — admin: categorised runtime emote diagnostics report.
 
-    Categories reported:
-      social       — paired emotes that need a target (hug, kiss, highfive…)
-      player_only  — SDK accepts it but no animation fires (3+ silent hits)
-      silent       — SDK accepts it but animation not yet confirmed (< 3 hits)
-      api_fail     — SDK raises an exception outright
-
-    Summary line shows total usable vs unsupported counts.
+    Categories:
+      api_fail             — SDK raised an exception (truly unsupported)
+      social               — structurally needs a paired target player
+      manual_unsupported   — admin marked it broken via !markemoteunsupported
+      no_event_confirmation — SDK accepted but on_emote event didn't arrive
+                              (informational only — NOT marked unsupported)
+      manual_works         — admin confirmed working via !markemoteworks
     """
     uid   = user.id
     uname = user.username
@@ -896,55 +918,128 @@ async def handle_unsupportedemotes(bot: "BaseBot", user: "User", _args: list) ->
 
     if not UNSUPPORTED_BOT_EMOTES:
         await _w(bot, uid,
-            "✅ No unsupported emotes recorded yet.\n"
-            "Use !emotediag <name> to test individual emotes.")
+            "✅ No emotes in diagnostics cache yet.\n"
+            "Run !emotediag <name> to test an emote.")
         return
 
-    api_fail_names: list[str] = []
-    silent_names:   list[str] = []
-    social_names:   list[str] = []
-    player_only_names: list[str] = []
+    api_fail_names:    list[str] = []
+    social_names:      list[str] = []
+    manual_bad_names:  list[str] = []
+    no_event_names:    list[str] = []
+    manual_good_names: list[str] = []
 
     for eid, info in sorted(UNSUPPORTED_BOT_EMOTES.items()):
         short = eid.replace("emote-", "")
         cat   = info.get("category", "api_fail")
-        if cat == "social":
+        if cat == "api_fail":
+            fc = info.get("fail_count", 0)
+            api_fail_names.append(f"{short}(x{fc})")
+        elif cat == "social":
             social_names.append(short)
-        elif cat == "player_only":
-            player_only_names.append(short)
-        elif cat == "silent":
-            sc = info.get("silent_count", 0)
-            silent_names.append(f"{short}({sc}x)")
-        else:
-            api_fail_names.append(short)
+        elif cat == "manual_unsupported":
+            manual_bad_names.append(short)
+        elif cat == "no_event_confirmation":
+            nc = info.get("no_event_count", 0)
+            no_event_names.append(f"{short}(x{nc})")
+        elif cat == "manual_works":
+            manual_good_names.append(short)
 
     total_unsup = sum(
         1 for e in UNSUPPORTED_BOT_EMOTES.values()
         if e.get("unsupported_for_bots")
     )
+    total_tracked = len(UNSUPPORTED_BOT_EMOTES)
 
     lines: list[str] = [
         (
-            f"🔬 Bot Emote Diagnostics\n"
-            f"Unsupported: {total_unsup}"
+            f"🔬 Emote Diag Cache ({total_tracked} tracked, {total_unsup} unsupported)\n"
+            f"API-fail: {len(api_fail_names)}"
             f" | Social: {len(social_names)}"
-            f" | Player-only: {len(player_only_names)}"
-            f" | Silent: {len(silent_names)}"
-            f" | API-fail: {len(api_fail_names)}"
+            f" | Manual-bad: {len(manual_bad_names)}"
+            f" | No-event: {len(no_event_names)}"
+            f" | Confirmed-OK: {len(manual_good_names)}"
         ),
     ]
-    if social_names:
-        lines.append(f"🤝 Social (need target): {', '.join(social_names)}")
-    if player_only_names:
-        lines.append(f"🔴 Player-only/disabled: {', '.join(player_only_names)}")
-    if silent_names:
-        lines.append(f"⚠️ Silent (unconfirmed): {', '.join(silent_names)}")
     if api_fail_names:
-        lines.append(f"❌ API-rejected: {', '.join(api_fail_names)}")
+        lines.append(f"❌ API-rejected (unsupported): {', '.join(api_fail_names)}")
+    if social_names:
+        lines.append(f"🤝 Social-only (need target): {', '.join(social_names)}")
+    if manual_bad_names:
+        lines.append(f"🔴 Manual-unsupported: {', '.join(manual_bad_names)}")
+    if no_event_names:
+        lines.append(
+            f"⚠️ No event confirm (SDK OK, visually unverified): "
+            f"{', '.join(no_event_names)}"
+        )
+    if manual_good_names:
+        lines.append(f"✅ Manually confirmed working: {', '.join(manual_good_names)}")
 
     for line in lines:
         await _w(bot, uid, line[:249])
         await asyncio.sleep(0.3)
+
+
+# ---------------------------------------------------------------------------
+# !markemoteworks / !markemoteunsupported — manual classification overrides
+# ---------------------------------------------------------------------------
+
+async def handle_markemoteworks(bot: "BaseBot", user: "User", args: list) -> None:
+    """!markemoteworks <name> — admin: confirm an emote is visually working.
+
+    Removes any unsupported/no-event flag, sets category=manual_works.
+    Use after !emotediag shows SDK accepted but no event, and you saw the
+    animation play in-room.
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !markemoteworks <emote name or id>")
+        return
+
+    raw = " ".join(args[1:])
+    eid = lookup_emote(raw)
+    if not eid:
+        await _w(bot, uid, f"❌ Unknown emote '{raw}'. Try !emoteresolve {raw}")
+        return
+
+    short = eid.replace("emote-", "")
+    _record_bot_emote_result(eid, "manual_works")
+    print(f"[EMOTE_DIAG] {eid!r} manually marked as working by @{uname}")
+    await _w(bot, uid,
+        f"✅ {short} marked as visually confirmed working.\n"
+        f"Bot loop will continue using it normally.")
+
+
+async def handle_markemoteunsupported(bot: "BaseBot", user: "User", args: list) -> None:
+    """!markemoteunsupported <name> — admin: manually flag an emote as broken.
+
+    Sets category=manual_unsupported, unsupported_for_bots=True.
+    The bot loop will skip the emote until !markemoteworks overrides it.
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !markemoteunsupported <emote name or id>")
+        return
+
+    raw = " ".join(args[1:])
+    eid = lookup_emote(raw)
+    if not eid:
+        await _w(bot, uid, f"❌ Unknown emote '{raw}'. Try !emoteresolve {raw}")
+        return
+
+    short = eid.replace("emote-", "")
+    _record_bot_emote_result(eid, "manual_unsupported")
+    print(f"[EMOTE_DIAG] {eid!r} manually marked as unsupported by @{uname}")
+    await _w(bot, uid,
+        f"🔴 {short} marked as unsupported. Bot loop will skip it.\n"
+        f"Use !markemoteworks {short} to undo.")
 
 
 # ---------------------------------------------------------------------------
