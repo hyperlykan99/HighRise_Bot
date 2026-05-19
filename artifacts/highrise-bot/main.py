@@ -931,6 +931,8 @@ from modules.emote_scan import (
     handle_scanprogress,
     handle_workingemotes,
     handle_exportworkingemotes,
+    handle_autoconfirmedemotes,
+    handle_sdkokemotes,
 )
 from modules.emote_registry import (
     handle_reloademotes,
@@ -7434,7 +7436,7 @@ class HangoutBot(BaseBot):
             "markemoteworks", "markemoteunsupported",
             "scanallbotemotes", "pauseemotescan", "resumeemotescan",
             "stopemotescan", "scanprogress", "workingemotes",
-            "exportworkingemotes",
+            "exportworkingemotes", "autoconfirmedemotes", "sdkokemotes",
         ):
             if BOT_MODE != "dj":
                 return
@@ -7460,6 +7462,10 @@ class HangoutBot(BaseBot):
                 await handle_scanprogress(self, user, args)
             elif cmd == "workingemotes":
                 await handle_workingemotes(self, user, args)
+            elif cmd == "autoconfirmedemotes":
+                await handle_autoconfirmedemotes(self, user, args)
+            elif cmd == "sdkokemotes":
+                await handle_sdkokemotes(self, user, args)
             else:
                 await handle_exportworkingemotes(self, user, args)
         elif cmd == "highfive":

@@ -737,12 +737,14 @@ async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
 def notify_emote_event(user_id: str, emote_id: str) -> None:
     """Signal that on_emote fired for (user_id, emote_id).
 
-    Called from main.py's on_emote hook.  Releases any !emotediag listener
-    waiting for animation confirmation.
+    Called from main.py's on_emote hook.  Releases any !emotediag / scan
+    listener waiting for animation confirmation.
+    Only prints a log line when a listener was actually waiting (scan/diag).
     """
     key = (user_id, emote_id)
     evt = _emote_event_listeners.pop(key, None)
     if evt:
+        print(f"[EMOTE EVENT] performer={user_id!r} emote={emote_id!r}")
         evt.set()
 
 

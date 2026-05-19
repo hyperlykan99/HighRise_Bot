@@ -137,6 +137,7 @@ def _get_social_eids() -> frozenset:
 def _count_statuses(scan_list: list) -> dict:
     counts: dict[str, int] = {
         "confirmed_working":         0,
+        "auto_confirmed":            0,   # subset: confirmed by on_emote event
         "sdk_accepted_needs_visual": 0,
         "api_failed":                0,
         "social_only":               0,
@@ -150,6 +151,8 @@ def _count_statuses(scan_list: list) -> dict:
             counts[status] += 1
         else:
             counts["untested"] += 1
+        if status == "confirmed_working" and info.get("auto_confirmed"):
+            counts["auto_confirmed"] += 1
     return counts
 
 
@@ -218,22 +221,56 @@ async def _run_scan_loop(bot: "BaseBot") -> None:
         if cached_status == "confirmed_working":
             continue
 
+        # Grab bot UID and pre-register on_emote listener BEFORE sending
+        # to eliminate any race between send and the backend echo.
+        from modules.gold import get_bot_user_id as _gbuid
+        from modules.emote_system import _emote_event_listeners
+        bot_uid = _gbuid()
+        key     = (bot_uid, eid) if bot_uid else None
+
+        evt: asyncio.Event | None = None
+        if key:
+            evt = asyncio.Event()
+            _emote_event_listeners[key] = evt
+
         # Test emote (self-emote, no target)
         print(f"[EMOTE_SCAN] ({i+1}/{total}) {eid}")
         try:
             await bot.highrise.send_emote(eid)
-            _set_status(eid, "sdk_accepted_needs_visual")
         except Exception as exc:
             err = str(exc)
-            print(f"[EMOTE_SCAN] FAIL {eid}: {err!r}")
+            print(f"[SCAN FAILED] {eid} error={err!r}")
             _set_status(eid, "api_failed", err)
+            if key:
+                _emote_event_listeners.pop(key, None)
+            if i % 5 == 0:
+                _save_cache()
+            await asyncio.sleep(1.0)
+            continue
+
+        # Wait up to 3 s for on_emote confirmation from Highrise backend
+        confirmed = False
+        if evt:
+            try:
+                await asyncio.wait_for(evt.wait(), timeout=3.0)
+                confirmed = True
+            except asyncio.TimeoutError:
+                _emote_event_listeners.pop(key, None)
+
+        if confirmed:
+            print(f"[SCAN CONFIRMED] {eid}")
+            _set_status(eid, "confirmed_working")
+            _CACHE["emotes"][eid]["auto_confirmed"] = True
+        else:
+            print(f"[SCAN SDK_ONLY] {eid}")
+            _set_status(eid, "sdk_accepted_needs_visual")
 
         # Persist every 5 emotes
         if i % 5 == 0:
             _save_cache()
 
-        # Wait 4–6 s between tests
-        await asyncio.sleep(random.uniform(4.0, 6.0))
+        # Wait 1.5–2.5 s after the 3 s event window (~4.5–5.5 s total per emote)
+        await asyncio.sleep(random.uniform(1.5, 2.5))
 
     # ── Finished (or stopped) ────────────────────────────────────────────
     _SCAN_STATE["running"]          = False
@@ -245,9 +282,9 @@ async def _run_scan_loop(bot: "BaseBot") -> None:
     counts   = _count_statuses(scan_list)
     summary  = (
         f"{'✅ Scan complete!' if finished else '⏹️ Scan stopped.'} "
-        f"SDK-OK: {counts['sdk_accepted_needs_visual']} "
-        f"| ✅ Confirmed: {counts['confirmed_working']} "
-        f"| ❌ Failed: {counts['api_failed']}"
+        f"Auto-confirmed: {counts['auto_confirmed']} "
+        f"| SDK-only: {counts['sdk_accepted_needs_visual']} "
+        f"| Failed: {counts['api_failed']}"
     )
     print(f"[EMOTE_SCAN] {summary}")
     if admin_uid:
@@ -463,12 +500,13 @@ async def handle_scanprogress(bot: "BaseBot", user: "User", _args: list) -> None
         f"Tested: {tested} | Remaining: {remaining}"
     )
     line2 = (
-        f"⚠️ SDK OK/unverified: {counts['sdk_accepted_needs_visual']}"
-        f" | ✅ Confirmed: {counts['confirmed_working']}"
+        f"🤩 Auto-confirmed: {counts['auto_confirmed']}"
+        f" | ⚠️ SDK-only: {counts['sdk_accepted_needs_visual']}"
         f" | ❌ Failed: {counts['api_failed']}"
     )
     line3 = (
-        f"🤝 Social: {counts['social_only']}"
+        f"✅ Total confirmed: {counts['confirmed_working']}"
+        f" | 🤝 Social: {counts['social_only']}"
         f" | 🔴 Manual-bad: {counts['manual_unsupported']}"
         f" | ❓ Untested: {counts['untested']}"
     )
@@ -558,6 +596,96 @@ async def handle_workingemotes(bot: "BaseBot", user: "User", args: list) -> None
         )[:249])
     if total_pages > 1 and page == 1:
         await _w(bot, uid, tip[:249])
+
+
+# ---------------------------------------------------------------------------
+# !autoconfirmedemotes — emotes auto-confirmed by on_emote event during scan
+# ---------------------------------------------------------------------------
+
+async def handle_autoconfirmedemotes(bot: "BaseBot", user: "User", args: list) -> None:
+    """!autoconfirmedemotes [page] — emotes the scan confirmed via on_emote event."""
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    pool = sorted(
+        eid for eid, info in _CACHE["emotes"].items()
+        if info.get("status") == "confirmed_working" and info.get("auto_confirmed")
+    )
+    if not pool:
+        await _w(bot, uid,
+            "No auto-confirmed emotes yet.\n"
+            "Run !scanallbotemotes — on_emote events will auto-confirm them.")
+        return
+
+    try:
+        page = int(args[1]) if len(args) > 1 else 1
+    except ValueError:
+        page = 1
+
+    total_pages = max(1, (len(pool) + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    page  = max(1, min(page, total_pages))
+    start = (page - 1) * _PAGE_SIZE
+    chunk = pool[start : start + _PAGE_SIZE]
+    names = [e.replace("emote-", "") for e in chunk]
+
+    await _w(bot, uid,
+        (
+            f"🤩 Auto-confirmed by on_emote (p{page}/{total_pages},"
+            f" {len(pool)} total):\n"
+            f"{', '.join(names)}"
+        )[:249])
+
+
+# ---------------------------------------------------------------------------
+# !sdkokemotes — emotes SDK accepted but Highrise sent no on_emote event
+# ---------------------------------------------------------------------------
+
+async def handle_sdkokemotes(bot: "BaseBot", user: "User", args: list) -> None:
+    """!sdkokemotes [page] — SDK-accepted emotes with no on_emote confirmation.
+
+    These are usable — SDK accepted them without error — but visual
+    animation was not auto-confirmed because Highrise did not send an
+    on_emote event. Use !markemoteworks <name> if you saw it animate.
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    pool = sorted(
+        eid for eid, info in _CACHE["emotes"].items()
+        if info.get("status") == "sdk_accepted_needs_visual"
+    )
+    if not pool:
+        await _w(bot, uid,
+            "No SDK-only emotes yet. Run !scanallbotemotes first.")
+        return
+
+    try:
+        page = int(args[1]) if len(args) > 1 else 1
+    except ValueError:
+        page = 1
+
+    total_pages = max(1, (len(pool) + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    page  = max(1, min(page, total_pages))
+    start = (page - 1) * _PAGE_SIZE
+    chunk = pool[start : start + _PAGE_SIZE]
+    names = [e.replace("emote-", "") for e in chunk]
+
+    await _w(bot, uid,
+        (
+            f"⚠️ SDK-accepted/unconfirmed (p{page}/{total_pages},"
+            f" {len(pool)} total):\n"
+            f"{', '.join(names)}"
+        )[:249])
+    if page == 1:
+        await _w(bot, uid,
+            "Usable unless proven broken. "
+            "Use !markemoteworks <name> to confirm visually.")
 
 
 # ---------------------------------------------------------------------------
