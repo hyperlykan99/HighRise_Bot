@@ -22,8 +22,8 @@ import database as db
 _LOG = "[MUSIC_CREDITS]"
 
 # ─── Shop prices ──────────────────────────────────────────────────────────────
-SHOP_COINS: "dict[int, int]" = {5: 500, 10: 900, 25: 2000}
-SHOP_LUXE:  "dict[int, int]" = {5: 10,  10: 18,  25: 40}
+SHOP_COINS: "dict[int, int]" = {1: 500,  5: 2400,  10: 4500,  25: 10000}
+SHOP_LUXE:  "dict[int, int]" = {1: 20,  5: 95,    10: 180,   25: 400}
 PRIORITY_COST_LUXE = 100
 
 

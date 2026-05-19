@@ -367,12 +367,12 @@ async def _submit_url(
         if not mc.has_credits(uid, uname):
             await _w(
                 bot, uid,
-                "❌ You're out of music requests. Use !musicshop to buy more.\n"
-                "Free credits: 5 | Packs from 500 coins or 10 Luxe Tickets.",
+                "❌ Out of 💿 Song Plays! Use !musicshop to buy more.\n"
+                "New players get 5 free plays. Packs from 500 🪙 or 20 🎟️",
             )
             return
         if not mc.consume_credit(uid, uname):
-            await _w(bot, uid, "❌ You're out of music requests. Use !musicshop.")
+            await _w(bot, uid, "❌ Out of 💿 Song Plays! Use !musicshop.")
             return
         _credit_consumed = True
 
@@ -402,12 +402,12 @@ async def _submit_url(
         _lines.append(f"Artist: {_artist}")
     _lines.append(f"Position: #{_pos}")
     if is_staff:
-        _lines.append("Staff: Free")
+        _lines.append("🛠️ Staff: Free")
     elif priority:
         _lines.append("⭐ Priority")
     else:
         _remaining = mc.get_credits(uid, uname)["total"]
-        _lines.append(f"🎟 Requests left: {_remaining}")
+        _lines.append(f"💿 Plays left: {_remaining}")
     await _w(bot, uid, "\n".join(_lines)[:249])
 
     # Launch pipeline
@@ -1457,10 +1457,10 @@ async def handle_radiotutorial(bot: "BaseBot", user: "User", _args: list) -> Non
         "Plays after current song, before the queue.",
 
         "🎧 Tutorial (7/7)\n"
-        "Step 7: Credits & shop\n"
-        "→ !myrequests  check your request credits\n"
-        "→ !musicshop   buy more request credits\n"
-        "New players get 5 free requests!",
+        "Step 7: 💿 Song Plays\n"
+        "→ !myrequests  see your Song Play balance\n"
+        "→ !musicshop   buy more plays\n"
+        "New players get 5 free 💿 Song Plays!",
     ]
     for step in steps:
         await _w(bot, user.id, step)
@@ -1470,48 +1470,56 @@ async def handle_radiotutorial(bot: "BaseBot", user: "User", _args: list) -> Non
 # ─── !musicshop ───────────────────────────────────────────────────────────────
 
 async def handle_musicshop(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!musicshop — show music request credit pricing."""
+    """!musicshop — show Song Play pricing (two compact whispers)."""
     print(f"[RADIO_CMD] stage=music_shop_view user_id={user.id!r} username={user.username!r}")
     if _is_staff(user.username):
-        await _w(bot, user.id, "🎵 Staff have unlimited requests. No shop needed!")
+        await _w(bot, user.id, "🛠️ Staff: Unlimited 💿 Song Plays. No shop needed!")
         return
-    credits = mc.get_credits(user.id, user.username)
-    bal_line = (
-        f"Free: {credits['free']} | VIP: {credits['vip']} | Bought: {credits['purchased']}"
-    )
+    c = mc.get_credits(user.id, user.username)
+    # Message 1: balance + coin packs
     await _w(
         bot, user.id,
-        f"🎵 Music Request Shop\n"
-        f"Balance → {bal_line}\n"
-        f"Chill Coins:  5→500  10→900  25→2000\n"
-        f"Luxe Tickets: 5→10   10→18   25→40\n"
-        f"Buy: !buyrequests coins 5  or  !buyrequests luxe 10",
+        f"🎵 ChillTopia Music Shop\n"
+        f"💿 Plays: Free {c['free']} · 👑VIP {c['vip']} · Bought {c['purchased']}\n"
+        f"🪙 Chill Coins:\n"
+        f"• 1→500  • 5→2400  • 10→4500  • 25→10000",
+    )
+    await asyncio.sleep(0.2)
+    # Message 2: luxe packs + priority
+    await _w(
+        bot, user.id,
+        f"🎟️ Luxe Tickets:\n"
+        f"• 1→20  • 5→95  • 10→180  • 25→400\n"
+        f"⚡ Priority: 100 🎟️ (jumps the queue)\n"
+        f"Buy: !buyplays coins 5  or  !buyplays luxe 5",
     )
 
 
-# ─── !buyrequests ─────────────────────────────────────────────────────────────
+# ─── !buyplays / !buyrequests ────────────────────────────────────────────────
 
-_BR_COINS = mc.SHOP_COINS   # {5: 500, 10: 900, 25: 2000}
-_BR_LUXE  = mc.SHOP_LUXE    # {5: 10,  10: 18,  25: 40}
-_BR_VALID = sorted(_BR_COINS.keys())   # [5, 10, 25]
+_BR_COINS = mc.SHOP_COINS   # {1: 500, 5: 2400, 10: 4500, 25: 10000}
+_BR_LUXE  = mc.SHOP_LUXE    # {1: 20,  5: 95,   10: 180,  25: 400}
+_BR_VALID = sorted(_BR_COINS.keys())   # [1, 5, 10, 25]
 
 
-async def handle_buyrequests(bot: "BaseBot", user: "User", args: list) -> None:
+async def handle_buyplays(bot: "BaseBot", user: "User", args: list) -> None:
     """
-    !buyrequests coins <5|10|25>   — buy request credits with Chill Coins
-    !buyrequests luxe  <5|10|25>   — buy request credits with Luxe Tickets
+    !buyplays coins <1|5|10|25>   — buy Song Plays with Chill Coins
+    !buyplays luxe  <1|5|10|25>   — buy Song Plays with Luxe Tickets
+    Alias: !buyrequests (same handler)
     """
     uid   = user.id
     uname = user.username
 
     if _is_staff(uname):
-        await _w(bot, uid, "🎵 Staff have unlimited requests — no purchase needed!")
+        await _w(bot, uid, "🛠️ Staff have unlimited 💿 Song Plays — no purchase needed!")
         return
 
+    packs = "/".join(str(x) for x in _BR_VALID)
     usage = (
-        f"Usage:\n"
-        f"!buyrequests coins <{'/'.join(str(x) for x in _BR_VALID)}>\n"
-        f"!buyrequests luxe  <{'/'.join(str(x) for x in _BR_VALID)}>\n"
+        f"💿 Buy Song Plays:\n"
+        f"!buyplays coins <{packs}>\n"
+        f"!buyplays luxe  <{packs}>\n"
         f"Use !musicshop to see prices."
     )
 
@@ -1540,7 +1548,10 @@ async def handle_buyrequests(bot: "BaseBot", user: "User", args: list) -> None:
         price = _BR_COINS[amount]
         ok, err = ps.charge(uid, price)
         if not ok:
-            await _w(bot, uid, f"❌ Not enough Chill Coins. Need {price:,}.\n{err[:60]}")
+            await _w(
+                bot, uid,
+                f"❌ Not enough 🪙 Chill Coins. Need {price:,}.\n{err[:60]}",
+            )
             return
         mc.add_credits(uid, uname, amount, "purchased")
         total = mc.get_credits(uid, uname)["total"]
@@ -1551,9 +1562,9 @@ async def handle_buyrequests(bot: "BaseBot", user: "User", args: list) -> None:
         )
         await _w(
             bot, uid,
-            f"✅ Bought {amount} music requests.\n"
-            f"Balance: {total} requests\n"
-            f"Cost: {price:,} Chill Coins",
+            f"✅ Bought {amount} 💿 Song Play{'s' if amount != 1 else ''}!\n"
+            f"💿 Plays left: {total}\n"
+            f"Cost: {price:,} 🪙 Chill Coins",
         )
 
     else:  # luxe
@@ -1562,7 +1573,7 @@ async def handle_buyrequests(bot: "BaseBot", user: "User", args: list) -> None:
         if bal < price:
             await _w(
                 bot, uid,
-                f"❌ Not enough Luxe Tickets. Need {price}, you have {bal}.",
+                f"❌ Not enough 🎟️ Luxe Tickets. Need {price}, you have {bal}.",
             )
             return
         if not deduct_luxe_balance(uid, uname, price):
@@ -1570,8 +1581,8 @@ async def handle_buyrequests(bot: "BaseBot", user: "User", args: list) -> None:
             return
         try:
             log_luxe_transaction(
-                uid, uname, "musicshop_requests", price, "luxe_tickets",
-                f"Bought {amount} music requests",
+                uid, uname, "musicshop_plays", price, "luxe_tickets",
+                f"Bought {amount} Song Plays",
             )
         except Exception:
             pass
@@ -1584,10 +1595,15 @@ async def handle_buyrequests(bot: "BaseBot", user: "User", args: list) -> None:
         )
         await _w(
             bot, uid,
-            f"✅ Bought {amount} music requests.\n"
-            f"Balance: {total} requests\n"
-            f"Cost: {price} Luxe Tickets",
+            f"✅ Bought {amount} 💿 Song Play{'s' if amount != 1 else ''}!\n"
+            f"💿 Plays left: {total}\n"
+            f"Cost: {price} 🎟️ Luxe Tickets",
         )
+
+
+async def handle_buyrequests(bot: "BaseBot", user: "User", args: list) -> None:
+    """!buyrequests — backward-compat alias for !buyplays."""
+    await handle_buyplays(bot, user, args)
 
 
 # ─── !like ────────────────────────────────────────────────────────────────────
@@ -1905,23 +1921,24 @@ async def handle_playmine(bot: "BaseBot", user: "User", args: list) -> None:
 # ─── !myrequests ─────────────────────────────────────────────────────────────
 
 async def handle_myrequests(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!myrequests — show music request credit balance."""
+    """!myrequests — show Song Play credit balance."""
     _rlog("myrequests", "handle_myrequests", user.username)
     if _is_staff(user.username):
         await _w(
             bot, user.id,
-            "🎵 Music Requests: Unlimited\n"
-            "Priority: Free (Staff)",
+            "💿 Song Plays: Unlimited\n"
+            "🛠️ Staff: Free\n"
+            "⚡ Priority: Free (Staff)",
         )
         return
     c = mc.get_credits(user.id, user.username)
     await _w(
         bot, user.id,
-        f"🎵 Music Requests:\n"
+        f"💿 Song Plays:\n"
         f"Free: {c['free']}\n"
-        f"VIP: {c['vip']}\n"
-        f"Purchased: {c['purchased']}\n"
-        f"Priority: 100 Luxe Tickets\n"
+        f"👑 VIP: {c['vip']}\n"
+        f"Bought: {c['purchased']}\n"
+        f"⚡ Priority: 100 🎟️\n"
         f"Buy more: !musicshop",
     )
 
@@ -1995,6 +2012,7 @@ handle_setrequestprice = _safe(handle_setrequestprice)
 handle_radiohelp       = _safe(handle_radiohelp)
 handle_radiotutorial   = _safe(handle_radiotutorial)
 handle_musicshop       = _safe(handle_musicshop)
+handle_buyplays        = _safe(handle_buyplays)
 handle_buyrequests     = _safe(handle_buyrequests)
 handle_like            = _safe(handle_like)
 handle_dislike         = _safe(handle_dislike)

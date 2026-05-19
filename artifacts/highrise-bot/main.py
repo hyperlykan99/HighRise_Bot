@@ -513,6 +513,7 @@ from modules.radio_commands import (
     handle_radiotutorial   as rc_radiotutorial,
     handle_musicshop       as rc_musicshop,
     handle_buyrequests     as rc_buyrequests,
+    handle_buyplays        as rc_buyplays,
     startup_radio,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -1660,6 +1661,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "radiotutorial",
     "musicshop",
     "buyrequests",
+    "buyplays",
     # Voting / ratings
     "likes", "votes",
     "voters",
@@ -7588,6 +7590,8 @@ class HangoutBot(BaseBot):
             await rc_musicshop(self, user, args)
         elif cmd == "buyrequests":
             await rc_buyrequests(self, user, args)
+        elif cmd == "buyplays":
+            await rc_buyplays(self, user, args)
         elif cmd == "cancel":
             await rc_cancel(self, user, args)
         elif cmd == "cancelrequest":

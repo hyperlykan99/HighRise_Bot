@@ -326,6 +326,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "radiotutorial": "dj",
     "musicshop": "dj",
     "buyrequests": "dj",
+    "buyplays": "dj",
     "setnowpage": "dj",
     "djannounce": "dj", "announcequeue": "dj",
     "djlimits": "dj",
