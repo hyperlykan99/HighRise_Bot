@@ -664,6 +664,18 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         )
         return
 
+    # Verified working list guard — reject emotes not in the production catalog.
+    try:
+        from data.verified_working_emotes import get_verified_set as _gvs
+        if eid not in _gvs():
+            short = eid.replace("emote-", "")
+            await _w(bot, uid,
+                f"❌ '{short}' is not in the verified working list. "
+                f"Use !addworkingemote {short} to add it first.")
+            return
+    except ImportError:
+        pass  # graceful: if module missing, allow all
+
     # Determine whether the target is THIS running bot instance.
     this_mode  = BOT_MODE.lower()
     this_uname = (_get_bot_uname() or BOT_USERNAME or "").strip().lower()

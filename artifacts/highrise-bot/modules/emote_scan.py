@@ -523,11 +523,11 @@ _PAGE_SIZE = 20
 
 
 async def handle_workingemotes(bot: "BaseBot", user: "User", args: list) -> None:
-    """!workingemotes [confirmed|sdkok|all] [page]
+    """!workingemotes [page] — show the verified production emote catalog.
 
-    confirmed — only visually confirmed / event-confirmed emotes
-    sdkok     — only SDK-accepted but not yet visually confirmed
-    all / (default) — confirmed + SDK-accepted combined
+    This command shows the manually verified 224-emote list.
+    Use !autoconfirmedemotes for scan-confirmed emotes,
+    !sdkokemotes for SDK-only, !experimentalemotes for unverified SDK emotes.
     """
     uid   = user.id
     uname = user.username
@@ -535,53 +535,13 @@ async def handle_workingemotes(bot: "BaseBot", user: "User", args: list) -> None
         await _w(bot, uid, "👑 Admin only.")
         return
 
-    # Parse subcommand and page number from args
-    filter_mode = "all"
-    page        = 1
-    for tok in args[1:]:
-        if tok.lower() in ("confirmed", "sdkok", "all"):
-            filter_mode = tok.lower()
-        else:
-            try:
-                page = int(tok)
-            except ValueError:
-                pass
+    from data.verified_working_emotes import get_verified_list
+    pool = get_verified_list()
 
-    # Build the list for the chosen filter
-    confirmed_ids = sorted(VERIFIED_WORKING_BOT_EMOTES)
-    sdkok_ids     = sorted(
-        eid for eid, info in _CACHE["emotes"].items()
-        if info.get("status") == "sdk_accepted_needs_visual"
-    )
-
-    if filter_mode == "confirmed":
-        pool      = confirmed_ids
-        label     = "✅ Confirmed working"
-        tip       = "Use !workingemotes sdkok to see SDK-accepted."
-    elif filter_mode == "sdkok":
-        pool      = sdkok_ids
-        label     = "⚠️ SDK-accepted (needs visual check)"
-        tip       = "Use !markemoteworks <name> to confirm, !workingemotes confirmed for confirmed."
-    else:  # "all"
-        seen: set[str] = set()
-        pool = []
-        for eid in confirmed_ids + sdkok_ids:
-            if eid not in seen:
-                seen.add(eid)
-                pool.append(eid)
-        pool.sort()
-        label = "✅+⚠️ Usable emotes (confirmed + SDK-accepted)"
-        tip   = "Use !workingemotes confirmed / sdkok to filter."
-
-    if not pool:
-        hints = {
-            "confirmed": "Run !emotediag <name> then !markemoteworks <name>.",
-            "sdkok":     "Run !scanallbotemotes first.",
-            "all":       "Run !scanallbotemotes first.",
-        }
-        await _w(bot, uid,
-            f"No emotes in '{filter_mode}' category yet.\n{hints[filter_mode]}")
-        return
+    try:
+        page = int(args[1]) if len(args) > 1 else 1
+    except ValueError:
+        page = 1
 
     total_pages = max(1, (len(pool) + _PAGE_SIZE - 1) // _PAGE_SIZE)
     page  = max(1, min(page, total_pages))
@@ -591,11 +551,157 @@ async def handle_workingemotes(bot: "BaseBot", user: "User", args: list) -> None
 
     await _w(bot, uid,
         (
-            f"{label} (p{page}/{total_pages}, {len(pool)} total):\n"
+            f"✅ Verified working emotes (p{page}/{total_pages}, {len(pool)} total):\n"
             f"{', '.join(names)}"
         )[:249])
     if total_pages > 1 and page == 1:
-        await _w(bot, uid, tip[:249])
+        await _w(bot, uid,
+            "Use !workingemotes 2, 3 … for more pages. "
+            "!workingcount for totals.")
+
+
+# ---------------------------------------------------------------------------
+# !addworkingemote — add an emote to the verified production list
+# ---------------------------------------------------------------------------
+
+async def handle_addworkingemote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!addworkingemote <emote> — add an emote to the verified working list."""
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !addworkingemote <emote_name>")
+        return
+
+    from modules.emote_system import lookup_emote
+    from data.verified_working_emotes import add_verified_emote
+    name = args[1].lower().strip()
+    eid  = lookup_emote(name) or f"emote-{name}"
+    ok   = add_verified_emote(eid)
+    short = eid.replace("emote-", "")
+    if ok:
+        await _w(bot, uid,
+            f"✅ Added '{short}' to verified working list. "
+            f"!botemote now accepts it.")
+    else:
+        await _w(bot, uid, f"ℹ️ '{short}' is already in the verified working list.")
+
+
+# ---------------------------------------------------------------------------
+# !removeworkingemote — remove an emote from the verified production list
+# ---------------------------------------------------------------------------
+
+async def handle_removeworkingemote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!removeworkingemote <emote> — remove an emote from the verified working list."""
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !removeworkingemote <emote_name>")
+        return
+
+    from modules.emote_system import lookup_emote
+    from data.verified_working_emotes import remove_verified_emote
+    name = args[1].lower().strip()
+    eid  = lookup_emote(name) or f"emote-{name}"
+    ok   = remove_verified_emote(eid)
+    short = eid.replace("emote-", "")
+    if ok:
+        await _w(bot, uid,
+            f"✅ Removed '{short}' from verified list. "
+            f"It moves to experimental. Use !addworkingemote to restore.")
+    else:
+        await _w(bot, uid, f"ℹ️ '{short}' was not in the verified working list.")
+
+
+# ---------------------------------------------------------------------------
+# !workingcount — emote count summary
+# ---------------------------------------------------------------------------
+
+async def handle_workingcount(bot: "BaseBot", user: "User", args: list) -> None:
+    """!workingcount — show counts for verified, experimental, and failed emotes."""
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    from data.verified_working_emotes import get_verified_set
+    verified = get_verified_set()
+    experimental = sum(
+        1 for eid, info in _CACHE["emotes"].items()
+        if info.get("status") == "sdk_accepted_needs_visual"
+        and eid not in verified
+    )
+    failed = sum(
+        1 for info in _CACHE["emotes"].values()
+        if info.get("status") == "api_failed"
+    )
+    unsupported = sum(
+        1 for info in _CACHE["emotes"].values()
+        if info.get("status") == "manual_unsupported"
+    )
+    await _w(bot, uid,
+        (f"📊 Emote counts: ✅ Verified working: {len(verified)} "
+         f"| 🔬 Experimental: {experimental}")[:249])
+    await _w(bot, uid,
+        (f"❌ Failed: {failed} | 🚫 Unsupported: {unsupported} "
+         f"| Use !workingemotes to browse verified list.")[:249])
+
+
+# ---------------------------------------------------------------------------
+# !experimentalemotes — SDK-discovered but not in the verified production list
+# ---------------------------------------------------------------------------
+
+async def handle_experimentalemotes(bot: "BaseBot", user: "User", args: list) -> None:
+    """!experimentalemotes [page] — SDK-discovered emotes NOT in the verified list.
+
+    These sent without API error during !scanallbotemotes but haven't been
+    manually verified. Use !addworkingemote <name> to promote to production.
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    from data.verified_working_emotes import get_verified_set
+    verified = get_verified_set()
+    pool = sorted(
+        eid for eid, info in _CACHE["emotes"].items()
+        if info.get("status") == "sdk_accepted_needs_visual"
+        and eid not in verified
+    )
+    if not pool:
+        await _w(bot, uid,
+            "No experimental emotes. Run !scanallbotemotes first, "
+            "or all SDK emotes are already in the verified list.")
+        return
+
+    try:
+        page = int(args[1]) if len(args) > 1 else 1
+    except ValueError:
+        page = 1
+
+    total_pages = max(1, (len(pool) + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    page  = max(1, min(page, total_pages))
+    start = (page - 1) * _PAGE_SIZE
+    chunk = pool[start : start + _PAGE_SIZE]
+    names = [e.replace("emote-", "") for e in chunk]
+
+    await _w(bot, uid,
+        (
+            f"🔬 Experimental emotes (p{page}/{total_pages}, {len(pool)} total):\n"
+            f"{', '.join(names)}"
+        )[:249])
+    if page == 1:
+        await _w(bot, uid,
+            "SDK-accepted but not verified. "
+            "Use !addworkingemote <name> to promote to production.")
 
 
 # ---------------------------------------------------------------------------

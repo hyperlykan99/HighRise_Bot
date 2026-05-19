@@ -1,0 +1,68 @@
+Create the verified 218-emote production catalog.
+
+Goal:
+Use this manually verified working emote list as the trusted source of truth for bot emotes.
+
+Create:
+data/verified_working_emotes.py
+
+Add:
+
+VERIFIED_WORKING_EMOTES = [
+    "fairytwirl", "fairyfloat", "launch", "cutesalute", "atattention",
+    "tiktok", "smooch", "pushit", "foryou", "touch", "kawaii",
+    "repose", "sleigh", "hyped", "jingle", "gottago", "timejump",
+    "scritchy", "bitnervous", "iceskating", "partytime", "arabesque",
+    "bashful", "revelations", "watchyourback", "creepypuppet",
+    "saunter", "surprise", "celebration", "penguin", "boxer",
+    "airguitar", "stargaze", "ditzy", "uwu", "wrong", "fashion",
+    "icecream", "sayso", "zombie", "astronaut", "punk", "zerogravity",
+    "beautiful", "omg", "casual", "wink", "fightme", "icon", "cute",
+    "cutey", "greedy", "viralgroove", "weird", "shuffle", "gagging",
+    "raise", "savage", "blackpink", "model", "dontstartnow",
+    "pennywise", "bow", "russian", "curtsy", "snowball", "hot",
+    "snowangel", "charging", "letsgoshopping", "confused", "enthused",
+    "telekinesis", "float", "teleporting", "swordfight", "maniac",
+    "energyball", "worm", "singalong", "frog", "macarena", "kiss",
+    "shakehead", "sad", "nod", "laughing", "hello", "thumbsup",
+    "miningfail", "shy", "fishingpull", "thewave", "angry", "rough",
+    "fishingidle", "dropped", "miningsuccess", "receivehappy", "cold",
+    "fishingcast", "sit", "shuffledance", "receivesad", "tired",
+    "hipshake", "fruity", "cheerleader", "magnetic", "nocturnal",
+    "moonlit", "trampoline", "attention", "laidback", "shrink",
+    "puppet", "pushups", "duckwalk", "handsintheair", "rockout",
+    "orangejuice", "ringonit", "smoothwalk", "voguehands", "arrogance",
+    "giveup", "fireball", "levitate", "lying", "naughty", "stinky",
+    "pray", "punch", "sick", "smirk", "sneeze", "point", "collapse",
+    "disco", "ghostfloat", "handstand", "superkick", "panic", "splits",
+    "attentive", "relaxed", "fallingapart", "homerun", "boo",
+    "bunnyhop", "revival", "faintdrop", "elbowbump", "fall", "clumsy",
+    "faint", "hugyourself", "jetpack", "judochop", "jump", "amused",
+    "levelup", "monsterfail", "nightfever", "ninjarun", "peace",
+    "peekaboo", "proposing", "rainbow", "robot", "rofl", "roll",
+    "ropepull", "secrethandshake", "sumofight", "superpunch",
+    "superrun", "theatrical", "ibelieve", "irritated", "cozynap",
+    "relaxing", "heropose", "ponder", "posh", "poutyface", "dab",
+    "gangnamstyle", "sob", "taploop", "sleepy", "wiggledance",
+    "eyeroll", "moonwalk", "fighter", "renegade", "facepalm",
+    "feelthebeat", "happy", "hug", "slap", "clap", "exasperated",
+    "sweetsmooch", "tapdance", "thumbsuck", "harlemshake",
+    "heartfingers", "aerobics", "heartshape", "hearteyes",
+    "karmadance", "gasp", "think", "stunned", "embarrassed",
+    "blastoff", "annoyed", "dancezombie", "chillin", "frustrated",
+    "bummed", "ghost", "mindblown", "zombierun",
+]
+
+Then update the bot:
+
+1. Use VERIFIED_WORKING_EMOTES as the default production emote list.
+2. `!workingemotes` shows this verified list.
+3. `!workingcount` shows:
+   Verified working emotes: 218
+4. `!botemote @botname emote` should only allow emotes from this verified list unless admin uses experimental mode.
+5. Keep SDK scan as admin/dev-only experimental mode.
+6. Add:
+   !addworkingemote <name>
+   !removeworkingemote <name>
+   !experimentalemotes
+7. Preserve aliases, normalization, durations, DJ_DUDU ownership, and immediate bot looping.
