@@ -1007,10 +1007,16 @@ async def handle_markemoteworks(bot: "BaseBot", user: "User", args: list) -> Non
 
     short = eid.replace("emote-", "")
     _record_bot_emote_result(eid, "manual_works")
+    # Sync to persistent cache
+    try:
+        from modules.emote_scan import apply_mark
+        apply_mark(eid, "manual_works")
+    except Exception as _e:
+        print(f"[EMOTE_DIAG] emote_scan sync error: {_e}")
     print(f"[EMOTE_DIAG] {eid!r} manually marked as working by @{uname}")
     await _w(bot, uid,
         f"✅ {short} marked as visually confirmed working.\n"
-        f"Bot loop will continue using it normally.")
+        f"Bot loop will use it normally. Saved to emote_diag_cache.json.")
 
 
 async def handle_markemoteunsupported(bot: "BaseBot", user: "User", args: list) -> None:
@@ -1036,10 +1042,16 @@ async def handle_markemoteunsupported(bot: "BaseBot", user: "User", args: list) 
 
     short = eid.replace("emote-", "")
     _record_bot_emote_result(eid, "manual_unsupported")
+    # Sync to persistent cache
+    try:
+        from modules.emote_scan import apply_mark
+        apply_mark(eid, "manual_unsupported")
+    except Exception as _e:
+        print(f"[EMOTE_DIAG] emote_scan sync error: {_e}")
     print(f"[EMOTE_DIAG] {eid!r} manually marked as unsupported by @{uname}")
     await _w(bot, uid,
         f"🔴 {short} marked as unsupported. Bot loop will skip it.\n"
-        f"Use !markemoteworks {short} to undo.")
+        f"Saved to cache. Use !markemoteworks {short} to undo.")
 
 
 # ---------------------------------------------------------------------------

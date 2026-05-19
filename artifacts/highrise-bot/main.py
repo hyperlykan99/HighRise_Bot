@@ -923,6 +923,15 @@ from modules.emote_system import (
     handle_markemoteunsupported,
     notify_emote_event,
 )
+from modules.emote_scan import (
+    handle_scanallbotemotes,
+    handle_pauseemotescan,
+    handle_resumeemotescan,
+    handle_stopemotescan,
+    handle_scanprogress,
+    handle_workingemotes,
+    handle_exportworkingemotes,
+)
 from modules.emote_registry import (
     handle_reloademotes,
     handle_emotecount,
@@ -7420,8 +7429,13 @@ class HangoutBot(BaseBot):
             await handle_botemote(self, user, args)
         elif cmd == "stopbotemote":
             await handle_stopbotemote(self, user, args)
-        elif cmd in ("emoteresolve", "emotediag", "unsupportedemotes",
-                     "markemoteworks", "markemoteunsupported"):
+        elif cmd in (
+            "emoteresolve", "emotediag", "unsupportedemotes",
+            "markemoteworks", "markemoteunsupported",
+            "scanallbotemotes", "pauseemotescan", "resumeemotescan",
+            "stopemotescan", "scanprogress", "workingemotes",
+            "exportworkingemotes",
+        ):
             if BOT_MODE != "dj":
                 return
             if cmd == "emoteresolve":
@@ -7432,8 +7446,22 @@ class HangoutBot(BaseBot):
                 await handle_unsupportedemotes(self, user, args)
             elif cmd == "markemoteworks":
                 await handle_markemoteworks(self, user, args)
-            else:
+            elif cmd == "markemoteunsupported":
                 await handle_markemoteunsupported(self, user, args)
+            elif cmd == "scanallbotemotes":
+                await handle_scanallbotemotes(self, user, args)
+            elif cmd == "pauseemotescan":
+                await handle_pauseemotescan(self, user, args)
+            elif cmd == "resumeemotescan":
+                await handle_resumeemotescan(self, user, args)
+            elif cmd == "stopemotescan":
+                await handle_stopemotescan(self, user, args)
+            elif cmd == "scanprogress":
+                await handle_scanprogress(self, user, args)
+            elif cmd == "workingemotes":
+                await handle_workingemotes(self, user, args)
+            else:
+                await handle_exportworkingemotes(self, user, args)
         elif cmd == "highfive":
             await handle_highfive(self, user, args)
         elif cmd == "boop":
