@@ -36,7 +36,20 @@ from modules.permissions import is_admin, is_owner
 if TYPE_CHECKING:
     from highrise import BaseBot, User
 
-_LOG = "[EMOTE_REG]"
+_LOG      = "[EMOTE_REG]"
+_SCAN_LOG = "[EMOTE_SCAN]"
+
+# ─── Scan state (in-process, single dj bot) ──────────────────────────────────
+_scan_state: dict = {
+    "status":     "idle",   # idle | running | done | failed
+    "tested":     0,
+    "total":      0,
+    "active":     0,
+    "failed":     0,        # disabled + unclassified errors
+    "last_error": "",
+    "started_at": 0.0,
+}
+
 
 async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
     try:
@@ -390,15 +403,32 @@ def _load_candidates() -> list[tuple[str, str]]:
 
 # ─── Discovery background task ────────────────────────────────────────────────
 
-async def startup_emote_discovery(bot: "BaseBot") -> None:
+async def startup_emote_discovery(
+    bot: "BaseBot",
+    reporter_uid: str | None = None,
+) -> None:
     """
-    Background task launched on bot start.
+    Background task launched on bot start (or manually via !reloademotes/!importemotes).
     Only runs on the dj bot — emote testing must use the same Highrise account
     that owns the emote commands, otherwise send_emote calls fail cross-account.
+
+    reporter_uid: if set, progress whispers are sent to that user during the scan.
     """
+    global _scan_state
     from config import BOT_MODE
     if BOT_MODE != "dj":
         print(f"{_LOG} Discovery skipped — only runs on dj bot (current: {BOT_MODE})")
+        return
+
+    # Prevent overlapping scans
+    if _scan_state["status"] == "running":
+        if reporter_uid:
+            st = _scan_state
+            await _w(
+                bot, reporter_uid,
+                f"⏳ Scan already running: {st['tested']}/{st['total']} tested, "
+                f"{st['active']} active"
+            )
         return
 
     await asyncio.sleep(12)   # let bot fully connect
@@ -407,11 +437,13 @@ async def startup_emote_discovery(bot: "BaseBot") -> None:
     bot_uid = get_bot_user_id()
     if not bot_uid:
         print(f"{_LOG} No bot UID available — emote discovery skipped")
+        _scan_state["status"] = "failed"
+        _scan_state["last_error"] = "No bot UID available"
         return
 
     # Coordinate across multi-bot processes: only run if not scanned recently
     last_run = float(db.get_room_setting("emote_discovery_last_run", "0"))
-    if time.time() - last_run < 3600:
+    if time.time() - last_run < 3600 and reporter_uid is None:
         already = _db_count("active")
         print(f"{_LOG} Discovery ran <1h ago — {already} active emotes cached, skipping")
         return
@@ -423,24 +455,54 @@ async def startup_emote_discovery(bot: "BaseBot") -> None:
     if not pending:
         print(f"{_LOG} All {len(candidates)} candidates already tested — nothing to do")
         db.set_room_setting("emote_discovery_last_run", str(time.time()))
+        if reporter_uid:
+            active_n = _db_count("active")
+            disabled_n = _db_count("disabled")
+            await _w(
+                bot, reporter_uid,
+                f"✅ Emote scan complete\n"
+                f"Active: {active_n}\n"
+                f"Failed: {disabled_n}\n"
+                f"Total: {len(candidates)}"
+            )
         return
 
-    print(f"{_LOG} Discovery starting: {len(pending)} untested / {len(candidates)} total")
+    total = len(pending)
+    _scan_state.update({
+        "status":     "running",
+        "tested":     0,
+        "total":      total,
+        "active":     0,
+        "failed":     0,
+        "last_error": "",
+        "started_at": time.time(),
+    })
+    print(f"{_SCAN_LOG} started total={total}")
+
+    if reporter_uid:
+        await _w(
+            bot, reporter_uid,
+            f"🎭 Emote scan started...\nCandidates: {total}"
+        )
+
     active_n = disabled_n = error_n = 0
     first_error: str | None = None
 
-    for display_name, emote_id in pending:
+    for idx, (display_name, emote_id) in enumerate(pending, 1):
         try:
             await bot.highrise.send_emote(emote_id, bot_uid)
             _db_upsert(emote_id, display_name, "active")
             active_n += 1
         except asyncio.CancelledError:
+            _scan_state["status"] = "failed"
+            _scan_state["last_error"] = "Cancelled"
             raise
         except Exception as exc:
             raw = str(exc)
             err = raw.lower()
             if first_error is None:
                 first_error = f"{type(exc).__name__}: {raw}"
+                _scan_state["last_error"] = first_error[:120]
             if any(p in err for p in (
                 "invalid", "not found", "unknown", "no such",
                 "does not exist", "bad emote", "not supported",
@@ -451,17 +513,51 @@ async def startup_emote_discovery(bot: "BaseBot") -> None:
                 _db_upsert(emote_id, display_name, "disabled")
                 disabled_n += 1
             else:
-                # Truly unclassified error (rate-limit? SDK crash?) — log and skip
+                # Truly unclassified error (rate-limit? SDK crash?)
                 error_n += 1
-                print(f"{_LOG} [ERROR] {emote_id}: {type(exc).__name__}: {raw[:120]}")
+                print(f"{_SCAN_LOG} error={emote_id}: {type(exc).__name__}: {raw[:120]}")
+
+        failed_n = disabled_n + error_n
+        _scan_state["tested"] = idx
+        _scan_state["active"] = active_n
+        _scan_state["failed"] = failed_n
+
+        # Progress whisper every 10 tested
+        if reporter_uid and idx % 10 == 0:
+            await _w(
+                bot, reporter_uid,
+                f"🎭 Scanning emotes...\n"
+                f"Tested: {idx}/{total}\n"
+                f"Active: {active_n}\n"
+                f"Failed: {failed_n}"
+            )
+            print(f"{_SCAN_LOG} progress tested={idx} active={active_n} failed={failed_n}")
+
         await asyncio.sleep(0.35)
 
+    failed_total = disabled_n + error_n
+    _scan_state.update({
+        "status": "done",
+        "tested": total,
+        "active": active_n,
+        "failed": failed_total,
+    })
     db.set_room_setting("emote_discovery_last_run", str(time.time()))
-    summary = (
-        f"{_LOG} Discovery complete: active={active_n}"
-        f" disabled={disabled_n} errors={error_n}"
+
+    print(
+        f"{_SCAN_LOG} complete active={active_n} failed={failed_total}"
+        f" (disabled={disabled_n} errors={error_n})"
     )
-    print(summary)
+
+    if reporter_uid:
+        await _w(
+            bot, reporter_uid,
+            f"✅ Emote scan complete\n"
+            f"Active: {active_n}\n"
+            f"Failed: {failed_total}\n"
+            f"Total: {total}"
+        )
+
     if active_n == 0 and first_error:
         print(f"{_LOG} [DIAG] No emotes activated. First error → {first_error}")
     if active_n == 0 and error_n > 0:
@@ -521,10 +617,9 @@ async def handle_importemotes(bot: "BaseBot", user: "User", _args: list) -> None
     await _w(
         bot, uid,
         f"📥 Community catalog loaded: {len(entries)} entries\n"
-        f"🎭 Total candidates after merge: {total_candidates}\n"
-        f"🔄 Testing all emotes in background (~{total_candidates // 3}s)..."
+        f"🎭 Total candidates after merge: {total_candidates}"
     )
-    asyncio.create_task(startup_emote_discovery(bot))
+    asyncio.create_task(startup_emote_discovery(bot, reporter_uid=uid))
 
 
 async def handle_reloademotes(bot: "BaseBot", user: "User", _args: list) -> None:
@@ -539,12 +634,7 @@ async def handle_reloademotes(bot: "BaseBot", user: "User", _args: list) -> None
     _db_reset_all()
     db.set_room_setting("emote_discovery_last_run", "0")
     print(f"{_LOG} Cache cleared by {uname} — rescan triggered ({len(candidates)} candidates)")
-    await _w(
-        bot, uid,
-        f"🔄 Emote cache cleared. Rescanning {len(candidates)} candidates in "
-        f"background (~{len(candidates) // 3}s)..."
-    )
-    asyncio.create_task(startup_emote_discovery(bot))
+    asyncio.create_task(startup_emote_discovery(bot, reporter_uid=uid))
 
 
 async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
@@ -565,6 +655,32 @@ async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
         f"📋 Candidates: {len(candidates)} | Source: {source}\n"
         f"Use !reloademotes to rescan | !emotesource for details."
     )
+
+
+async def handle_emotescanstatus(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!emotescanstatus — show current or last emote scan progress."""
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    st = _scan_state
+    status = st["status"]
+    tested = st["tested"]
+    total  = st["total"]
+    active = st["active"]
+    failed = st["failed"]
+    err    = st["last_error"] or "none"
+
+    lines = [
+        f"🎭 Scan: {status}",
+        f"Tested: {tested}/{total}",
+        f"Active: {active}",
+        f"Failed: {failed}",
+        f"Last error: {err[:80]}",
+    ]
+    await _w(bot, uid, "\n".join(lines))
 
 
 async def handle_emotesource(bot: "BaseBot", user: "User", _args: list) -> None:

@@ -276,7 +276,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "hug": "dj", "kiss": "dj", "slap": "dj", "punch": "dj",
     "swordfight": "dj", "botemote": "dj", "stopbotemote": "dj",
     "reloademotes": "dj", "emotecount": "dj", "testemote": "dj",
-    "importemotes": "dj", "emotesource": "dj",
+    "importemotes": "dj", "emotesource": "dj", "emotescanstatus": "dj",
     "highfive": "dj", "boop": "dj", "waveat": "dj", "cheer": "dj",
     "heart": "dj", "hearts": "dj", "heartlb": "dj",
     "social": "dj", "blocksocial": "dj", "unblocksocial": "dj",
