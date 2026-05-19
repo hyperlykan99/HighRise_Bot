@@ -1060,32 +1060,26 @@ async def handle_reloademotes(bot: "BaseBot", user: "User", _args: list) -> None
 
 
 async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!emotecount — show how many emotes are active/permission/invalid."""
+    """!emotecount — show active / disabled / total count and current mode."""
     uid   = user.id
     uname = user.username
     if not _is_admin(uname):
         await _w(bot, uid, "👑 Admin only.")
         return
 
+    from modules.emote_system import get_emote_mode
     active     = _db_count("active")
     alias_only = _db_count("alias_only")
     permission = _db_count("permission")
-    disabled   = _db_count("disabled")
+    disabled   = _db_count("disabled") + permission + alias_only
     candidates = _load_candidates()
-    sc  = _source_counts
-    src = f"builtin:{sc.get('builtin', 0)}"
-    if sc.get("pycatalog"):
-        src += f" py:{sc['pycatalog']}"
-    if sc.get("community"):
-        src += f" community:{sc['community']}"
-    if sc.get("local"):
-        src += f" local:{sc['local']}"
-    alias_str = f" ⚠️Alias:{alias_only}" if alias_only else ""
+    mode       = get_emote_mode()
     await _w(
         bot, uid,
-        f"🎭 ✅Active:{active}{alias_str} 🔒Perm:{permission} ❌Invalid:{disabled}\n"
-        f"📋 Candidates:{len(candidates)} ({src})\n"
-        f"!emotefailures for breakdown | !reloademotes to rescan"
+        f"🎭 Active: {active}\n"
+        f"❌ Disabled: {disabled}\n"
+        f"📦 Total: {len(candidates)}\n"
+        f"⚙️ Mode: {mode}"
     )
 
 

@@ -1,0 +1,248 @@
+EMOTE SYSTEM FINAL REWRITE
+
+Goal:
+Create a centralized emote system where ONLY DJ_DUDU controls all emote features.
+ChillTopiaMC must completely ignore emote commands.
+
+━━━━━━━━━━━━━━━━━━
+BOT OWNERSHIP
+━━━━━━━━━━━━━━━━━━
+
+DJ_DUDU owns:
+- all emote commands
+- emote scans
+- emote execution
+- emote loops
+- emote lists
+- emote modes
+- emote testing
+
+ChillTopiaMC must NEVER:
+- answer emote commands
+- say unknown command for emotes
+- intercept emote text
+- register emote routes
+
+Add silent ignore:
+
+if incoming command is emote-related:
+    if bot_name != "DJ_DUDU":
+        return silently
+
+━━━━━━━━━━━━━━━━━━
+SUPPORTED COMMANDS
+━━━━━━━━━━━━━━━━━━
+
+!emotes
+→ show active emote list
+
+!emotecount
+→ show:
+active count
+disabled count
+total count
+current mode
+
+Example:
+🎭 Active: 148
+❌ Disabled: 12
+📦 Total: 382
+⚙️ Mode: all
+
+!emotemode free
+→ use only safe confirmed emotes
+
+!emotemode all
+→ use full experimental catalog
+
+!reloademotes
+→ rescan all emotes
+
+!emotescanstatus
+→ show:
+running/completed
+tested
+working
+failed
+
+!testemote <id>
+→ test exact emote ID
+
+!botemote <name>
+→ loop emote on bot
+
+!stopbotemote
+→ stop active loop
+
+━━━━━━━━━━━━━━━━━━
+EMOTE CATALOGS
+━━━━━━━━━━━━━━━━━━
+
+Use:
+timed_free_emotes_list
+
+as default stable catalog.
+
+Use:
+all_emote_list
+
+as experimental/full catalog.
+
+Default mode:
+free
+
+Admin can switch:
+!emotemode all
+
+━━━━━━━━━━━━━━━━━━
+EMOTE STRUCTURE
+━━━━━━━━━━━━━━━━━━
+
+Each emote contains:
+
+display name
+SDK emote ID
+duration
+
+Example:
+
+{
+  "value": "emote-wave",
+  "text": "The Wave",
+  "time": 2.690873
+}
+
+Use:
+value
+as exact SDK emote ID.
+
+Use:
+text
+for display.
+
+Use:
+time
+for loop timing.
+
+━━━━━━━━━━━━━━━━━━
+LOOPING SYSTEM
+━━━━━━━━━━━━━━━━━━
+
+For looping emotes:
+
+1. play emote
+2. wait duration
+3. replay automatically
+4. continue until stop command
+
+Example:
+
+while active:
+    play_emote(emote_id)
+    await sleep(duration)
+
+━━━━━━━━━━━━━━━━━━
+EMOTE NORMALIZATION
+━━━━━━━━━━━━━━━━━━
+
+Normalize names:
+
+"The Wave"
+→ thewave
+
+"Heart Fingers"
+→ heartfingers
+
+"TikTok Dance 9"
+→ tiktokdance9
+
+Users can trigger:
+!botemote heartfingers
+
+or
+
+!botemote thewave
+
+━━━━━━━━━━━━━━━━━━
+!EMOTES OUTPUT RULES
+━━━━━━━━━━━━━━━━━━
+
+Use ONLY:
+!emotes
+
+No:
+!motes
+
+Split long lists into pages.
+
+Example:
+
+🎭 Emotes 1/4:
+astronaut, boo, bow, celebrate...
+
+Keep each message below Highrise chat limit.
+
+━━━━━━━━━━━━━━━━━━
+SCAN LOGIC
+━━━━━━━━━━━━━━━━━━
+
+When scanning:
+
+1. test emote ID
+2. if emote works:
+   add to active list
+3. if emote fails:
+   add to failed list
+
+Store results persistently.
+
+Do NOT lose emotes on reboot.
+
+━━━━━━━━━━━━━━━━━━
+SCAN STATUS
+━━━━━━━━━━━━━━━━━━
+
+When scan completes:
+
+✅ Emote scan complete
+🎭 Active: 148
+❌ Failed: 234
+📦 Total: 382
+
+━━━━━━━━━━━━━━━━━━
+IMPORTANT FIXES
+━━━━━━━━━━━━━━━━━━
+
+Fix issue:
+ChillTopiaMC responding to emote commands.
+
+Fix issue:
+!emotes command split across bots.
+
+Fix issue:
+Unknown command spam.
+
+Fix issue:
+Emote lists resetting.
+
+Fix issue:
+Loop timing mismatch.
+
+Fix issue:
+Bot stopping mid-loop.
+
+━━━━━━━━━━━━━━━━━━
+EXPECTED RESULT
+━━━━━━━━━━━━━━━━━━
+
+!emotes
+→ DJ_DUDU responds
+
+!emotecount
+→ DJ_DUDU responds
+
+!emotemode all
+→ DJ_DUDU responds
+
+ChillTopiaMC:
+→ completely silent for emote commands.

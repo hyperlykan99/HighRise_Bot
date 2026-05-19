@@ -267,20 +267,28 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "modhelp": "security", "staffhelp": "security",
     "automod": "security", "setrules": "host",
     # ── dj ──────────────────────────────────────────────────────────────────
+    # ── dj — emotes (player) ─────────────────────────────────────────────────
     "emote": "dj", "emotes": "dj",
     "stopemote": "dj", "dance": "dj", "wave": "dj",
     "sit": "dj", "clap": "dj",
     "loopemote": "dj", "stoploop": "dj", "stopallloops": "dj",
-    "forceemote": "dj", "forceemoteall": "dj",
-    "syncdance": "dj", "synchost": "dj", "stopsync": "dj",
     "hug": "dj", "kiss": "dj", "slap": "dj", "punch": "dj",
-    "swordfight": "dj", "botemote": "dj", "stopbotemote": "dj",
-    "reloademotes": "dj", "emotecount": "dj", "testemote": "dj",
-    "importemotes": "dj", "emotesource": "dj", "emotescanstatus": "dj",
-    "emotefailures": "dj", "failedemotes": "dj", "setemoteunverified": "dj",
     "highfive": "dj", "boop": "dj", "waveat": "dj", "cheer": "dj",
     "heart": "dj", "hearts": "dj", "heartlb": "dj",
+    "swordfight": "dj",
+    "emoteinfo": "dj",
+    # ── dj — emotes (staff / social) ─────────────────────────────────────────
+    "forceemote": "dj", "forceemoteall": "dj", "forceemotes": "dj",
+    "publicemotes": "dj", "setemoteloopinterval": "dj",
+    "syncdance": "dj", "synchost": "dj", "stopsync": "dj",
+    "botemote": "dj", "stopbotemote": "dj",
     "social": "dj", "blocksocial": "dj", "unblocksocial": "dj",
+    # ── dj — emote catalog / scan (admin) ────────────────────────────────────
+    "emotemode": "dj",
+    "emotecount": "dj",
+    "reloademotes": "dj", "testemote": "dj",
+    "importemotes": "dj", "emotesource": "dj", "emotescanstatus": "dj",
+    "emotefailures": "dj", "failedemotes": "dj", "setemoteunverified": "dj",
     # ── dj music / song request system ───────────────────────────────────────
     # Player-facing
     "play": "dj", "now": "dj",
