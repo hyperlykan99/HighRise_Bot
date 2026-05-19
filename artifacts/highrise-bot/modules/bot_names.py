@@ -62,3 +62,15 @@ def resolve_mode(name: str) -> str:
 def get_host_display_name() -> str:
     """Convenience: display name for the host/emcee bot."""
     return BOT_DISPLAY_NAMES.get("host", "ChillTopiaMC")
+
+
+def get_bot_user_id() -> str:
+    """Re-export: return the current bot's Highrise user ID (stored in gold.py)."""
+    from modules.gold import get_bot_user_id as _get
+    return _get()
+
+
+def get_bot_username() -> str:
+    """Re-export: return the current bot's Highrise username (stored in gold.py)."""
+    from modules.gold import get_bot_username as _get
+    return _get()

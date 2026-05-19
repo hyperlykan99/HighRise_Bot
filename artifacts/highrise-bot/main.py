@@ -3608,8 +3608,11 @@ class HangoutBot(BaseBot):
             print(f"[YT_CLEANUP] Cleanup loop skipped — not DJ bot ({BOT_MODE}).")
         # Bot emote loop recovery — all bot modes (each bot checks its own DB key)
         _safe_task(startup_bot_emote_recovery(self), "startup_bot_emote_recovery")
-        # Emote discovery — tests candidate emote IDs, caches in active_emotes table
-        _safe_task(startup_emote_discovery(self), "startup_emote_discovery")
+        # Emote discovery — only runs on dj bot (emote test uses dj's Highrise account)
+        if BOT_MODE == "dj":
+            _safe_task(startup_emote_discovery(self), "startup_emote_discovery")
+        else:
+            print(f"[EMOTE] Discovery skipped — not dj bot ({BOT_MODE})")
         # Background automation loops (idempotent — safe on reconnect)
         try:
             start_auto_game_loop(self)

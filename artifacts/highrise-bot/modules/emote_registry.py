@@ -393,13 +393,17 @@ def _load_candidates() -> list[tuple[str, str]]:
 async def startup_emote_discovery(bot: "BaseBot") -> None:
     """
     Background task launched on bot start.
-    Waits for bot to be in the room, then tests untested candidates.
-    Already-tested candidates are skipped unless a rescan was requested.
-    Safe to call from every bot process — DB coordination prevents duplicate work.
+    Only runs on the dj bot — emote testing must use the same Highrise account
+    that owns the emote commands, otherwise send_emote calls fail cross-account.
     """
+    from config import BOT_MODE
+    if BOT_MODE != "dj":
+        print(f"{_LOG} Discovery skipped — only runs on dj bot (current: {BOT_MODE})")
+        return
+
     await asyncio.sleep(12)   # let bot fully connect
 
-    from modules.bot_names import get_bot_user_id
+    from modules.gold import get_bot_user_id
     bot_uid = get_bot_user_id()
     if not bot_uid:
         print(f"{_LOG} No bot UID available — emote discovery skipped")
@@ -421,8 +425,9 @@ async def startup_emote_discovery(bot: "BaseBot") -> None:
         db.set_room_setting("emote_discovery_last_run", str(time.time()))
         return
 
-    print(f"{_LOG} Discovery starting: {len(pending)} untested candidates")
-    active_n = disabled_n = skip_n = 0
+    print(f"{_LOG} Discovery starting: {len(pending)} untested / {len(candidates)} total")
+    active_n = disabled_n = error_n = 0
+    first_error: str | None = None
 
     for display_name, emote_id in pending:
         try:
@@ -432,19 +437,38 @@ async def startup_emote_discovery(bot: "BaseBot") -> None:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            err = str(exc).lower()
-            if any(p in err for p in ("invalid", "not found", "unknown", "no such", "does not exist", "bad emote")):
+            raw = str(exc)
+            err = raw.lower()
+            if first_error is None:
+                first_error = f"{type(exc).__name__}: {raw}"
+            if any(p in err for p in (
+                "invalid", "not found", "unknown", "no such",
+                "does not exist", "bad emote", "not supported",
+                "unsupported", "unrecognized", "emote_id",
+                "not free or owned", "not owned", "free or owned",
+                "responseError", "response_error",
+            )):
                 _db_upsert(emote_id, display_name, "disabled")
                 disabled_n += 1
             else:
-                skip_n += 1
+                # Truly unclassified error (rate-limit? SDK crash?) — log and skip
+                error_n += 1
+                print(f"{_LOG} [ERROR] {emote_id}: {type(exc).__name__}: {raw[:120]}")
         await asyncio.sleep(0.35)
 
     db.set_room_setting("emote_discovery_last_run", str(time.time()))
-    print(
-        f"{_LOG} Discovery complete:"
-        f" active={active_n} disabled={disabled_n} skipped={skip_n}"
+    summary = (
+        f"{_LOG} Discovery complete: active={active_n}"
+        f" disabled={disabled_n} errors={error_n}"
     )
+    print(summary)
+    if active_n == 0 and first_error:
+        print(f"{_LOG} [DIAG] No emotes activated. First error → {first_error}")
+    if active_n == 0 and error_n > 0:
+        print(
+            f"{_LOG} [DIAG] {error_n} unclassified errors — likely rate-limit or"
+            f" SDK mismatch. Try !reloademotes after 60s."
+        )
 
 
 # ─── Admin commands ───────────────────────────────────────────────────────────
@@ -603,7 +627,7 @@ async def handle_testemote(bot: "BaseBot", user: "User", args: list) -> None:
         else:
             emote_id = f"emote-{_norm(raw)}"
 
-    from modules.bot_names import get_bot_user_id
+    from modules.gold import get_bot_user_id
     bot_uid = get_bot_user_id()
     if not bot_uid:
         await _w(bot, uid, "❌ Bot UID not available yet — try again in a moment.")

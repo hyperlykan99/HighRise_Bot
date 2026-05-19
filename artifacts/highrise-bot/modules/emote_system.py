@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import database as db
 from modules.permissions import is_admin, is_owner, can_moderate
+from modules.gold import get_bot_user_id
 
 if TYPE_CHECKING:
     from highrise import BaseBot, User
@@ -329,7 +330,6 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
     db.set_room_setting(f"bot_emote_{bot_name}", eid)
     _log("bot_emote_set", admin=uname, bot=bot_name, emote=eid)
 
-    from modules.bot_names import get_bot_user_id
     from config import BOT_MODE
     if BOT_MODE.lower() == bot_name:
         bot_uid = get_bot_user_id()
@@ -368,7 +368,6 @@ async def handle_stopbotemote(bot: "BaseBot", user: "User", args: list) -> None:
 
 async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
     """On bot startup, restore a persisted bot emote loop from DB (if any)."""
-    from modules.bot_names import get_bot_user_id
     from config import BOT_MODE
     eid = db.get_room_setting(f"bot_emote_{BOT_MODE.lower()}", "")
     if not eid:
