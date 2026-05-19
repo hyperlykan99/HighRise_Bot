@@ -843,6 +843,17 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
     _vibe       = cs.vibe()
     _vibe_label = _vl.get(_vibe, f"🌙 AutoDJ • {_vibe.title()}")
 
+    # ── Debug log (visible in workflow console) ───────────────────────────────
+    if cp:
+        print(
+            f"[NOW] source=request"
+            f" requestedBy={cp.get('username', '?')!r}"
+            f" title={cp.get('title', '?')!r}"
+            f" job_id={cp.get('job_id', '?')}"
+        )
+    else:
+        print(f"[NOW] source=autodj vibe={cs.vibe()!r} np_title={title!r}")
+
     # ── Build display lines ───────────────────────────────────────────────────
     if cp:
         req_uname   = (cp.get("username") or "")[:20]

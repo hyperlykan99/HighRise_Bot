@@ -845,7 +845,7 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                    fires REQUEST LIVE announcement; queues file cleanup.
        On timeout → logs stage=request_takeover_timeout (song still waiting).
     """
-    global _skip_task_active, _cur_req_id, _last_ann_id, _last_ann_title, _live_req
+    global _skip_task_active, _cur_req_id, _cur_song_id, _last_ann_id, _last_ann_title, _live_req
     _skip_task_active = True
     try:
         loop = asyncio.get_running_loop()
@@ -965,11 +965,16 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                     f" media_id={np_fid!r}"
                 )
 
-                # Pre-set dedup vars so _on_new_track won't duplicate-announce
+                # Pre-set dedup vars so _on_new_track won't duplicate-announce.
+                # Also update _cur_song_id so the poller's next cycle sees
+                # song_id == prev_song_id and does NOT call _on_request_finished
+                # prematurely (which would zero _live_req while audio still plays).
                 with _lock:
                     _last_ann_id    = np_id or unique_id
                     _last_ann_title = np_title.lower()[:80]
                     _cur_req_id     = job_id
+                    if np_id:
+                        _cur_song_id = np_id
 
                 _db_set_status(job_id, "playing", media_id=np_fid)
                 display_artist = req_artist or np_artist
