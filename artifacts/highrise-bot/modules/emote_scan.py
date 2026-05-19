@@ -795,6 +795,126 @@ async def handle_sdkokemotes(bot: "BaseBot", user: "User", args: list) -> None:
 
 
 # ---------------------------------------------------------------------------
+# !resolveemote — trace 4-tier resolution for a name
+# ---------------------------------------------------------------------------
+
+async def handle_resolveemote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!resolveemote <name> — show which emote ID is selected and via which tier.
+
+    Resolution tiers:
+      1. alias-override  — explicit override in _ALIAS_OVERRIDES
+      2. verified-map    — auto-generated from VERIFIED_WORKING_EMOTES
+      3. static-alias    — EMOTE_REGISTRY / emote_registry catalog
+      4. sdk-experimental — SDK-accepted during scan but not verified
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid,
+            "Usage: !resolveemote <name>  e.g. !resolveemote aerobics")
+        return
+
+    import re as _re_local
+    from data.verified_working_emotes import _ALIAS_OVERRIDES, WORKING_EMOTE_MAP, get_verified_set
+    from modules.emote_system import lookup_emote
+
+    raw  = args[1].strip()
+    norm = _re_local.sub(r"[^a-z0-9]", "", raw.lower())
+    verified = get_verified_set()
+    eid  = None
+    tier = None
+
+    # Tier 1: explicit alias overrides (highest priority)
+    if norm in _ALIAS_OVERRIDES:
+        eid  = _ALIAS_OVERRIDES[norm]
+        tier = "1/alias-override"
+
+    # Tier 2: verified working map (auto-generated; overrides already applied)
+    if not eid:
+        candidate = WORKING_EMOTE_MAP.get(norm)
+        if candidate and norm not in _ALIAS_OVERRIDES:
+            eid  = candidate
+            tier = "2/verified-map"
+
+    # Tier 3: static aliases + emote_registry
+    if not eid:
+        eid_static = lookup_emote(raw)
+        if eid_static:
+            eid  = eid_static
+            tier = "3/static-alias"
+
+    # Tier 4: SDK experimental cache
+    if not eid:
+        for cached_eid, info in _CACHE["emotes"].items():
+            if info.get("status") == "sdk_accepted_needs_visual":
+                short_norm = _re_local.sub(
+                    r"[^a-z0-9]", "",
+                    cached_eid.replace("emote-", "").lower()
+                )
+                if short_norm == norm:
+                    eid  = cached_eid
+                    tier = "4/sdk-experimental"
+                    break
+
+    if not eid:
+        await _w(bot, uid,
+            f"❓ No match for '{raw}' at any tier. "
+            f"Not in verified list or SDK cache.")
+        return
+
+    in_verified = eid in verified
+    ver_str     = "✅ in verified list" if in_verified else "⚠️ NOT in verified list"
+    await _w(bot, uid,
+        f"🔍 '{raw}' → {eid}\nTier: {tier} | {ver_str}"[:249])
+
+
+# ---------------------------------------------------------------------------
+# !testemoteid — send a raw emote ID once and report SDK result
+# ---------------------------------------------------------------------------
+
+async def handle_testemoteid(bot: "BaseBot", user: "User", args: list) -> None:
+    """!testemoteid <raw_id> — send a raw emote ID exactly once and report result.
+
+    The ID is prepended with 'emote-' if not already present.
+    Results are written to the scan cache.
+
+    Examples:
+      !testemoteid dance-aerobics
+      !testemoteid idle-loop-aerobics
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid,
+            "Usage: !testemoteid <raw_id>  e.g. !testemoteid dance-aerobics")
+        return
+
+    raw = args[1].strip()
+    eid = raw if raw.startswith("emote-") else f"emote-{raw}"
+
+    await _w(bot, uid, f"🔬 Testing {eid} ...")
+    try:
+        await bot.highrise.send_emote(eid)
+        _set_status(eid, "sdk_accepted_needs_visual")
+        _save_cache()
+        from data.verified_working_emotes import get_verified_set
+        ver_str = ("✅ in verified list" if eid in get_verified_set()
+                   else "⚠️ not in verified list — use !addworkingemote to promote")
+        await _w(bot, uid, f"✅ SDK accepted: {eid} | {ver_str}"[:249])
+    except Exception as exc:
+        err = str(exc)[:120]
+        _set_status(eid, "api_failed", err)
+        _save_cache()
+        await _w(bot, uid, f"❌ SDK rejected: {eid} — {err}"[:249])
+
+
+# ---------------------------------------------------------------------------
 # !exportworkingemotes
 # ---------------------------------------------------------------------------
 

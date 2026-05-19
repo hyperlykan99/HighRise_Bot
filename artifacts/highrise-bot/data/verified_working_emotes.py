@@ -21,7 +21,7 @@ import re as _re
 # Base list — 224 manually verified canonical emote IDs
 # ---------------------------------------------------------------------------
 VERIFIED_WORKING_EMOTES: list[str] = [
-    "emote-aerobics",
+    "emote-dance-aerobics",
     "emote-airguitar",
     "emote-amused",
     "emote-angry",
@@ -327,7 +327,20 @@ def remove_verified_emote(eid: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Alias overrides — explicit name → emote_id mappings that TAKE PRIORITY
+# over the auto-generated WORKING_EMOTE_MAP.
+# Add entries here when the correct SDK ID differs from "emote-<shortname>".
+# ---------------------------------------------------------------------------
+_ALIAS_OVERRIDES: dict[str, str] = {
+    "aerobics":      "emote-dance-aerobics",   # correct SDK ID
+    "danceaerobics": "emote-dance-aerobics",   # alternate spelling
+}
+
+# ---------------------------------------------------------------------------
 # WORKING_EMOTE_MAP — normalized shortname / full-id → canonical emote_id
+# Resolution priority:
+#   1. _ALIAS_OVERRIDES (explicit corrections, applied last to always win)
+#   2. auto-generated from VERIFIED_WORKING_EMOTES
 # ---------------------------------------------------------------------------
 def _norm(s: str) -> str:
     return _re.sub(r"[^a-z0-9]", "", s.lower().replace("\u2019", ""))
@@ -338,3 +351,5 @@ for _eid in VERIFIED_WORKING_EMOTES:
     _short = _eid.removeprefix("emote-")
     WORKING_EMOTE_MAP[_norm(_short)] = _eid   # e.g. "gangnam" → "emote-gangnam"
     WORKING_EMOTE_MAP[_norm(_eid)]   = _eid   # e.g. "emotegangnam" → "emote-gangnam"
+# Alias overrides win over all auto-generated entries
+WORKING_EMOTE_MAP.update(_ALIAS_OVERRIDES)

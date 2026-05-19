@@ -937,6 +937,8 @@ from modules.emote_scan import (
     handle_removeworkingemote,
     handle_workingcount,
     handle_experimentalemotes,
+    handle_resolveemote,
+    handle_testemoteid,
 )
 from modules.emote_registry import (
     handle_reloademotes,
@@ -1776,6 +1778,7 @@ EMOTE_DIAG_SCAN_COMMANDS: frozenset[str] = frozenset({
     "stopemotescan", "scanprogress", "workingemotes",
     "exportworkingemotes", "autoconfirmedemotes", "sdkokemotes",
     "addworkingemote", "removeworkingemote", "workingcount", "experimentalemotes",
+    "resolveemote", "testemoteid",
 })
 
 
@@ -7453,6 +7456,7 @@ class HangoutBot(BaseBot):
             "stopemotescan", "scanprogress", "workingemotes",
             "exportworkingemotes", "autoconfirmedemotes", "sdkokemotes",
             "addworkingemote", "removeworkingemote", "workingcount", "experimentalemotes",
+            "resolveemote", "testemoteid",
         ):
             if BOT_MODE != "dj":
                 return
@@ -7490,6 +7494,10 @@ class HangoutBot(BaseBot):
                 await handle_workingcount(self, user, args)
             elif cmd == "experimentalemotes":
                 await handle_experimentalemotes(self, user, args)
+            elif cmd == "resolveemote":
+                await handle_resolveemote(self, user, args)
+            elif cmd == "testemoteid":
+                await handle_testemoteid(self, user, args)
             else:
                 await handle_exportworkingemotes(self, user, args)
         elif cmd == "highfive":
