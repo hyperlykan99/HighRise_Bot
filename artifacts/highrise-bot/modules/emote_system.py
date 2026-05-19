@@ -276,10 +276,28 @@ def get_free_emote_names() -> list[str]:
 def lookup_emote(name: str) -> str | None:
     """Return SDK emote-ID for a player-typed name, or None if unknown.
 
-    In 'free' mode (default): only resolves emotes in timed_free_emotes_list.
-    In 'all' mode: resolves from the full EMOTE_REGISTRY + community catalog.
+    Resolution order:
+      1. active_cmd_map  — unified post-scan map (most authoritative, works for
+                           !botemote, !testemote, plain chat triggers, !emotes)
+      2. free/all static catalog — fallback before the first scan completes
+
+    In 'free' mode (default): static fallback only resolves timed_free_emotes.
+    In 'all' mode: static fallback resolves from EMOTE_REGISTRY + community catalog.
     """
     norm = _normalize(name)
+
+    # 1. Unified active command map — built after every scan
+    try:
+        from modules.emote_registry import get_active_cmd_map
+        cmap = get_active_cmd_map()
+        if cmap:
+            eid = cmap.get(norm)
+            if eid:
+                return eid
+    except Exception:
+        pass
+
+    # 2. Static fallback (pre-scan or empty map)
     if get_emote_mode() == "free":
         result = _FREE_NORM_MAP.get(norm)
         if result:
@@ -289,7 +307,7 @@ def lookup_emote(name: str) -> str | None:
             return _FREE_NORM_MAP.get(stripped)
         return None   # strict free mode — no fallthrough to full catalog
 
-    # "all" mode — full lookup
+    # "all" mode — full static lookup
     if norm in _NORM_MAP:
         return _NORM_MAP[norm]
     if norm.startswith(_EMOTE_PREFIX):
@@ -316,6 +334,17 @@ PLAYER_EMOTE_NAMES: frozenset[str] = frozenset(_normalize(k) for k in EMOTE_REGI
 def is_plain_emote(text: str) -> bool:
     """True if the chat message matches a known emote name in the active catalog."""
     norm = _normalize(text.strip())
+
+    # Active command map is the single source of truth after scan completes.
+    try:
+        from modules.emote_registry import get_active_cmd_map
+        cmap = get_active_cmd_map()
+        if cmap:
+            return norm in cmap
+    except Exception:
+        pass
+
+    # Static fallback (pre-scan)
     if get_emote_mode() == "free":
         return norm in _FREE_PLAYER_EMOTE_NAMES
     return norm in PLAYER_EMOTE_NAMES

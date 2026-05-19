@@ -341,6 +341,118 @@ _ALT_IDS: dict[str, tuple[str, ...]] = {
     "emote-cheer":             ("emote-cheer2",),
 }
 
+# ─── Active command map ───────────────────────────────────────────────────────
+# Single source of truth: normalized_command → working_emote_id.
+# Populated/rebuilt after every scan.  Empty before the first scan completes.
+# Used by !emotes display, !botemote resolver, lookup_emote, is_plain_emote,
+# and !emoteresolve debug command.
+_active_cmd_map: dict[str, str] = {}
+
+
+def _rebuild_active_cmd_map() -> None:
+    """Rebuild _active_cmd_map from DB + every alias/override source.
+
+    For each active emote_id, every normalized name that resolves to it is
+    added: candidate display names, _ALIAS_MAP, _ALIAS_OVERRIDES, direct
+    emote-ID names ("emote-wave" → "wave" / "emotewave"), and EMOTE_REGISTRY
+    aliases from emote_system (thewave, heartfingers, gangnamstyle…).
+    """
+    global _active_cmd_map
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT emote_id, status, alias_id "
+            "FROM active_emotes WHERE status IN ('active','alias_only')"
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return
+
+    # canonical_id → send_id (what to actually pass to send_emote)
+    to_send: dict[str, str] = {}
+    for emote_id, status, alias_id in rows:
+        to_send[emote_id] = (
+            alias_id if (status == "alias_only" and alias_id) else emote_id
+        )
+
+    active_ids = set(to_send)
+    new_map: dict[str, str] = {}
+
+    def _add(norm: str, canonical: str, force: bool = False) -> None:
+        send = to_send.get(canonical, canonical)
+        if force or norm not in new_map:
+            new_map[norm] = send
+
+    # 1. Candidate display names (most descriptive, from every catalog source)
+    for dn, eid in _CANDIDATES:
+        if eid in active_ids:
+            _add(_norm(dn), eid)
+
+    # 2. _CAND_BY_NAME (pre-normalized display names + ID-based keys)
+    for nm, eid in _CAND_BY_NAME.items():
+        if eid in active_ids:
+            _add(nm, eid)
+
+    # 3. _ALIAS_MAP extra aliases (gangnam, groovy, yay, etc.)
+    for nm, eid in _ALIAS_MAP.items():
+        if eid in active_ids:
+            _add(nm, eid)
+
+    # 4. Direct emote_id keys: "emote-wave" → accept "wave" and "emotewave"
+    for eid in active_ids:
+        if eid.startswith("emote-"):
+            _add(_norm(eid[6:]), eid)   # "wave"
+            _add(_norm(eid),     eid)   # "emotewave"
+
+    # 5. EMOTE_REGISTRY aliases from emote_system (thewave, heartfingers, gangnamstyle…)
+    try:
+        from modules.emote_system import EMOTE_REGISTRY as _EREG
+        from modules.emote_system import _normalize as _snorm
+        for cmd, eid in _EREG.items():
+            if eid in active_ids:
+                _add(_snorm(cmd), eid)
+    except Exception:
+        pass
+
+    # 6. _ALIAS_OVERRIDES always win (dance→disco, drop→deathdrop, etc.)
+    for nm, eid in _ALIAS_OVERRIDES.items():
+        if eid in active_ids:
+            _add(nm, eid, force=True)
+
+    _active_cmd_map = new_map
+    print(
+        f"[EMOTE_REG] cmd_map built:"
+        f" {len(new_map)} command names → {len(active_ids)} emotes"
+    )
+
+
+def get_active_cmd_map() -> dict[str, str]:
+    """Return normalized_command → working_emote_id for all active emotes.
+
+    Empty before the first scan completes; rebuilt after every scan.
+    """
+    return _active_cmd_map
+
+
+def _get_active_display_names() -> list[str]:
+    """Return one representative command name per active emote_id, sorted.
+
+    Picks the shortest non-'emote'-prefixed name for each emote so that
+    !emotes shows the cleanest usable command word (e.g. 'wave' not 'emotewave').
+    """
+    if not _active_cmd_map:
+        return []
+    eid_names: dict[str, list[str]] = {}
+    for cmd, eid in _active_cmd_map.items():
+        eid_names.setdefault(eid, []).append(cmd)
+    result: list[str] = []
+    for names in eid_names.values():
+        primary = [n for n in names if not n.startswith("emote")]
+        best = min(primary or names, key=len)
+        result.append(best)
+    return sorted(result)
+
+
 # ─── Unsafe mode ──────────────────────────────────────────────────────────────
 # When True, resolve_emote_id() constructs "emote-{norm}" for any unknown input
 # instead of returning None.  Set via !setemoteunverified on|off.
@@ -407,10 +519,12 @@ def _db_upsert(
 
 
 def _db_reset_all() -> None:
+    global _active_cmd_map
     conn = db.get_connection()
     conn.execute("DELETE FROM active_emotes")
     conn.commit()
     conn.close()
+    _active_cmd_map = {}   # stale map cleared; will be rebuilt after next scan
 
 
 def _db_count(status: str) -> int:
@@ -1011,6 +1125,9 @@ async def startup_emote_discovery(
     if active_n == 0 and first_error:
         print(f"{_LOG} [DIAG] No active emotes. First error → {first_error}")
 
+    # Rebuild the unified command map so lookups are immediately consistent.
+    _rebuild_active_cmd_map()
+
 
 # ─── Admin commands ───────────────────────────────────────────────────────────
 
@@ -1387,12 +1504,16 @@ async def handle_emotes_paged(bot: "BaseBot", user: "User", args: list) -> None:
         if not show_locked and get_emote_mode() == "free":
             names: list[str] = list(get_free_emote_names())
         else:
-            names = list(get_active_emote_names())
+            # Use the unified active command map (one canonical name per emote_id).
+            # Falls back to raw display_names then static registry if map is empty.
+            names = _get_active_display_names()
+            if not names:
+                names = list(get_active_emote_names())
             if not names:
                 from modules.emote_system import EMOTE_REGISTRY
                 names = sorted(EMOTE_REGISTRY.keys())
     except Exception:
-        names = list(get_active_emote_names())
+        names = _get_active_display_names() or list(get_active_emote_names())
         if not names:
             try:
                 from modules.emote_system import EMOTE_REGISTRY
@@ -1443,5 +1564,80 @@ async def handle_emotes_paged(bot: "BaseBot", user: "User", args: list) -> None:
 
     print(
         f"[EMOTE_REG] emotes_list user={user.username!r}"
-        f" total={len(all_items)} locked={len(locked)} pages={total}"
+        f" map_names={len(_active_cmd_map)} total={len(all_items)}"
+        f" locked={len(locked)} pages={total}"
+    )
+
+
+async def handle_emoteresolve(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emoteresolve <name> — debug: trace exactly how an emote name resolves.
+
+    Shows each resolver step so you can confirm that a name shown in !emotes
+    will successfully work with !botemote.
+
+    Examples:
+      !emoteresolve gangnam       → gangnam -> emote-gangnam ✅ active
+      !emoteresolve emotegangnam  → emotegangnam -> emote-gangnam ✅ active
+      !emoteresolve thewave       → thewave -> emote-wave ✅ active
+      !emoteresolve unknown       → ❌ Unknown emote 'unknown'.
+    """
+    uid = user.id
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !emoteresolve <emote name or id>")
+        return
+
+    raw  = " ".join(args[1:])
+    norm = _norm(raw)
+
+    # Step 1 — active_cmd_map (primary path after scan)
+    if _active_cmd_map:
+        eid = _active_cmd_map.get(norm)
+        if eid:
+            await _w(
+                bot, uid,
+                f"🔍 '{raw}' → norm='{norm}'\n"
+                f"✅ active_cmd_map → {eid}"
+            )
+            return
+        step1 = f"❌ '{norm}' not in active_cmd_map ({len(_active_cmd_map)} entries)"
+    else:
+        step1 = "⚠️ active_cmd_map empty — run !reloademotes first"
+
+    # Step 2 — _CAND_BY_NAME
+    eid = _CAND_BY_NAME.get(norm)
+    if eid:
+        await _w(
+            bot, uid,
+            f"🔍 '{raw}' → norm='{norm}'\n"
+            f"{step1}\n"
+            f"✅ _CAND_BY_NAME → {eid} (not yet in active map)"
+        )
+        return
+    step2 = "❌ not in _CAND_BY_NAME"
+
+    # Step 3 — lookup_emote fallback (covers free/all static catalogs)
+    try:
+        from modules.emote_system import lookup_emote as _lu
+        eid = _lu(raw)
+        if eid:
+            await _w(
+                bot, uid,
+                f"🔍 '{raw}' → norm='{norm}'\n"
+                f"{step1}\n"
+                f"{step2}\n"
+                f"✅ static catalog → {eid}"
+            )
+            return
+    except Exception:
+        pass
+
+    await _w(
+        bot, uid,
+        (
+            f"🔍 '{raw}' → norm='{norm}'\n"
+            f"{step1}\n"
+            f"{step2}\n"
+            f"❌ Unknown emote '{raw}'.\n"
+            f"Try !reloademotes or use exact ID like emote-{norm}"
+        )[:249]
     )
