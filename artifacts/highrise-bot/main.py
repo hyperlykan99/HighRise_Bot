@@ -1763,6 +1763,16 @@ DJ_COMMANDS: frozenset[str] = frozenset({
 })
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS
 
+# Commands that are strictly DJ_DUDU-only — any other bot mode must silently
+# ignore them even if they slip past the routing elif block.
+EMOTE_DIAG_SCAN_COMMANDS: frozenset[str] = frozenset({
+    "emoteresolve", "emotediag", "unsupportedemotes",
+    "markemoteworks", "markemoteunsupported",
+    "scanallbotemotes", "pauseemotescan", "resumeemotescan",
+    "stopemotescan", "scanprogress", "workingemotes",
+    "exportworkingemotes", "autoconfirmedemotes", "sdkokemotes",
+})
+
 
 # ---------------------------------------------------------------------------
 # Help texts  (all ≤ 249 chars per whisper)
@@ -8069,6 +8079,11 @@ class HangoutBot(BaseBot):
 
         elif cmd == "commandaudit":
             await handle_commandaudit(self, user, args)
+
+        # ── Hard guard: emote scan/diag commands belong only to DJ_DUDU.
+        #    Any other bot mode silently returns — no "Unknown command" reply.
+        elif cmd in EMOTE_DIAG_SCAN_COMMANDS:
+            return
 
         # ── Unknown command — only host/all mode replies; others ignore silently
         else:
