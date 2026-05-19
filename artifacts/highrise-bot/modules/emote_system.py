@@ -146,6 +146,11 @@ EMOTE_REGISTRY: dict[str, str] = {
     "disco":          "emote-disco",
     "fistbump":       "emote-fistbump",
     "dj":             "emote-dj",
+    # Extended aliases
+    "thewave":        "emote-wave",
+    "gangnam":        "emote-gangnam",
+    "gangnamstyle":   "emote-gangnam",
+    "heartfingers":   "emote-heartfingers",
 }
 
 
@@ -562,6 +567,12 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
     eid = lookup_emote(emote_name)
     if not eid:
         await _w(bot, uid, f"❌ Unknown emote '{emote_name}'. Try !emotes for the list.")
+        return
+
+    # Refuse to loop permission-locked emotes — the bot account doesn't own them.
+    from modules.emote_registry import is_permission_locked
+    if is_permission_locked(eid):
+        await _w(bot, uid, "🔒 This bot does not own or have permission to use that emote.")
         return
 
     db.set_room_setting(f"bot_emote_{bot_name}", eid)

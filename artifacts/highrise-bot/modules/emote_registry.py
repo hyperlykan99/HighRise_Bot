@@ -487,6 +487,33 @@ def get_active_emote_names() -> list[str]:
         return []
 
 
+def get_permission_locked_emote_names() -> list[str]:
+    """Return sorted display names of permission-locked emotes."""
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT display_name FROM active_emotes"
+            " WHERE status='permission' ORDER BY display_name"
+        ).fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except Exception:
+        return []
+
+
+def is_permission_locked(emote_id: str) -> bool:
+    """Return True if the emote is recorded as permission-locked in DB."""
+    try:
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT status FROM active_emotes WHERE emote_id=?", (emote_id,)
+        ).fetchone()
+        conn.close()
+        return bool(row and row[0] == "permission")
+    except Exception:
+        return False
+
+
 def resolve_emote_id_full(name: str) -> tuple[str | None, str]:
     """Multi-step emote ID resolution. Returns (emote_id, method).
 
@@ -1060,7 +1087,7 @@ async def handle_reloademotes(bot: "BaseBot", user: "User", _args: list) -> None
 
 
 async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!emotecount — show active / disabled / total count and current mode."""
+    """!emotecount — show usable / permission-locked / invalid count and current mode."""
     uid   = user.id
     uname = user.username
     if not _is_admin(uname):
@@ -1068,17 +1095,17 @@ async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
         return
 
     from modules.emote_system import get_emote_mode
-    active     = _db_count("active")
-    alias_only = _db_count("alias_only")
-    permission = _db_count("permission")
-    disabled   = _db_count("disabled") + permission + alias_only
+    usable     = _db_count("active") + _db_count("alias_only")
+    perm_lock  = _db_count("permission")
+    invalid    = _db_count("disabled")
     candidates = _load_candidates()
     mode       = get_emote_mode()
     await _w(
         bot, uid,
-        f"🎭 Active: {active}\n"
-        f"❌ Disabled: {disabled}\n"
-        f"📦 Total: {len(candidates)}\n"
+        f"🎭 Usable: {usable}\n"
+        f"🔒 Permission locked: {perm_lock}\n"
+        f"❌ Invalid/failed: {invalid}\n"
+        f"📦 Total catalog: {len(candidates)}\n"
         f"⚙️ Mode: {mode}"
     )
 
@@ -1284,8 +1311,18 @@ async def handle_testemote(bot: "BaseBot", user: "User", args: list) -> None:
         print(f"{_LOG} testemote {emote_id!r} result=active tester={uname!r}")
         return
     except Exception as exc:
-        _, category, reason, _ = _classify_error(exc)
-        steps.append(f"❌ Primary [{category}]: {reason[:55]}")
+        primary_db_status, category, primary_reason, _ = _classify_error(exc)
+        steps.append(f"❌ Primary [{category}]: {primary_reason[:55]}")
+        # Permission = bot account doesn't own the emote; no alt ID will help.
+        # Save immediately and surface the classification clearly.
+        if primary_db_status == "permission":
+            _db_upsert(emote_id, _norm(raw), "permission", primary_reason)
+            steps.append("🔒 Permission-locked (bot doesn't own this emote)")
+            await _w(bot, uid, "\n".join(steps)[:249])
+            print(f"{_LOG} testemote {emote_id!r} result=permission tester={uname!r}")
+            return
+    else:
+        primary_db_status, primary_reason = None, ""
 
     # Step 2: try alt IDs
     for alt_id in _ALT_IDS.get(emote_id, ()):
@@ -1301,6 +1338,8 @@ async def handle_testemote(bot: "BaseBot", user: "User", args: list) -> None:
             _, cat2, reason2, _ = _classify_error(exc2)
             steps.append(f"❌ Alt {alt_id} [{cat2}]")
 
+    if primary_db_status:
+        _db_upsert(emote_id, _norm(raw), primary_db_status, primary_reason)
     steps.append("❌ No working ID found")
     await _w(bot, uid, "\n".join(steps)[:249])
     print(f"{_LOG} testemote {emote_id!r} result=fail steps={len(steps)} tester={uname!r}")
@@ -1345,22 +1384,25 @@ async def handle_setemoteunverified(bot: "BaseBot", user: "User", args: list) ->
 
 # ─── Player command: !emotes ──────────────────────────────────────────────────
 
-async def handle_emotes_paged(bot: "BaseBot", user: "User", _args: list) -> None:
+async def handle_emotes_paged(bot: "BaseBot", user: "User", args: list) -> None:
     """
-    !emotes — whisper all active emote names in auto-paged messages (≤249 chars).
+    !emotes      — whisper all usable emote names in auto-paged messages (≤249 chars).
+    !emotes all  — also show permission-locked emotes, marked with 🔒.
     Falls back to the static EMOTE_REGISTRY if no active emotes are cached yet.
     """
+    show_locked = len(args) > 1 and args[1].lower() == "all"
+
     try:
         from modules.emote_system import get_emote_mode, get_free_emote_names
-        if get_emote_mode() == "free":
-            names = get_free_emote_names()
+        if not show_locked and get_emote_mode() == "free":
+            names: list[str] = list(get_free_emote_names())
         else:
-            names = get_active_emote_names()
+            names = list(get_active_emote_names())
             if not names:
                 from modules.emote_system import EMOTE_REGISTRY
                 names = sorted(EMOTE_REGISTRY.keys())
     except Exception:
-        names = get_active_emote_names()
+        names = list(get_active_emote_names())
         if not names:
             try:
                 from modules.emote_system import EMOTE_REGISTRY
@@ -1368,11 +1410,18 @@ async def handle_emotes_paged(bot: "BaseBot", user: "User", _args: list) -> None
             except Exception:
                 names = []
 
-    if not names:
+    locked: list[str] = []
+    if show_locked:
+        locked = get_permission_locked_emote_names()
+
+    # Usable names first (sorted), then locked names marked with 🔒
+    all_items = sorted(names) + [f"🔒{n}" for n in sorted(locked)]
+
+    if not all_items:
         await _w(bot, user.id, "🎭 No emotes available yet. An admin can run !reloademotes.")
         return
 
-    # Pack names into ≤249-char pages
+    # Pack items into ≤249-char pages
     # Reserve space for worst-case header "🎭 Emotes 99/99:\n" (18 chars)
     MAX     = 249
     HDR_MAX = 18
@@ -1382,13 +1431,13 @@ async def handle_emotes_paged(bot: "BaseBot", user: "User", _args: list) -> None
     buf:   list[str]       = []
     used                   = 0
 
-    for name in sorted(names):
-        item_len = len(name) + 2   # "name, "
+    for item in all_items:
+        item_len = len(item) + 2   # "item, "
         if buf and used + item_len > AVAIL:
             pages.append(buf[:])
             buf  = []
             used = 0
-        buf.append(name)
+        buf.append(item)
         used += item_len
 
     if buf:
@@ -1404,5 +1453,5 @@ async def handle_emotes_paged(bot: "BaseBot", user: "User", _args: list) -> None
 
     print(
         f"[EMOTE_REG] emotes_list user={user.username!r}"
-        f" total_emotes={len(names)} pages={total}"
+        f" total={len(all_items)} locked={len(locked)} pages={total}"
     )
