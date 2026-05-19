@@ -1,0 +1,394 @@
+FINAL POLISH: DJ_DUDU radio system alignment + request credits/shop/VIP.
+
+Do NOT break the current working radio pipeline.
+
+Keep working:
+- !play / !request / !pick
+- !q / !queue
+- !now / !np
+- !skip
+- request download pipeline
+- AzuraCast queue
+- cleanup
+- vibe system
+- likes/dislikes
+- player playlist/favorites
+
+GOAL:
+Make DJ_DUDU feel complete, clean, and player-friendly.
+
+━━━━━━━━━━━━━━━━━━━━
+1. RADIO COMMAND OWNERSHIP
+━━━━━━━━━━━━━━━━━━━━
+
+All radio/music commands must be handled by DJ_DUDU only.
+
+DJ_DUDU handles:
+!play
+!request
+!pick
+!q
+!queue
+!now
+!np
+!skip
+!vibe
+!vibes
+!priority
+!like
+!dislike
+!likes
+!votes
+!save
+!playlist
+!mysongs
+!playmine
+!removefav
+!playedby
+!radiohelp
+!radiotutorial
+!musicshop
+!buyrequests
+!myrequests
+
+ChillTopiaMC must ignore all radio/music commands.
+
+━━━━━━━━━━━━━━━━━━━━
+2. CLEAN HELP MENU
+━━━━━━━━━━━━━━━━━━━━
+
+Add/update:
+
+!radiohelp
+
+Output must be under 255 chars.
+
+Example:
+🎧 DJ_DUDU Help:
+!play song, !pick #, !q, !now
+!like, !dislike, !save, !playlist
+!vibes, !priority song
+Need help? Use !radiotutorial
+
+━━━━━━━━━━━━━━━━━━━━
+3. RADIO TUTORIAL
+━━━━━━━━━━━━━━━━━━━━
+
+Add:
+
+!radiotutorial
+
+Show short step-by-step messages, max 255 chars each.
+
+Tutorial:
+1. Use !play <song name>
+2. Pick from results with !pick #
+3. Check queue with !q
+4. Like/dislike with !like or !dislike
+5. Save songs with !save
+6. Use !playlist to see saved songs
+7. Use !priority <song> for priority request
+
+━━━━━━━━━━━━━━━━━━━━
+4. STARTER MUSIC REQUESTS
+━━━━━━━━━━━━━━━━━━━━
+
+Every new player gets:
+5 free music requests
+
+Add DB field/table:
+user_music_credits:
+- user_id
+- username
+- free_requests
+- purchased_requests
+- vip_requests
+- updated_at
+
+Default:
+free_requests = 5
+
+When a normal request is used:
+consume in this order:
+1. free_requests
+2. vip_requests
+3. purchased_requests
+
+If player has no request credits:
+❌ You’re out of music requests. Use !musicshop.
+
+Staff/admin/owner:
+- unlimited free normal requests
+- do not consume credits
+
+━━━━━━━━━━━━━━━━━━━━
+5. MUSIC REQUEST SHOP
+━━━━━━━━━━━━━━━━━━━━
+
+Add:
+
+!musicshop
+
+Player can buy music request credits using:
+- Chill Coins
+- Luxe Tickets
+
+Do NOT automatically charge unless command is clear.
+
+Commands:
+!buyrequests coins <amount>
+!buyrequests luxe <amount>
+
+Suggested pricing:
+5 requests = 500 Chill Coins
+10 requests = 900 Chill Coins
+25 requests = 2000 Chill Coins
+
+5 requests = 10 Luxe Tickets
+10 requests = 18 Luxe Tickets
+25 requests = 40 Luxe Tickets
+
+Admin configurable prices preferred.
+
+After purchase:
+✅ Bought {amount} music requests.
+Balance: {total} requests
+
+If insufficient funds:
+❌ Not enough Chill Coins/Luxe Tickets.
+
+If payment fails:
+❌ Purchase failed. Try again.
+
+━━━━━━━━━━━━━━━━━━━━
+6. PRIORITY REQUESTS
+━━━━━━━━━━━━━━━━━━━━
+
+Priority still costs:
+100 Luxe Tickets
+
+Command:
+!priority <song>
+
+Flow:
+1. Search results appear.
+2. User uses !pick #
+3. Charge 100 Luxe Tickets only after valid pick.
+4. If payment succeeds, add as priority.
+5. If download/upload fails, refund 100 Luxe Tickets.
+
+Staff/admin/owner:
+- priority requests are free
+
+Priority does NOT interrupt currently playing song.
+Priority plays after current song, before normal queue.
+
+Message:
+⭐ Priority added
+Title: {title}
+Artist: {artist}
+Cost: 100 Luxe Tickets
+
+━━━━━━━━━━━━━━━━━━━━
+7. VIP MUSIC REQUESTS
+━━━━━━━━━━━━━━━━━━━━
+
+VIP players get:
+20 music requests every 30 days / 1 month
+OR every time they purchase VIP pass.
+
+Add logic:
+- When VIP pass is purchased/activated:
+  add 20 vip_requests
+  set vip_request_grant_at = now
+  set vip_request_expires_at = now + 30 days if needed
+
+VIP requests:
+- consumed after free requests
+- before purchased requests
+
+Command:
+!myrequests
+
+Shows:
+🎵 Music Requests:
+Free: {free}
+VIP: {vip}
+Purchased: {purchased}
+Priority: 100 Luxe Tickets
+
+Staff/admin:
+🎵 Music Requests: Unlimited
+
+━━━━━━━━━━━━━━━━━━━━
+8. REQUEST CREDIT RULES
+━━━━━━━━━━━━━━━━━━━━
+
+Normal request requires 1 music request credit.
+
+These consume credits:
+!play
+!request
+!playmine
+
+These do NOT consume credits:
+!q
+!now
+!like
+!dislike
+!save
+!playlist
+!vibes
+!radiohelp
+!radiotutorial
+
+If download fails:
+refund the request credit.
+
+If user cancels before song prepares:
+refund if not already played.
+
+If song successfully enters queue:
+credit is consumed.
+
+━━━━━━━━━━━━━━━━━━━━
+9. ALIGN PLAYER MESSAGES
+━━━━━━━━━━━━━━━━━━━━
+
+Replace:
+“Added to UP NEXT”
+
+With:
+✅ Added to queue
+
+Format:
+✅ Added to queue
+Title: {title}
+Artist: {artist}
+Position: #{position}
+🎟 Requests left: {remaining}
+
+If staff:
+✅ Added to queue
+Title: {title}
+Artist: {artist}
+Position: #{position}
+Staff: Free
+
+Keep all messages under 255 chars.
+
+━━━━━━━━━━━━━━━━━━━━
+10. FIX REQUEST VS AUTODJ LABEL
+━━━━━━━━━━━━━━━━━━━━
+
+Requested songs must never show as:
+AutoDJ • Chill
+
+If current song matches request DB:
+show:
+🎵 Request
+🙋 @{requester}
+
+AutoDJ only if no request DB match:
+🌙 AutoDJ • {vibe}
+
+━━━━━━━━━━━━━━━━━━━━
+11. SEARCH RESULTS 255 CHAR FIX
+━━━━━━━━━━━━━━━━━━━━
+
+Search results must never exceed 255 chars.
+
+Clean titles:
+Remove:
+- Official Video
+- Official Music Video
+- Lyrics
+- Lyric Video
+- Audio
+- Visualizer
+- HD
+- 4K
+
+Max title length: 38 chars.
+
+If needed, show only 3–4 results instead of 5.
+
+Example:
+🎵 Results — !pick #:
+1. Super Bass - Nicki Minaj [3:39]
+2. Talking Body - Tove Lo [3:57]
+3. Firework - Katy Perry [3:54]
+
+━━━━━━━━━━━━━━━━━━━━
+12. DASHBOARD ALIGNMENT
+━━━━━━━━━━━━━━━━━━━━
+
+Dashboard should show:
+- Current song
+- Source: Request / AutoDJ
+- Likes/dislikes
+- Active vibe
+- Queue size
+- Ready/preparing count
+- Requests today
+- Top requester today
+- Music credits system health
+- Worker health
+
+Do not expose secrets.
+
+━━━━━━━━━━━━━━━━━━━━
+13. LOGS
+━━━━━━━━━━━━━━━━━━━━
+
+Add logs:
+stage=music_credit_check
+stage=music_credit_consume
+stage=music_credit_refund
+stage=music_shop_purchase
+stage=vip_request_grant
+stage=priority_charge
+stage=priority_refund
+stage=radio_help
+stage=radio_tutorial
+
+Include:
+user_id=
+username=
+amount=
+currency=
+request_id=
+title=
+artist=
+result=
+error=
+
+━━━━━━━━━━━━━━━━━━━━
+EXPECTED FINAL BEHAVIOR
+━━━━━━━━━━━━━━━━━━━━
+
+New player:
+- gets 5 free music requests
+
+Normal player:
+- uses credits for !play / !request
+- can buy more with Chill Coins or Luxe Tickets
+
+VIP:
+- gets 20 requests per 30 days/month or per VIP purchase
+
+Staff/admin/owner:
+- normal requests free
+- priority requests free
+- can still manage vibe
+
+Priority:
+- costs 100 Luxe Tickets
+- jumps ahead of normal queue
+- does not interrupt current song
+
+DJ_DUDU:
+- handles all radio commands
+- clean help/tutorial
+- no long broken messages
+- requested songs show as Request, not AutoDJ

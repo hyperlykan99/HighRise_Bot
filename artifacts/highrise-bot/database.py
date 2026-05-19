@@ -3332,6 +3332,22 @@ def _migrate_db():
     except Exception:
         pass
 
+    # Music request credit system — per-player credit wallet
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_music_credits (
+                user_id            TEXT    NOT NULL PRIMARY KEY,
+                username           TEXT    NOT NULL DEFAULT '' COLLATE NOCASE,
+                free_requests      INTEGER NOT NULL DEFAULT 5,
+                purchased_requests INTEGER NOT NULL DEFAULT 0,
+                vip_requests       INTEGER NOT NULL DEFAULT 0,
+                total_used         INTEGER NOT NULL DEFAULT 0,
+                updated_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

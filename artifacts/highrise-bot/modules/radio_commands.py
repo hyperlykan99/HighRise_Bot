@@ -39,6 +39,7 @@ import database as db
 import modules.azuracast_controller as azura
 import modules.config_store         as cs
 import modules.dj_announcer         as ann
+import modules.music_credits        as mc
 import modules.payment_service      as ps
 import modules.request_queue        as rq
 import modules.playback_engine      as engine
@@ -264,16 +265,21 @@ def _progress_bar(elapsed: int, total: int, cells: int = 10) -> str:
 
 # ─── Title noise stripper (for search results display) ────────────────────────
 _TITLE_NOISE = re.compile(
-    r"\s*[\(\[]\s*(?:official\s+(?:music\s+)?(?:video|audio|lyric\s+video|visualizer)"
+    r"\s*[\(\[]\s*(?:official\s+(?:music\s+)?(?:video|audio|lyric(?:\s+video)?|visualizer)"
     r"|lyric(?:s|\s+video)?|visualizer|audio|hd|4k|full\s+(?:video|song)"
-    r"|official)\s*[\)\]]\s*",
+    r"|official)\s*[\)\]]\s*"
+    r"|\s*\|\s*(?:official\s+(?:music\s+)?(?:video|audio)|lyric(?:s|\s+video)?|hd|4k)\s*$"
+    r"|\s+(?:official\s+(?:music\s+)?(?:video|audio)|official\s+lyric(?:\s+video)?)\s*$",
     re.IGNORECASE,
 )
+_TRAILING_SEP = re.compile(r"[\s\-–|]+$")
 
 
 def _clean_title(title: str) -> str:
-    """Strip common YouTube noise for compact display (Official Video, Lyrics, etc.)."""
-    return _TITLE_NOISE.sub(" ", title).strip()
+    """Strip common YouTube noise for compact display. Max 38 chars after cleaning."""
+    cleaned = _TITLE_NOISE.sub("", title)
+    cleaned = _TRAILING_SEP.sub("", cleaned).strip()
+    return cleaned
 
 
 async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
@@ -351,10 +357,31 @@ async def _submit_url(
             )
             return
 
+    # Music request credit check (non-staff, non-priority only)
+    _credit_consumed = False
+    if not is_staff and not priority:
+        print(
+            f"[RADIO_CMD] stage=music_credit_check"
+            f" user_id={uid!r} username={uname!r}"
+        )
+        if not mc.has_credits(uid, uname):
+            await _w(
+                bot, uid,
+                "❌ You're out of music requests. Use !musicshop to buy more.\n"
+                "Free credits: 5 | Packs from 500 coins or 10 Luxe Tickets.",
+            )
+            return
+        if not mc.consume_credit(uid, uname):
+            await _w(bot, uid, "❌ You're out of music requests. Use !musicshop.")
+            return
+        _credit_consumed = True
+
     # Price + payment
     price = ps.request_cost_for(uname)
     ok, err = ps.charge(uid, price)
     if not ok:
+        if _credit_consumed:
+            mc.refund_credit(uid, uname)
         await _w(bot, uid, f"💸 {err}")
         return
 
@@ -365,8 +392,8 @@ async def _submit_url(
     _pos = rq.future_count() + 1
 
     # Confirmation whisper — spec format (title/artist only when known from !pick)
-    _title  = ((metadata.get("title")  or "") if metadata else "")[:55]
-    _artist = ((metadata.get("artist") or metadata.get("uploader") or "") if metadata else "")[:30]
+    _title  = ((metadata.get("title")  or "") if metadata else "")[:50]
+    _artist = ((metadata.get("artist") or metadata.get("uploader") or "") if metadata else "")[:28]
     _header = "⭐ Priority added" if priority else "✅ Added to queue"
     _lines  = [_header]
     if _title:
@@ -374,8 +401,13 @@ async def _submit_url(
     if _artist:
         _lines.append(f"Artist: {_artist}")
     _lines.append(f"Position: #{_pos}")
-    _lines.append(f"🙋 @{uname[:20]}")
-    _lines.append("📻 ChillTopia Radio")
+    if is_staff:
+        _lines.append("Staff: Free")
+    elif priority:
+        _lines.append("⭐ Priority")
+    else:
+        _remaining = mc.get_credits(uid, uname)["total"]
+        _lines.append(f"🎟 Requests left: {_remaining}")
     await _w(bot, uid, "\n".join(_lines)[:249])
 
     # Launch pipeline
@@ -443,7 +475,7 @@ async def handle_request(
     lines   = ["🎵 Pick a result — reply !pick <1-5>:"]
     for i, r in enumerate(results, 1):
         flag  = " ⚠️" if r.get("duration_secs", 0) > cs.MAX_DURATION_SECS else ""
-        clean = _clean_title(r["title"])[:36]
+        clean = _clean_title(r["title"])[:38]
         lines.append(f"{i}. {clean} [{r.get('duration', '?')}]{flag}")
     lines.append(f"(Max {max_min}m)")
     await _w(bot, user.id, "\n".join(lines)[:249])
@@ -529,7 +561,7 @@ async def handle_priority(bot: "BaseBot", user: "User", args: list) -> None:
     lines   = [f"⭐ Priority — pick a result (!pick <1-5>, costs {cost} tickets):"]
     for i, r in enumerate(results, 1):
         flag  = " ⚠️" if r.get("duration_secs", 0) > cs.MAX_DURATION_SECS else ""
-        clean = _clean_title(r["title"])[:36]
+        clean = _clean_title(r["title"])[:38]
         lines.append(f"{i}. {clean} [{r.get('duration', '?')}]{flag}")
     lines.append(f"(Max {max_min}m)")
     await _w(bot, user.id, "\n".join(lines)[:249])
@@ -961,9 +993,10 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
     else:
         job = user_jobs[0]
 
-    jid   = job["id"]
-    title = (job.get("title") or "in progress")[:40]
-    coins = job.get("coins_charged", 0)
+    jid        = job["id"]
+    title      = (job.get("title") or "in progress")[:40]
+    coins      = job.get("coins_charged", 0)
+    is_priority = bool(job.get("priority", 0))
 
     cancelled = rq.cancel_job(jid, "cancelled_by_user")
     if not cancelled:
@@ -974,6 +1007,11 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
     if coins > 0:
         ps.refund(uid, coins, "cancelled_by_user")
         note = f"\n💸 {coins:,} coins refunded."
+
+    # Refund music request credit (non-staff, non-priority requests only)
+    if not _is_staff(user.username) and not is_priority:
+        mc.refund_credit(uid, user.username)
+        note += "\n🎟 1 music request refunded."
 
     loop = asyncio.get_running_loop()
     fid  = (job.get("azura_file_id") or "").strip()
@@ -1370,15 +1408,186 @@ async def handle_setrequestprice(bot: "BaseBot", user: "User", args: list) -> No
 # ─── !radiohelp ───────────────────────────────────────────────────────────────
 
 async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!radiohelp — whisper the radio command reference card."""
-    price    = cs.request_price()
-    cost_str = f"{price:,} coins" if price else "free"
+    """!radiohelp — compact command reference card (≤249 chars)."""
+    print(f"[RADIO_CMD] stage=radio_help user_id={user.id!r} username={user.username!r}")
     await _w(
         bot, user.id,
-        f"📻 DJ DUDU commands:\n"
-        f"!request <song/URL> ({cost_str}) | !pick <1-5>\n"
-        f"!q | !now | !voteskip | !cancel | !radiohelp",
+        "🎧 DJ_DUDU Help:\n"
+        "!play song, !pick #, !q, !now\n"
+        "!like, !dislike, !save, !playlist\n"
+        "!vibes, !priority song, !myrequests\n"
+        "Need help? !radiotutorial",
     )
+
+
+# ─── !radiotutorial ───────────────────────────────────────────────────────────
+
+async def handle_radiotutorial(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!radiotutorial — step-by-step guide sent as whispers (≤249 chars each)."""
+    print(f"[RADIO_CMD] stage=radio_tutorial user_id={user.id!r} username={user.username!r}")
+    steps = [
+        "🎧 DJ_DUDU Tutorial (1/7)\n"
+        "Step 1: Search for a song\n"
+        "→ !play <song name>  e.g. !play blinding lights",
+
+        "🎧 Tutorial (2/7)\n"
+        "Step 2: Pick from search results\n"
+        "→ !pick 1  (or 2, 3, 4, 5)\n"
+        "The song will start downloading!",
+
+        "🎧 Tutorial (3/7)\n"
+        "Step 3: Check the queue\n"
+        "→ !q   to see what's queued\n"
+        "→ !now to see what's playing",
+
+        "🎧 Tutorial (4/7)\n"
+        "Step 4: Rate the music\n"
+        "→ !like    to like current song\n"
+        "→ !dislike to dislike",
+
+        "🎧 Tutorial (5/7)\n"
+        "Step 5: Save songs you love\n"
+        "→ !save          saves current song\n"
+        "→ !playlist      see your saved songs\n"
+        "→ !playmine #    re-play a saved song",
+
+        "🎧 Tutorial (6/7)\n"
+        "Step 6: Priority requests\n"
+        "→ !priority <song>  costs 100 Luxe Tickets\n"
+        "Plays after current song, before the queue.",
+
+        "🎧 Tutorial (7/7)\n"
+        "Step 7: Credits & shop\n"
+        "→ !myrequests  check your request credits\n"
+        "→ !musicshop   buy more request credits\n"
+        "New players get 5 free requests!",
+    ]
+    for step in steps:
+        await _w(bot, user.id, step)
+        await asyncio.sleep(0.3)
+
+
+# ─── !musicshop ───────────────────────────────────────────────────────────────
+
+async def handle_musicshop(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!musicshop — show music request credit pricing."""
+    print(f"[RADIO_CMD] stage=music_shop_view user_id={user.id!r} username={user.username!r}")
+    if _is_staff(user.username):
+        await _w(bot, user.id, "🎵 Staff have unlimited requests. No shop needed!")
+        return
+    credits = mc.get_credits(user.id, user.username)
+    bal_line = (
+        f"Free: {credits['free']} | VIP: {credits['vip']} | Bought: {credits['purchased']}"
+    )
+    await _w(
+        bot, user.id,
+        f"🎵 Music Request Shop\n"
+        f"Balance → {bal_line}\n"
+        f"Chill Coins:  5→500  10→900  25→2000\n"
+        f"Luxe Tickets: 5→10   10→18   25→40\n"
+        f"Buy: !buyrequests coins 5  or  !buyrequests luxe 10",
+    )
+
+
+# ─── !buyrequests ─────────────────────────────────────────────────────────────
+
+_BR_COINS = mc.SHOP_COINS   # {5: 500, 10: 900, 25: 2000}
+_BR_LUXE  = mc.SHOP_LUXE    # {5: 10,  10: 18,  25: 40}
+_BR_VALID = sorted(_BR_COINS.keys())   # [5, 10, 25]
+
+
+async def handle_buyrequests(bot: "BaseBot", user: "User", args: list) -> None:
+    """
+    !buyrequests coins <5|10|25>   — buy request credits with Chill Coins
+    !buyrequests luxe  <5|10|25>   — buy request credits with Luxe Tickets
+    """
+    uid   = user.id
+    uname = user.username
+
+    if _is_staff(uname):
+        await _w(bot, uid, "🎵 Staff have unlimited requests — no purchase needed!")
+        return
+
+    usage = (
+        f"Usage:\n"
+        f"!buyrequests coins <{'/'.join(str(x) for x in _BR_VALID)}>\n"
+        f"!buyrequests luxe  <{'/'.join(str(x) for x in _BR_VALID)}>\n"
+        f"Use !musicshop to see prices."
+    )
+
+    if len(args) < 3:
+        await _w(bot, uid, usage)
+        return
+
+    currency = args[1].lower()
+    if currency not in ("coins", "luxe"):
+        await _w(bot, uid, usage)
+        return
+
+    if not args[2].isdigit():
+        await _w(bot, uid, usage)
+        return
+
+    amount = int(args[2])
+    if amount not in _BR_COINS:
+        await _w(
+            bot, uid,
+            f"❌ Pack size must be {', '.join(str(x) for x in _BR_VALID)}.\n{usage}",
+        )
+        return
+
+    if currency == "coins":
+        price = _BR_COINS[amount]
+        ok, err = ps.charge(uid, price)
+        if not ok:
+            await _w(bot, uid, f"❌ Not enough Chill Coins. Need {price:,}.\n{err[:60]}")
+            return
+        mc.add_credits(uid, uname, amount, "purchased")
+        total = mc.get_credits(uid, uname)["total"]
+        print(
+            f"[RADIO_CMD] stage=music_shop_purchase"
+            f" user_id={uid!r} username={uname!r}"
+            f" amount={amount} currency=coins price={price}"
+        )
+        await _w(
+            bot, uid,
+            f"✅ Bought {amount} music requests.\n"
+            f"Balance: {total} requests\n"
+            f"Cost: {price:,} Chill Coins",
+        )
+
+    else:  # luxe
+        price = _BR_LUXE[amount]
+        bal   = get_luxe_balance(uid)
+        if bal < price:
+            await _w(
+                bot, uid,
+                f"❌ Not enough Luxe Tickets. Need {price}, you have {bal}.",
+            )
+            return
+        if not deduct_luxe_balance(uid, uname, price):
+            await _w(bot, uid, "❌ Purchase failed. Try again.")
+            return
+        try:
+            log_luxe_transaction(
+                uid, uname, "musicshop_requests", price, "luxe_tickets",
+                f"Bought {amount} music requests",
+            )
+        except Exception:
+            pass
+        mc.add_credits(uid, uname, amount, "purchased")
+        total = mc.get_credits(uid, uname)["total"]
+        print(
+            f"[RADIO_CMD] stage=music_shop_purchase"
+            f" user_id={uid!r} username={uname!r}"
+            f" amount={amount} currency=luxe price={price}"
+        )
+        await _w(
+            bot, uid,
+            f"✅ Bought {amount} music requests.\n"
+            f"Balance: {total} requests\n"
+            f"Cost: {price} Luxe Tickets",
+        )
 
 
 # ─── !like ────────────────────────────────────────────────────────────────────
@@ -1696,30 +1905,25 @@ async def handle_playmine(bot: "BaseBot", user: "User", args: list) -> None:
 # ─── !myrequests ─────────────────────────────────────────────────────────────
 
 async def handle_myrequests(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!myrequests — show your active and recent requests from the unified queue."""
+    """!myrequests — show music request credit balance."""
     _rlog("myrequests", "handle_myrequests", user.username)
-    rows = _user_job_history(user.id, limit=6)
-    if not rows:
-        await _w(bot, user.id, "📋 You have no requests yet. Try !request <song>!")
+    if _is_staff(user.username):
+        await _w(
+            bot, user.id,
+            "🎵 Music Requests: Unlimited\n"
+            "Priority: Free (Staff)",
+        )
         return
-    _ACTIVE_ST = {"pending", "downloading", "uploading", "staged", "done", "queued", "playing"}
-    _ICON = {
-        "pending": "⏳", "downloading": "⬇️", "uploading": "📤",
-        "staged": "📦", "done": "✅", "queued": "📋", "playing": "▶",
-        "played": "✅", "error": "❌",
-    }
-    active  = [r for r in rows if r["status"] in _ACTIVE_ST]
-    history = [r for r in rows if r["status"] not in _ACTIVE_ST]
-    lines: list = []
-    if active:
-        lines.append(f"🎵 Active ({len(active)}):")
-        for r in active:
-            lines.append(f"  {_ICON.get(r['status'], '•')} {r['title'][:42]}")
-    if history:
-        lines.append("📜 Recent:")
-        for r in history[:3]:
-            lines.append(f"  {_ICON.get(r['status'], '•')} {r['title'][:46]}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    c = mc.get_credits(user.id, user.username)
+    await _w(
+        bot, user.id,
+        f"🎵 Music Requests:\n"
+        f"Free: {c['free']}\n"
+        f"VIP: {c['vip']}\n"
+        f"Purchased: {c['purchased']}\n"
+        f"Priority: 100 Luxe Tickets\n"
+        f"Buy more: !musicshop",
+    )
 
 
 # ─── Startup ──────────────────────────────────────────────────────────────────
@@ -1789,6 +1993,9 @@ handle_vibes           = _safe(handle_vibes)
 handle_vibe            = _safe(handle_vibe)
 handle_setrequestprice = _safe(handle_setrequestprice)
 handle_radiohelp       = _safe(handle_radiohelp)
+handle_radiotutorial   = _safe(handle_radiotutorial)
+handle_musicshop       = _safe(handle_musicshop)
+handle_buyrequests     = _safe(handle_buyrequests)
 handle_like            = _safe(handle_like)
 handle_dislike         = _safe(handle_dislike)
 handle_favorite        = _safe(handle_favorite)
