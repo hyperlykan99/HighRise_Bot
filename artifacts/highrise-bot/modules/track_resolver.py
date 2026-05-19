@@ -15,7 +15,15 @@ Two public functions that every caller must use:
       ALL systems (announcer, !now, overlays, queue) must use this — never
       build their own rendering logic.
 
-Debug output:
+Resolution order for request detection:
+  1. engine.get_live_request()     — in-memory _live_req (fastest, set by poller)
+  2. engine.match_and_recover()    — 7-strategy DB match against NP identifiers
+  3. Direct DB playing sweep       — any job with status='playing' (race-condition guard)
+  4. Requests/ path safety net     — if NP path starts with Requests/, it IS a request;
+                                     try filename DB lookup, fall back to "Requested"
+
+Debug logs:
+  [NOW_RESOLVE] step=…  result=…  (per step)
   [NOW_RESOLVE] title=… media_id=… path=… matched_request=… source=… vibe=…
 """
 from __future__ import annotations
@@ -29,7 +37,7 @@ if TYPE_CHECKING:
     pass
 
 
-# ─── Ratings helper (mirrors radio_commands._ratings, avoids circular import) ──
+# ─── Internal helpers ─────────────────────────────────────────────────────────
 
 def _get_ratings(song_key: str) -> dict:
     """Return {'likes': N, 'dislikes': N} for a song_key from dj_ratings."""
@@ -52,16 +60,67 @@ def _get_ratings(song_key: str) -> dict:
         return {"likes": 0, "dislikes": 0}
 
 
-# ─── Vibe resolution ──────────────────────────────────────────────────────────
+def _db_playing_sweep() -> "dict | None":
+    """
+    Step 3 safety net: direct DB query for any job with status='playing'.
+    This catches the case where engine._db_find_playing() succeeded but
+    get_live_request() somehow returned None (cross-bot memory isolation,
+    restart timing, etc.).
+    Returns a minimal dict with keys: id, username, title, artist=''.
+    """
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT id, username, title "
+                "FROM yt_request_jobs "
+                "WHERE status='playing' AND played_at IS NULL "
+                "ORDER BY id DESC LIMIT 1",
+            ).fetchone()
+        if row:
+            return {"id": row[0], "username": row[1] or "", "title": row[2] or "", "artist": ""}
+    except Exception as exc:
+        print(f"[NOW_RESOLVE] step=db_playing_sweep error={exc!r}")
+    return None
+
+
+def _db_request_by_filename(filename: str, np_title: str) -> "dict | None":
+    """
+    Step 4 helper: find a request job matching filename or title.
+    Looks at active + recently played rows (played_at within last 10 min) so
+    we don't miss a request that was cleaned up slightly before this call.
+    Returns a minimal dict with keys: id, username, title, artist=''.
+    """
+    if not filename and not np_title:
+        return None
+    try:
+        fn = filename.lower()
+        tl = np_title.lower()
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT id, username, title "
+                "FROM yt_request_jobs "
+                "WHERE ("
+                "  (played_at IS NULL) OR "
+                "  (played_at >= datetime('now', '-10 minutes'))"
+                ") AND ("
+                "  lower(filename)=? OR lower(filename) LIKE ? OR lower(title)=?"
+                ") "
+                "ORDER BY id DESC LIMIT 1",
+                (fn, f"%{fn}%", tl),
+            ).fetchone()
+        if row:
+            return {"id": row[0], "username": row[1] or "", "title": row[2] or "", "artist": ""}
+    except Exception as exc:
+        print(f"[NOW_RESOLVE] step=db_filename_lookup error={exc!r}")
+    return None
+
 
 def _resolve_vibe(active_vibe: str, playlist_name: str) -> str:
     """
-    Resolve the current vibe label.
-
-    Order (per spec):
-      1. Active vibe explicitly set by !vibe  (config_store.vibe())
-      2. AzuraCast playlist name              (from NP API, skip 'Requests')
-      3. Fallback "AutoDJ"
+    Vibe resolution order per spec:
+      1. Active vibe from !vibe command (config_store.vibe())
+      2. AzuraCast playlist name  (skip 'Requests' playlist)
+      3. 'AutoDJ' fallback
 
     Never returns empty string.
     """
@@ -69,7 +128,6 @@ def _resolve_vibe(active_vibe: str, playlist_name: str) -> str:
     if v and v.lower() not in ("", "autodj"):
         return v
 
-    # Step 2: AzuraCast NP playlist name
     p = (playlist_name or "").strip()
     if p and p.lower() not in ("requests", ""):
         return p
@@ -83,28 +141,19 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
     """
     Determine the current playback state and return a fully-populated dict.
 
-    Fields:
+    Return keys:
       title, artist, duration, elapsed,
       media_id, song_id, unique_id, path, filename, playlist,
       source ('request' | 'autodj'),
       requester (str | None), request_id (int | None),
-      vibe (str),
-      started_at (float epoch),
+      vibe (str), started_at (float epoch),
       likes (int), dislikes (int)
 
-    Request detection order (mirroring _db_match_request):
-      1. media_id     — azura_file_id match
-      2. song_id      — AzuraCast song.id / unique_id
-      3. path starts with Requests/
-      4. filename match
-      5. youtube_id in path
-      6. normalised title+artist substring
-      7. fuzzy title fallback
-    All strategies are handled by the existing engine.get_live_request() →
-    engine.match_and_recover() chain, which wraps _db_match_request.
-
-    Logs:
-      [NOW_RESOLVE] title= media_id= path= matched_request= source= vibe=
+    Detection order (request wins if ANY step matches):
+      1. engine.get_live_request()  — in-memory _live_req
+      2. engine.match_and_recover() — 7-strategy DB match vs NP identifiers
+      3. Direct DB playing sweep    — any status='playing' job (cross-bot guard)
+      4. Requests/ path safety net  — NP path is definitively a user request
     """
     import modules.azuracast_controller as azura
     import modules.config_store         as cs
@@ -129,10 +178,12 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
     filename = path.rsplit("/", 1)[-1] if path else ""
     playlist = (np_obj.get("playlist") or "").strip()
 
-    # ── 2. Try in-memory live request cache ───────────────────────────────────
+    # ── Step 1: in-memory live request cache ──────────────────────────────────
     cp = engine.get_live_request()
+    print(f"[NOW_RESOLVE] step=get_live_request result={'found' if cp else 'none'}"
+          f" title={title!r} media_id={media_id!r} path={path!r}")
 
-    # ── 3. Self-correct: multi-strategy DB match if cache is empty ───────────
+    # ── Step 2: multi-strategy DB match ───────────────────────────────────────
     if cp is None:
         cp = engine.match_and_recover(
             song_id    = song_id,
@@ -142,11 +193,29 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
             media_path = path,
             np_artist  = artist,
         )
+        print(f"[NOW_RESOLVE] step=match_and_recover result={'found' if cp else 'none'}")
 
-    # ── 4. Build track dict ───────────────────────────────────────────────────
+    # ── Step 3: direct DB playing sweep (cross-bot / race-condition guard) ────
+    if cp is None:
+        cp = _db_playing_sweep()
+        print(f"[NOW_RESOLVE] step=db_playing_sweep result={'found' if cp else 'none'}")
+
+    # ── Step 4: Requests/ path safety net ─────────────────────────────────────
+    # AzuraCast serves user request files from the Requests/ folder.
+    # If NP media path starts with Requests/, this IS a user request by
+    # definition — show REQUEST LIVE even if DB match fails.
+    if cp is None and path.lower().startswith("requests/"):
+        cp = _db_request_by_filename(filename, title)
+        if cp is None:
+            # Path proves it's a request; requester unknown
+            cp = {"id": None, "username": "", "title": title, "artist": artist}
+        print(f"[NOW_RESOLVE] step=path_safety_net path={path!r}"
+              f" result={'found' if cp else 'none'}")
+
+    # ── Build and return track dict ───────────────────────────────────────────
     if cp:
         req_title  = (cp.get("title")    or "").strip() or title
-        req_artist = (cp.get("artist")   or artist or "").strip()
+        req_artist = (cp.get("artist")   or artist      or "").strip()
         req_uname  = (cp.get("username") or "").strip()
         job_id     = cp.get("job_id") or cp.get("id")
         started    = float(cp.get("started_at") or 0.0)
@@ -154,12 +223,8 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
         counts     = _get_ratings(song_key)
 
         print(
-            f"[NOW_RESOLVE] title={req_title!r}"
-            f" media_id={media_id!r}"
-            f" path={path!r}"
-            f" matched_request=True"
-            f" source=request"
-            f" vibe=n/a"
+            f"[NOW_RESOLVE] matched_request=True source=request"
+            f" requester={req_uname!r} request_id={job_id}"
         )
         return {
             "title":      req_title,
@@ -181,19 +246,13 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
             "dislikes":   counts["dislikes"],
         }
     else:
-        import modules.config_store as cs  # re-import to avoid name shadowing
         vibe     = _resolve_vibe(cs.vibe(), playlist)
         song_key = title.lower()[:150] if title != "Unknown" else ""
         counts   = _get_ratings(song_key)
         started  = (time.time() - elapsed) if elapsed > 0 else 0.0
 
         print(
-            f"[NOW_RESOLVE] title={title!r}"
-            f" media_id={media_id!r}"
-            f" path={path!r}"
-            f" matched_request=False"
-            f" source=autodj"
-            f" vibe={vibe!r}"
+            f"[NOW_RESOLVE] matched_request=False source=autodj vibe={vibe!r}"
         )
         return {
             "title":      title,
@@ -220,24 +279,25 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
 
 def render_now_playing(track: dict, *, station: str = "ChillTopia Radio") -> str:
     """
-    Canonical renderer for all now-playing displays.
-    Returns a UTF-8 string of ≤249 chars.
+    Canonical renderer for ALL now-playing displays.
 
     source == 'request':
       ▶ REQUEST LIVE
       Title: {title}
-      Artist: {artist}          ← omitted if empty
-      👤 @{requester}           ← '👤 Requested' if requester unknown
+      Artist: {artist}      ← omitted if empty
+      👤 @{requester}       ← '👤 Requested' if requester unknown
       👍 {likes} 👎 {dislikes}
       📻 {station}
 
     source == 'autodj':
       ▶ NOW PLAYING
       Title: {title}
-      Artist: {artist}          ← omitted if empty
-      {vibe_line}               ← "🌙 AutoDJ • Chill" etc.
+      Artist: {artist}      ← omitted if empty
+      {vibe_line}           ← e.g. "🌙 AutoDJ • Chill", never hardcoded
       👍 {likes} 👎 {dislikes}
       📻 {station}
+
+    Returns a UTF-8 string ≤249 chars.
     """
     from modules.dj_announcer import _VIBE_LINE
 
