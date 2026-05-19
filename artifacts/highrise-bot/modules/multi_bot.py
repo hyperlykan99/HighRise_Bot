@@ -345,6 +345,25 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "djcheck": "dj", "djhealth": "dj",
     "djresetstate": "dj", "djbackup": "dj",
     "djtestall": "dj",
+    # ── dj — playlist / saved songs ─────────────────────────────────────────
+    "priority": "dj",
+    "vibes": "dj",
+    "save": "dj",
+    "mysongs": "dj", "playlist": "dj", "myplaylist2": "dj",
+    "playmine": "dj",
+    "removefav": "dj", "delfav": "dj", "deletefav": "dj",
+    # ── dj — voting / ratings ────────────────────────────────────────────────
+    "likes": "dj", "votes": "dj",
+    "voters": "dj",
+    "likeslist": "dj", "dislikeslist": "dj",
+    # ── dj — history / discovery ─────────────────────────────────────────────
+    "playedby": "dj",
+    "myplayed": "dj", "myrequested": "dj",
+    # ── dj — queue management ────────────────────────────────────────────────
+    "cancel": "dj",
+    # ── dj — config ──────────────────────────────────────────────────────────
+    "queuelimit": "dj", "setqueuelimit": "dj",
+    "setrequestprice": "dj",
     # ── eventhost ───────────────────────────────────────────────────────────
     "events": "eventhost", "event": "eventhost",
     "nextevent": "eventhost", "next": "eventhost",

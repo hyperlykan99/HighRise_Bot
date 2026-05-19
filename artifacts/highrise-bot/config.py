@@ -76,7 +76,7 @@ DB_PATH: str = os.environ.get("SHARED_DB_PATH", "highrise_hangout.db")
 # Default "all" means one bot handles every command (backwards-compatible).
 # ---------------------------------------------------------------------------
 BOT_ID:       str = os.environ.get("BOT_ID",       "main")
-BOT_MODE:     str = os.environ.get("BOT_MODE",     "all")
+BOT_MODE:     str = os.environ.get("BOT_MODE",     "all").strip().lower()
 BOT_USERNAME: str = os.environ.get("BOT_USERNAME", "")
 
 # Extra modes this process covers because it merged a duplicate-token bot.

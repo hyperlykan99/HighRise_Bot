@@ -3408,6 +3408,8 @@ class HangoutBot(BaseBot):
     async def on_start(self, session_metadata) -> None:
         """Called once when the bot successfully connects to the room."""
         print(f"[SDK] bot mode={BOT_MODE} ready")
+        if BOT_MODE == "dj":
+            print(f"[DJ MODE ACTIVE] mode={BOT_MODE} — music/radio commands enabled")
         print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
         print(f"[HangoutBot] SDK version: {_TIP_SDK_VERSION}")
         print(f"[HangoutBot] Run command: cd artifacts/highrise-bot && python3 bot.py")
@@ -7356,6 +7358,7 @@ class HangoutBot(BaseBot):
             pass  # non-DJ bot silently ignores all music/radio commands
 
         elif cmd in ("play", "request", "sr", "req", "song", "requesy"):
+            print(f"[RADIO CMD] bot={config.BOT_USERNAME!r} mode={BOT_MODE} cmd={cmd!r}")
             await rc_request(self, user, args)
         elif cmd in ("pick", "djpick"):
             if has_pending_yt_search(user.id):
