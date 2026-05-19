@@ -799,13 +799,10 @@ async def handle_sdkokemotes(bot: "BaseBot", user: "User", args: list) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_resolveemote(bot: "BaseBot", user: "User", args: list) -> None:
-    """!resolveemote <name> — show which emote ID is selected and via which tier.
+    """!resolveemote <name> — trace 4-tier resolution and show which ID is selected.
 
-    Resolution tiers:
-      1. alias-override  — explicit override in _ALIAS_OVERRIDES
-      2. verified-map    — auto-generated from VERIFIED_WORKING_EMOTES
-      3. static-alias    — EMOTE_REGISTRY / emote_registry catalog
-      4. sdk-experimental — SDK-accepted during scan but not verified
+    Output shows the alias found, canonical ID, and which source tier matched:
+      verified (alias_override / verified_map) | static_alias | experimental
     """
     uid   = user.id
     uname = user.username
@@ -817,58 +814,51 @@ async def handle_resolveemote(bot: "BaseBot", user: "User", args: list) -> None:
             "Usage: !resolveemote <name>  e.g. !resolveemote aerobics")
         return
 
-    import re as _re_local
-    from data.verified_working_emotes import _ALIAS_OVERRIDES, WORKING_EMOTE_MAP, get_verified_set
-    from modules.emote_system import lookup_emote
+    from data.verified_working_emotes import get_verified_set
+    from modules.emote_system import resolve_emote_full
 
-    raw  = args[1].strip()
-    norm = _re_local.sub(r"[^a-z0-9]", "", raw.lower())
-    verified = get_verified_set()
-    eid  = None
-    tier = None
+    raw      = args[1].strip()
+    allow_exp = False  # show what !botemote would do without experimental flag
 
-    # Tier 1: explicit alias overrides (highest priority)
-    if norm in _ALIAS_OVERRIDES:
-        eid  = _ALIAS_OVERRIDES[norm]
-        tier = "1/alias-override"
+    eid, tier = resolve_emote_full(raw, allow_experimental=allow_exp)
 
-    # Tier 2: verified working map (auto-generated; overrides already applied)
+    # Also check with experimental on so we can surface that info
     if not eid:
-        candidate = WORKING_EMOTE_MAP.get(norm)
-        if candidate and norm not in _ALIAS_OVERRIDES:
-            eid  = candidate
-            tier = "2/verified-map"
+        eid_exp, tier_exp = resolve_emote_full(raw, allow_experimental=True)
+    else:
+        eid_exp, tier_exp = eid, tier
 
-    # Tier 3: static aliases + emote_registry
-    if not eid:
-        eid_static = lookup_emote(raw)
-        if eid_static:
-            eid  = eid_static
-            tier = "3/static-alias"
-
-    # Tier 4: SDK experimental cache
-    if not eid:
-        for cached_eid, info in _CACHE["emotes"].items():
-            if info.get("status") == "sdk_accepted_needs_visual":
-                short_norm = _re_local.sub(
-                    r"[^a-z0-9]", "",
-                    cached_eid.replace("emote-", "").lower()
-                )
-                if short_norm == norm:
-                    eid  = cached_eid
-                    tier = "4/sdk-experimental"
-                    break
-
-    if not eid:
+    if not eid_exp:
         await _w(bot, uid,
-            f"❓ No match for '{raw}' at any tier. "
+            f"❓ '{raw}': no match at any tier. "
             f"Not in verified list or SDK cache.")
         return
 
-    in_verified = eid in verified
-    ver_str     = "✅ in verified list" if in_verified else "⚠️ NOT in verified list"
-    await _w(bot, uid,
-        f"🔍 '{raw}' → {eid}\nTier: {tier} | {ver_str}"[:249])
+    verified  = get_verified_set()
+    short     = eid_exp.replace("emote-", "")
+    in_ver    = eid_exp in verified
+
+    _TIER_LABEL = {
+        "alias_override": "verified (alias-override)",
+        "verified":       "verified (working-map)",
+        "static_alias":   "static-alias",
+        "experimental":   "sdk-experimental",
+    }
+    src_label = _TIER_LABEL.get(tier_exp, tier_exp)
+
+    if eid:  # found in normal (non-experimental) path
+        ver_str = "✅ verified" if in_ver else "⚠️ not in verified list"
+        await _w(bot, uid,
+            f"'{raw}'\n→ alias found\n"
+            f"→ canonical id: {short}\n"
+            f"→ source: {src_label} | {ver_str}"[:249])
+    else:
+        # Only found via experimental tier
+        await _w(bot, uid,
+            f"'{raw}'\n→ alias found (experimental only)\n"
+            f"→ canonical id: {short}\n"
+            f"→ source: {src_label} | "
+            f"Use !setexperimentalemotes on to allow"[:249])
 
 
 # ---------------------------------------------------------------------------

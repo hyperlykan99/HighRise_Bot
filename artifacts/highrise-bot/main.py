@@ -910,6 +910,7 @@ from modules.emote_system import (
     on_player_leave as emote_on_leave,
     handle_emotes_auto,
     handle_botemote,
+    handle_botemoteid,
     handle_stopbotemote,
     startup_bot_emote_recovery,
     handle_punch_emote,
@@ -1342,7 +1343,7 @@ ALL_KNOWN_COMMANDS = (
         # ── Room utility — public ─────────────────────────────────────────────
         "players", "roomlist", "online", "staffonline", "vipsinroom", "rolelist",
         "emotes", "emote", "stopemote", "dance", "wave", "sit", "clap",
-        "swordfight", "botemote", "stopbotemote",
+        "swordfight", "botemote", "botemoteid", "stopbotemote",
         "heart", "hearts", "heartlb", "giveheart", "reactheart",
         "hug", "kiss", "slap", "punch", "highfive", "boop", "waveat", "cheer",
         "social", "blocksocial", "unblocksocial", "socialhelp",
@@ -7447,6 +7448,8 @@ class HangoutBot(BaseBot):
             await handle_testemote(self, user, args)
         elif cmd == "botemote":
             await handle_botemote(self, user, args)
+        elif cmd == "botemoteid":
+            await handle_botemoteid(self, user, args)
         elif cmd == "stopbotemote":
             await handle_stopbotemote(self, user, args)
         elif cmd in (

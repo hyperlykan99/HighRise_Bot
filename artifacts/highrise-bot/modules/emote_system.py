@@ -327,6 +327,60 @@ def lookup_emote(name: str) -> str | None:
     return None
 
 
+def resolve_emote_full(
+    name: str, *, allow_experimental: bool = False
+) -> tuple[str | None, str]:
+    """Full 4-tier emote resolver.  Returns (emote_id, source_tier).
+
+    source_tier values:
+      "alias_override"  — _ALIAS_OVERRIDES in verified_working_emotes (explicit SDK-ID fix)
+      "verified"        — WORKING_EMOTE_MAP (auto-generated from verified list)
+      "static_alias"    — active_cmd_map / static catalog (lookup_emote)
+      "experimental"    — sdk_accepted_needs_visual scan cache (opt-in)
+      ""                — not found
+
+    Resolution priority:
+      1. _ALIAS_OVERRIDES  — explicit corrections (highest)
+      2. WORKING_EMOTE_MAP — verified working list auto-map
+      3. lookup_emote()    — active_cmd_map → static catalog
+      4. scan cache        — SDK-accepted but not visually confirmed (allow_experimental=True)
+    """
+    norm = _re.sub(r"[^a-z0-9]", "", name.lower())
+
+    # Tier 1 + 2: verified working maps
+    try:
+        from data.verified_working_emotes import _ALIAS_OVERRIDES, WORKING_EMOTE_MAP
+        if norm in _ALIAS_OVERRIDES:
+            return _ALIAS_OVERRIDES[norm], "alias_override"
+        candidate = WORKING_EMOTE_MAP.get(norm)
+        if candidate:
+            return candidate, "verified"
+    except ImportError:
+        pass
+
+    # Tier 3: existing lookup (active_cmd_map → static catalog)
+    eid = lookup_emote(name)
+    if eid:
+        return eid, "static_alias"
+
+    # Tier 4: SDK experimental (only when explicitly allowed)
+    if allow_experimental:
+        try:
+            from modules.emote_scan import _CACHE
+            for cached_eid, info in _CACHE["emotes"].items():
+                if info.get("status") == "sdk_accepted_needs_visual":
+                    short_norm = _re.sub(
+                        r"[^a-z0-9]", "",
+                        cached_eid.replace("emote-", "").lower()
+                    )
+                    if short_norm == norm:
+                        return cached_eid, "experimental"
+        except Exception:
+            pass
+
+    return None, ""
+
+
 # Frozenset of all valid plain-text trigger names — full catalog (all mode)
 PLAYER_EMOTE_NAMES: frozenset[str] = frozenset(_normalize(k) for k in EMOTE_REGISTRY)
 
@@ -633,17 +687,22 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
 
     # Detect target bot: if args[1] (stripped of @) is NOT a valid emote name,
     # treat it as a bot name.  Works for both @DJ_DUDU and dj style.
-    raw1 = args[1].lstrip("@").lower()
-    if len(args) >= 3 and not lookup_emote(raw1):
+    raw1      = args[1].lstrip("@").lower()
+    _allow_exp = db.get_room_setting("allow_experimental_emotes", "false") == "true"
+
+    # Target-bot detection: if args[1] is not a valid emote name, treat it as a bot name.
+    if len(args) >= 3 and not resolve_emote_full(raw1, allow_experimental=_allow_exp)[0]:
         raw_target = raw1
         emote_name = args[2].lstrip("@").lower()
     else:
         raw_target = BOT_MODE.lower()
         emote_name = raw1
 
-    eid = lookup_emote(emote_name)
+    eid, _src = resolve_emote_full(emote_name, allow_experimental=_allow_exp)
     if not eid:
-        await _w(bot, uid, f"❌ Unknown emote '{emote_name}'. Try !emotes for the list.")
+        await _w(bot, uid,
+            f"❌ Unknown emote '{emote_name}'. "
+            f"Try !emotes or !resolveemote {emote_name}")
         return
 
     # Bot self-loops use send_emote(eid) with no target, so only truly
@@ -664,14 +723,19 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         )
         return
 
-    # Verified working list guard — reject emotes not in the production catalog.
+    # Verified working list guard — reject unverified emotes unless they come
+    # from the experimental tier and experimental mode is enabled.
     try:
         from data.verified_working_emotes import get_verified_set as _gvs
-        if eid not in _gvs():
+        _in_verified = eid in _gvs()
+        _exp_ok      = (_src == "experimental" and _allow_exp)
+        if not _in_verified and not _exp_ok:
             short = eid.replace("emote-", "")
+            hint  = (" Or use !setexperimentalemotes on."
+                     if _src == "experimental" else "")
             await _w(bot, uid,
-                f"❌ '{short}' is not in the verified working list. "
-                f"Use !addworkingemote {short} to add it first.")
+                (f"❌ '{short}' is not in the verified working list. "
+                 f"Use !addworkingemote {short} to add it first.{hint}")[:249])
             return
     except ImportError:
         pass  # graceful: if module missing, allow all
@@ -725,6 +789,73 @@ async def handle_stopbotemote(bot: "BaseBot", user: "User", args: list) -> None:
 
     _log("bot_emote_cleared", admin=uname, bot=bot_name)
     await _w(bot, uid, "✅ Bot emote stopped.")
+
+
+async def handle_botemoteid(bot: "BaseBot", user: "User", args: list) -> None:
+    """!botemoteid [@<botname>] <raw-id> — admin: loop an emote by raw ID, skipping alias mapping.
+
+    The ID is used exactly as given (prepended with 'emote-' if needed).
+    Useful for testing IDs like 'dance-aerobics' before adding to verified list.
+
+    Examples:
+      !botemoteid dance-aerobics           — loop on this bot
+      !botemoteid @DJ_DUDU dance-aerobics  — loop on DJ_DUDU
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid,
+            "Usage: !botemoteid <raw-id>  or  !botemoteid @botname <raw-id>  "
+            "e.g. !botemoteid dance-aerobics")
+        return
+
+    from config import BOT_MODE, BOT_USERNAME
+    from modules.gold import get_bot_username as _get_bot_uname
+
+    # If two args given, first is bot target, second is the raw ID
+    raw1 = args[1].lstrip("@").lower()
+    if len(args) >= 3:
+        raw_target = raw1
+        raw_id     = args[2].lstrip("@").lower()
+    else:
+        raw_target = BOT_MODE.lower()
+        raw_id     = raw1
+
+    eid = raw_id if raw_id.startswith("emote-") else f"emote-{raw_id}"
+
+    from modules.emote_registry import is_permission_locked
+    if is_permission_locked(eid):
+        await _w(bot, uid, "🔒 That emote requires ownership. Bot cannot use it.")
+        return
+
+    if eid in _SOCIAL_EMOTES:
+        short = eid.replace("emote-", "")
+        await _w(bot, uid,
+            f"⚠️ '{short}' is a social emote — requires a target player.")
+        return
+
+    this_mode  = BOT_MODE.lower()
+    this_uname = (_get_bot_uname() or BOT_USERNAME or "").strip().lower()
+    is_this_bot = (raw_target == this_mode or
+                   bool(this_uname and raw_target == this_uname))
+
+    store_key = this_mode if is_this_bot else raw_target
+    db.set_room_setting(f"bot_emote_{store_key}", eid)
+    _log("bot_emote_set", admin=uname, bot=store_key, emote=eid, via="raw_id")
+
+    if is_this_bot:
+        bot_uid = get_bot_user_id()
+        dur     = _start_bot_loop(bot, BOT_MODE, eid, bot_uid)
+        display = f"@{_get_bot_uname() or BOT_MODE}"
+        await _w(bot, uid,
+            f"✅ {display} looping {eid} (every {dur:.0f}s). "
+            f"No alias check — raw ID used directly.")
+        return
+
+    await _w(bot, uid, f"✅ Saved. @{raw_target} will loop {eid} on next reconnect.")
 
 
 async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
