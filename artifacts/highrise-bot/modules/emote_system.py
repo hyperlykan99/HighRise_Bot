@@ -14,6 +14,7 @@ Full player emote system for ChillTopia / DJ_DUDU:
 from __future__ import annotations
 
 import asyncio
+import os
 import re as _re
 import time
 from typing import TYPE_CHECKING
@@ -161,7 +162,43 @@ def _normalize(name: str) -> str:
     return _re.sub(r"[^a-z0-9]", "", s)
 
 
-# Normalised lookup table (built once at import time)
+# ── Load timed_emotes catalog ─────────────────────────────────────────────────
+# Merges data/timed_emotes.py into EMOTE_REGISTRY and builds:
+#   _EMOTE_DURATIONS  — emote_id → loop re-send interval in seconds
+#   _ONE_SHOT_EMOTES  — emote IDs with time=0 (play once, no loop)
+_EMOTE_DURATIONS: dict[str, float] = {}
+_ONE_SHOT_EMOTES: set[str] = set()
+
+def _load_timed_emotes() -> None:
+    import importlib.util as _iutil
+    _path = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "data", "timed_emotes.py")
+    )
+    try:
+        spec = _iutil.spec_from_file_location("_hr_timed_data", _path)
+        mod  = _iutil.module_from_spec(spec)   # type: ignore[arg-type]
+        spec.loader.exec_module(mod)           # type: ignore[union-attr]
+        for entry in getattr(mod, "timed_emotes", []):
+            text  = str(entry.get("text",  "")).strip()
+            value = str(entry.get("value", "")).strip()
+            t     = entry.get("time")
+            if not value:
+                continue
+            cmd = _normalize(text)
+            if cmd and cmd not in EMOTE_REGISTRY:
+                EMOTE_REGISTRY[cmd] = value
+            if t == 0:
+                _ONE_SHOT_EMOTES.add(value)
+            else:
+                _EMOTE_DURATIONS[value] = float(t) if t is not None else 5.0
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"[EMOTE_SYS] timed_emotes load error: {exc}")
+
+_load_timed_emotes()
+
+# Normalised lookup table (built once at import time, includes timed_emotes entries)
 _NORM_MAP: dict[str, str] = {_normalize(k): v for k, v in EMOTE_REGISTRY.items()}
 
 # Also accept any "emote-X" id directly (strip "emote" prefix after normalise)
@@ -215,8 +252,8 @@ _player_loops:  dict[str, asyncio.Task] = {}   # user_id  → active loop Task
 _player_emotes: dict[str, str]          = {}   # user_id  → current emote-ID
 _bot_loops:     dict[str, asyncio.Task] = {}   # bot_mode → active loop Task
 
-_PLAYER_LOOP_INTERVAL = 7   # seconds between re-sends for player loops
-_BOT_LOOP_INTERVAL    = 8
+_DEFAULT_LOOP_INTERVAL = 5  # fallback if emote has no entry in _EMOTE_DURATIONS
+_BOT_LOOP_INTERVAL     = 8
 
 # ---------------------------------------------------------------------------
 # Cooldowns
@@ -270,6 +307,7 @@ def _cancel_player_loop(uid: str) -> None:
 
 
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
+    interval = _EMOTE_DURATIONS.get(eid, _DEFAULT_LOOP_INTERVAL)
     while True:
         try:
             await bot.highrise.send_emote(eid, uid)
@@ -277,7 +315,7 @@ async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
             raise
         except Exception:
             pass
-        await asyncio.sleep(_PLAYER_LOOP_INTERVAL)
+        await asyncio.sleep(interval)
 
 
 async def start_player_emote(bot: "BaseBot", user: "User", emote_name: str) -> None:
@@ -303,6 +341,10 @@ async def start_player_emote(bot: "BaseBot", user: "User", emote_name: str) -> N
     ok = await _send(bot, eid, uid)
     if not ok:
         return
+
+    if eid in _ONE_SHOT_EMOTES:
+        _log("emote_oneshot", user_id=uid, username=uname, emote=eid)
+        return  # play once, no loop
 
     task = asyncio.create_task(_run_player_loop(bot, uid, eid))
     _player_loops[uid]  = task

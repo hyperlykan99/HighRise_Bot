@@ -537,6 +537,13 @@ def _python_catalog_path() -> str:
     )
 
 
+def _timed_catalog_path() -> str:
+    """Absolute path to the timed emote catalog (data/timed_emotes.py)."""
+    return os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "data", "timed_emotes.py")
+    )
+
+
 def _parse_emote_json(data: object) -> list[tuple[str, str]]:
     """Parse a JSON object from any of the supported emote catalog formats.
 
@@ -582,10 +589,11 @@ def _load_candidates() -> list[tuple[str, str]]:
     """Return full candidate list from all sources.
 
     Priority order:
-      0. data/highrise_emotes.py   — Python catalog (authoritative if present)
-      1. data/highrise_emotes.json — community JSON catalog
-      2. emotes.json               — legacy local override
-      3. _CANDIDATES tuple         — always included as base
+      0. data/timed_emotes.py      — timed catalog (primary source, text+value+time)
+      1. data/highrise_emotes.py   — Python catalog (display_name, emote_id)
+      2. data/highrise_emotes.json — community JSON catalog
+      3. emotes.json               — legacy local override
+      4. _CANDIDATES tuple         — always included as base
 
     Side effect: refreshes _CAND_BY_NAME with all loaded entries, then
     reapplies _ALIAS_OVERRIDES so explicit command mappings always win.
@@ -622,7 +630,26 @@ def _load_candidates() -> list[tuple[str, str]]:
             print(f"{_LOG} {label} load error: {exc}")
             return 0
 
-    # Priority 0: data/highrise_emotes.py (Python catalog — highest authority)
+    # Priority 0: data/timed_emotes.py (timed catalog — primary source)
+    timedcat_n = 0
+    try:
+        import importlib.util as _iutil_t
+        _t_path = _timed_catalog_path()
+        spec_t = _iutil_t.spec_from_file_location("_hr_timed_reg", _t_path)
+        mod_t  = _iutil_t.module_from_spec(spec_t)   # type: ignore[arg-type]
+        spec_t.loader.exec_module(mod_t)              # type: ignore[union-attr]
+        raw_t: list[dict] = getattr(mod_t, "timed_emotes", [])
+        pairs_t = [
+            (_norm(str(e.get("text", ""))), str(e["value"]))
+            for e in raw_t if e.get("value") and e.get("text")
+        ]
+        timedcat_n = _merge_pairs(pairs_t, "timed_emotes.py")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"{_LOG} timed_emotes.py load error: {exc}")
+
+    # Priority 1: data/highrise_emotes.py (Python catalog)
     pycatalog_n = 0
     py_path = _python_catalog_path()
     try:
@@ -672,6 +699,7 @@ def _load_candidates() -> list[tuple[str, str]]:
 
     _source_counts = {
         "builtin":   builtin_n,
+        "timedcat":  timedcat_n,
         "pycatalog": pycatalog_n,
         "community": community_n,
         "local":     local_n,
