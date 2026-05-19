@@ -890,7 +890,7 @@ from modules.room_utils import (
     handle_selftp, handle_groupteleport,
     handle_spawns, handle_spawn, handle_setspawn, handle_delspawn,
     handle_spawninfo, handle_setspawncoords, handle_savepos,
-    handle_emotes, handle_emote, handle_stopemote, handle_emoteinfo,
+    handle_emote, handle_stopemote, handle_emoteinfo,
     handle_setbotspawn, handle_setbotspawnhere, handle_botspawns,
     handle_clearbotspawn, apply_bot_spawn,
     teleport_bot_to_saved_spawn, handle_returnbots,
@@ -900,9 +900,23 @@ from modules.room_utils import (
     handle_loopemote, handle_stoploop, handle_stopallloops,
     handle_synchost, handle_syncdance, handle_stopsync,
     handle_publicemotes, handle_forceemotes, handle_setemoteloopinterval,
+)
+from modules.emote_system import (
+    is_plain_emote,
+    start_player_emote,
+    stop_player_emote,
+    on_player_leave as emote_on_leave,
+    handle_emotes_auto,
+    handle_botemote,
+    handle_stopbotemote,
+    startup_bot_emote_recovery,
+    handle_punch_emote,
+    handle_swordfight,
+)
+from modules.room_utils import (  # noqa: E402 — continue room_utils import block
     handle_heart, handle_hearts, handle_heartlb,
     handle_giveheart, handle_reactheart,
-    handle_hug, handle_kiss, handle_slap, handle_punch,
+    handle_hug, handle_kiss, handle_slap,
     handle_highfive, handle_boop, handle_waveat, handle_cheer,
     handle_social, handle_blocksocial, handle_unblocksocial,
     handle_followme, handle_follow, handle_stopfollow, handle_followstatus,
@@ -1288,6 +1302,7 @@ ALL_KNOWN_COMMANDS = (
         # ── Room utility — public ─────────────────────────────────────────────
         "players", "roomlist", "online", "staffonline", "vipsinroom", "rolelist",
         "emotes", "emote", "stopemote", "dance", "wave", "sit", "clap",
+        "swordfight", "botemote", "stopbotemote",
         "heart", "hearts", "heartlb", "giveheart", "reactheart",
         "hug", "kiss", "slap", "punch", "highfive", "boop", "waveat", "cheer",
         "social", "blocksocial", "unblocksocial", "socialhelp",
@@ -3578,6 +3593,8 @@ class HangoutBot(BaseBot):
             _safe_task(startup_radio(self), "startup_radio")
         else:
             print(f"[YT_CLEANUP] Cleanup loop skipped — not DJ bot ({BOT_MODE}).")
+        # Bot emote loop recovery — all bot modes (each bot checks its own DB key)
+        _safe_task(startup_bot_emote_recovery(self), "startup_bot_emote_recovery")
         # Background automation loops (idempotent — safe on reconnect)
         try:
             start_auto_game_loop(self)
@@ -3697,6 +3714,14 @@ class HangoutBot(BaseBot):
                     return
             elif _msg_low in ("cancel", "no"):
                 if await handle_jail_cancel(self, user):
+                    return
+            # ── Plain-text emote dispatch (DJ bot only) ───────────────────────
+            if BOT_MODE == "dj":
+                if _msg_low == "stop":
+                    await stop_player_emote(self, user)
+                    return
+                if is_plain_emote(_msg_low):
+                    await start_player_emote(self, user, _msg_low)
                     return
             # Room assistant — greetings + Q&A (host bot only, with cooldowns)
             if await handle_room_assistant_chat(self, user, message):
@@ -7282,7 +7307,7 @@ class HangoutBot(BaseBot):
 
         # ── Emotes ────────────────────────────────────────────────────────────
         elif cmd == "emotes":
-            await handle_emotes(self, user, args)
+            await handle_emotes_auto(self, user, args)
         elif cmd == "emoteinfo":
             await handle_emoteinfo(self, user, args)
         elif cmd == "emote":
@@ -7334,7 +7359,13 @@ class HangoutBot(BaseBot):
         elif cmd == "slap":
             await handle_slap(self, user, args)
         elif cmd == "punch":
-            await handle_punch(self, user, args)
+            await handle_punch_emote(self, user, args)
+        elif cmd == "swordfight":
+            await handle_swordfight(self, user, args)
+        elif cmd == "botemote":
+            await handle_botemote(self, user, args)
+        elif cmd == "stopbotemote":
+            await handle_stopbotemote(self, user, args)
         elif cmd == "highfive":
             await handle_highfive(self, user, args)
         elif cmd == "boop":
@@ -8096,6 +8127,10 @@ class HangoutBot(BaseBot):
             pass
         try:
             stop_autofish_for_user(user.id, user.username, "player_left")
+        except Exception:
+            pass
+        try:
+            emote_on_leave(user.id)
         except Exception:
             pass
         try:

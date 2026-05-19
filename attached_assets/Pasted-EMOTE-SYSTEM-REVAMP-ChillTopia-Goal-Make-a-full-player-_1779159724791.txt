@@ -1,0 +1,154 @@
+EMOTE SYSTEM REVAMP — ChillTopia
+
+Goal:
+Make a full player emote system using all available Highrise SDK emotes.
+
+Do NOT break:
+- radio/music system
+- games
+- economy
+- room join
+- bot startup
+
+1. Emote Registry
+- Build a centralized emote registry from Highrise SDK emotes.
+- All SDK emotes should be available.
+- Normalize names:
+  - lowercase
+  - remove spaces
+  - remove dashes/underscores
+  - two-word emotes become one word
+Example:
+"Fist Pump" → fistpump
+"Sword Fight" → swordfight
+
+2. Player Emote Commands
+Players do NOT need “!” for emotes.
+
+Example:
+dance
+sit
+wave
+laugh
+swordfight
+
+If chat message exactly matches an emote name:
+- start that emote on the player
+- loop it until stopped
+
+Stop command:
+stop
+
+When player says:
+stop
+- stop their current looping emote
+
+3. Emote List
+Command:
+!emotes
+
+Because list is long:
+- send continuous pages automatically
+- do NOT require “page 2”
+- every message max 255 chars
+- split into clean chunks
+
+Example:
+🎭 Emotes 1/5:
+dance, wave, laugh, sit, clap...
+
+🎭 Emotes 2/5:
+fistpump, cute, angry...
+
+4. Looping Behavior
+- Store active looping emote per user.
+- Repeat emote safely every X seconds if SDK emote is not naturally looping.
+- Stop loop when:
+  - user says stop
+  - user leaves room
+  - user starts another emote
+  - bot restarts
+
+5. Bot Looping Emotes
+Admin commands:
+!botemote <botname> <emote>
+!stopbotemote <botname>
+
+Examples:
+!botemote DJ_DUDU dance
+!botemote ChillTopiaMC wave
+!stopbotemote DJ_DUDU
+
+Rules:
+- Admin/owner only.
+- Bot keeps looping selected emote until stopped or changed.
+- Save bot emote setting in DB/config so it can restore after restart.
+
+6. Punch Command
+Command:
+!punch @user
+
+Behavior:
+- command user performs punch emote
+- target user performs drop/fall/dead/down emote
+- if exact SDK names differ, map to closest available emotes
+
+Example:
+attacker → punch
+target → drop / fall / dead
+
+Safety:
+- cooldown per user to prevent spam
+- cannot target bot unless admin
+- cannot target staff unless admin
+
+7. Swordfight Command
+Command:
+!swordfight @user
+
+Behavior:
+- command user and target both perform swordfight emote
+- if target is missing, whisper:
+❌ Tag someone to swordfight.
+
+8. Permissions
+Normal players can:
+- use emotes by typing name
+- stop their own emote
+- use !emotes
+- use !punch @user
+- use !swordfight @user
+
+Admins can:
+- set bot emotes
+- stop bot emotes
+- bypass cooldowns
+
+9. Anti-Spam
+- emote command cooldown: 3 seconds
+- punch cooldown: 10 seconds
+- swordfight cooldown: 10 seconds
+- do not spam chat confirmations for normal emotes
+
+10. Logs
+Add logs:
+stage=emote_start
+stage=emote_stop
+stage=emote_loop
+stage=bot_emote_set
+stage=punch
+stage=swordfight
+user_id=
+username=
+target=
+emote=
+result=
+error=
+
+Expected:
+Typing “dance” makes player loop dance.
+Typing “stop” stops it.
+!emotes lists all emotes automatically in multiple messages.
+!punch @user makes attacker punch and target drop.
+!swordfight @user makes both swordfight.
+Admins can set DJ_DUDU and other bots to loop emotes.

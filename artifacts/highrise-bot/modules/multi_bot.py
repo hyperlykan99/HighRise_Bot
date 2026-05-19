@@ -274,6 +274,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "forceemote": "dj", "forceemoteall": "dj",
     "syncdance": "dj", "synchost": "dj", "stopsync": "dj",
     "hug": "dj", "kiss": "dj", "slap": "dj", "punch": "dj",
+    "swordfight": "dj", "botemote": "dj", "stopbotemote": "dj",
     "highfive": "dj", "boop": "dj", "waveat": "dj", "cheer": "dj",
     "heart": "dj", "hearts": "dj", "heartlb": "dj",
     "social": "dj", "blocksocial": "dj", "unblocksocial": "dj",
