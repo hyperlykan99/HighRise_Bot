@@ -7418,12 +7418,15 @@ class HangoutBot(BaseBot):
             await handle_botemote(self, user, args)
         elif cmd == "stopbotemote":
             await handle_stopbotemote(self, user, args)
-        elif cmd == "emoteresolve":
-            await handle_emoteresolve(self, user, args)
-        elif cmd == "emotediag":
-            await handle_emotediag(self, user, args)
-        elif cmd == "unsupportedemotes":
-            await handle_unsupportedemotes(self, user, args)
+        elif cmd in ("emoteresolve", "emotediag", "unsupportedemotes"):
+            if BOT_MODE != "dj":
+                return
+            if cmd == "emoteresolve":
+                await handle_emoteresolve(self, user, args)
+            elif cmd == "emotediag":
+                await handle_emotediag(self, user, args)
+            else:
+                await handle_unsupportedemotes(self, user, args)
         elif cmd == "highfive":
             await handle_highfive(self, user, args)
         elif cmd == "boop":

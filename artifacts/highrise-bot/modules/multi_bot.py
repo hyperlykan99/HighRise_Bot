@@ -287,6 +287,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "emotemode": "dj",
     "emotecount": "dj",
     "reloademotes": "dj", "testemote": "dj",
+    "emoteresolve": "dj", "emotediag": "dj", "unsupportedemotes": "dj",
     "importemotes": "dj", "emotesource": "dj", "emotescanstatus": "dj",
     "emotefailures": "dj", "failedemotes": "dj", "setemoteunverified": "dj",
     # ── dj music / song request system ───────────────────────────────────────
