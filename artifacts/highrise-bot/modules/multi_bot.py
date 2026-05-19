@@ -32,6 +32,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "privacy": "host", "rules": "host", "roleshelp": "host",
     "players": "host", "roomlist": "host", "online": "host",
     "roomhelp": "host", "teleporthelp": "host", "emotehelp": "host",
+    "reloademotes": "host", "emotecount": "host", "testemote": "host",
     "alerthelp": "host", "welcomehelp": "host", "socialhelp": "host",
     "control": "host", "status": "host", "roomstatus": "host",
     "botmodehelp": "host", "multibothelp": "host",

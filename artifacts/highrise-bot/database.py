@@ -3348,6 +3348,18 @@ def _migrate_db():
     except Exception:
         pass
 
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS active_emotes (
+                emote_id     TEXT NOT NULL PRIMARY KEY,
+                display_name TEXT NOT NULL DEFAULT '',
+                status       TEXT NOT NULL DEFAULT 'untested',
+                tested_at    TEXT
+            )
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 

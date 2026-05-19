@@ -917,6 +917,12 @@ from modules.emote_system import (
     handle_force_emote,
     handle_room_emote,
 )
+from modules.emote_registry import (
+    handle_reloademotes,
+    handle_emotecount,
+    handle_testemote,
+    startup_emote_discovery,
+)
 from modules.room_utils import (  # noqa: E402 — continue room_utils import block
     handle_heart, handle_hearts, handle_heartlb,
     handle_giveheart, handle_reactheart,
@@ -3600,6 +3606,8 @@ class HangoutBot(BaseBot):
             print(f"[YT_CLEANUP] Cleanup loop skipped — not DJ bot ({BOT_MODE}).")
         # Bot emote loop recovery — all bot modes (each bot checks its own DB key)
         _safe_task(startup_bot_emote_recovery(self), "startup_bot_emote_recovery")
+        # Emote discovery — tests candidate emote IDs, caches in active_emotes table
+        _safe_task(startup_emote_discovery(self), "startup_emote_discovery")
         # Background automation loops (idempotent — safe on reconnect)
         try:
             start_auto_game_loop(self)
@@ -7372,6 +7380,12 @@ class HangoutBot(BaseBot):
             await handle_punch_emote(self, user, args)
         elif cmd == "swordfight":
             await handle_swordfight(self, user, args)
+        elif cmd == "reloademotes":
+            await handle_reloademotes(self, user, args)
+        elif cmd == "emotecount":
+            await handle_emotecount(self, user, args)
+        elif cmd == "testemote":
+            await handle_testemote(self, user, args)
         elif cmd == "botemote":
             await handle_botemote(self, user, args)
         elif cmd == "stopbotemote":

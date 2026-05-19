@@ -276,19 +276,13 @@ _PAGE_SIZE = 10
 
 
 async def handle_emotes_auto(bot: "BaseBot", user: "User", _args: list) -> None:
-    """Send all emote name pages automatically (0.4 s between pages)."""
-    names = sorted(EMOTE_REGISTRY.keys())
-    total = len(names)
-    pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
-    for pg in range(1, pages + 1):
-        chunk = names[(pg - 1) * _PAGE_SIZE: pg * _PAGE_SIZE]
-        await _w(
-            bot, user.id,
-            f"🎭 Emotes {pg}/{pages}:\n" + ", ".join(chunk),
-        )
-        if pg < pages:
-            await asyncio.sleep(0.4)
-    _log("emotes_list", user_id=user.id, username=user.username, pages=pages)
+    """Send all active emote names automatically (0.4 s between pages, ≤249 chars each).
+
+    Pulls from the emote_registry cache when available; falls back to the
+    static EMOTE_REGISTRY if no discovered emotes are cached yet.
+    """
+    from modules.emote_registry import handle_emotes_paged
+    await handle_emotes_paged(bot, user, _args)
 
 
 # ---------------------------------------------------------------------------
