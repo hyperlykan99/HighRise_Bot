@@ -391,14 +391,14 @@ def _log(stage: str, **kw: object) -> None:
 
 
 async def _send(bot: "BaseBot", eid: str, uid: str) -> bool:
-    """Send one self-emote; return True on success.
+    """Send a directed emote at user `uid`; return True on success.
 
-    target_user_id intentionally omitted — passing any UID (even the bot's own)
-    triggers directed-emote ownership checks that don't apply to self/room emotes.
-    uid is retained as a parameter for logging only.
+    Player-triggered emotes (plain chat words, !emote) are directed at the user
+    who typed them — ownership is required.  Bot self-loops (handle_botemote /
+    _start_bot_loop) use send_emote(eid) with NO target so ownership is not needed.
     """
     try:
-        await bot.highrise.send_emote(eid)
+        await bot.highrise.send_emote(eid, uid)
         return True
     except Exception as exc:
         _log("send_error", emote=eid, user_id=uid, error=str(exc))
@@ -416,10 +416,11 @@ def _cancel_player_loop(uid: str) -> None:
 
 
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
+    """Continuously repeat a directed emote at player `uid` until cancelled."""
     interval = _EMOTE_DURATIONS.get(eid, _DEFAULT_LOOP_INTERVAL)
     while True:
         try:
-            await bot.highrise.send_emote(eid)
+            await bot.highrise.send_emote(eid, uid)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -539,15 +540,12 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str, bot_uid: str) -> fl
 
 
 async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
-    """!botemote <emote> — admin: loop an emote on this bot (DB-persisted).
+    """!botemote [@<botname>] <emote> — admin: loop a self-emote on a bot (DB-persisted).
 
-    Simple format (preferred):
-      !botemote wave           — loop wave on this bot
-      !botemote heartfingers   — loop heartfingers
-      !botemote tiktokdance9   — loop tiktokdance9
-
-    Legacy format (backward compat):
-      !botemote dj wave        — loop wave on the dj bot
+    Formats:
+      !botemote wave              — loop wave on this bot (no target needed)
+      !botemote @DJ_DUDU gangnam  — target by username, starts immediately
+      !botemote dj wave           — target by bot mode name (legacy)
     """
     uid   = user.id
     uname = user.username
@@ -555,42 +553,54 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, "👑 Admin only.")
         return
     if len(args) < 2:
-        await _w(bot, uid, "Usage: !botemote <emote>\nEx: !botemote wave")
+        await _w(bot, uid, "Usage: !botemote <emote>  or  !botemote @botname <emote>")
         return
 
-    from config import BOT_MODE
+    from config import BOT_MODE, BOT_USERNAME
+    from modules.gold import get_bot_username as _get_bot_uname
 
-    # Detect format: if args[1] is not a valid emote AND there are 3+ args,
-    # treat it as legacy <botname> <emote> format.
-    if len(args) >= 3 and not lookup_emote(args[1].lower()):
-        bot_name   = args[1].lower()
-        emote_name = args[2].lower()
+    # Detect target bot: if args[1] (stripped of @) is NOT a valid emote name,
+    # treat it as a bot name.  Works for both @DJ_DUDU and dj style.
+    raw1 = args[1].lstrip("@").lower()
+    if len(args) >= 3 and not lookup_emote(raw1):
+        raw_target = raw1
+        emote_name = args[2].lstrip("@").lower()
     else:
-        bot_name   = BOT_MODE.lower()
-        emote_name = args[1].lower()
+        raw_target = BOT_MODE.lower()
+        emote_name = raw1
 
     eid = lookup_emote(emote_name)
     if not eid:
         await _w(bot, uid, f"❌ Unknown emote '{emote_name}'. Try !emotes for the list.")
         return
 
-    # Refuse to loop permission-locked emotes — the bot account doesn't own them.
+    # Bot self-loops use send_emote(eid) with no target, so only truly
+    # permission-locked emotes (fail even without a target) are blocked.
     from modules.emote_registry import is_permission_locked
     if is_permission_locked(eid):
-        await _w(bot, uid, "🔒 This bot does not own or have permission to use that emote.")
+        await _w(bot, uid, "🔒 That emote requires ownership. Bot cannot use it.")
         return
 
-    db.set_room_setting(f"bot_emote_{bot_name}", eid)
-    _log("bot_emote_set", admin=uname, bot=bot_name, emote=eid)
+    # Determine whether the target is THIS running bot instance.
+    this_mode  = BOT_MODE.lower()
+    this_uname = (_get_bot_uname() or BOT_USERNAME or "").strip().lower()
+    is_this_bot = (raw_target == this_mode or
+                   bool(this_uname and raw_target == this_uname))
 
-    if BOT_MODE.lower() == bot_name:
+    # Always persist using the BOT_MODE key so startup_bot_emote_recovery can find it.
+    store_key = this_mode if is_this_bot else raw_target
+    db.set_room_setting(f"bot_emote_{store_key}", eid)
+    _log("bot_emote_set", admin=uname, bot=store_key, emote=eid)
+
+    if is_this_bot:
+        # Start loop immediately — no reconnect needed.
         bot_uid = get_bot_user_id()
-        if bot_uid:
-            dur = _start_bot_loop(bot, BOT_MODE, eid, bot_uid)
-            await _w(bot, uid, f"✅ Looping {eid} every {dur:.2f}s.")
-            return
+        dur     = _start_bot_loop(bot, BOT_MODE, eid, bot_uid)
+        display = f"@{_get_bot_uname() or BOT_MODE}"
+        await _w(bot, uid, f"✅ {display} is now looping {eid} (every {dur:.0f}s).")
+        return
 
-    await _w(bot, uid, f"✅ Saved. {bot_name} will loop {eid} on next reconnect.")
+    await _w(bot, uid, f"✅ Saved. @{raw_target} will loop {eid} on next reconnect.")
 
 
 async def handle_stopbotemote(bot: "BaseBot", user: "User", args: list) -> None:
