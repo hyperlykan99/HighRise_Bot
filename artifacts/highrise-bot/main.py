@@ -917,6 +917,9 @@ from modules.emote_system import (
     handle_force_emote,
     handle_room_emote,
     handle_emotemode,
+    handle_emotediag,
+    handle_unsupportedemotes,
+    notify_emote_event,
 )
 from modules.emote_registry import (
     handle_reloademotes,
@@ -7417,6 +7420,10 @@ class HangoutBot(BaseBot):
             await handle_stopbotemote(self, user, args)
         elif cmd == "emoteresolve":
             await handle_emoteresolve(self, user, args)
+        elif cmd == "emotediag":
+            await handle_emotediag(self, user, args)
+        elif cmd == "unsupportedemotes":
+            await handle_unsupportedemotes(self, user, args)
         elif cmd == "highfive":
             await handle_highfive(self, user, args)
         elif cmd == "boop":
@@ -8237,6 +8244,7 @@ class HangoutBot(BaseBot):
         """
         Debug hook — overriding BaseBot adds 'emote' to subscriptions.
         Logs emotes silently; only prints if emote ID looks tip-related.
+        Signals any pending !emotediag silent-failure listeners.
         """
         try:
             time_exp_record_activity(user.id)
@@ -8244,6 +8252,8 @@ class HangoutBot(BaseBot):
             record_debug_any_event("on_emote", raw)
             if "tip" in emote_id.lower() or "gold" in emote_id.lower():
                 print(f"DEBUG EVENT FIRED: on_emote | {raw}")
+            # Signal any pending silent-failure detection listeners
+            notify_emote_event(user.id, emote_id)
         except Exception as _e:
             print(f"[ON_EMOTE ERROR] {_e!r}")
 

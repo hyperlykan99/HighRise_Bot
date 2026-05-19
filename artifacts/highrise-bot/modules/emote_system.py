@@ -398,6 +398,22 @@ _EMOTE_CD = 3
 _PUNCH_CD = 10
 _SWORD_CD = 10
 
+# ── Social emotes (require a target player; will silently do nothing in self-mode) ─
+_SOCIAL_EMOTES: frozenset[str] = frozenset({
+    "emote-hug",        "emote-kiss",       "emote-highfive",
+    "emote-handshake",  "emote-fistbump",   "emote-carry",
+    "emote-piggyback",  "emote-lean",       "emote-couple",
+})
+
+# ── Runtime bot emote diagnostics ────────────────────────────────────────────
+# emote_id → {fail_count, silent_count, category, unsupported_for_bots, last_error}
+# category: "api_fail" | "silent" | "social" | "player_only"
+UNSUPPORTED_BOT_EMOTES: dict[str, dict] = {}
+_SILENT_THRESHOLD = 3   # silent OK-but-no-animation before marking player_only
+
+# (bot_uid, emote_id) → asyncio.Event — set by notify_emote_event when on_emote fires
+_emote_event_listeners: dict[tuple[str, str], asyncio.Event] = {}
+
 
 def _cd_remaining(store: dict, uid: str, secs: int) -> float:
     return max(0.0, secs - (time.time() - store.get(uid, 0.0)))
@@ -426,11 +442,15 @@ async def _send(bot: "BaseBot", eid: str, uid: str) -> bool:
     who typed them — ownership is required.  Bot self-loops (handle_botemote /
     _start_bot_loop) use send_emote(eid) with NO target so ownership is not needed.
     """
+    print(f"[EMOTE TRY] resolved={eid!r} target={uid!r} mode=directed")
     try:
         await bot.highrise.send_emote(eid, uid)
+        print(f"[EMOTE OK] resolved={eid!r}")
         return True
     except Exception as exc:
-        _log("send_error", emote=eid, user_id=uid, error=str(exc))
+        err = str(exc)
+        print(f"[EMOTE FAIL] resolved={eid!r} error={err!r}")
+        _log("send_error", emote=eid, user_id=uid, error=err)
         return False
 
 
@@ -447,13 +467,20 @@ def _cancel_player_loop(uid: str) -> None:
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
     """Continuously repeat a directed emote at player `uid` until cancelled."""
     interval = _EMOTE_DURATIONS.get(eid, _DEFAULT_LOOP_INTERVAL)
+    _iter = 0
     while True:
+        _iter += 1
         try:
+            if _iter == 1:
+                # Log first iteration only; failures always log.
+                print(f"[EMOTE TRY] resolved={eid!r} target={uid!r} mode=directed iter=1")
             await bot.highrise.send_emote(eid, uid)
+            if _iter == 1:
+                print(f"[EMOTE OK] resolved={eid!r} iter=1")
         except asyncio.CancelledError:
             raise
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[EMOTE FAIL] resolved={eid!r} target={uid!r} iter={_iter} error={str(exc)!r}")
         await asyncio.sleep(interval)
 
 
@@ -554,13 +581,29 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str, bot_uid: str) -> fl
         )
 
     async def _loop() -> None:
+        _iter = 0
         while True:
+            # Skip silently if runtime diagnostics marked this emote as non-functional.
+            if UNSUPPORTED_BOT_EMOTES.get(eid, {}).get("unsupported_for_bots"):
+                await asyncio.sleep(interval)
+                continue
+            _iter += 1
+            if _iter == 1 or _iter % 20 == 0:
+                # Log first iteration and every 20th to confirm loop is alive.
+                print(
+                    f"[EMOTE TRY] bot={bot_mode!r} resolved={eid!r}"
+                    f" target=self mode=self iter={_iter}"
+                )
             try:
                 await bot.highrise.send_emote(eid)
+                if _iter == 1 or _iter % 20 == 0:
+                    print(f"[EMOTE OK] resolved={eid!r} iter={_iter}")
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                err = str(exc)
+                print(f"[EMOTE FAIL] bot={bot_mode!r} resolved={eid!r} iter={_iter} error={err!r}")
+                _record_bot_emote_result(eid, "api_fail", err)
             await asyncio.sleep(interval)
 
     _bot_loops[bot_mode] = asyncio.create_task(_loop())
@@ -608,6 +651,17 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
     from modules.emote_registry import is_permission_locked
     if is_permission_locked(eid):
         await _w(bot, uid, "🔒 That emote requires ownership. Bot cannot use it.")
+        return
+
+    # Social emotes require a paired target — they silently do nothing in self-mode.
+    if eid in _SOCIAL_EMOTES:
+        _record_bot_emote_result(eid, "social")
+        short = eid.replace("emote-", "")
+        await _w(
+            bot, uid,
+            f"⚠️ '{short}' is a social emote — requires a target player."
+            f" Use !emote @user {short} instead."
+        )
         return
 
     # Determine whether the target is THIS running bot instance.
@@ -674,6 +728,223 @@ async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
         return
     _start_bot_loop(bot, BOT_MODE, eid, bot_uid)
     _log("emote_recovery", bot=BOT_MODE, emote=eid)
+
+
+# ---------------------------------------------------------------------------
+# Runtime diagnostics helpers
+# ---------------------------------------------------------------------------
+
+def notify_emote_event(user_id: str, emote_id: str) -> None:
+    """Signal that on_emote fired for (user_id, emote_id).
+
+    Called from main.py's on_emote hook.  Releases any !emotediag listener
+    waiting for animation confirmation.
+    """
+    key = (user_id, emote_id)
+    evt = _emote_event_listeners.pop(key, None)
+    if evt:
+        evt.set()
+
+
+def _record_bot_emote_result(eid: str, category: str, error: str = "") -> None:
+    """Track a bot emote failure result.
+
+    After _SILENT_THRESHOLD consecutive silent successes, marks the emote as
+    player_only / unsupported so the bot loop auto-skips it.
+    """
+    entry = UNSUPPORTED_BOT_EMOTES.setdefault(eid, {
+        "fail_count": 0, "silent_count": 0,
+        "category": category, "unsupported_for_bots": False, "last_error": "",
+    })
+    if error:
+        entry["last_error"] = error
+    if category == "silent":
+        entry["silent_count"] = entry.get("silent_count", 0) + 1
+        entry["category"] = "silent"
+        if entry["silent_count"] >= _SILENT_THRESHOLD:
+            entry["category"] = "player_only"
+            entry["unsupported_for_bots"] = True
+            print(
+                f"[EMOTE_DIAG] {eid!r} marked player_only after"
+                f" {entry['silent_count']} silent failures"
+            )
+    elif category == "social":
+        entry["category"] = "social"
+        entry["unsupported_for_bots"] = True
+    else:
+        entry["fail_count"] = entry.get("fail_count", 0) + 1
+        entry["category"] = category
+
+
+# ---------------------------------------------------------------------------
+# !emotediag <name> — live test with 3-second animation detection
+# ---------------------------------------------------------------------------
+
+async def handle_emotediag(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emotediag <name> — admin: live-test an emote with full diagnostics.
+
+    Steps:
+      1. Resolve the name → emote_id
+      2. Log [EMOTE TRY]
+      3. Call send_emote — log [EMOTE OK] or [EMOTE FAIL]
+      4. If OK, wait 3 s for on_emote animation event
+      5. If event arrives → confirmed working
+      6. If timeout  → SILENT (accepted by SDK, no animation back from backend)
+         After _SILENT_THRESHOLD silent hits → classified as PLAYER_ONLY_OR_DISABLED
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !emotediag <emote name or id>")
+        return
+
+    raw = " ".join(args[1:])
+    eid = lookup_emote(raw)
+    if not eid:
+        await _w(bot, uid, f"❌ Unknown emote '{raw}'. Try !emoteresolve {raw}")
+        return
+
+    # Social emote early-out
+    if eid in _SOCIAL_EMOTES:
+        short = eid.replace("emote-", "")
+        await _w(bot, uid,
+            f"⚠️ '{short}' is a social emote — needs target player."
+            f" Bot cannot self-loop it.")
+        return
+
+    bot_uid = get_bot_user_id()
+
+    # Register listener BEFORE sending to eliminate race condition.
+    key = (bot_uid, eid) if bot_uid else None
+    evt: asyncio.Event | None = None
+    if key:
+        evt = asyncio.Event()
+        _emote_event_listeners[key] = evt
+
+    from config import BOT_MODE as _BM
+    print(
+        f"[EMOTE TRY] bot={_BM!r} input={raw!r} resolved={eid!r}"
+        f" target=self mode=self"
+    )
+    await _w(bot, uid,
+        f"🔬 Testing {eid}\n"
+        f"[EMOTE TRY] resolved={eid!r} target=self")
+
+    try:
+        await bot.highrise.send_emote(eid)
+    except Exception as exc:
+        err = str(exc)
+        print(f"[EMOTE FAIL] resolved={eid!r} error={err!r}")
+        _record_bot_emote_result(eid, "api_fail", err)
+        if key:
+            _emote_event_listeners.pop(key, None)
+        await _w(bot, uid,
+            (f"[EMOTE FAIL] resolved={eid!r}\nerror={err}")[:249])
+        return
+
+    print(f"[EMOTE OK] resolved={eid!r}")
+
+    # Wait up to 3 s for the on_emote animation confirmation.
+    animation_seen = False
+    if evt:
+        try:
+            await asyncio.wait_for(evt.wait(), timeout=3.0)
+            animation_seen = True
+        except asyncio.TimeoutError:
+            _emote_event_listeners.pop(key, None)
+
+    if animation_seen:
+        await _w(bot, uid,
+            f"✅ [EMOTE OK] {eid!r}\nAnimation event confirmed ✓")
+    else:
+        _record_bot_emote_result(eid, "silent")
+        entry = UNSUPPORTED_BOT_EMOTES.get(eid, {})
+        sc    = entry.get("silent_count", 1)
+        cat   = entry.get("category", "silent")
+        mark  = "🔴 PLAYER_ONLY" if cat == "player_only" else "⚠️ SILENT"
+        await _w(bot, uid,
+            (
+                f"⚠️ SDK accepted but no animation in 3s.\n"
+                f"{mark} ({sc}/{_SILENT_THRESHOLD}x)"
+                f" — may be player-only or backend-disabled."
+            )[:249])
+
+
+# ---------------------------------------------------------------------------
+# !unsupportedemotes — categorised runtime failure report
+# ---------------------------------------------------------------------------
+
+async def handle_unsupportedemotes(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!unsupportedemotes — admin: show runtime-detected non-functional bot emotes.
+
+    Categories reported:
+      social       — paired emotes that need a target (hug, kiss, highfive…)
+      player_only  — SDK accepts it but no animation fires (3+ silent hits)
+      silent       — SDK accepts it but animation not yet confirmed (< 3 hits)
+      api_fail     — SDK raises an exception outright
+
+    Summary line shows total usable vs unsupported counts.
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    if not UNSUPPORTED_BOT_EMOTES:
+        await _w(bot, uid,
+            "✅ No unsupported emotes recorded yet.\n"
+            "Use !emotediag <name> to test individual emotes.")
+        return
+
+    api_fail_names: list[str] = []
+    silent_names:   list[str] = []
+    social_names:   list[str] = []
+    player_only_names: list[str] = []
+
+    for eid, info in sorted(UNSUPPORTED_BOT_EMOTES.items()):
+        short = eid.replace("emote-", "")
+        cat   = info.get("category", "api_fail")
+        if cat == "social":
+            social_names.append(short)
+        elif cat == "player_only":
+            player_only_names.append(short)
+        elif cat == "silent":
+            sc = info.get("silent_count", 0)
+            silent_names.append(f"{short}({sc}x)")
+        else:
+            api_fail_names.append(short)
+
+    total_unsup = sum(
+        1 for e in UNSUPPORTED_BOT_EMOTES.values()
+        if e.get("unsupported_for_bots")
+    )
+
+    lines: list[str] = [
+        (
+            f"🔬 Bot Emote Diagnostics\n"
+            f"Unsupported: {total_unsup}"
+            f" | Social: {len(social_names)}"
+            f" | Player-only: {len(player_only_names)}"
+            f" | Silent: {len(silent_names)}"
+            f" | API-fail: {len(api_fail_names)}"
+        ),
+    ]
+    if social_names:
+        lines.append(f"🤝 Social (need target): {', '.join(social_names)}")
+    if player_only_names:
+        lines.append(f"🔴 Player-only/disabled: {', '.join(player_only_names)}")
+    if silent_names:
+        lines.append(f"⚠️ Silent (unconfirmed): {', '.join(silent_names)}")
+    if api_fail_names:
+        lines.append(f"❌ API-rejected: {', '.join(api_fail_names)}")
+
+    for line in lines:
+        await _w(bot, uid, line[:249])
+        await asyncio.sleep(0.3)
 
 
 # ---------------------------------------------------------------------------
