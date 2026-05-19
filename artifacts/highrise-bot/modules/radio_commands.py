@@ -43,7 +43,7 @@ import modules.music_credits        as mc
 import modules.payment_service      as ps
 import modules.request_queue        as rq
 import modules.playback_engine      as engine
-from modules.permissions import is_admin, is_owner
+from modules.permissions import is_admin, is_owner, can_moderate
 from modules.luxe import get_luxe_balance, deduct_luxe_balance, log_luxe_transaction
 
 if TYPE_CHECKING:
@@ -1408,16 +1408,53 @@ async def handle_setrequestprice(bot: "BaseBot", user: "User", args: list) -> No
 # ─── !radiohelp ───────────────────────────────────────────────────────────────
 
 async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!radiohelp — compact command reference card (≤249 chars)."""
-    print(f"[RADIO_CMD] stage=radio_help user_id={user.id!r} username={user.username!r}")
+    """!radiohelp — role-aware command reference (player / staff / admin tiers)."""
+    uid   = user.id
+    uname = user.username
+    print(f"[RADIO_CMD] stage=radio_help user_id={uid!r} username={uname!r}")
+
+    # ── Whisper 1: play + song-plays + favorites (everyone) ──────────────────
     await _w(
-        bot, user.id,
-        "🎧 DJ_DUDU Help:\n"
-        "!play song, !pick #, !q, !now\n"
-        "!like, !dislike, !save, !playlist\n"
-        "!vibes, !priority song, !myrequests\n"
+        bot, uid,
+        "🎧 DJ_DUDU Commands\n"
+        "🎵 !play song  !pick #  !q  !now\n"
+        "💿 !musicshop  !buyplays coins 1\n"
+        "   !buyplays luxe 1  !myrequests\n"
+        "⭐ !save  !playlist  !playmine #",
+    )
+    await asyncio.sleep(0.2)
+
+    # ── Whisper 2: voting + vibes + priority (everyone) ──────────────────────
+    await _w(
+        bot, uid,
+        "👍 !like  !dislike\n"
+        "🎶 !vibes  !vibe status\n"
+        "⚡ !priority song\n"
         "Need help? !radiotutorial",
     )
+
+    # ── Whisper 3: staff commands (mod / manager / admin / owner) ────────────
+    if can_moderate(uname):
+        await asyncio.sleep(0.2)
+        await _w(
+            bot, uid,
+            "🛠️ Staff Radio Commands\n"
+            "!skip  !playedby @user  !voters\n"
+            "!likeslist  !dislikeslist\n"
+            "!queuelimit  !radiocleanup",
+        )
+
+    # ── Whisper 4: admin commands (admin / owner only) ───────────────────────
+    if is_admin(uname):
+        await asyncio.sleep(0.2)
+        await _w(
+            bot, uid,
+            "👑 Admin Radio Commands\n"
+            "!vibe genre  !vibescan\n"
+            "!setqueuelimit #\n"
+            "!setrequestprice #\n"
+            "!djannounce on/off",
+        )
 
 
 # ─── !radiotutorial ───────────────────────────────────────────────────────────
