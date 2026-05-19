@@ -8,7 +8,9 @@ All env-var reads for AzuraCast / SFTP live here — no other module
 should call os.environ directly for radio configuration.
 """
 from __future__ import annotations
+import json as _json
 import os
+import time as _time
 import database as db
 
 _NS = "radio_"
@@ -207,6 +209,44 @@ def set_dynamic_vibe_playlist(vibe_name: str, playlist_id: str) -> None:
 def get_dynamic_vibe_playlist(vibe_name: str) -> str:
     """Return a previously stored dynamic playlist ID, or '' if not set."""
     return _get(f"dynamic_pl_{vibe_name.lower()}", "")
+
+
+# ─── Vibe discovery cache (auto-scan results) ─────────────────────────────────
+
+_VIBE_SCAN_TTL = 3600.0  # seconds; !vibescan forces an immediate refresh
+
+
+def get_vibe_scan_cache() -> dict:
+    """Load the vibe discovery cache from DB. Returns {} if missing or corrupt."""
+    raw = _get("vibe_scan_cache", "")
+    if not raw:
+        return {}
+    try:
+        return _json.loads(raw)
+    except Exception:
+        return {}
+
+
+def set_vibe_scan_cache(data: dict) -> None:
+    """Persist a vibe scan result dict to DB."""
+    try:
+        _set("vibe_scan_cache", _json.dumps(data))
+    except Exception:
+        pass
+
+
+def clear_vibe_scan_cache() -> None:
+    """Invalidate the cache so the next !vibe / !vibes triggers a fresh scan."""
+    _set("vibe_scan_cache", "")
+
+
+def vibe_scan_is_fresh() -> bool:
+    """Return True if the cache exists and is younger than _VIBE_SCAN_TTL seconds."""
+    cache = get_vibe_scan_cache()
+    if not cache.get("vibes"):
+        return False
+    age = _time.time() - cache.get("scanned_at", 0)
+    return age < _VIBE_SCAN_TTL
 
 
 # ─── SFTP ─────────────────────────────────────────────────────────────────────

@@ -364,6 +364,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── dj — config ──────────────────────────────────────────────────────────
     "queuelimit": "dj", "setqueuelimit": "dj",
     "setrequestprice": "dj",
+    "vibescan": "dj",
     # ── eventhost ───────────────────────────────────────────────────────────
     "events": "eventhost", "event": "eventhost",
     "nextevent": "eventhost", "next": "eventhost",

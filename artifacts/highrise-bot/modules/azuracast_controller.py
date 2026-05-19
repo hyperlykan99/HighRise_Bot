@@ -1008,6 +1008,153 @@ def assign_folder_to_playlist(folder_name: str, playlist_id: str) -> bool:
     return False
 
 
+def list_media_folders(parent: str = "") -> list:
+    """
+    Return folder names under `parent` in the AzuraCast media library.
+    Calls GET /api/station/{id}/files?currentDirectory=<parent> and returns
+    items that look like directories (no unique_id, no file extension in basename).
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg:
+        return []
+    try:
+        resp = req_lib.get(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/files",
+            params={"currentDirectory": parent, "rowCount": 1000},
+            headers=_headers(cfg),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data    = resp.json()
+            rows    = data if isinstance(data, list) else data.get("rows", [])
+            folders = []
+            for r in rows:
+                if r.get("unique_id") or r.get("media"):
+                    continue
+                name = r.get("name") or os.path.basename(r.get("path", ""))
+                if name and "." not in name:
+                    folders.append(name)
+            print(f"{_LOG} list_media_folders({parent!r}) → {len(folders)} folders")
+            return folders
+        print(f"{_LOG} list_media_folders({parent!r}) HTTP {resp.status_code}")
+    except Exception as exc:
+        print(f"{_LOG} list_media_folders error: {exc}")
+    return []
+
+
+def scan_vibe_sources() -> dict:
+    """
+    Discover all vibe-worthy playlists and media folders from AzuraCast.
+
+    Phase 1 — scans all station playlists; skips Requests and empty playlists.
+    Phase 2 — scans root media folders; only adds folders whose normalized name
+               is not already covered by a playlist.
+
+    Returns:
+        {
+            "vibes": {
+                "<norm_key>": {
+                    "display":     "<Original Name>",
+                    "playlist_id": "<id>" | None,
+                    "song_count":  <int>,
+                    "source":      "playlist" | "folder",
+                },
+                ...
+            },
+            "scanned_at": <float>,
+        }
+    """
+    import time as _time
+    req_pid: str   = requests_playlist_id()
+    seen_keys: set = set()
+    vibes: dict    = {}
+
+    # ── Phase 1: existing AzuraCast playlists ────────────────────────────────
+    for pl in list_playlists():
+        pl_id   = str(pl.get("id", ""))
+        pl_name = (pl.get("name") or "").strip()
+        count   = int(pl.get("num_songs") or 0)
+        if not pl_id or not pl_name:
+            continue
+        if pl_id == req_pid:
+            continue
+        if count == 0:
+            continue
+        key = _norm_pl_name(pl_name)
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        vibes[key] = {
+            "display":     pl_name,
+            "playlist_id": pl_id,
+            "song_count":  count,
+            "source":      "playlist",
+        }
+        print(f"{_LOG} scan_vibe: playlist '{pl_name}' key={key!r} songs={count}")
+
+    # ── Phase 2: media library folders not yet covered ───────────────────────
+    for folder_name in list_media_folders():
+        key = _norm_pl_name(folder_name)
+        if not key or key in seen_keys:
+            continue
+        count = count_folder_files(folder_name)
+        if count == 0:
+            continue
+        seen_keys.add(key)
+        vibes[key] = {
+            "display":     folder_name,
+            "playlist_id": None,
+            "song_count":  count,
+            "source":      "folder",
+        }
+        print(f"{_LOG} scan_vibe: folder '{folder_name}' key={key!r} songs={count}")
+
+    result = {"vibes": vibes, "scanned_at": _time.time()}
+    print(f"{_LOG} scan_vibe_sources complete → {len(vibes)} vibes discovered")
+    return result
+
+
+def switch_vibe_to(target_playlist_id: str, all_vibe_pids: "list[str]") -> dict:
+    """
+    Enable target_playlist_id; disable every other playlist ID in all_vibe_pids.
+    The Requests playlist (AZURA_PLAYLIST_ID) is NEVER touched.
+    all_vibe_pids should include every known vibe playlist ID (cache + env vars).
+    """
+    req_pid  = requests_playlist_id()
+    disabled = []
+    errors   = []
+
+    for pid in all_vibe_pids:
+        pid = str(pid or "").strip()
+        if not pid or pid == req_pid or pid == target_playlist_id:
+            continue
+        ok = set_playlist_enabled(pid, False)
+        if ok:
+            disabled.append(pid)
+        else:
+            errors.append(pid)
+
+    ok = set_playlist_enabled(target_playlist_id, True)
+    if not ok:
+        errors.append(target_playlist_id)
+
+    result = "ok" if not errors else "partial"
+    print(
+        f"{_LOG} stage=switch_vibe_to"
+        f" target={target_playlist_id!r}"
+        f" disabled={len(disabled)}"
+        f" result={result!r}"
+        f" errors={errors!r}"
+    )
+    return {
+        "status":   result,
+        "enabled":  target_playlist_id,
+        "disabled": disabled,
+        "errors":   errors,
+    }
+
+
 def switch_vibe_dynamic(target_playlist_id: str) -> dict:
     """
     Enable target_playlist_id; disable all env-var-configured vibe playlists.

@@ -486,6 +486,7 @@ from modules.radio_commands import (
     handle_nowplaying      as rc_nowplaying,
     handle_vibes           as rc_vibes,
     handle_vibe            as rc_vibe,
+    handle_vibescan        as rc_vibescan,
     handle_setrequestprice as rc_setrequestprice,
     handle_radiohelp       as rc_radiohelp,
     handle_like            as rc_like,
@@ -1640,7 +1641,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "like", "dislike", "songrating",
     "tipdj",
     "djvibes",
-    "vibe", "vibes",
+    "vibe", "vibes", "vibescan",
     "djreport",
     "dedicate",
     "djhelp",
@@ -7545,6 +7546,8 @@ class HangoutBot(BaseBot):
             await rc_vibes(self, user, args)
         elif cmd == "vibe":
             await rc_vibe(self, user, args)
+        elif cmd == "vibescan":
+            await rc_vibescan(self, user, args)
         elif cmd in ("history", "radiohistory"):
             await rc_history(self, user, args)
         elif cmd == "playedby":
