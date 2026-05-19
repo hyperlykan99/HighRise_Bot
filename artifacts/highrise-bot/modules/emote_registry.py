@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -237,7 +238,14 @@ _CANDIDATES: tuple[tuple[str, str], ...] = (
 
 # Normalize: "Sword Fight" → "swordfight"
 def _norm(s: str) -> str:
-    return s.lower().replace("-", "").replace("_", "").replace(" ", "")
+    """Normalize to a command key.
+
+    'Snow Angel'       → 'snowangel'
+    "Don't Start Now"  → 'dontstartnow'
+    'emote-dance'      → 'emotedance'
+    """
+    s = s.lower().replace("\u2019", "")   # curly apostrophe
+    return re.sub(r"[^a-z0-9]", "", s)
 
 # name→id lookup built from candidates (for !testemote by display name)
 _CAND_BY_NAME: dict[str, str] = {_norm(dn): eid for dn, eid in _CANDIDATES}
@@ -300,6 +308,20 @@ _ALIAS_MAP: dict[str, str] = {
 # Merge aliases into _CAND_BY_NAME (primary wins on collision)
 for _alias_k, _alias_v in _ALIAS_MAP.items():
     _CAND_BY_NAME.setdefault(_alias_k, _alias_v)
+
+# ─── Explicit command overrides ───────────────────────────────────────────────
+# These win over BOTH primary _CAND_BY_NAME entries AND _ALIAS_MAP entries.
+# Also reapplied in _load_candidates() after the full catalog is loaded.
+_ALIAS_OVERRIDES: dict[str, str] = {
+    "dance":       "emote-disco",          # "dance" command → disco animation
+    "punch":       "emote-punch",          # punch emote
+    "drop":        "emote-deathdrop",      # death drop
+    "fall":        "emote-fail1",          # fail animation (not emote-fall)
+    "swordfight":  "emote-swordfight",     # sword fight (was telekinesis)
+    "sit":         "emote-idle_sitfloor",  # floor sit idle
+}
+for _ok, _ov in _ALIAS_OVERRIDES.items():
+    _CAND_BY_NAME[_ok] = _ov
 
 # ─── Alt IDs: fallback SDK IDs tried when the primary scan fails ──────────────
 # Maps canonical_emote_id → tuple of alternative IDs to attempt in order.
@@ -508,6 +530,13 @@ def _community_catalog_path() -> str:
     )
 
 
+def _python_catalog_path() -> str:
+    """Absolute path to the Python emote catalog (data/highrise_emotes.py)."""
+    return os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "data", "highrise_emotes.py")
+    )
+
+
 def _parse_emote_json(data: object) -> list[tuple[str, str]]:
     """Parse a JSON object from any of the supported emote catalog formats.
 
@@ -550,9 +579,18 @@ def _parse_emote_json(data: object) -> list[tuple[str, str]]:
 
 
 def _load_candidates() -> list[tuple[str, str]]:
-    """Return full candidate list, augmented by community catalog and local overrides.
-    Also updates the module-level _source_counts breakdown."""
-    global _source_counts
+    """Return full candidate list from all sources.
+
+    Priority order:
+      0. data/highrise_emotes.py   — Python catalog (authoritative if present)
+      1. data/highrise_emotes.json — community JSON catalog
+      2. emotes.json               — legacy local override
+      3. _CANDIDATES tuple         — always included as base
+
+    Side effect: refreshes _CAND_BY_NAME with all loaded entries, then
+    reapplies _ALIAS_OVERRIDES so explicit command mappings always win.
+    """
+    global _source_counts, _CAND_BY_NAME
     seen_ids: set[str] = set()
     base: list[tuple[str, str]] = []
 
@@ -562,47 +600,79 @@ def _load_candidates() -> list[tuple[str, str]]:
             seen_ids.add(eid)
     builtin_n = len(base)
 
-    def _merge(path: str, label: str) -> int:
+    def _merge_pairs(pairs: list[tuple[str, str]], label: str) -> int:
         added = 0
+        for dn, eid in pairs:
+            if eid and eid not in seen_ids:
+                base.append((dn, eid))
+                seen_ids.add(eid)
+                added += 1
+        if added:
+            print(f"{_LOG} Merged {label}: +{added} new IDs (total={len(base)})")
+        return added
+
+    def _merge_json(path: str, label: str) -> int:
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-            for dn, eid in _parse_emote_json(data):
-                if eid and eid not in seen_ids:
-                    base.append((dn, eid))
-                    seen_ids.add(eid)
-                    added += 1
-            print(f"{_LOG} Merged {label}: +{added} new IDs (total candidates={len(base)})")
+            return _merge_pairs(_parse_emote_json(data), label)
         except FileNotFoundError:
-            pass
+            return 0
         except Exception as exc:
             print(f"{_LOG} {label} load error: {exc}")
-        return added
+            return 0
 
-    # Priority 1: community catalog (data/highrise_emotes.json)
-    community_n = _merge(_community_catalog_path(), "community catalog")
+    # Priority 0: data/highrise_emotes.py (Python catalog — highest authority)
+    pycatalog_n = 0
+    py_path = _python_catalog_path()
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_hr_emotes_data", py_path)
+        mod  = importlib.util.module_from_spec(spec)   # type: ignore[arg-type]
+        spec.loader.exec_module(mod)                    # type: ignore[union-attr]
+        raw: list[tuple[str, str]] = getattr(mod, "all_emote_list", [])
+        pairs = [(_norm(dn), eid) for dn, eid in raw if eid]
+        pycatalog_n = _merge_pairs(pairs, "highrise_emotes.py")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"{_LOG} highrise_emotes.py load error: {exc}")
 
-    # Priority 2: legacy emotes.json override (bot root or modules dir)
+    # Priority 1: data/highrise_emotes.json (community JSON catalog)
+    community_n = _merge_json(_community_catalog_path(), "community catalog")
+
+    # Priority 2: legacy emotes.json override
     local_n = 0
     for path in (
         os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "emotes.json")),
         os.path.normpath(os.path.join(os.path.dirname(__file__), "emotes.json")),
     ):
         if os.path.isfile(path):
-            local_n = _merge(path, f"emotes.json ({os.path.basename(os.path.dirname(path))})")
+            local_n = _merge_json(
+                path, f"emotes.json ({os.path.basename(os.path.dirname(path))})"
+            )
             break
 
-    # Future-proof: SDK GetEmotesRequest (not yet available in current SDK)
+    # Future-proof: SDK GetEmotesRequest (not yet available)
     sdk_n = 0
     try:
         from highrise import GetEmotesRequest  # type: ignore[import]
-        print(f"{_LOG} SDK GetEmotesRequest found — will query at runtime")
-        sdk_n = 0  # placeholder until SDK exposes it
+        sdk_n = 0
     except ImportError:
         pass
 
+    # Refresh _CAND_BY_NAME with all loaded candidates (setdefault — first writer wins)
+    for dn, eid in base:
+        _CAND_BY_NAME.setdefault(dn, eid)
+        _CAND_BY_NAME.setdefault(_norm(eid), eid)
+
+    # Reapply explicit overrides — these always win regardless of catalog order
+    for _ok, _ov in _ALIAS_OVERRIDES.items():
+        _CAND_BY_NAME[_ok] = _ov
+
     _source_counts = {
         "builtin":   builtin_n,
+        "pycatalog": pycatalog_n,
         "community": community_n,
         "local":     local_n,
         "sdk":       sdk_n,
@@ -946,12 +1016,14 @@ async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
     permission = _db_count("permission")
     disabled   = _db_count("disabled")
     candidates = _load_candidates()
-    sc = _source_counts
-    src = (
-        f"builtin:{sc.get('builtin',0)}"
-        + (f" community:{sc['community']}" if sc.get("community") else "")
-        + (f" local:{sc['local']}" if sc.get("local") else "")
-    )
+    sc  = _source_counts
+    src = f"builtin:{sc.get('builtin', 0)}"
+    if sc.get("pycatalog"):
+        src += f" py:{sc['pycatalog']}"
+    if sc.get("community"):
+        src += f" community:{sc['community']}"
+    if sc.get("local"):
+        src += f" local:{sc['local']}"
     alias_str = f" ⚠️Alias:{alias_only}" if alias_only else ""
     await _w(
         bot, uid,
@@ -1015,6 +1087,8 @@ async def handle_emotesource(bot: "BaseBot", user: "User", _args: list) -> None:
     community_file = "✅ present" if os.path.isfile(catalog) else "❌ missing"
 
     src_parts = [f"builtin:{sc.get('builtin', 0)}"]
+    if sc.get("pycatalog"):
+        src_parts.append(f"py:{sc['pycatalog']}")
     if sc.get("community"):
         src_parts.append(f"community:{sc['community']}")
     if sc.get("local"):

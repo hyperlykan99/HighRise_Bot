@@ -14,6 +14,7 @@ Full player emote system for ChillTopia / DJ_DUDU:
 from __future__ import annotations
 
 import asyncio
+import re as _re
 import time
 from typing import TYPE_CHECKING
 
@@ -39,11 +40,11 @@ EMOTE_REGISTRY: dict[str, str] = {
     "wave":           "emote-wave",
     "greet":          "emote-greet",
     "hello":          "emote-hello",
-    "dance":          "emote-dance",
+    "dance":          "emote-disco",
     "dance2":         "emote-dance2",
     "dance3":         "emote-dance3",
     "dance4":         "emote-dance4",
-    "sit":            "emote-sit",
+    "sit":            "emote-idle_sitfloor",
     "sit2":           "emote-sit2",
     "clap":           "emote-clap",
     "point":          "emote-point",
@@ -135,12 +136,29 @@ EMOTE_REGISTRY: dict[str, str] = {
     "brooms":         "emote-witch",
     "zzz":            "emote-sleep",
     "nap":            "emote-sleep",
+    # Command overrides (match _ALIAS_OVERRIDES in emote_registry)
+    "swordfight":     "emote-swordfight",
+    "punch":          "emote-punch",
+    "drop":           "emote-deathdrop",
+    "deathdrop":      "emote-deathdrop",
+    "fail":           "emote-fail1",
+    "disco":          "emote-disco",
+    "fistbump":       "emote-fistbump",
+    "dj":             "emote-dj",
 }
 
 
 def _normalize(name: str) -> str:
-    """Lowercase + strip spaces, dashes, underscores."""
-    return name.lower().replace("-", "").replace("_", "").replace(" ", "")
+    """Normalize to command key: lowercase, strip all non-alphanumeric characters.
+
+    Examples:
+      'Snow Angel'       → 'snowangel'
+      "Don't Start Now"  → 'dontstartnow'
+      'Fist Pump'        → 'fistpump'
+      'emote-dance'      → 'emotedance'
+    """
+    s = name.lower().replace("\u2019", "")  # curly apostrophe → nothing
+    return _re.sub(r"[^a-z0-9]", "", s)
 
 
 # Normalised lookup table (built once at import time)
