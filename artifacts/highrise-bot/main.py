@@ -921,6 +921,8 @@ from modules.emote_registry import (
     handle_reloademotes,
     handle_emotecount,
     handle_testemote,
+    handle_importemotes,
+    handle_emotesource,
     startup_emote_discovery,
 )
 from modules.room_utils import (  # noqa: E402 — continue room_utils import block
@@ -7380,10 +7382,14 @@ class HangoutBot(BaseBot):
             await handle_punch_emote(self, user, args)
         elif cmd == "swordfight":
             await handle_swordfight(self, user, args)
+        elif cmd == "importemotes":
+            await handle_importemotes(self, user, args)
         elif cmd == "reloademotes":
             await handle_reloademotes(self, user, args)
         elif cmd == "emotecount":
             await handle_emotecount(self, user, args)
+        elif cmd == "emotesource":
+            await handle_emotesource(self, user, args)
         elif cmd == "testemote":
             await handle_testemote(self, user, args)
         elif cmd == "botemote":

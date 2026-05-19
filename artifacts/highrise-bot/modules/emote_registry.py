@@ -4,16 +4,19 @@ modules/emote_registry.py
 Emote discovery, testing, and caching.
 
 Load sources (in priority order):
-  1. Highrise SDK  — if it ever exposes an emote list
-  2. emotes.json   — optional local override file
-  3. Built-in candidate list (~150 entries)
+  1. Highrise SDK       — if it ever exposes a GetEmotesRequest
+  2. data/highrise_emotes.json — community catalog (saved by !importemotes)
+  3. emotes.json        — optional local override file
+  4. Built-in candidate list (~155 entries)
 
 Each candidate is tested by calling send_emote on the bot's own user ID.
 Results are cached in the active_emotes DB table.
 
 Admin commands:
-  !reloademotes     — reset all to untested and re-scan
+  !importemotes     — load community catalog from data/highrise_emotes.json, rescan
+  !reloademotes     — reset all to untested and re-scan (uses current candidate set)
   !emotecount       — show how many active emotes are cached
+  !emotesource      — show where the current emote catalog came from
   !testemote <name> — test one emote and report result
 
 Player command:
@@ -288,42 +291,94 @@ def resolve_emote_id(name: str) -> str | None:
 
 # ─── Candidate loading ────────────────────────────────────────────────────────
 
-def _load_candidates() -> list[tuple[str, str]]:
-    """Return full candidate list, augmented by any local emotes.json."""
-    base: list[tuple[str, str]] = list(_CANDIDATES)
+def _community_catalog_path() -> str:
+    """Absolute path to the community emote catalog JSON."""
+    return os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "data", "highrise_emotes.json")
+    )
 
-    # Try emotes.json next to this file or in the bot root
+
+def _parse_emote_json(data: object) -> list[tuple[str, str]]:
+    """Parse a JSON object from any of the supported emote catalog formats.
+
+    Supported formats:
+      • {"emotes": [{"id": "emote-dance", "name": "dance"}, ...]}  (community format)
+      • [{"id": "emote-dance", "name": "dance"}, ...]              (plain list of dicts)
+      • ["emote-dance", ...]                                        (plain list of strings)
+      • {"dance": "emote-dance", ...}                              (name→id dict)
+
+    Returns a list of (display_name, emote_id) tuples.
+    """
+    results: list[tuple[str, str]] = []
+    items: object = data
+
+    if isinstance(data, dict):
+        if "emotes" in data and isinstance(data["emotes"], list):
+            items = data["emotes"]
+        else:
+            for dn, eid in data.items():
+                if dn.startswith("_"):
+                    continue
+                if eid and isinstance(eid, str):
+                    results.append((_norm(str(dn)), str(eid)))
+            return results
+
+    if isinstance(items, list):
+        for item in items:
+            if isinstance(item, dict):
+                eid = str(item.get("id") or item.get("emote_id") or "").strip()
+                dn  = str(item.get("name") or item.get("display_name") or eid).strip()
+            elif isinstance(item, str):
+                eid = item.strip()
+                dn  = eid.replace("emote-", "").replace("_", " ")
+            else:
+                continue
+            if eid:
+                results.append((_norm(dn), eid))
+
+    return results
+
+
+def _load_candidates() -> list[tuple[str, str]]:
+    """Return full candidate list, augmented by community catalog and local overrides."""
+    seen_ids: set[str] = set()
+    base: list[tuple[str, str]] = []
+
+    for dn, eid in _CANDIDATES:
+        if eid not in seen_ids:
+            base.append((dn, eid))
+            seen_ids.add(eid)
+
+    def _merge(path: str, label: str) -> int:
+        added = 0
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for dn, eid in _parse_emote_json(data):
+                if eid and eid not in seen_ids:
+                    base.append((dn, eid))
+                    seen_ids.add(eid)
+                    added += 1
+            print(f"{_LOG} Merged {label}: +{added} new IDs (total candidates={len(base)})")
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            print(f"{_LOG} {label} load error: {exc}")
+        return added
+
+    # Priority 1: community catalog (data/highrise_emotes.json)
+    _merge(_community_catalog_path(), "community catalog")
+
+    # Priority 2: legacy emotes.json override (bot root or modules dir)
     for path in (
-        os.path.join(os.path.dirname(__file__), "..", "emotes.json"),
-        os.path.join(os.path.dirname(__file__), "emotes.json"),
+        os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "emotes.json")),
+        os.path.normpath(os.path.join(os.path.dirname(__file__), "emotes.json")),
     ):
-        path = os.path.normpath(path)
         if os.path.isfile(path):
-            try:
-                with open(path, encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, dict):
-                            eid = str(item.get("id") or item.get("emote_id") or "").strip()
-                            dn  = str(item.get("name") or item.get("display_name") or eid).strip()
-                        elif isinstance(item, str):
-                            eid = item.strip()
-                            dn  = eid.replace("emote-", "").replace("_", " ")
-                        else:
-                            continue
-                        if eid and not any(e == eid for _, e in base):
-                            base.append((_norm(dn), eid))
-                elif isinstance(data, dict):
-                    for dn, eid in data.items():
-                        if eid and not any(e == eid for _, e in base):
-                            base.append((_norm(str(dn)), str(eid)))
-                print(f"{_LOG} Loaded emotes.json from {path}")
-            except Exception as exc:
-                print(f"{_LOG} emotes.json load error: {exc}")
+            _merge(path, f"emotes.json ({os.path.basename(os.path.dirname(path))})")
             break
 
-    # Try SDK emote list (future-proof — SDK may expose it someday)
+    # Future-proof: SDK GetEmotesRequest (not yet available in current SDK)
     try:
         from highrise import GetEmotesRequest  # type: ignore[import]
         print(f"{_LOG} SDK GetEmotesRequest found — will query at runtime")
@@ -394,6 +449,60 @@ async def startup_emote_discovery(bot: "BaseBot") -> None:
 
 # ─── Admin commands ───────────────────────────────────────────────────────────
 
+async def handle_importemotes(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!importemotes — admin: load community catalog, merge with built-ins, rescan.
+
+    Reads data/highrise_emotes.json, adds any IDs not already in the candidate
+    set, clears the test cache, and kicks off a full rediscovery pass.
+    Only keeps emotes that actually work (send_emote succeeds).
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    catalog_path = _community_catalog_path()
+    if not os.path.isfile(catalog_path):
+        await _w(
+            bot, uid,
+            "❌ Community catalog not found.\n"
+            "Expected: data/highrise_emotes.json\n"
+            "Drop the file in the bot's data/ folder, then retry."
+        )
+        return
+
+    try:
+        with open(catalog_path, encoding="utf-8") as f:
+            data = json.load(f)
+        entries = _parse_emote_json(data)
+    except Exception as exc:
+        await _w(bot, uid, f"❌ Failed to parse catalog: {exc!s:.120}")
+        return
+
+    if not entries:
+        await _w(bot, uid, "❌ Catalog is empty or unrecognised format.")
+        return
+
+    candidates = _load_candidates()
+    total_candidates = len(candidates)
+
+    db.set_room_setting("emote_catalog_source", "community")
+    _db_reset_all()
+    db.set_room_setting("emote_discovery_last_run", "0")
+
+    print(f"{_LOG} importemotes by={uname!r} catalog_entries={len(entries)}"
+          f" total_candidates={total_candidates}")
+
+    await _w(
+        bot, uid,
+        f"📥 Community catalog loaded: {len(entries)} entries\n"
+        f"🎭 Total candidates after merge: {total_candidates}\n"
+        f"🔄 Testing all emotes in background (~{total_candidates // 3}s)..."
+    )
+    asyncio.create_task(startup_emote_discovery(bot))
+
+
 async def handle_reloademotes(bot: "BaseBot", user: "User", _args: list) -> None:
     """!reloademotes — admin: wipe cache and re-discover all emotes."""
     uid   = user.id
@@ -402,10 +511,15 @@ async def handle_reloademotes(bot: "BaseBot", user: "User", _args: list) -> None
         await _w(bot, uid, "👑 Admin only.")
         return
 
+    candidates = _load_candidates()
     _db_reset_all()
     db.set_room_setting("emote_discovery_last_run", "0")
-    print(f"{_LOG} Cache cleared by {uname} — rescan triggered")
-    await _w(bot, uid, "🔄 Emote cache cleared. Rescan running in background (~60s)...")
+    print(f"{_LOG} Cache cleared by {uname} — rescan triggered ({len(candidates)} candidates)")
+    await _w(
+        bot, uid,
+        f"🔄 Emote cache cleared. Rescanning {len(candidates)} candidates in "
+        f"background (~{len(candidates) // 3}s)..."
+    )
     asyncio.create_task(startup_emote_discovery(bot))
 
 
@@ -417,13 +531,54 @@ async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
         await _w(bot, uid, "👑 Admin only.")
         return
 
-    active   = _db_count("active")
-    disabled = _db_count("disabled")
-    total    = len(_CANDIDATES)
+    active     = _db_count("active")
+    disabled   = _db_count("disabled")
+    candidates = _load_candidates()
+    source     = db.get_room_setting("emote_catalog_source", "builtin")
     await _w(
         bot, uid,
-        f"🎭 Emotes: {active} active | {disabled} disabled | {total} candidates\n"
-        f"Use !reloademotes to rescan."
+        f"🎭 Emotes: {active} active | {disabled} disabled\n"
+        f"📋 Candidates: {len(candidates)} | Source: {source}\n"
+        f"Use !reloademotes to rescan | !emotesource for details."
+    )
+
+
+async def handle_emotesource(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!emotesource — show where the current emote catalog came from."""
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    source     = db.get_room_setting("emote_catalog_source", "builtin")
+    active     = _db_count("active")
+    disabled   = _db_count("disabled")
+    candidates = _load_candidates()
+    last_run   = float(db.get_room_setting("emote_discovery_last_run", "0"))
+    catalog    = _community_catalog_path()
+
+    if last_run > 0:
+        import datetime
+        ts = datetime.datetime.fromtimestamp(last_run).strftime("%Y-%m-%d %H:%M")
+        last_str = f"Last scan: {ts}"
+    else:
+        last_str = "Not yet scanned"
+
+    community_file = "✅ present" if os.path.isfile(catalog) else "❌ missing"
+
+    source_label = {
+        "builtin":   "Built-in list (~155 IDs)",
+        "community": "Community catalog (data/highrise_emotes.json)",
+        "sdk":       "Highrise SDK discovery",
+    }.get(source, source)
+
+    await _w(
+        bot, uid,
+        f"🎭 Emote catalog source: {source_label}\n"
+        f"📋 {len(candidates)} candidates | ✅ {active} active | ❌ {disabled} disabled\n"
+        f"📁 data/highrise_emotes.json: {community_file}\n"
+        f"{last_str}"
     )
 
 
