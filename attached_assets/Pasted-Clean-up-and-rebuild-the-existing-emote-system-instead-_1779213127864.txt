@@ -1,0 +1,93 @@
+Clean up and rebuild the existing emote system instead of adding another new layer.
+
+Files to inspect and fix:
+- artifacts/highrise-bot/modules/emote_system.py
+- artifacts/highrise-bot/modules/emote_registry.py
+- artifacts/highrise-bot/modules/multi_bot.py
+- artifacts/highrise-bot/main.py
+- artifacts/highrise-bot/data/timed_emotes.py
+- artifacts/highrise-bot/data/timed_free_emotes.py
+
+Current problem:
+The repo already has partial emote fixes, but the system is duplicated and inconsistent. Do not add another separate emote system. Refactor the current one so there is only one source of truth.
+
+Required final behavior:
+1. ONLY DJ_DUDU / BOT_MODE=dj handles emote commands.
+2. ChillTopiaMC and every non-dj bot must silently ignore emote commands.
+3. No non-dj bot should say “Unknown command” for:
+   !emotes
+   !emotecount
+   !emotemode
+   !reloademotes
+   !emotescanstatus
+   !testemote
+   !botemote
+   !stopbotemote
+   !emotefailures
+   !failedemotes
+   !emoteinfo
+   !importemotes
+   !emotesource
+
+4. Keep `timed_free_emotes_list` as the default stable catalog.
+5. Keep `all_emote_list` / full registry as optional all mode.
+6. `!emotemode free` uses only timed_free_emotes_list.
+7. `!emotemode all` uses the full all_emote_list / registry.
+8. `!botemote <name>` should work without needing bot name.
+   Example:
+   !botemote wave
+   !botemote heartfingers
+   !botemote tiktokdance9
+
+9. Keep backward compatibility if old code expects:
+   !botemote <botname> <emote>
+   but prefer the new simple format:
+   !botemote <emote>
+
+10. `!stopbotemote` should work without needing bot name.
+11. Bot emote loop must use the exact duration from timed_free_emotes_list or timed_emotes.
+12. Do not use a fixed 8-second bot loop interval anymore.
+13. Use:
+   duration = duration_map.get(emote_id, fallback)
+   while active:
+       send_emote(emote_id, bot_uid)
+       await asyncio.sleep(duration)
+
+14. Fix duplicates and typo IDs:
+   - Do not allow bad typo IDs like `emote-lagughing` to override correct IDs.
+   - Prefer known valid IDs from timed_free_emotes_list and timed_emotes.
+   - If duplicate names exist, keep deterministic alias handling.
+
+15. `!emotes` must only use the command `!emotes`.
+   Do not introduce `!motes`.
+   It must paginate and stay under Highrise message limits.
+
+16. Persist:
+   - selected emote mode
+   - bot active emote
+   - scan results
+   - failed emotes
+   - disabled emotes
+   - durations
+
+17. Remove duplicate routing/renderer logic for emotes.
+18. Make `emote_system.py` and `emote_registry.py` agree on one registry.
+19. Add a command ownership guard before unknown-command handling.
+   If command is emote-related and current BOT_MODE is not dj, return silently before sending any error.
+
+Important code smell found:
+Current bot emote loop uses a fixed `_BOT_LOOP_INTERVAL = 8`. Replace this with per-emote durations from the catalog.
+
+Expected test:
+- In DJ_DUDU:
+  !emotes -> replies with paginated emotes
+  !emotecount -> replies with counts and mode
+  !emotemode all -> switches to all mode
+  !botemote wave -> DJ_DUDU loops wave
+  !stopbotemote -> stops DJ_DUDU emote
+
+- In ChillTopiaMC:
+  !emotes -> no reply
+  !botemote wave -> no reply
+  !emotecount -> no reply
+  No “Unknown command” message

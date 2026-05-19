@@ -6,8 +6,8 @@ Full player emote system for ChillTopia / DJ_DUDU:
   Plain-text trigger  — typing "dance" (no !) starts a looping emote for that player
   Plain-text "stop"   — cancels the player's active emote loop
   !emotes             — auto-sends every page with a short delay (no manual pagination)
-  !botemote  <b> <e>  — admin: loop an emote on a named bot (DB-persisted, survives restart)
-  !stopbotemote <b>   — admin: stop a bot's looping emote
+  !botemote  <emote>  — admin: loop an emote on this bot (DB-persisted, survives restart)
+  !stopbotemote       — admin: stop this bot's emote (optional: !stopbotemote <botname>)
   !punch @user        — attacker gets punch emote, target gets reaction emote; 10 s CD
   !swordfight @user   — both players get swordfight emote simultaneously; 10 s CD
 """
@@ -489,11 +489,29 @@ async def handle_emotes_auto(bot: "BaseBot", user: "User", _args: list) -> None:
 # ---------------------------------------------------------------------------
 # Bot emote loops (DB-persisted)
 # ---------------------------------------------------------------------------
-def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str, bot_uid: str) -> None:
-    """Start (or restart) a persistent emote loop for this bot process."""
+def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str, bot_uid: str) -> float:
+    """Start (or restart) a persistent emote loop for this bot process.
+
+    Duration priority:
+      1. _FREE_EMOTE_DURATIONS  — precise timing from timed_free_emotes_list
+      2. _EMOTE_DURATIONS       — timing from full timed_emotes catalog
+      3. _DEFAULT_LOOP_INTERVAL — 5 s fallback
+
+    One-shot emotes (time=0) play once then pause 30 s before re-playing.
+    Returns the interval used (useful for status messages).
+    """
     old = _bot_loops.pop(bot_mode, None)
     if old and not old.done():
         old.cancel()
+
+    if eid in _FREE_ONE_SHOT_EMOTES or eid in _ONE_SHOT_EMOTES:
+        interval: float = 30.0
+    else:
+        interval = (
+            _FREE_EMOTE_DURATIONS.get(eid)
+            or _EMOTE_DURATIONS.get(eid)
+            or float(_DEFAULT_LOOP_INTERVAL)
+        )
 
     async def _loop() -> None:
         while True:
@@ -503,67 +521,89 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str, bot_uid: str) -> No
                 raise
             except Exception:
                 pass
-            await asyncio.sleep(_BOT_LOOP_INTERVAL)
+            await asyncio.sleep(interval)
 
     _bot_loops[bot_mode] = asyncio.create_task(_loop())
-    _log("bot_loop_start", bot=bot_mode, emote=eid, bot_uid=bot_uid)
+    _log("bot_loop_start", bot=bot_mode, emote=eid, bot_uid=bot_uid, interval=round(interval, 3))
+    return interval
 
 
 async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
-    """!botemote <botname> <emote> — admin: loop an emote on a specific bot (DB-persisted)."""
-    uid   = user.id
-    uname = user.username
-    if not _is_admin(uname):
-        await _w(bot, uid, "👑 Admin only.")
-        return
-    if len(args) < 3:
-        await _w(bot, uid, "Usage: !botemote <botname> <emote>\nEx: !botemote dj dance")
-        return
+    """!botemote <emote> — admin: loop an emote on this bot (DB-persisted).
 
-    bot_name   = args[1].lower()
-    emote_name = args[2].lower()
-    eid = lookup_emote(emote_name)
-    if not eid:
-        await _w(bot, uid, f"❌ Unknown emote '{emote_name}'. See !emotes for list.")
-        return
+    Simple format (preferred):
+      !botemote wave           — loop wave on this bot
+      !botemote heartfingers   — loop heartfingers
+      !botemote tiktokdance9   — loop tiktokdance9
 
-    db.set_room_setting(f"bot_emote_{bot_name}", eid)
-    _log("bot_emote_set", admin=uname, bot=bot_name, emote=eid)
-
-    from config import BOT_MODE
-    if BOT_MODE.lower() == bot_name:
-        bot_uid = get_bot_user_id()
-        if bot_uid:
-            _start_bot_loop(bot, BOT_MODE, eid, bot_uid)
-            await _w(bot, uid, f"✅ {bot_name} now looping {eid}.")
-            return
-
-    await _w(bot, uid,
-             f"✅ Saved. {bot_name} will loop {eid} on next reconnect.")
-
-
-async def handle_stopbotemote(bot: "BaseBot", user: "User", args: list) -> None:
-    """!stopbotemote <botname> — admin: stop a bot's looping emote."""
+    Legacy format (backward compat):
+      !botemote dj wave        — loop wave on the dj bot
+    """
     uid   = user.id
     uname = user.username
     if not _is_admin(uname):
         await _w(bot, uid, "👑 Admin only.")
         return
     if len(args) < 2:
-        await _w(bot, uid, "Usage: !stopbotemote <botname>")
+        await _w(bot, uid, "Usage: !botemote <emote>\nEx: !botemote wave")
         return
 
-    bot_name = args[1].lower()
-    db.set_room_setting(f"bot_emote_{bot_name}", "")
+    from config import BOT_MODE
+
+    # Detect format: if args[1] is not a valid emote AND there are 3+ args,
+    # treat it as legacy <botname> <emote> format.
+    if len(args) >= 3 and not lookup_emote(args[1].lower()):
+        bot_name   = args[1].lower()
+        emote_name = args[2].lower()
+    else:
+        bot_name   = BOT_MODE.lower()
+        emote_name = args[1].lower()
+
+    eid = lookup_emote(emote_name)
+    if not eid:
+        await _w(bot, uid, f"❌ Unknown emote '{emote_name}'. Try !emotes for the list.")
+        return
+
+    db.set_room_setting(f"bot_emote_{bot_name}", eid)
+    _log("bot_emote_set", admin=uname, bot=bot_name, emote=eid)
+
+    if BOT_MODE.lower() == bot_name:
+        bot_uid = get_bot_user_id()
+        if bot_uid:
+            dur = _start_bot_loop(bot, BOT_MODE, eid, bot_uid)
+            await _w(bot, uid, f"✅ Looping {eid} every {dur:.2f}s.")
+            return
+
+    await _w(bot, uid, f"✅ Saved. {bot_name} will loop {eid} on next reconnect.")
+
+
+async def handle_stopbotemote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!stopbotemote [botname] — admin: stop this bot's looping emote.
+
+    Simple format (preferred):
+      !stopbotemote            — stops this bot's current emote
+
+    Legacy format (backward compat):
+      !stopbotemote dj         — stops the dj bot's looping emote
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
 
     from config import BOT_MODE
+    bot_name = args[1].lower() if len(args) >= 2 else BOT_MODE.lower()
+
+    db.set_room_setting(f"bot_emote_{bot_name}", "")
+
     if BOT_MODE.lower() == bot_name:
         task = _bot_loops.pop(BOT_MODE, None)
         if task and not task.done():
             task.cancel()
 
     _log("bot_emote_cleared", admin=uname, bot=bot_name)
-    await _w(bot, uid, f"✅ {bot_name} bot emote stopped.")
+    await _w(bot, uid, "✅ Bot emote stopped.")
 
 
 async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
