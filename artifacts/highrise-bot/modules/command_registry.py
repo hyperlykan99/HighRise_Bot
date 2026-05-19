@@ -479,6 +479,8 @@ REGISTRY: dict[str, Cmd] = {
     "emotesource":      Cmd("dj","admin",  False, True,  False, perm="manager"),
     "emotescanstatus":  Cmd("dj","admin",  False, True,  False, perm="manager"),
     "emotefailures":    Cmd("dj","admin",  False, True,  True,  perm="manager"),
+    "failedemotes":     Cmd("dj","admin",  False, True,  True,  perm="manager"),
+    "setemoteunverified": Cmd("dj","admin", False, False, True, perm="admin"),
 
     # ── DJ: music / song-request queue ───────────────────────────────────────
     "request":          Cmd("dj","music",  True, False, True,  aliases=("sr","req","song","requesy")),

@@ -101,6 +101,40 @@ EMOTE_REGISTRY: dict[str, str] = {
     "idleloop":       "emote-idle_loop",
     "idlelook":       "emote-idle_look",
     "enthusiastic":   "emote-idle_enthusiastic",
+    # Extended aliases — match _ALIAS_MAP in emote_registry
+    "gangnam":        "emote-gangnam",
+    "gangnamstyle":   "emote-gangnam",
+    "groovy":         "emote-dance3",
+    "partydance":     "emote-dance4",
+    "hi":             "emote-wave",
+    "bye":            "emote-wave",
+    "pray":           "emote-sorry",
+    "beg":            "emote-sorry",
+    "smooch":         "emote-kiss",
+    "muah":           "emote-blowkiss",
+    "lol":            "emote-laugh",
+    "haha":           "emote-laugh",
+    "omg":            "emote-surprise",
+    "wow":            "emote-surprise",
+    "yep":            "emote-yes",
+    "yup":            "emote-yes",
+    "nope":           "emote-no",
+    "ok":             "emote-thumbsup",
+    "nice":           "emote-thumbsup",
+    "good":           "emote-thumbsup",
+    "mad":            "emote-angry",
+    "upset":          "emote-sad",
+    "tears":          "emote-cry",
+    "weep":           "emote-cry",
+    "woo":            "emote-celebrate",
+    "yay":            "emote-celebrate",
+    "win":            "emote-celebrate",
+    "stand":          "emote-idle_loop",
+    "reset":          "emote-idle_loop",
+    "spooky":         "emote-ghost",
+    "brooms":         "emote-witch",
+    "zzz":            "emote-sleep",
+    "nap":            "emote-sleep",
 }
 
 
@@ -119,24 +153,31 @@ _EMOTE_PREFIX = "emote"
 def lookup_emote(name: str) -> str | None:
     """Return SDK emote-ID for a player-typed name, or None if unknown.
 
-    Accepts:
-      - friendly names  ("dance", "flex", "fistpump")
-      - full IDs        ("emote-dance", "emote-flex")
-      - normalised form ("emotedance")
+    Resolution order:
+      1. EMOTE_REGISTRY (includes aliases)     — fast dict lookup
+      2. Strip leading "emote" prefix variant  — handles "emote-dance" input
+      3. emote_registry alias/candidate map    — community aliases
+      4. Unverified construction               — only when allow_unverified is on
     """
     norm = _normalize(name)
     if norm in _NORM_MAP:
         return _NORM_MAP[norm]
-    # Try stripping leading "emote" prefix so "emotedance" → "emote-dance"
+    # Strip leading "emote" prefix so "emotedance" or "emote-dance" also works
     if norm.startswith(_EMOTE_PREFIX):
         stripped = norm[len(_EMOTE_PREFIX):]
         if stripped in _NORM_MAP:
             return _NORM_MAP[stripped]
-        # Maybe it's a raw ID like "emote-dance" → norm="emotedance" already handled above
-        # Try reconstructed SDK id
         candidate = f"emote-{stripped}"
         if candidate in set(EMOTE_REGISTRY.values()):
             return candidate
+    # Extended fallback: check emote_registry alias / candidate map
+    try:
+        from modules.emote_registry import resolve_emote_id
+        eid = resolve_emote_id(name)
+        if eid:
+            return eid
+    except Exception:
+        pass
     return None
 
 

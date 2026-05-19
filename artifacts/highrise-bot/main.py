@@ -925,6 +925,8 @@ from modules.emote_registry import (
     handle_emotesource,
     handle_emotescanstatus,
     handle_emotefailures,
+    handle_failedemotes,
+    handle_setemoteunverified,
     startup_emote_discovery,
 )
 from modules.room_utils import (  # noqa: E402 — continue room_utils import block
@@ -7399,6 +7401,10 @@ class HangoutBot(BaseBot):
             await handle_emotescanstatus(self, user, args)
         elif cmd == "emotefailures":
             await handle_emotefailures(self, user, args)
+        elif cmd == "failedemotes":
+            await handle_failedemotes(self, user, args)
+        elif cmd == "setemoteunverified":
+            await handle_setemoteunverified(self, user, args)
         elif cmd == "testemote":
             await handle_testemote(self, user, args)
         elif cmd == "botemote":

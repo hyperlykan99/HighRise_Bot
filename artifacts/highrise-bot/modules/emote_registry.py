@@ -45,6 +45,7 @@ _scan_state: dict = {
     "tested":     0,
     "total":      0,
     "active":     0,
+    "alias_only": 0,        # works via alt SDK ID (⚠️)
     "failed":     0,        # permission + invalid + unclassified
     "permission": 0,        # valid ID but bot doesn't own
     "invalid":    0,        # truly bad ID
@@ -244,33 +245,139 @@ _CAND_BY_NAME: dict[str, str] = {_norm(dn): eid for dn, eid in _CANDIDATES}
 for _dn, _eid in _CANDIDATES:
     _CAND_BY_NAME[_norm(_eid)] = _eid
 
+# ─── Alias map: additional name aliases → emote_id ───────────────────────────
+# Players can type any of these names; also used as scanner name resolution.
+# Primary _CAND_BY_NAME entries always win on collision.
+_ALIAS_MAP: dict[str, str] = {
+    # Gangnam / K-pop
+    "gangnam":          "emote-gangnam",
+    "gangnamstyle":     "emote-gangnam",
+    # Dance shortcuts
+    "groovy":           "emote-dance3",
+    "partydance":       "emote-dance4",
+    # Social shortcuts
+    "hi":               "emote-wave",
+    "bye":              "emote-wave",
+    "pray":             "emote-sorry",
+    "beg":              "emote-sorry",
+    "smooch":           "emote-kiss",
+    "muah":             "emote-blowkiss",
+    # Reaction shortcuts
+    "lol":              "emote-laugh",
+    "haha":             "emote-laugh",
+    "omg":              "emote-surprise",
+    "wow":              "emote-surprise",
+    "yep":              "emote-yes",
+    "yup":              "emote-yes",
+    "nope":             "emote-no",
+    "ok":               "emote-thumbsup",
+    "nice":             "emote-thumbsup",
+    "good":             "emote-thumbsup",
+    "mad":              "emote-angry",
+    "upset":            "emote-sad",
+    "tears":            "emote-cry",
+    "weep":             "emote-cry",
+    "woo":              "emote-celebrate",
+    "yay":              "emote-celebrate",
+    "win":              "emote-celebrate",
+    # Idle / reset
+    "stand":            "emote-idle_loop",
+    "reset":            "emote-idle_loop",
+    # Combat
+    "fight":            "emote-telekinesis",
+    "sword":            "emote-telekinesis",
+    # Seasonal
+    "spooky":           "emote-ghost",
+    "brooms":           "emote-witch",
+    # Sleep
+    "zzz":              "emote-sleep",
+    "nap":              "emote-sleep",
+    # Flex
+    "fistpump":         "emote-flex",
+    "pump":             "emote-flex",
+    "fist":             "emote-flex",
+}
+# Merge aliases into _CAND_BY_NAME (primary wins on collision)
+for _alias_k, _alias_v in _ALIAS_MAP.items():
+    _CAND_BY_NAME.setdefault(_alias_k, _alias_v)
+
+# ─── Alt IDs: fallback SDK IDs tried when the primary scan fails ──────────────
+# Maps canonical_emote_id → tuple of alternative IDs to attempt in order.
+# If an alt ID succeeds during a scan, status is saved as 'alias_only'.
+_ALT_IDS: dict[str, tuple[str, ...]] = {
+    "emote-gangnam":           ("emote-gangnamstyle",),
+    "emote-idle_loop":         ("emote-idle",),
+    "emote-idle_look":         ("emote-idlelook",),
+    "emote-idle_enthusiastic": ("emote-enthusiastic",),
+    "emote-curtsy":            ("emote-curtsey",),
+    "emote-curtsey":           ("emote-curtsy",),
+    "emote-peace":             ("emote-peaceout",),
+    "emote-run":               ("emote-running", "emote-sprint"),
+    "emote-jump":              ("emote-jumping",),
+    "emote-cheer":             ("emote-cheer2",),
+}
+
+# ─── Unsafe mode ──────────────────────────────────────────────────────────────
+# When True, resolve_emote_id() constructs "emote-{norm}" for any unknown input
+# instead of returning None.  Set via !setemoteunverified on|off.
+_allow_unverified: bool = False
+
+
+def get_allow_unverified() -> bool:
+    return _allow_unverified
+
+
+def set_allow_unverified(val: bool) -> None:
+    global _allow_unverified
+    _allow_unverified = val
+
 
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
-def _db_upsert(emote_id: str, display_name: str, status: str, fail_reason: str = "") -> None:
+def _db_upsert(
+    emote_id: str,
+    display_name: str,
+    status: str,
+    fail_reason: str = "",
+    alias_id: str = "",
+) -> None:
     conn = db.get_connection()
     try:
         conn.execute(
-            """INSERT INTO active_emotes (emote_id, display_name, status, fail_reason, tested_at)
-               VALUES (?, ?, ?, ?, datetime('now'))
+            """INSERT INTO active_emotes
+               (emote_id, display_name, status, fail_reason, alias_id, tested_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'))
                ON CONFLICT(emote_id) DO UPDATE SET
                    display_name = excluded.display_name,
                    status       = excluded.status,
                    fail_reason  = excluded.fail_reason,
+                   alias_id     = excluded.alias_id,
                    tested_at    = excluded.tested_at""",
-            (emote_id, display_name, status, fail_reason),
+            (emote_id, display_name, status, fail_reason, alias_id),
         )
     except Exception:
-        # Fallback if fail_reason column not yet migrated
-        conn.execute(
-            """INSERT INTO active_emotes (emote_id, display_name, status, tested_at)
-               VALUES (?, ?, ?, datetime('now'))
-               ON CONFLICT(emote_id) DO UPDATE SET
-                   display_name = excluded.display_name,
-                   status       = excluded.status,
-                   tested_at    = excluded.tested_at""",
-            (emote_id, display_name, status),
-        )
+        try:
+            conn.execute(
+                """INSERT INTO active_emotes
+                   (emote_id, display_name, status, fail_reason, tested_at)
+                   VALUES (?, ?, ?, ?, datetime('now'))
+                   ON CONFLICT(emote_id) DO UPDATE SET
+                       display_name = excluded.display_name,
+                       status       = excluded.status,
+                       fail_reason  = excluded.fail_reason,
+                       tested_at    = excluded.tested_at""",
+                (emote_id, display_name, status, fail_reason),
+            )
+        except Exception:
+            conn.execute(
+                """INSERT INTO active_emotes (emote_id, display_name, status, tested_at)
+                   VALUES (?, ?, ?, datetime('now'))
+                   ON CONFLICT(emote_id) DO UPDATE SET
+                       display_name = excluded.display_name,
+                       status       = excluded.status,
+                       tested_at    = excluded.tested_at""",
+                (emote_id, display_name, status),
+            )
     conn.commit()
     conn.close()
 
@@ -292,21 +399,23 @@ def _db_count(status: str) -> int:
 
 
 def _db_get_active_names() -> list[str]:
-    """Return sorted display_names of all active emotes."""
+    """Return sorted display_names of active and alias_only emotes."""
     conn = db.get_connection()
     rows = conn.execute(
-        "SELECT display_name FROM active_emotes WHERE status='active' ORDER BY display_name"
+        "SELECT display_name FROM active_emotes"
+        " WHERE status IN ('active','alias_only') ORDER BY display_name"
     ).fetchall()
     conn.close()
     return [r[0] for r in rows]
 
 
 def _db_get_tested_ids() -> set[str]:
-    """Return emote IDs that have been conclusively tested (active, disabled, or permission).
-    Transient failures (rate-limit, timeout) are NOT stored so they get retried next scan."""
+    """Return emote IDs that have been conclusively tested.
+    Excludes transient failures so they are retried next scan."""
     conn = db.get_connection()
     rows = conn.execute(
-        "SELECT emote_id FROM active_emotes WHERE status IN ('active','disabled','permission')"
+        "SELECT emote_id FROM active_emotes"
+        " WHERE status IN ('active','alias_only','disabled','permission')"
     ).fetchall()
     conn.close()
     return {r[0] for r in rows}
@@ -356,9 +465,38 @@ def get_active_emote_names() -> list[str]:
         return []
 
 
+def resolve_emote_id_full(name: str) -> tuple[str | None, str]:
+    """Multi-step emote ID resolution. Returns (emote_id, method).
+
+    Resolution order:
+      1. Candidate / alias exact match     → method='exact'
+      2. Already a full emote- ID          → method='exact'
+      3. Reconstruct emote-{norm} if known → method='constructed'
+      4. Unsafe construction               → method='unverified' (only if _allow_unverified)
+    """
+    norm = _norm(name)
+    eid  = _CAND_BY_NAME.get(norm)
+    if eid:
+        return eid, "exact"
+    if name.startswith("emote-") or name.startswith("emote_"):
+        return name, "exact"
+    candidate = f"emote-{norm}"
+    known_ids = {e for _, e in _CANDIDATES}
+    if candidate in known_ids:
+        return candidate, "constructed"
+    if _allow_unverified:
+        return f"emote-{norm}", "unverified"
+    return None, "none"
+
+
 def resolve_emote_id(name: str) -> str | None:
-    """Resolve a player-typed name to an emote_id. Returns None if unrecognised."""
-    return _CAND_BY_NAME.get(_norm(name))
+    """Resolve a player-typed name to an emote_id.
+
+    Checks candidate names, alias map, direct emote- prefix.
+    Returns None if unrecognised (unless allow_unverified is enabled).
+    """
+    eid, _ = resolve_emote_id_full(name)
+    return eid
 
 
 # ─── Candidate loading ────────────────────────────────────────────────────────
@@ -485,7 +623,9 @@ async def startup_emote_discovery(
 
     reporter_uid: if set, progress whispers are sent to that user during the scan.
     """
-    global _scan_state
+    global _scan_state, _allow_unverified
+    # Restore unsafe-mode setting from DB on each scan
+    _allow_unverified = db.get_room_setting("emote_allow_unverified", "false") == "true"
     from config import BOT_MODE
     if BOT_MODE != "dj":
         print(f"{_LOG} Discovery skipped — only runs on dj bot (current: {BOT_MODE})")
@@ -562,7 +702,7 @@ async def startup_emote_discovery(
     # Clear the in-memory failure log for this scan
     _failure_log.clear()
 
-    active_n = disabled_n = permission_n = transient_n = error_n = 0
+    active_n = alias_n = disabled_n = permission_n = transient_n = error_n = 0
     first_error: str | None = None
     _RETRY_DELAYS = (1.5, 5.0)
     MAX_RETRIES = 2
@@ -601,33 +741,53 @@ async def startup_emote_discovery(
                 break  # non-retriable or retries exhausted
 
         if success:
-            _db_upsert(emote_id, display_name, "active", "")
+            _db_upsert(emote_id, display_name, "active")
             active_n += 1
         else:
-            _failure_log[emote_id] = {
-                "display_name": display_name,
-                "category":     final_category,
-                "reason":       final_reason,
-            }
-            print(
-                f"{_SCAN_LOG} fail {emote_id}"
-                f" [{final_category}] {final_reason[:80]}"
-            )
-            if final_db_status == "disabled":
-                _db_upsert(emote_id, display_name, "disabled", final_reason)
-                disabled_n += 1
-            elif final_db_status == "permission":
-                _db_upsert(emote_id, display_name, "permission", final_reason)
-                permission_n += 1
-            elif final_category in ("rate_limit", "timeout"):
-                transient_n += 1   # leave untested — next scan will retry
+            # Try alt IDs before declaring failure
+            alt_ids    = _ALT_IDS.get(emote_id, ())
+            alias_found = ""
+            for alt_id in alt_ids:
+                try:
+                    await asyncio.sleep(0.2)
+                    await bot.highrise.send_emote(alt_id, bot_uid)
+                    alias_found = alt_id
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+
+            if alias_found:
+                _db_upsert(emote_id, display_name, "alias_only", "", alias_found)
+                alias_n += 1
+                print(f"{_SCAN_LOG} alias {emote_id} → {alias_found}")
             else:
-                error_n += 1       # unknown, also leave untested
+                _failure_log[emote_id] = {
+                    "display_name": display_name,
+                    "category":     final_category,
+                    "reason":       final_reason,
+                }
+                print(
+                    f"{_SCAN_LOG} fail {emote_id}"
+                    f" [{final_category}] {final_reason[:80]}"
+                )
+                if final_db_status == "disabled":
+                    _db_upsert(emote_id, display_name, "disabled", final_reason)
+                    disabled_n += 1
+                elif final_db_status == "permission":
+                    _db_upsert(emote_id, display_name, "permission", final_reason)
+                    permission_n += 1
+                elif final_category in ("rate_limit", "timeout"):
+                    transient_n += 1   # leave untested — next scan will retry
+                else:
+                    error_n += 1       # unknown, also leave untested
 
         failed_n = disabled_n + permission_n + transient_n + error_n
         _scan_state.update({
             "tested":     idx,
             "active":     active_n,
+            "alias_only": alias_n,
             "failed":     failed_n,
             "permission": permission_n,
             "invalid":    disabled_n,
@@ -655,6 +815,7 @@ async def startup_emote_discovery(
         "status":     "done",
         "tested":     total,
         "active":     active_n,
+        "alias_only": alias_n,
         "failed":     failed_total,
         "permission": permission_n,
         "invalid":    disabled_n,
@@ -663,37 +824,38 @@ async def startup_emote_discovery(
     db.set_room_setting("emote_discovery_last_run", str(time.time()))
 
     print(
-        f"{_SCAN_LOG} complete active={active_n} failed={failed_total}"
+        f"{_SCAN_LOG} complete"
+        f" active={active_n} alias={alias_n} failed={failed_total}"
         f" (permission={permission_n} invalid={disabled_n}"
         f" transient={transient_n} unknown={error_n})"
     )
 
-    # Mismatch detection: if previously active count drops significantly, explain why
-    if prev_active > 0 and active_n < prev_active:
-        dropped = prev_active - active_n
+    # Mismatch: if active count dropped, explain breakdown
+    if prev_active > 0 and (active_n + alias_n) < prev_active:
+        dropped = prev_active - (active_n + alias_n)
         print(
-            f"{_SCAN_LOG} MISMATCH prev_active={prev_active} now={active_n}"
-            f" dropped={dropped}"
-            f" — permission={permission_n} (bot doesn't own them),"
-            f" invalid={disabled_n} (bad IDs),"
-            f" transient={transient_n} (rate-limit/timeout, will retry)"
+            f"{_SCAN_LOG} MISMATCH prev_active={prev_active}"
+            f" now_active={active_n} alias={alias_n} dropped={dropped}"
+            f" — permission={permission_n} invalid={disabled_n}"
+            f" transient={transient_n}"
         )
 
     if transient_n > 0:
         print(
-            f"{_SCAN_LOG} {transient_n} transient errors left untested"
-            f" — run !reloademotes again to retry them"
+            f"{_SCAN_LOG} {transient_n} transient left untested"
+            f" — run !reloademotes to retry"
         )
 
     if reporter_uid:
-        perm_str  = f" (perm: {permission_n})" if permission_n else ""
-        inv_str   = f" (invalid: {disabled_n})" if disabled_n else ""
-        trans_str = f" (retry: {transient_n})" if transient_n else ""
+        alias_str = f" ⚠️{alias_n}" if alias_n else ""
+        perm_str  = f" (perm:{permission_n})" if permission_n else ""
+        inv_str   = f" (invalid:{disabled_n})" if disabled_n else ""
+        trans_str = f" (retry:{transient_n})" if transient_n else ""
         await _w(
             bot, reporter_uid,
             f"✅ Emote scan complete\n"
-            f"Active: {active_n}\n"
-            f"Failed: {failed_total}{perm_str}{inv_str}{trans_str}\n"
+            f"✅ Active: {active_n}{alias_str}\n"
+            f"❌ Failed: {failed_total}{perm_str}{inv_str}{trans_str}\n"
             f"Total: {total}"
         )
 
@@ -780,6 +942,7 @@ async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
         return
 
     active     = _db_count("active")
+    alias_only = _db_count("alias_only")
     permission = _db_count("permission")
     disabled   = _db_count("disabled")
     candidates = _load_candidates()
@@ -789,10 +952,11 @@ async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
         + (f" community:{sc['community']}" if sc.get("community") else "")
         + (f" local:{sc['local']}" if sc.get("local") else "")
     )
+    alias_str = f" ⚠️Alias:{alias_only}" if alias_only else ""
     await _w(
         bot, uid,
-        f"🎭 Active: {active} | Permission: {permission} | Invalid: {disabled}\n"
-        f"📋 Candidates: {len(candidates)} ({src})\n"
+        f"🎭 ✅Active:{active}{alias_str} 🔒Perm:{permission} ❌Invalid:{disabled}\n"
+        f"📋 Candidates:{len(candidates)} ({src})\n"
         f"!emotefailures for breakdown | !reloademotes to rescan"
     )
 
@@ -813,11 +977,12 @@ async def handle_emotescanstatus(bot: "BaseBot", user: "User", _args: list) -> N
     failed = st["failed"]
     err    = st["last_error"] or "none"
 
+    alias_only = st.get("alias_only", 0)
     lines = [
         f"🎭 Scan: {status}",
         f"Tested: {tested}/{total}",
-        f"Active: {active}",
-        f"Failed: {failed}",
+        f"✅ Active: {active}" + (f"  ⚠️ Alias: {alias_only}" if alias_only else ""),
+        f"❌ Failed: {failed}",
         f"Last error: {err[:80]}",
     ]
     await _w(bot, uid, "\n".join(lines))
@@ -832,6 +997,7 @@ async def handle_emotesource(bot: "BaseBot", user: "User", _args: list) -> None:
         return
 
     active     = _db_count("active")
+    alias_only = _db_count("alias_only")
     permission = _db_count("permission")
     disabled   = _db_count("disabled")
     candidates = _load_candidates()
@@ -848,20 +1014,22 @@ async def handle_emotesource(bot: "BaseBot", user: "User", _args: list) -> None:
 
     community_file = "✅ present" if os.path.isfile(catalog) else "❌ missing"
 
-    src_parts = [f"builtin: {sc.get('builtin', 0)}"]
+    src_parts = [f"builtin:{sc.get('builtin', 0)}"]
     if sc.get("community"):
-        src_parts.append(f"community: {sc['community']}")
+        src_parts.append(f"community:{sc['community']}")
     if sc.get("local"):
-        src_parts.append(f"local: {sc['local']}")
+        src_parts.append(f"local:{sc['local']}")
     if sc.get("sdk"):
-        src_parts.append(f"sdk: {sc['sdk']}")
+        src_parts.append(f"sdk:{sc['sdk']}")
 
+    alias_str = f" ⚠️{alias_only} alias" if alias_only else ""
     await _w(
         bot, uid,
         f"🎭 Sources: {', '.join(src_parts)}\n"
-        f"📋 {len(candidates)} candidates → ✅{active} active"
-        f" | 🔒{permission} permission | ❌{disabled} invalid\n"
-        f"📁 community catalog: {community_file}\n"
+        f"📋 {len(candidates)} candidates"
+        f" → ✅{active}{alias_str}"
+        f" 🔒{permission} ❌{disabled}\n"
+        f"📁 community: {community_file}\n"
         f"{last_str}"
     )
 
@@ -953,7 +1121,7 @@ async def handle_emotefailures(bot: "BaseBot", user: "User", args: list) -> None
 
 
 async def handle_testemote(bot: "BaseBot", user: "User", args: list) -> None:
-    """!testemote <name|emote-id> — test one emote and report success/fail."""
+    """!testemote <name|emote-id> — multi-step test: show command, alias, and result."""
     uid   = user.id
     uname = user.username
     if not _is_admin(uname):
@@ -964,35 +1132,91 @@ async def handle_testemote(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, "Usage: !testemote <name>  e.g. !testemote dance")
         return
 
-    raw     = " ".join(args[1:]).strip()
-    emote_id = resolve_emote_id(raw)
-    if not emote_id:
-        # Maybe they typed the emote ID directly
+    raw              = " ".join(args[1:]).strip()
+    resolved, method = resolve_emote_id_full(raw)
+
+    # Accept explicit emote- IDs even if not in registry
+    if resolved is None:
         if raw.startswith("emote-") or raw.startswith("emote_"):
-            emote_id = raw
+            resolved, method = raw, "explicit"
         else:
-            emote_id = f"emote-{_norm(raw)}"
+            resolved, method = f"emote-{_norm(raw)}", "constructed"
+
+    emote_id = resolved
+    steps: list[str] = [f"🔍 {raw!r} → {emote_id} [{method}]"]
 
     from modules.gold import get_bot_user_id
     bot_uid = get_bot_user_id()
     if not bot_uid:
-        await _w(bot, uid, "❌ Bot UID not available yet — try again in a moment.")
+        await _w(bot, uid, "❌ Bot UID not available yet.")
         return
 
+    # Step 1: try primary emote_id
     try:
         await bot.highrise.send_emote(emote_id, bot_uid)
         _db_upsert(emote_id, _norm(raw), "active")
-        await _w(bot, uid, f"✅ {emote_id} works!")
-        print(f"{_LOG} testemote id={emote_id!r} result=active tester={uname!r}")
+        steps.append(f"✅ Primary OK")
+        await _w(bot, uid, "\n".join(steps)[:249])
+        print(f"{_LOG} testemote {emote_id!r} result=active tester={uname!r}")
+        return
     except Exception as exc:
-        err = str(exc)
-        err_low = err.lower()
-        if any(p in err_low for p in ("invalid", "not found", "unknown", "no such", "does not exist", "bad emote")):
-            _db_upsert(emote_id, _norm(raw), "disabled")
-            await _w(bot, uid, f"❌ {emote_id} is not a valid emote.")
-        else:
-            await _w(bot, uid, f"⚠️ {emote_id} — unexpected error: {err[:80]}")
-        print(f"{_LOG} testemote id={emote_id!r} result=fail error={err!r} tester={uname!r}")
+        _, category, reason, _ = _classify_error(exc)
+        steps.append(f"❌ Primary [{category}]: {reason[:55]}")
+
+    # Step 2: try alt IDs
+    for alt_id in _ALT_IDS.get(emote_id, ()):
+        try:
+            await asyncio.sleep(0.2)
+            await bot.highrise.send_emote(alt_id, bot_uid)
+            _db_upsert(emote_id, _norm(raw), "alias_only", "", alt_id)
+            steps.append(f"⚠️ Alias {alt_id} → OK")
+            await _w(bot, uid, "\n".join(steps)[:249])
+            print(f"{_LOG} testemote {emote_id!r} alias={alt_id!r} result=alias_only tester={uname!r}")
+            return
+        except Exception as exc2:
+            _, cat2, reason2, _ = _classify_error(exc2)
+            steps.append(f"❌ Alt {alt_id} [{cat2}]")
+
+    steps.append("❌ No working ID found")
+    await _w(bot, uid, "\n".join(steps)[:249])
+    print(f"{_LOG} testemote {emote_id!r} result=fail steps={len(steps)} tester={uname!r}")
+
+
+async def handle_failedemotes(bot: "BaseBot", user: "User", args: list) -> None:
+    """!failedemotes — alias for !emotefailures."""
+    await handle_emotefailures(bot, user, args)
+
+
+async def handle_setemoteunverified(bot: "BaseBot", user: "User", args: list) -> None:
+    """!setemoteunverified on|off — allow untested emote IDs (unsafe mode).
+
+    When ON, lookup_emote() will construct 'emote-{norm}' for any unknown input
+    so community emotes can be used even if they haven't been scanned yet.
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    sub = args[1].lower() if len(args) > 1 else ""
+    if sub == "on":
+        set_allow_unverified(True)
+        db.set_room_setting("emote_allow_unverified", "true")
+        await _w(
+            bot, uid,
+            "⚠️ Unverified emotes ON\n"
+            "Untested IDs will be attempted.\n"
+            "Use !reloademotes to scan and validate."
+        )
+        print(f"{_LOG} allow_unverified=True by={uname!r}")
+    elif sub == "off":
+        set_allow_unverified(False)
+        db.set_room_setting("emote_allow_unverified", "false")
+        await _w(bot, uid, "✅ Unverified emotes OFF — only scanned emotes used.")
+        print(f"{_LOG} allow_unverified=False by={uname!r}")
+    else:
+        cur = "ON ⚠️" if _allow_unverified else "OFF ✅"
+        await _w(bot, uid, f"!setemoteunverified on|off\nCurrent: {cur}")
 
 
 # ─── Player command: !emotes ──────────────────────────────────────────────────

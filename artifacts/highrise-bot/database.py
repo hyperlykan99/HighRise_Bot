@@ -3368,6 +3368,14 @@ def _migrate_db():
     except Exception:
         pass  # column already exists
 
+    # Add alias_id: the working alt SDK ID when primary fails (alias_only status)
+    try:
+        conn.execute(
+            "ALTER TABLE active_emotes ADD COLUMN alias_id TEXT NOT NULL DEFAULT ''"
+        )
+    except Exception:
+        pass  # column already exists
+
     conn.commit()
     conn.close()
 
