@@ -912,6 +912,8 @@ from modules.emote_system import (
     startup_bot_emote_recovery,
     handle_punch_emote,
     handle_swordfight,
+    handle_force_emote,
+    handle_room_emote,
 )
 from modules.room_utils import (  # noqa: E402 — continue room_utils import block
     handle_heart, handle_hearts, handle_heartlb,
@@ -7311,7 +7313,12 @@ class HangoutBot(BaseBot):
         elif cmd == "emoteinfo":
             await handle_emoteinfo(self, user, args)
         elif cmd == "emote":
-            await handle_emote(self, user, args)
+            if len(args) >= 2 and args[1].startswith("@"):
+                await handle_force_emote(self, user, args)
+            elif len(args) >= 2 and args[1].lower() in ("all", "allbots"):
+                await handle_room_emote(self, user, args)
+            else:
+                await handle_emote(self, user, args)
         elif cmd == "stopemote":
             await handle_stopemote(self, user)
         elif cmd == "dance":

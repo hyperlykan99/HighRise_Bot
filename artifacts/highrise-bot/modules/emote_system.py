@@ -487,3 +487,134 @@ async def handle_swordfight(bot: "BaseBot", user: "User", args: list) -> None:
     except Exception:
         pass
     _log("swordfight", user_id=uid, username=uname, target=target_user.username)
+
+
+# ---------------------------------------------------------------------------
+# Staff forced emotes
+# ---------------------------------------------------------------------------
+_force_emote_cd: dict[str, float] = {}
+_room_emote_cd:  dict[str, float] = {}
+_FORCE_EMOTE_CD = 5    # seconds per staff member between forced single-target emotes
+_ROOM_EMOTE_CD  = 30   # seconds per staff member between room-wide emotes
+
+
+async def handle_force_emote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emote @user <emote> — staff: force-loop a player into an emote.
+
+    Target can still type "stop" to cancel their own loop.
+    """
+    uid   = user.id
+    uname = user.username
+
+    if not can_moderate(uname):
+        await _w(bot, uid, "❌ Staff only.")
+        return
+
+    if len(args) < 3:
+        await _w(bot, uid, "Usage: !emote @user <emote>")
+        return
+
+    target_name = args[1].lstrip("@")
+    emote_name  = args[2].lower()
+
+    eid = lookup_emote(emote_name)
+    if not eid:
+        await _w(bot, uid, f"❌ Unknown emote '{emote_name}'. See !emotes.")
+        return
+
+    remaining = _cd_remaining(_force_emote_cd, uid, _FORCE_EMOTE_CD)
+    if remaining > 0:
+        await _w(bot, uid, f"⏳ Cooldown: {remaining:.0f}s")
+        return
+
+    from modules.room_utils import _resolve_user_in_room
+    pair = await _resolve_user_in_room(bot, target_name)
+    if not pair:
+        await _w(bot, uid, f"❌ @{target_name} is not in the room.")
+        return
+    target_user, _ = pair
+    target_uid = target_user.id
+
+    _cd_set(_force_emote_cd, uid)
+
+    # Cancel any existing loop for that player, then start a fresh one
+    _cancel_player_loop(target_uid)
+
+    ok = await _send(bot, eid, target_uid)
+    if not ok:
+        await _w(bot, uid, "❌ Emote could not be sent.")
+        return
+
+    task = asyncio.create_task(_run_player_loop(bot, target_uid, eid))
+    _player_loops[target_uid]  = task
+    _player_emotes[target_uid] = eid
+
+    short = eid.replace("emote-", "")
+    await _w(bot, uid, f"🎭 Forced @{target_user.username} → {short}")
+    _log("force_emote",
+         stage="force_emote", staff=uname,
+         target=target_user.username, emote=eid, result="ok")
+
+
+async def handle_room_emote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emote all|allbots <emote> — staff: one-shot emote for everyone in the room.
+
+    'all'     excludes known bots.
+    'allbots' includes everyone (bots too).
+    Does NOT loop — fires once per user.
+    """
+    uid   = user.id
+    uname = user.username
+
+    if not can_moderate(uname):
+        await _w(bot, uid, "❌ Staff only.")
+        return
+
+    if len(args) < 3:
+        await _w(bot, uid, "Usage: !emote all <emote>  or  !emote allbots <emote>")
+        return
+
+    sub          = args[1].lower()   # "all" or "allbots"
+    emote_name   = args[2].lower()
+    include_bots = sub == "allbots"
+
+    eid = lookup_emote(emote_name)
+    if not eid:
+        await _w(bot, uid, f"❌ Unknown emote '{emote_name}'. See !emotes.")
+        return
+
+    remaining = _cd_remaining(_room_emote_cd, uid, _ROOM_EMOTE_CD)
+    if remaining > 0:
+        await _w(bot, uid, f"⏳ Room emote cooldown: {remaining:.0f}s")
+        return
+
+    _cd_set(_room_emote_cd, uid)
+
+    # Build the set of known bot usernames to exclude
+    bot_usernames: frozenset[str] = frozenset()
+    if not include_bots:
+        try:
+            instances = db.get_bot_instances()
+            bot_usernames = frozenset(
+                r.get("bot_username", "").lower()
+                for r in instances
+                if r.get("bot_username")
+            )
+        except Exception:
+            pass
+
+    from modules.room_utils import _get_all_room_users
+    users = await _get_all_room_users(bot)
+
+    count = 0
+    for u, _ in users:
+        if not include_bots and u.username.lower() in bot_usernames:
+            continue
+        if await _send(bot, eid, u.id):
+            count += 1
+
+    short = eid.replace("emote-", "")
+    await _w(bot, uid, f"🎭 Room emote → {short} ({count} players)")
+    _log("room_emote",
+         stage="room_emote", staff=uname, emote=eid,
+         include_bots=include_bots, result=f"sent_to_{count}")
