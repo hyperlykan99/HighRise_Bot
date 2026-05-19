@@ -760,6 +760,11 @@ async def _on_new_track(
                     "username":   req_uname,
                     "started_at": time.time(),
                     "job_id":     db_id,
+                    "media_id":   live_fid,
+                    "unique_id":  (match.get("azura_song_id") or song_uid or ""),
+                    "file_path":  live_fn,
+                    "filename":   (match.get("filename") or ""),
+                    "youtube_id": (match.get("video_id") or ""),
                 }
             print(
                 f"{_LOG} stage=request_live_start"
@@ -976,6 +981,11 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                         "username":   req_uname,
                         "started_at": time.time(),
                         "job_id":     job_id,
+                        "media_id":   np_fid,
+                        "unique_id":  (np_uid or unique_id),
+                        "file_path":  np_path,
+                        "filename":   req_fn,
+                        "youtube_id": req_vid,
                     }
                 print(
                     f"{_LOG} stage=request_live_start source=skip_task"
@@ -1178,6 +1188,72 @@ def get_live_request() -> "dict | None":
         )
         return db_row
     return None
+
+
+def match_and_recover(
+    song_id: str,
+    song_uid: str,
+    np_title: str,
+    media_id: str,
+    media_path: str,
+    np_artist: str = "",
+) -> "dict | None":
+    """Self-correction hook for handle_nowplaying.
+
+    When the background poller hasn't set _live_req (e.g. after a restart or
+    transient lag), !now calls this to:
+      1. Try all _db_match_request strategies against the current AzuraCast song.
+      2. Promote status to 'playing' if the job is still 'ready'.
+      3. Populate _live_req so subsequent !now calls hit the memory fast-path.
+
+    Logs stage=now_playing_mode source=recovered on success, source=none on miss.
+    Returns the populated _live_req dict, or None if no match.
+    """
+    global _live_req, _cur_req_id
+
+    with _lock:
+        if _live_req is not None:
+            return _live_req
+
+    match_uid = song_uid or song_id
+    match = _db_match_request(match_uid, np_title, media_id, media_path)
+    if not match:
+        print(f"{_LOG} stage=now_playing_mode source=none np_title={np_title!r}")
+        return None
+
+    job_id    = match["id"]
+    req_title = (match.get("title")         or np_title).strip()
+    req_uname = (match.get("username")      or "").strip()
+    req_fn    = (match.get("filename")      or "").strip()
+    req_vid   = (match.get("video_id")      or "").strip()
+    req_uid   = (match.get("azura_song_id") or match_uid).strip()
+
+    if match.get("status") == "ready":
+        _db_set_status(job_id, "playing", media_id=media_id)
+
+    with _lock:
+        _cur_req_id = job_id
+        if _live_req is None:
+            _live_req = {
+                "title":      req_title,
+                "artist":     np_artist,
+                "username":   req_uname,
+                "started_at": time.time(),
+                "job_id":     job_id,
+                "media_id":   media_id,
+                "unique_id":  req_uid,
+                "file_path":  media_path or "",
+                "filename":   req_fn,
+                "youtube_id": req_vid,
+            }
+        recovered = _live_req
+
+    print(
+        f"{_LOG} stage=now_playing_mode source=recovered"
+        f" job_id={job_id} username={req_uname!r} title={req_title!r}"
+        f" match_method={match.get('_match_method')!r}"
+    )
+    return recovered
 
 
 async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:

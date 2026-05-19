@@ -1,0 +1,194 @@
+HOTFIX: Requested songs still show AutoDJ in !now
+
+Problem:
+A user-requested song appears in UP NEXT and plays, but !now still shows:
+🌙 AutoDJ • Chill
+
+This is wrong.
+
+Required behavior:
+If the current AzuraCast track matches any request job, !now must show REQUEST LIVE.
+
+━━━━━━━━━━
+1. Strong Request Detection
+━━━━━━━━━━
+
+When !now runs, fetch AzuraCast now playing and match it against request DB/jobs using this order:
+
+1. media_id / song_id
+2. AzuraCast unique_id
+3. file path starts with Requests/
+4. filename match
+5. youtube_id stored in DB
+6. normalized title + artist match
+7. fuzzy title fallback only last
+
+If matched:
+source = request
+
+Show:
+▶️ REQUEST LIVE
+Title: {title}
+Artist: {artist}
+👤 @{requester}
+👍 {likes} 👎 {dislikes}
+📻 ChillTopia Radio
+
+Do NOT show AutoDJ for matched requests.
+
+━━━━━━━━━━
+2. Fix Current Request Cache
+━━━━━━━━━━
+
+When requested song starts:
+- set current_request in DB/cache
+- requester username
+- title
+- artist
+- media_id
+- unique_id
+- file path
+- filename
+- youtube_id
+- started_at
+
+When song ends/skips:
+- clear current_request only if current track changed.
+
+━━━━━━━━━━
+3. !now Must Self-Correct
+━━━━━━━━━━
+
+Even if background poller fails, !now must self-correct:
+
+- fetch now_playing
+- match against request DB
+- if match found:
+  - update request status = playing
+  - set current_request
+  - show REQUEST LIVE
+
+━━━━━━━━━━
+4. AutoDJ Vibe Label
+━━━━━━━━━━
+
+If no request match, show AutoDJ with active vibe.
+
+Example:
+▶️ NOW PLAYING
+Title: {title}
+Artist: {artist}
+🌙 AutoDJ • {active_vibe}
+👍 {likes} 👎 {dislikes}
+📻 ChillTopia Radio
+
+Do not hardcode Chill.
+Use stored current vibe:
+- current_vibe from config/cache
+- fallback: playlist name from AzuraCast
+- fallback: "AutoDJ"
+
+Examples:
+🌙 AutoDJ • Phonk
+🌙 AutoDJ • DJSet
+🌙 AutoDJ • Chill
+
+━━━━━━━━━━
+5. UP NEXT Cleanup
+━━━━━━━━━━
+
+If !q shows the same song that is currently playing:
+- remove it from UP NEXT output
+- mark it as playing
+- do not display current song as queued.
+
+━━━━━━━━━━
+6. Public Like/Dislike System
+━━━━━━━━━━
+
+When users vote:
+
+!like
+!dislike
+
+Broadcast publicly:
+
+👍 @user liked this song
+👎 @user disliked this song
+
+Add admin setting:
+
+!votes public
+!votes private
+
+Behavior:
+public:
+- room sees vote announcements
+
+private:
+- only update counters silently
+
+Default:
+public
+
+━━━━━━━━━━
+7. Vote Tracking + Leaderboards
+━━━━━━━━━━
+
+Track:
+- likes per song
+- dislikes per song
+- likes received per requester
+
+Add stats:
+
+!topsongs
+- most liked songs ever requested
+
+!toprequesters
+- users whose requests received most likes
+
+Example:
+🏆 Top Requesters
+1. @user — 542 👍
+2. @user2 — 401 👍
+
+Track:
+song_id
+requester_id
+likes
+dislikes
+timestamp
+
+━━━━━━━━━━
+8. Anti-Abuse
+━━━━━━━━━━
+
+- one vote per user per song
+- changing vote removes previous vote
+- cannot spam like/dislike
+- cooldown 2 seconds
+
+━━━━━━━━━━
+9. Logs
+━━━━━━━━━━
+
+stage=vote_like
+stage=vote_dislike
+stage=vote_mode_change
+stage=top_requester_update
+user=
+song=
+requester=
+result=
+
+Expected:
+Requested song playing:
+!now shows REQUEST LIVE + requester.
+
+AutoDJ song:
+shows actual vibe.
+
+Votes can be public/private.
+
+Bot tracks most liked requesters and songs.

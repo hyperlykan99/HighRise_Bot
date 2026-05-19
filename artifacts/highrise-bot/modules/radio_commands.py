@@ -73,7 +73,7 @@ def _rlog(cmd: str, handler: str, username: str) -> None:
 
 # ─── Per-user like/dislike cooldown (in-memory, resets on restart) ────────────
 _like_cd: "dict[str, float]" = {}
-_LIKE_CD_SECS = 30
+_LIKE_CD_SECS = 2
 
 # ─── Priority request mode tracking (user IDs in priority search mode) ─────────
 _priority_mode: "set[str]" = set()
@@ -823,47 +823,62 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
     else:
         track = title
 
-    # Header + source line — live-request cache first, then AutoDJ
-    # engine.get_live_request() is the source of truth: set at announcement time,
-    # cleared on finish/skip/AutoDJ.  Falls back to DB on restart.
+    # ── Live request cache — primary source of truth ─────────────────────────
     cp = engine.get_live_request()
+
+    # ── Self-correct: try multi-strategy DB match if cache is empty ───────────
+    if cp is None:
+        np_media = np_obj.get("media") or {}
+        cp = engine.match_and_recover(
+            song_id    = (song.get("id")        or "").strip(),
+            song_uid   = (song.get("unique_id") or "").strip(),
+            np_title   = title,
+            media_id   = str(np_media.get("id") or "").strip(),
+            media_path = (np_media.get("path")  or "").strip(),
+            np_artist  = artist,
+        )
+
+    # ── Vibe label — never hardcoded ──────────────────────────────────────────
+    from modules.dj_announcer import _VIBE_LINE as _vl
+    _vibe       = cs.vibe()
+    _vibe_label = _vl.get(_vibe, f"🌙 AutoDJ • {_vibe.title()}")
+
+    # ── Build display lines ───────────────────────────────────────────────────
     if cp:
-        header     = "▶ REQUEST LIVE"
-        req_uname  = (cp.get("username") or "")[:20]
-        cp_title   = (cp.get("title")  or "").strip() or title
-        cp_artist  = (cp.get("artist") or "").strip()
-        if cp_artist and cp_artist.lower() not in cp_title.lower():
-            track = f"{cp_artist} — {cp_title}"
-        else:
-            track = cp_title
-        source_line = f"🙋 @{req_uname}" if req_uname else "🙋 Requested"
+        req_uname   = (cp.get("username") or "")[:20]
+        disp_title  = ((cp.get("title")  or "").strip() or title)[:42]
+        disp_artist = (cp.get("artist")  or artist or "").strip()[:38]
+        _song_key   = disp_title.lower()[:150]
+        _counts     = _ratings(_song_key)
+        lines: list[str] = [
+            "▶ REQUEST LIVE",
+            f"Title: {disp_title}",
+        ]
+        if disp_artist:
+            lines.append(f"Artist: {disp_artist}")
+        lines += [
+            f"🙋 @{req_uname}" if req_uname else "🙋 Requested",
+            f"👍 {_counts['likes']} 👎 {_counts['dislikes']}",
+            "📻 ChillTopia Radio",
+        ]
     else:
-        from modules.dj_announcer import _VIBE_LINE as _vl
-        header      = "▶ NOW PLAYING"
-        source_line = _vl.get(cs.vibe(), "🌙 AutoDJ • Chill")
+        disp_title  = title[:42]
+        disp_artist = artist[:38]
+        _song_key   = title.lower()[:150] if title != "Unknown" else ""
+        _counts     = _ratings(_song_key) if _song_key else {"likes": 0, "dislikes": 0}
+        lines = [
+            "▶ NOW PLAYING",
+            f"Title: {disp_title}",
+        ]
+        if disp_artist:
+            lines.append(f"Artist: {disp_artist}")
+        lines += [
+            _vibe_label,
+            f"👍 {_counts['likes']} 👎 {_counts['dislikes']}",
+            "📻 ChillTopia Radio",
+        ]
 
-    # Progress bar + time string (always 10 blocks)
-    bar      = _progress_bar(elapsed, duration) if duration else "▱" * 10
-    time_str = (
-        f"⏱ {_fmt_secs(elapsed)} / {_fmt_secs(duration)}" if duration
-        else "⏱ Live stream"
-    )
-
-    # Live like/dislike counts (reuse title already fetched from NP data)
-    _song_key   = title.lower()[:150] if title != "Unknown" else ""
-    _counts     = _ratings(_song_key) if _song_key else {"likes": 0, "dislikes": 0}
-    _likes_line = f"👍 {_counts['likes']} 👎 {_counts['dislikes']}"
-
-    msg = "\n".join([
-        header,
-        f"🎵 {track[:42]}",
-        source_line,
-        time_str,
-        bar,
-        _likes_line,
-        "📻 ChillTopia Radio",
-    ])
-    await _w(bot, user.id, msg[:249])
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ─── !skip ────────────────────────────────────────────────────────────────────
@@ -1655,7 +1670,6 @@ async def handle_buyrequests(bot: "BaseBot", user: "User", args: list) -> None:
 
 async def handle_like(bot: "BaseBot", user: "User", _args: list) -> None:
     """!like — like the currently playing AzuraCast track."""
-    _rlog("like", "handle_like", user.username)
     loop  = asyncio.get_running_loop()
     track = await loop.run_in_executor(None, _azura_track)
     if not track:
@@ -1663,28 +1677,41 @@ async def handle_like(bot: "BaseBot", user: "User", _args: list) -> None:
         return
     wait = _LIKE_CD_SECS - int(time.time() - _like_cd.get(user.id, 0))
     if wait > 0:
-        await _w(bot, user.id, f"⏳ Wait {wait}s before rating again.")
+        await _w(bot, user.id, f"⏳ Wait {wait}s before voting again.")
         return
     _like_cd[user.id] = time.time()
     result = _rate(user.id, user.username, track["key"], "like")
     counts = _ratings(track["key"])
     score  = f"👍 {counts['likes']} | 👎 {counts['dislikes']}"
-    title  = track["title"][:48]
+    title  = track["title"][:40]
+    print(
+        f"{_LOG} stage=vote_like"
+        f" user={user.username!r} song={track['key'][:40]!r}"
+        f" result={result!r}"
+    )
     if result == "same":
         await _w(bot, user.id, f"👍 Already liked: {title}\n{score}")
+        return
     elif result == "changed":
         await _w(bot, user.id, f"👍 Changed to like: {title}\n{score}")
     elif result == "added":
         await _w(bot, user.id, f"👍 Liked: {title}\n{score}")
     else:
         await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
+        return
+    if result in ("added", "changed"):
+        mode = db.get_room_setting("vote_broadcast_mode", "public")
+        if mode == "public":
+            try:
+                await bot.highrise.chat(f"👍 @{user.username} liked: {title}")
+            except Exception:
+                pass
 
 
 # ─── !dislike ─────────────────────────────────────────────────────────────────
 
 async def handle_dislike(bot: "BaseBot", user: "User", _args: list) -> None:
     """!dislike — dislike the currently playing AzuraCast track."""
-    _rlog("dislike", "handle_dislike", user.username)
     loop  = asyncio.get_running_loop()
     track = await loop.run_in_executor(None, _azura_track)
     if not track:
@@ -1692,28 +1719,53 @@ async def handle_dislike(bot: "BaseBot", user: "User", _args: list) -> None:
         return
     wait = _LIKE_CD_SECS - int(time.time() - _like_cd.get(user.id, 0))
     if wait > 0:
-        await _w(bot, user.id, f"⏳ Wait {wait}s before rating again.")
+        await _w(bot, user.id, f"⏳ Wait {wait}s before voting again.")
         return
     _like_cd[user.id] = time.time()
     result = _rate(user.id, user.username, track["key"], "dislike")
     counts = _ratings(track["key"])
     score  = f"👍 {counts['likes']} | 👎 {counts['dislikes']}"
-    title  = track["title"][:48]
+    title  = track["title"][:40]
+    print(
+        f"{_LOG} stage=vote_dislike"
+        f" user={user.username!r} song={track['key'][:40]!r}"
+        f" result={result!r}"
+    )
     if result == "same":
         await _w(bot, user.id, f"👎 Already disliked: {title}\n{score}")
+        return
     elif result == "changed":
         await _w(bot, user.id, f"👎 Changed to dislike: {title}\n{score}")
     elif result == "added":
         await _w(bot, user.id, f"👎 Disliked: {title}\n{score}")
     else:
         await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
+        return
+    if result in ("added", "changed"):
+        mode = db.get_room_setting("vote_broadcast_mode", "public")
+        if mode == "public":
+            try:
+                await bot.highrise.chat(f"👎 @{user.username} disliked: {title}")
+            except Exception:
+                pass
 
 
-# ─── !likes / !votes ──────────────────────────────────────────────────────────
+# ─── !likes / !votes [public|private] ────────────────────────────────────────
 
 async def handle_likes(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!likes / !votes — show like/dislike count for the current track."""
-    _rlog("likes", "handle_likes", user.username)
+    """!likes — show vote counts. !votes public|private — change broadcast mode (staff)."""
+    if len(_args) >= 2 and _args[1].lower() in ("public", "private"):
+        if not _is_staff(user.username):
+            await _w(bot, user.id, "❌ Staff only.")
+            return
+        mode = _args[1].lower()
+        db.set_room_setting("vote_broadcast_mode", mode)
+        print(
+            f"{_LOG} stage=vote_mode_change"
+            f" user={user.username!r} result={mode!r}"
+        )
+        await _w(bot, user.id, f"✅ Vote broadcasts: {mode.upper()}")
+        return
     loop  = asyncio.get_running_loop()
     track = await loop.run_in_executor(None, _azura_track)
     if not track:
@@ -1722,6 +1774,74 @@ async def handle_likes(bot: "BaseBot", user: "User", _args: list) -> None:
     counts = _ratings(track["key"])
     title  = track["title"][:50]
     await _w(bot, user.id, f"👍 {counts['likes']} | 👎 {counts['dislikes']}\n{title}")
+
+
+# ─── Top songs / top requesters DB helpers ────────────────────────────────────
+
+def _top_songs_db(limit: int = 5) -> list:
+    """Most liked songs (song_key, count) ordered by likes desc."""
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT song_key, COUNT(*) AS cnt "
+                "FROM dj_ratings WHERE rating='like' "
+                "GROUP BY song_key ORDER BY cnt DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [{"key": r[0], "count": r[1]} for r in rows]
+    except Exception:
+        return []
+
+
+def _top_requesters_db(limit: int = 5) -> list:
+    """Users whose requested songs received the most likes (joined via title)."""
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT rj.username, COUNT(*) AS cnt "
+                "FROM dj_ratings dr "
+                "JOIN yt_request_jobs rj "
+                "  ON LOWER(SUBSTR(rj.title, 1, 150)) = dr.song_key "
+                "WHERE dr.rating='like' AND rj.username != '' "
+                "GROUP BY LOWER(rj.username) ORDER BY cnt DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [{"username": r[0], "count": r[1]} for r in rows]
+    except Exception:
+        return []
+
+
+# ─── !topsongs ────────────────────────────────────────────────────────────────
+
+async def handle_topsongs(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!topsongs — most liked requested songs ever."""
+    rows = _top_songs_db(limit=5)
+    if not rows:
+        await _w(bot, user.id, "No song ratings yet.")
+        return
+    lines = ["🏆 Top Songs"]
+    for i, r in enumerate(rows, 1):
+        name = r["key"][:35].title()
+        lines.append(f"{i}. {name} — 👍 {r['count']}")
+    await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ─── !toprequesters ───────────────────────────────────────────────────────────
+
+async def handle_toprequesters(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!toprequesters — users whose requests received the most likes."""
+    rows = _top_requesters_db(limit=5)
+    if not rows:
+        await _w(bot, user.id, "No requester stats yet.")
+        return
+    lines = ["🏆 Top Requesters"]
+    for i, r in enumerate(rows, 1):
+        lines.append(f"{i}. @{r['username']} — 👍 {r['count']}")
+    print(
+        f"{_LOG} stage=top_requester_update"
+        f" user={user.username!r} results={len(rows)}"
+    )
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ─── !voters ──────────────────────────────────────────────────────────────────

@@ -506,6 +506,8 @@ from modules.radio_commands import (
     handle_voters          as rc_voters,
     handle_likeslist       as rc_likeslist,
     handle_dislikeslist    as rc_dislikeslist,
+    handle_topsongs        as rc_topsongs,
+    handle_toprequesters   as rc_toprequesters,
     handle_playedby        as rc_playedby,
     handle_myplayed        as rc_myplayed,
     handle_queuelimit      as rc_queuelimit,
@@ -1660,6 +1662,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "priorityqueue", "pqueue",
     "favorite", "unfavorite", "favorites",
     "like", "dislike", "songrating",
+    "topsongs", "toprequesters",
     "tipdj",
     "djvibes",
     "vibe", "vibes", "vibescan",
@@ -7482,6 +7485,10 @@ class HangoutBot(BaseBot):
             await rc_dislike(self, user, args)
         elif cmd in ("likes", "votes"):
             await rc_likes(self, user, args)
+        elif cmd == "topsongs":
+            await rc_topsongs(self, user, args)
+        elif cmd == "toprequesters":
+            await rc_toprequesters(self, user, args)
         elif cmd == "voters":
             await rc_voters(self, user, args)
         elif cmd == "likeslist":
