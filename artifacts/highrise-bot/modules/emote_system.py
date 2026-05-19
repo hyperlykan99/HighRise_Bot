@@ -391,9 +391,14 @@ def _log(stage: str, **kw: object) -> None:
 
 
 async def _send(bot: "BaseBot", eid: str, uid: str) -> bool:
-    """Send one emote; return True on success."""
+    """Send one self-emote; return True on success.
+
+    target_user_id intentionally omitted — passing any UID (even the bot's own)
+    triggers directed-emote ownership checks that don't apply to self/room emotes.
+    uid is retained as a parameter for logging only.
+    """
     try:
-        await bot.highrise.send_emote(eid, uid)
+        await bot.highrise.send_emote(eid)
         return True
     except Exception as exc:
         _log("send_error", emote=eid, user_id=uid, error=str(exc))
@@ -414,7 +419,7 @@ async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
     interval = _EMOTE_DURATIONS.get(eid, _DEFAULT_LOOP_INTERVAL)
     while True:
         try:
-            await bot.highrise.send_emote(eid, uid)
+            await bot.highrise.send_emote(eid)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -521,7 +526,7 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str, bot_uid: str) -> fl
     async def _loop() -> None:
         while True:
             try:
-                await bot.highrise.send_emote(eid, bot_uid)
+                await bot.highrise.send_emote(eid)
             except asyncio.CancelledError:
                 raise
             except Exception:

@@ -9,7 +9,9 @@ Load sources (in priority order):
   3. emotes.json        — optional local override file
   4. Built-in candidate list (~155 entries)
 
-Each candidate is tested by calling send_emote on the bot's own user ID.
+Each candidate is tested by calling send_emote(emote_id) with NO target_user_id.
+Omitting the target avoids directed-emote ownership checks, so free/self emotes
+that the bot account doesn't own are still usable and pass the scan correctly.
 Results are cached in the active_emotes DB table.
 
 Admin commands:
@@ -771,8 +773,9 @@ async def startup_emote_discovery(
 ) -> None:
     """
     Background task launched on bot start (or manually via !reloademotes/!importemotes).
-    Only runs on the dj bot — emote testing must use the same Highrise account
-    that owns the emote commands, otherwise send_emote calls fail cross-account.
+    Only runs on the dj bot — emote commands are owned by the dj bot mode.
+    Emotes are tested WITHOUT a target_user_id; directed-emote ownership checks
+    don't apply to self/room emotes, so the true usable set is much larger.
 
     reporter_uid: if set, progress whispers are sent to that user during the scan.
     """
@@ -797,15 +800,8 @@ async def startup_emote_discovery(
 
     await asyncio.sleep(12)   # let bot fully connect
 
-    from modules.gold import get_bot_user_id
-    bot_uid = get_bot_user_id()
-    if not bot_uid:
-        print(f"{_LOG} No bot UID available — emote discovery skipped")
-        _scan_state["status"] = "failed"
-        _scan_state["last_error"] = "No bot UID available"
-        return
-
     # Coordinate across multi-bot processes: only run if not scanned recently
+    # Note: bot_uid no longer passed to send_emote — self-emotes avoid ownership checks
     last_run = float(db.get_room_setting("emote_discovery_last_run", "0"))
     if time.time() - last_run < 3600 and reporter_uid is None:
         already = _db_count("active")
@@ -870,7 +866,7 @@ async def startup_emote_discovery(
             if attempt > 0:
                 await asyncio.sleep(_RETRY_DELAYS[attempt - 1])
             try:
-                await bot.highrise.send_emote(emote_id, bot_uid)
+                await bot.highrise.send_emote(emote_id)
                 success = True
                 break
             except asyncio.CancelledError:
@@ -903,7 +899,7 @@ async def startup_emote_discovery(
             for alt_id in alt_ids:
                 try:
                     await asyncio.sleep(0.2)
-                    await bot.highrise.send_emote(alt_id, bot_uid)
+                    await bot.highrise.send_emote(alt_id)
                     alias_found = alt_id
                     break
                 except asyncio.CancelledError:
@@ -1296,15 +1292,9 @@ async def handle_testemote(bot: "BaseBot", user: "User", args: list) -> None:
     emote_id = resolved
     steps: list[str] = [f"🔍 {raw!r} → {emote_id} [{method}]"]
 
-    from modules.gold import get_bot_user_id
-    bot_uid = get_bot_user_id()
-    if not bot_uid:
-        await _w(bot, uid, "❌ Bot UID not available yet.")
-        return
-
-    # Step 1: try primary emote_id
+    # Step 1: try primary emote_id (no target_user_id — self-emote avoids ownership checks)
     try:
-        await bot.highrise.send_emote(emote_id, bot_uid)
+        await bot.highrise.send_emote(emote_id)
         _db_upsert(emote_id, _norm(raw), "active")
         steps.append(f"✅ Primary OK")
         await _w(bot, uid, "\n".join(steps)[:249])
@@ -1328,7 +1318,7 @@ async def handle_testemote(bot: "BaseBot", user: "User", args: list) -> None:
     for alt_id in _ALT_IDS.get(emote_id, ()):
         try:
             await asyncio.sleep(0.2)
-            await bot.highrise.send_emote(alt_id, bot_uid)
+            await bot.highrise.send_emote(alt_id)
             _db_upsert(emote_id, _norm(raw), "alias_only", "", alt_id)
             steps.append(f"⚠️ Alias {alt_id} → OK")
             await _w(bot, uid, "\n".join(steps)[:249])
