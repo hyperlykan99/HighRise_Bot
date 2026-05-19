@@ -848,17 +848,19 @@ async def handle_resolveemote(bot: "BaseBot", user: "User", args: list) -> None:
 
     if eid:  # found in normal (non-experimental) path
         ver_str = "✅ verified" if in_ver else "⚠️ not in verified list"
-        await _w(bot, uid,
+        await _w(bot, uid, (
             f"'{raw}'\n→ alias found\n"
             f"→ canonical id: {short}\n"
-            f"→ source: {src_label} | {ver_str}"[:249])
+            f"→ source: {src_label} | {ver_str}"
+        )[:249])
     else:
         # Only found via experimental tier
-        await _w(bot, uid,
+        await _w(bot, uid, (
             f"'{raw}'\n→ alias found (experimental only)\n"
             f"→ canonical id: {short}\n"
             f"→ source: {src_label} | "
-            f"Use !setexperimentalemotes on to allow"[:249])
+            f"Use !setexperimentalemotes on to allow"
+        )[:249])
 
 
 # ---------------------------------------------------------------------------
@@ -886,7 +888,7 @@ async def handle_testemoteid(bot: "BaseBot", user: "User", args: list) -> None:
         return
 
     raw = args[1].strip()
-    eid = raw if raw.startswith("emote-") else f"emote-{raw}"
+    eid = raw  # use exactly as typed — no emote- prefix added
 
     await _w(bot, uid, f"🔬 Testing {eid} ...")
     try:

@@ -824,7 +824,7 @@ async def handle_botemoteid(bot: "BaseBot", user: "User", args: list) -> None:
         raw_target = BOT_MODE.lower()
         raw_id     = raw1
 
-    eid = raw_id if raw_id.startswith("emote-") else f"emote-{raw_id}"
+    eid = raw_id  # use exactly as typed — no emote- prefix added
 
     from modules.emote_registry import is_permission_locked
     if is_permission_locked(eid):
