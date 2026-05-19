@@ -45,10 +45,20 @@ _scan_state: dict = {
     "tested":     0,
     "total":      0,
     "active":     0,
-    "failed":     0,        # disabled + unclassified errors
+    "failed":     0,        # permission + invalid + unclassified
+    "permission": 0,        # valid ID but bot doesn't own
+    "invalid":    0,        # truly bad ID
+    "transient":  0,        # rate-limit / timeout left untested
     "last_error": "",
     "started_at": 0.0,
 }
+
+# Per-scan failure log: emote_id → {display_name, category, reason}
+# Populated on each scan, read by !emotefailures.
+_failure_log: dict[str, dict] = {}
+
+# Source breakdown from last _load_candidates() call
+_source_counts: dict[str, int] = {"builtin": 0, "community": 0, "local": 0}
 
 
 async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
@@ -237,17 +247,30 @@ for _dn, _eid in _CANDIDATES:
 
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
-def _db_upsert(emote_id: str, display_name: str, status: str) -> None:
+def _db_upsert(emote_id: str, display_name: str, status: str, fail_reason: str = "") -> None:
     conn = db.get_connection()
-    conn.execute(
-        """INSERT INTO active_emotes (emote_id, display_name, status, tested_at)
-           VALUES (?, ?, ?, datetime('now'))
-           ON CONFLICT(emote_id) DO UPDATE SET
-               display_name = excluded.display_name,
-               status       = excluded.status,
-               tested_at    = excluded.tested_at""",
-        (emote_id, display_name, status),
-    )
+    try:
+        conn.execute(
+            """INSERT INTO active_emotes (emote_id, display_name, status, fail_reason, tested_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(emote_id) DO UPDATE SET
+                   display_name = excluded.display_name,
+                   status       = excluded.status,
+                   fail_reason  = excluded.fail_reason,
+                   tested_at    = excluded.tested_at""",
+            (emote_id, display_name, status, fail_reason),
+        )
+    except Exception:
+        # Fallback if fail_reason column not yet migrated
+        conn.execute(
+            """INSERT INTO active_emotes (emote_id, display_name, status, tested_at)
+               VALUES (?, ?, ?, datetime('now'))
+               ON CONFLICT(emote_id) DO UPDATE SET
+                   display_name = excluded.display_name,
+                   status       = excluded.status,
+                   tested_at    = excluded.tested_at""",
+            (emote_id, display_name, status),
+        )
     conn.commit()
     conn.close()
 
@@ -279,12 +302,48 @@ def _db_get_active_names() -> list[str]:
 
 
 def _db_get_tested_ids() -> set[str]:
+    """Return emote IDs that have been conclusively tested (active, disabled, or permission).
+    Transient failures (rate-limit, timeout) are NOT stored so they get retried next scan."""
     conn = db.get_connection()
     rows = conn.execute(
-        "SELECT emote_id FROM active_emotes WHERE status IN ('active','disabled')"
+        "SELECT emote_id FROM active_emotes WHERE status IN ('active','disabled','permission')"
     ).fetchall()
     conn.close()
     return {r[0] for r in rows}
+
+
+def _classify_error(exc: Exception) -> tuple[str | None, str, str, bool]:
+    """Classify an emote-test failure.
+
+    Returns (db_status, category, reason, is_retriable):
+      db_status    : 'disabled' | 'permission' | None
+                     None = don't save; leave untested so next scan retries.
+      category     : short label ('invalid' | 'permission' | 'rate_limit' |
+                                   'timeout' | 'unknown')
+      reason       : human-readable detail string
+      is_retriable : True if the error may be transient (rate-limit / timeout)
+    """
+    raw = str(exc)
+    err = raw.lower()
+
+    if isinstance(exc, asyncio.TimeoutError) or "timeout" in err:
+        return None, "timeout", "request timed out", True
+
+    if any(p in err for p in ("rate", "too many", "429", "ratelimit", "throttl")):
+        return None, "rate_limit", "API rate limited", True
+
+    if any(p in err for p in ("not free or owned", "not owned", "free or owned")):
+        return "permission", "permission", "not owned by bot account", False
+
+    if any(p in err for p in (
+        "invalid", "not found", "unknown emote", "no such",
+        "does not exist", "bad emote", "unsupported",
+        "unrecognized", "emote_id", "wrong format",
+    )):
+        return "disabled", "invalid", "invalid emote ID", False
+
+    # Unknown — don't permanently mark; log it
+    return None, "unknown", f"{type(exc).__name__}: {raw[:80]}", False
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -353,7 +412,9 @@ def _parse_emote_json(data: object) -> list[tuple[str, str]]:
 
 
 def _load_candidates() -> list[tuple[str, str]]:
-    """Return full candidate list, augmented by community catalog and local overrides."""
+    """Return full candidate list, augmented by community catalog and local overrides.
+    Also updates the module-level _source_counts breakdown."""
+    global _source_counts
     seen_ids: set[str] = set()
     base: list[tuple[str, str]] = []
 
@@ -361,6 +422,7 @@ def _load_candidates() -> list[tuple[str, str]]:
         if eid not in seen_ids:
             base.append((dn, eid))
             seen_ids.add(eid)
+    builtin_n = len(base)
 
     def _merge(path: str, label: str) -> int:
         added = 0
@@ -380,24 +442,33 @@ def _load_candidates() -> list[tuple[str, str]]:
         return added
 
     # Priority 1: community catalog (data/highrise_emotes.json)
-    _merge(_community_catalog_path(), "community catalog")
+    community_n = _merge(_community_catalog_path(), "community catalog")
 
     # Priority 2: legacy emotes.json override (bot root or modules dir)
+    local_n = 0
     for path in (
         os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "emotes.json")),
         os.path.normpath(os.path.join(os.path.dirname(__file__), "emotes.json")),
     ):
         if os.path.isfile(path):
-            _merge(path, f"emotes.json ({os.path.basename(os.path.dirname(path))})")
+            local_n = _merge(path, f"emotes.json ({os.path.basename(os.path.dirname(path))})")
             break
 
     # Future-proof: SDK GetEmotesRequest (not yet available in current SDK)
+    sdk_n = 0
     try:
         from highrise import GetEmotesRequest  # type: ignore[import]
         print(f"{_LOG} SDK GetEmotesRequest found — will query at runtime")
+        sdk_n = 0  # placeholder until SDK exposes it
     except ImportError:
         pass
 
+    _source_counts = {
+        "builtin":   builtin_n,
+        "community": community_n,
+        "local":     local_n,
+        "sdk":       sdk_n,
+    }
     return base
 
 
@@ -485,42 +556,83 @@ async def startup_emote_discovery(
             f"🎭 Emote scan started...\nCandidates: {total}"
         )
 
-    active_n = disabled_n = error_n = 0
+    # Capture pre-scan active count for mismatch detection
+    prev_active = _db_count("active")
+
+    # Clear the in-memory failure log for this scan
+    _failure_log.clear()
+
+    active_n = disabled_n = permission_n = transient_n = error_n = 0
     first_error: str | None = None
+    _RETRY_DELAYS = (1.5, 5.0)
+    MAX_RETRIES = 2
 
     for idx, (display_name, emote_id) in enumerate(pending, 1):
-        try:
-            await bot.highrise.send_emote(emote_id, bot_uid)
-            _db_upsert(emote_id, display_name, "active")
-            active_n += 1
-        except asyncio.CancelledError:
-            _scan_state["status"] = "failed"
-            _scan_state["last_error"] = "Cancelled"
-            raise
-        except Exception as exc:
-            raw = str(exc)
-            err = raw.lower()
-            if first_error is None:
-                first_error = f"{type(exc).__name__}: {raw}"
-                _scan_state["last_error"] = first_error[:120]
-            if any(p in err for p in (
-                "invalid", "not found", "unknown", "no such",
-                "does not exist", "bad emote", "not supported",
-                "unsupported", "unrecognized", "emote_id",
-                "not free or owned", "not owned", "free or owned",
-                "responseError", "response_error",
-            )):
-                _db_upsert(emote_id, display_name, "disabled")
-                disabled_n += 1
-            else:
-                # Truly unclassified error (rate-limit? SDK crash?)
-                error_n += 1
-                print(f"{_SCAN_LOG} error={emote_id}: {type(exc).__name__}: {raw[:120]}")
+        success       = False
+        final_db_status: str | None = None
+        final_category  = "unknown"
+        final_reason    = ""
 
-        failed_n = disabled_n + error_n
-        _scan_state["tested"] = idx
-        _scan_state["active"] = active_n
-        _scan_state["failed"] = failed_n
+        for attempt in range(MAX_RETRIES + 1):
+            if attempt > 0:
+                await asyncio.sleep(_RETRY_DELAYS[attempt - 1])
+            try:
+                await bot.highrise.send_emote(emote_id, bot_uid)
+                success = True
+                break
+            except asyncio.CancelledError:
+                _scan_state["status"] = "failed"
+                _scan_state["last_error"] = "Cancelled"
+                raise
+            except Exception as exc:
+                db_status, category, reason, retriable = _classify_error(exc)
+                final_db_status = db_status
+                final_category  = category
+                final_reason    = reason
+                if first_error is None:
+                    first_error = f"{emote_id}: {reason}"
+                    _scan_state["last_error"] = first_error[:120]
+                if retriable and attempt < MAX_RETRIES:
+                    print(
+                        f"{_SCAN_LOG} retry {attempt + 1}/{MAX_RETRIES}"
+                        f" {emote_id}: {reason}"
+                    )
+                    continue
+                break  # non-retriable or retries exhausted
+
+        if success:
+            _db_upsert(emote_id, display_name, "active", "")
+            active_n += 1
+        else:
+            _failure_log[emote_id] = {
+                "display_name": display_name,
+                "category":     final_category,
+                "reason":       final_reason,
+            }
+            print(
+                f"{_SCAN_LOG} fail {emote_id}"
+                f" [{final_category}] {final_reason[:80]}"
+            )
+            if final_db_status == "disabled":
+                _db_upsert(emote_id, display_name, "disabled", final_reason)
+                disabled_n += 1
+            elif final_db_status == "permission":
+                _db_upsert(emote_id, display_name, "permission", final_reason)
+                permission_n += 1
+            elif final_category in ("rate_limit", "timeout"):
+                transient_n += 1   # leave untested — next scan will retry
+            else:
+                error_n += 1       # unknown, also leave untested
+
+        failed_n = disabled_n + permission_n + transient_n + error_n
+        _scan_state.update({
+            "tested":     idx,
+            "active":     active_n,
+            "failed":     failed_n,
+            "permission": permission_n,
+            "invalid":    disabled_n,
+            "transient":  transient_n,
+        })
 
         # Progress whisper every 10 tested
         if reporter_uid and idx % 10 == 0:
@@ -531,40 +643,62 @@ async def startup_emote_discovery(
                 f"Active: {active_n}\n"
                 f"Failed: {failed_n}"
             )
-            print(f"{_SCAN_LOG} progress tested={idx} active={active_n} failed={failed_n}")
+            print(
+                f"{_SCAN_LOG} progress tested={idx}"
+                f" active={active_n} failed={failed_n}"
+            )
 
         await asyncio.sleep(0.35)
 
-    failed_total = disabled_n + error_n
+    failed_total = disabled_n + permission_n + transient_n + error_n
     _scan_state.update({
-        "status": "done",
-        "tested": total,
-        "active": active_n,
-        "failed": failed_total,
+        "status":     "done",
+        "tested":     total,
+        "active":     active_n,
+        "failed":     failed_total,
+        "permission": permission_n,
+        "invalid":    disabled_n,
+        "transient":  transient_n,
     })
     db.set_room_setting("emote_discovery_last_run", str(time.time()))
 
     print(
         f"{_SCAN_LOG} complete active={active_n} failed={failed_total}"
-        f" (disabled={disabled_n} errors={error_n})"
+        f" (permission={permission_n} invalid={disabled_n}"
+        f" transient={transient_n} unknown={error_n})"
     )
 
+    # Mismatch detection: if previously active count drops significantly, explain why
+    if prev_active > 0 and active_n < prev_active:
+        dropped = prev_active - active_n
+        print(
+            f"{_SCAN_LOG} MISMATCH prev_active={prev_active} now={active_n}"
+            f" dropped={dropped}"
+            f" — permission={permission_n} (bot doesn't own them),"
+            f" invalid={disabled_n} (bad IDs),"
+            f" transient={transient_n} (rate-limit/timeout, will retry)"
+        )
+
+    if transient_n > 0:
+        print(
+            f"{_SCAN_LOG} {transient_n} transient errors left untested"
+            f" — run !reloademotes again to retry them"
+        )
+
     if reporter_uid:
+        perm_str  = f" (perm: {permission_n})" if permission_n else ""
+        inv_str   = f" (invalid: {disabled_n})" if disabled_n else ""
+        trans_str = f" (retry: {transient_n})" if transient_n else ""
         await _w(
             bot, reporter_uid,
             f"✅ Emote scan complete\n"
             f"Active: {active_n}\n"
-            f"Failed: {failed_total}\n"
+            f"Failed: {failed_total}{perm_str}{inv_str}{trans_str}\n"
             f"Total: {total}"
         )
 
     if active_n == 0 and first_error:
-        print(f"{_LOG} [DIAG] No emotes activated. First error → {first_error}")
-    if active_n == 0 and error_n > 0:
-        print(
-            f"{_LOG} [DIAG] {error_n} unclassified errors — likely rate-limit or"
-            f" SDK mismatch. Try !reloademotes after 60s."
-        )
+        print(f"{_LOG} [DIAG] No active emotes. First error → {first_error}")
 
 
 # ─── Admin commands ───────────────────────────────────────────────────────────
@@ -638,7 +772,7 @@ async def handle_reloademotes(bot: "BaseBot", user: "User", _args: list) -> None
 
 
 async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!emotecount — show how many emotes are active/disabled/untested."""
+    """!emotecount — show how many emotes are active/permission/invalid."""
     uid   = user.id
     uname = user.username
     if not _is_admin(uname):
@@ -646,14 +780,20 @@ async def handle_emotecount(bot: "BaseBot", user: "User", _args: list) -> None:
         return
 
     active     = _db_count("active")
+    permission = _db_count("permission")
     disabled   = _db_count("disabled")
     candidates = _load_candidates()
-    source     = db.get_room_setting("emote_catalog_source", "builtin")
+    sc = _source_counts
+    src = (
+        f"builtin:{sc.get('builtin',0)}"
+        + (f" community:{sc['community']}" if sc.get("community") else "")
+        + (f" local:{sc['local']}" if sc.get("local") else "")
+    )
     await _w(
         bot, uid,
-        f"🎭 Emotes: {active} active | {disabled} disabled\n"
-        f"📋 Candidates: {len(candidates)} | Source: {source}\n"
-        f"Use !reloademotes to rescan | !emotesource for details."
+        f"🎭 Active: {active} | Permission: {permission} | Invalid: {disabled}\n"
+        f"📋 Candidates: {len(candidates)} ({src})\n"
+        f"!emotefailures for breakdown | !reloademotes to rescan"
     )
 
 
@@ -684,19 +824,20 @@ async def handle_emotescanstatus(bot: "BaseBot", user: "User", _args: list) -> N
 
 
 async def handle_emotesource(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!emotesource — show where the current emote catalog came from."""
+    """!emotesource — show where the emote catalog came from and result breakdown."""
     uid   = user.id
     uname = user.username
     if not _is_admin(uname):
         await _w(bot, uid, "👑 Admin only.")
         return
 
-    source     = db.get_room_setting("emote_catalog_source", "builtin")
     active     = _db_count("active")
+    permission = _db_count("permission")
     disabled   = _db_count("disabled")
     candidates = _load_candidates()
     last_run   = float(db.get_room_setting("emote_discovery_last_run", "0"))
     catalog    = _community_catalog_path()
+    sc         = _source_counts
 
     if last_run > 0:
         import datetime
@@ -707,19 +848,108 @@ async def handle_emotesource(bot: "BaseBot", user: "User", _args: list) -> None:
 
     community_file = "✅ present" if os.path.isfile(catalog) else "❌ missing"
 
-    source_label = {
-        "builtin":   "Built-in list (~155 IDs)",
-        "community": "Community catalog (data/highrise_emotes.json)",
-        "sdk":       "Highrise SDK discovery",
-    }.get(source, source)
+    src_parts = [f"builtin: {sc.get('builtin', 0)}"]
+    if sc.get("community"):
+        src_parts.append(f"community: {sc['community']}")
+    if sc.get("local"):
+        src_parts.append(f"local: {sc['local']}")
+    if sc.get("sdk"):
+        src_parts.append(f"sdk: {sc['sdk']}")
 
     await _w(
         bot, uid,
-        f"🎭 Emote catalog source: {source_label}\n"
-        f"📋 {len(candidates)} candidates | ✅ {active} active | ❌ {disabled} disabled\n"
-        f"📁 data/highrise_emotes.json: {community_file}\n"
+        f"🎭 Sources: {', '.join(src_parts)}\n"
+        f"📋 {len(candidates)} candidates → ✅{active} active"
+        f" | 🔒{permission} permission | ❌{disabled} invalid\n"
+        f"📁 community catalog: {community_file}\n"
         f"{last_str}"
     )
+
+
+async def handle_emotefailures(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emotefailures [category] — show failed emote names and reasons from last scan.
+
+    Categories: permission  invalid  rate_limit  timeout  unknown
+    No category → summary of all categories.
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    # Use in-memory failure log from last scan; fall back to DB for persistent data
+    failures: dict[str, dict] = dict(_failure_log)
+    if not failures:
+        try:
+            conn = db.get_connection()
+            rows = conn.execute(
+                "SELECT emote_id, display_name, status, COALESCE(fail_reason,'') "
+                "FROM active_emotes WHERE status IN ('disabled','permission') "
+                "ORDER BY status, emote_id"
+            ).fetchall()
+            conn.close()
+            for eid, dn, status, reason in rows:
+                cat = "invalid" if status == "disabled" else "permission"
+                failures[eid] = {
+                    "display_name": dn or eid,
+                    "category":     cat,
+                    "reason":       reason,
+                }
+        except Exception:
+            pass
+
+    if not failures:
+        await _w(bot, uid, "🎭 No failures recorded. Run !reloademotes to scan.")
+        return
+
+    # Group by category
+    by_cat: dict[str, list[str]] = {}
+    for eid, info in failures.items():
+        cat = info.get("category", "unknown")
+        by_cat.setdefault(cat, []).append(info.get("display_name") or eid)
+
+    filt = args[1].lower() if len(args) > 1 else None
+
+    if filt is None:
+        # Summary page
+        total_f = len(failures)
+        lines = [f"🎭 Emote failures ({total_f} total):"]
+        for cat in sorted(by_cat):
+            lines.append(f"  {cat}: {len(by_cat[cat])}")
+        lines.append("!emotefailures <category> for names")
+        await _w(bot, uid, "\n".join(lines)[:249])
+        return
+
+    # Category detail: paginated list of names
+    cat_names = sorted(by_cat.get(filt, []))
+    if not cat_names:
+        known = ", ".join(sorted(by_cat)) or "none"
+        await _w(bot, uid, f"❌ Category '{filt}' not found. Known: {known}")
+        return
+
+    MAX = 249
+    pages: list[list[str]] = []
+    buf:   list[str]       = []
+    used                   = 0
+    for name in cat_names:
+        chunk_len = len(name) + 2  # "name, "
+        if buf and used + chunk_len > MAX - 22:   # 22 = header budget
+            pages.append(buf[:])
+            buf  = []
+            used = 0
+        buf.append(name)
+        used += chunk_len
+    if buf:
+        pages.append(buf)
+
+    total_pg = max(1, len(pages))
+    for pg, chunk in enumerate(pages, 1):
+        hdr  = f"❌ {filt} {pg}/{total_pg} ({len(cat_names)}):\n"
+        text = (hdr + ", ".join(chunk))[:249]
+        await _w(bot, uid, text)
+        if pg < total_pg:
+            await asyncio.sleep(0.4)
 
 
 async def handle_testemote(bot: "BaseBot", user: "User", args: list) -> None:

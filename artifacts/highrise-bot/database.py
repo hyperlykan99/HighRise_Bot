@@ -3360,6 +3360,14 @@ def _migrate_db():
     except Exception:
         pass
 
+    # Add fail_reason column for per-emote failure diagnostics
+    try:
+        conn.execute(
+            "ALTER TABLE active_emotes ADD COLUMN fail_reason TEXT NOT NULL DEFAULT ''"
+        )
+    except Exception:
+        pass  # column already exists
+
     conn.commit()
     conn.close()
 

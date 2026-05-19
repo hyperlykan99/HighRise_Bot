@@ -924,6 +924,7 @@ from modules.emote_registry import (
     handle_importemotes,
     handle_emotesource,
     handle_emotescanstatus,
+    handle_emotefailures,
     startup_emote_discovery,
 )
 from modules.room_utils import (  # noqa: E402 — continue room_utils import block
@@ -7396,6 +7397,8 @@ class HangoutBot(BaseBot):
             await handle_emotesource(self, user, args)
         elif cmd == "emotescanstatus":
             await handle_emotescanstatus(self, user, args)
+        elif cmd == "emotefailures":
+            await handle_emotefailures(self, user, args)
         elif cmd == "testemote":
             await handle_testemote(self, user, args)
         elif cmd == "botemote":
