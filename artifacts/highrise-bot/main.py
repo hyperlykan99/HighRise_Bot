@@ -931,6 +931,7 @@ from modules.emote_extras import (
     handle_kiss_social, handle_slap_social,
     handle_superpunch, handle_bonk, handle_yeet, handle_hypnotize, handle_duel,
     handle_sync, handle_syncstop, try_sync_shortcut,
+    sync_push_emote_event,
     clear_sync_on_leave,
     handle_emote_all,
     handle_favemotes, handle_favemote,
@@ -7544,7 +7545,7 @@ class HangoutBot(BaseBot):
             if len(args) >= 2 and args[1].startswith("@"):
                 await handle_force_emote(self, user, args)
             elif len(args) >= 2 and args[1].lower() == "all":
-                # New: looping room-wide player emote w/ stop (staff only).
+                # One-time room-wide player emote (staff only). No loop.
                 await handle_emote_all(self, user, args)
             elif len(args) >= 2 and args[1].lower() == "allbots":
                 await handle_room_emote(self, user, args)
@@ -8613,6 +8614,12 @@ class HangoutBot(BaseBot):
             notify_emote_event(user.id, emote_id)
         except Exception as _e:
             print(f"[ON_EMOTE] notify_emote error: {_e!r}")
+        try:
+            # Event-driven sync push — updates _player_emotes + sends to
+            # any followers immediately (covers in-game emote wheel too).
+            await sync_push_emote_event(self, user.id, emote_id)
+        except Exception as _e:
+            print(f"[ON_EMOTE] sync_push err: {_e!r}")
         try:
             # Emote spy — records to log when !emotelog on
             emote_spy_log(user.username, user.id, emote_id, receiver)

@@ -409,6 +409,8 @@ async def _sync_watcher(bot: "BaseBot", follower_uid: str,
                 # Target changed (or stopped)
                 cur_eid = target_eid
                 if cur_eid:
+                    print(f"[SYNC_COPY] follower={follower_uid} "
+                          f"target={target_uid} emote={cur_eid}")
                     try:
                         await _send_player(bot, cur_eid, follower_uid)
                     except Exception as exc:
@@ -515,6 +517,37 @@ def is_in_sync(user_id: str) -> bool:
     return user_id in _sync_target
 
 
+async def sync_push_emote_event(bot: "BaseBot", uid: str,
+                                emote_id: str) -> None:
+    """Called from main.on_emote — update _player_emotes so the watcher poll
+    stays accurate, then immediately push the new emote to any followers.
+
+    This makes sync event-driven (no poll-lag) for both bot-command emotes
+    and in-game emote-wheel emotes.
+    """
+    # Keep the shared dict accurate so the watcher's timing logic is correct.
+    try:
+        from modules.emote_system import _player_emotes
+        _player_emotes[uid] = emote_id
+    except Exception:
+        pass
+    followers = list(_sync_followers.get(uid, set()))
+    if not followers:
+        return
+    try:
+        from modules.emote_system import _send_player
+    except Exception:
+        return
+    for f_uid in followers:
+        if _sync_target.get(f_uid) != uid:
+            continue
+        print(f"[SYNC_COPY] follower={f_uid} target={uid} emote={emote_id}")
+        try:
+            await _send_player(bot, emote_id, f_uid)
+        except Exception as exc:
+            print(f"[SYNC_COPY] send err follower={f_uid}: {exc!r}")
+
+
 def clear_sync_on_leave(user_id: str) -> None:
     """Called from main.on_user_leave — clean up sync state for a leaving user.
 
@@ -533,65 +566,42 @@ def clear_sync_on_leave(user_id: str) -> None:
 # ===========================================================================
 # Section F — Staff room-wide emote
 # ===========================================================================
-_room_all_task: dict[str, asyncio.Task] = {}   # single-entry: {"_": Task}
-_room_all_eid:  dict[str, str] = {}            # {"_": eid}
-
-
-async def _room_all_loop(bot: "BaseBot", eid: str) -> None:
-    """Continuously loop `eid` on every non-bot user in the room."""
-    from modules.emote_system import get_emote_time
-    from modules.room_utils import _user_positions
-    from modules.live_bot_registry import live_bot_keys
-    while True:
-        try:
-            try:
-                resp = await bot.highrise.get_room_users()
-                users = list(resp.content) if hasattr(resp, "content") else []
-            except Exception:
-                users = []
-            bot_names = {str(n).lower() for n in (live_bot_keys() or [])}
-            for u, _pos in users:
-                if u.username.lower() in bot_names:
-                    continue
-                try:
-                    await bot.highrise.send_emote(eid, u.id)
-                except Exception:
-                    pass
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            print(f"[ROOM_ALL] iter err: {exc!r}")
-        await asyncio.sleep(get_emote_time(eid))
-
-
 async def handle_emote_all(bot: "BaseBot", user: "User", args: list) -> None:
-    """!emote all <emote>   |   !emote all stop  (staff only)"""
+    """!emote all <emote>  — one-time room-wide emote (staff only).
+
+    Sends <emote> once to every non-bot player currently in the room.
+    Does NOT loop. Does NOT persist. No stop command needed.
+    """
     if not _is_staff(user.username):
         await _w(bot, user.id, "Staff only.")
         return
     if len(args) < 3:
-        await _w(bot, user.id, "Usage: !emote all <emote>  |  !emote all stop")
+        await _w(bot, user.id, "Usage: !emote all <emote>")
         return
     sub = args[2].lower()
-    if sub == "stop":
-        task = _room_all_task.pop("_", None)
-        if task and not task.done():
-            task.cancel()
-        _room_all_eid.pop("_", None)
-        await _w(bot, user.id, "⏹ Room-wide emote stopped.")
-        return
     entry = _reg_get(sub)
     if not entry:
         await _w(bot, user.id, f"Unknown emote '{sub}'.")
         return
     eid = entry["id"]
-    # Cancel any existing
-    old = _room_all_task.pop("_", None)
-    if old and not old.done():
-        old.cancel()
-    _room_all_task["_"] = asyncio.create_task(_room_all_loop(bot, eid))
-    _room_all_eid["_"]  = eid
-    await _w(bot, user.id, f"🎭 Looping '{sub}' on the whole room. !emote all stop")
+    from modules.live_bot_registry import live_bot_keys
+    try:
+        resp = await bot.highrise.get_room_users()
+        users = list(resp.content) if hasattr(resp, "content") else []
+    except Exception:
+        users = []
+    bot_names = {str(n).lower() for n in (live_bot_keys() or [])}
+    count = 0
+    for u, _pos in users:
+        if u.username.lower() in bot_names:
+            continue
+        try:
+            await bot.highrise.send_emote(eid, u.id)
+            count += 1
+        except Exception:
+            pass
+    print(f"[ROOM_EMOTE_ONCE] eid={eid!r} count={count}")
+    await _w(bot, user.id, f"🎭 '{sub}' sent to {count} player(s).")
 
 
 # ===========================================================================
@@ -679,7 +689,7 @@ async def handle_favemote(bot: "BaseBot", user: "User", args: list) -> None:
 # The polling task tracks who is currently inside and runs/stops their
 # personal emote loop.
 
-_DF_POLL_SECS = 1.5
+_DF_POLL_SECS = 2.5
 _df_task: dict[str, asyncio.Task] = {}
 _df_inside: set[str] = set()                   # user_ids currently inside
 _df_user_emote: dict[str, str] = {}            # uid -> current emote alias
@@ -772,6 +782,7 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
                     # Entered — pick an emote and start loop
                     alias, eid = random.choice(valid_pairs)
                     _df_user_emote[u.id] = alias
+                    print(f"[DANCEFLOOR_ENTER] user={u.id}")
                     try:
                         await _start_player_loop(
                             bot, u.id, eid, alias,
@@ -782,6 +793,7 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
 
             # Stop loops for those who left
             for left_uid in (_df_inside - current_inside):
+                print(f"[DANCEFLOOR_EXIT] user={left_uid}")
                 try:
                     _cancel_player_loop(left_uid)
                 except Exception:
