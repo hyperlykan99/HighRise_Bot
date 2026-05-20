@@ -229,15 +229,26 @@ def get_emote_time(emote_id: str, fallback: float = 5.0) -> float:
     """The single canonical emote-loop timing function — used everywhere.
 
     Priority chain (highest → lowest):
-      1. Custom timings — data/custom_emotes.json "timings" (raw ID only)
-                          (in-memory: custom_emote_manager._TIMINGS)
+      0. data/emotes.json registry (THE source of truth, raw ID indexed)
+      1. Custom timings — data/custom_emotes.json "timings" (legacy)
       2. Built-in catalog — TIMED_EMOTES_BY_ID in this file
       3. Fallback — 5.0 s
 
-    Called on every loop iteration so !setemotetime takes effect immediately.
-    No alias/name lookup here — only raw emote IDs.
+    Called on every loop iteration so !setemote / !setemotetime take effect
+    immediately on the next loop iteration.  Raw emote IDs only.
     """
-    # Priority 1 — custom timings (lazy import avoids circular import)
+    # Priority 0 — central emote registry (single source of truth)
+    try:
+        from data import emote_registry as _reg
+        aliases = _reg._BY_ID.get(str(emote_id))
+        if aliases:
+            any_alias = next(iter(aliases))
+            t = float(_reg._REGISTRY[any_alias].get("time") or 0)
+            if t > 0:
+                return t
+    except Exception:
+        pass
+    # Priority 1 — legacy custom timings (lazy import avoids circular import)
     try:
         from modules import custom_emote_manager as _cem
         t = _cem._TIMINGS.get(emote_id)

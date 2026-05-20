@@ -37,39 +37,66 @@ except Exception as _eti_exc:
     def get_emote_time(emote_id: str, fallback: float = 5.0) -> float:
         return fallback
 
-# Safe import: custom emote manager (runtime add/remove).
+# Safe import: custom emote manager (legacy — kept for back-compat handlers).
 try:
     import modules.custom_emote_manager as _cem
-    _merged_bot_names = _cem.get_merged_bot_names
 except Exception as _cem_exc:
     print("[custom_emote_manager] disabled:", _cem_exc)
     _cem = None  # type: ignore[assignment]
-    def _merged_bot_names() -> "list[str]":
-        return sorted([d for d, _ in BOT_SELF_EMOTES], key=str.lower)
+
+# Safe import: central emote registry (THE source of truth).
+try:
+    from data import emote_registry as _reg
+except Exception as _reg_exc:
+    print("[emote_registry] CRITICAL — disabled:", _reg_exc)
+    _reg = None  # type: ignore[assignment]
+
+
+def _merged_bot_names() -> "list[str]":
+    """Sorted display names of all bot-usable emotes (registry-driven)."""
+    if _reg is not None:
+        try:
+            return sorted(
+                (e.get("name") or k for k, e in _reg.all_entries().items()
+                 if e.get("bot")),
+                key=str.lower,
+            )
+        except Exception:
+            pass
+    return sorted([d for d, _ in BOT_SELF_EMOTES], key=str.lower)
+
 
 # ---------------------------------------------------------------------------
 # Merged runtime emote dicts — rebuilt by reload_custom_emotes()
-# ALL_PLAYER_EMOTES: {norm_trigger -> raw_id}  (hardcoded + custom)
-# ALL_BOT_EMOTES:    {norm_name   -> raw_id}   (hardcoded + custom)
-# Custom entries override hardcoded on collision.
+# ALL_PLAYER_EMOTES: {norm_alias -> raw_id}  (registry entries where player=True)
+# ALL_BOT_EMOTES:    {norm_alias -> raw_id}  (registry entries where bot=True)
 # ---------------------------------------------------------------------------
 ALL_PLAYER_EMOTES: dict[str, str] = {}
 ALL_BOT_EMOTES:    dict[str, str] = {}
 
 
 def _build_merged_dicts() -> None:
-    """Rebuild ALL_PLAYER_EMOTES and ALL_BOT_EMOTES in-place."""
+    """Rebuild ALL_PLAYER_EMOTES and ALL_BOT_EMOTES from the central registry."""
     global ALL_PLAYER_EMOTES, ALL_BOT_EMOTES
-    p: dict[str, str] = dict(PLAYER_EMOTES)
-    b: dict[str, str] = {_norm(d): eid for d, eid in BOT_SELF_EMOTES}
-    try:
-        if _cem is not None:
-            for key, info in _cem._PLAYER.items():
-                p[key] = info["id"]
-            for key, info in _cem._BOT.items():
-                b[key] = info["id"]
-    except Exception:
-        pass
+    p: dict[str, str] = {}
+    b: dict[str, str] = {}
+    if _reg is not None:
+        try:
+            for alias, entry in _reg.all_entries().items():
+                rid = entry.get("id")
+                if not rid:
+                    continue
+                if entry.get("player"):
+                    p[alias] = rid
+                if entry.get("bot"):
+                    b[alias] = rid
+        except Exception as exc:
+            print(f"[EMOTE_SYS] registry rebuild failed, falling back: {exc}")
+    if not p:
+        # Hard fallback if registry is unavailable.
+        p = dict(PLAYER_EMOTES)
+    if not b:
+        b = {_norm(d): eid for d, eid in BOT_SELF_EMOTES}
     ALL_PLAYER_EMOTES = p
     ALL_BOT_EMOTES    = b
 
@@ -1103,3 +1130,178 @@ async def handle_playeremoteid(bot: "BaseBot", user: "User",
                                 args: list) -> None:
     """Deprecated — use !emoteid instead."""
     await handle_emoteid(bot, user, args)
+
+
+# ===========================================================================
+# Central registry commands — single source of truth (data/emotes.json)
+# ===========================================================================
+
+def _fmt_bool(v: object) -> str:
+    return "true" if bool(v) else "false"
+
+
+def _parse_bool(s: str) -> bool | None:
+    s = (s or "").strip().lower()
+    if s in ("true", "1", "yes", "on", "t", "y"):
+        return True
+    if s in ("false", "0", "no", "off", "f", "n"):
+        return False
+    return None
+
+
+async def handle_setemote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!setemote <alias> <id|name|time|bot|player|category> <value>"""
+    uid = user.id
+    if not _is_admin(user.username):
+        await _w(bot, uid, "Admin/owner only.")
+        return
+    if _reg is None:
+        await _w(bot, uid, "Emote registry unavailable.")
+        return
+    if len(args) < 4:
+        await _w(bot, uid,
+                 "Usage: !setemote <alias> <id|name|time|bot|player|category> <value>")
+        return
+    alias = args[1]
+    field = args[2].lower()
+    value = " ".join(args[3:])
+    if field not in ("id", "name", "time", "bot", "player", "category"):
+        await _w(bot, uid, "Field must be: id, name, time, bot, player, category.")
+        return
+    if field in ("bot", "player"):
+        b = _parse_bool(value)
+        if b is None:
+            await _w(bot, uid, f"!setemote {alias} {field} true|false")
+            return
+        value = b
+    elif field == "time":
+        try:
+            value = float(value)
+        except Exception:
+            await _w(bot, uid, "Time must be a positive number (seconds).")
+            return
+    ok = _reg.set_field(alias, field, value)
+    if not ok:
+        await _w(bot, uid, f"Failed — alias '{alias}' not found or bad value.")
+        return
+    try:
+        reload_custom_emotes()
+    except Exception:
+        pass
+    entry = _reg.get_emote(alias)
+    if entry:
+        await _w(bot, uid,
+                 f"✅ {alias}: {field}={value}  "
+                 f"(id={entry['id']} t={entry['time']}s "
+                 f"bot={_fmt_bool(entry['bot'])} player={_fmt_bool(entry['player'])})")
+    else:
+        await _w(bot, uid, f"✅ Updated {alias}.{field}")
+
+
+async def handle_addemote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!addemote <alias> <raw_id> <time> <bot:true/false> <player:true/false> [category]"""
+    uid = user.id
+    if not _is_admin(user.username):
+        await _w(bot, uid, "Admin/owner only.")
+        return
+    if _reg is None:
+        await _w(bot, uid, "Emote registry unavailable.")
+        return
+    if len(args) < 6:
+        await _w(bot, uid,
+                 "Usage: !addemote <alias> <raw_id> <time> <bot> <player> [category]")
+        return
+    alias  = args[1]
+    raw_id = args[2]
+    try:
+        t = float(args[3])
+        if t <= 0:
+            raise ValueError
+    except Exception:
+        await _w(bot, uid, "Time must be a positive number (seconds).")
+        return
+    b = _parse_bool(args[4])
+    p = _parse_bool(args[5])
+    if b is None or p is None:
+        await _w(bot, uid, "bot and player must be true or false.")
+        return
+    category = args[6] if len(args) >= 7 else "uncategorized"
+    ok = _reg.add_emote(alias, raw_id, t, b, p, category)
+    if not ok:
+        await _w(bot, uid, f"Failed — alias '{alias}' already exists. Use !setemote.")
+        return
+    try:
+        reload_custom_emotes()
+    except Exception:
+        pass
+    await _w(bot, uid,
+             f"✅ Added {alias} → {raw_id} ({t}s bot={_fmt_bool(b)} player={_fmt_bool(p)} cat={category})")
+
+
+async def handle_removeemote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!removeemote <alias>"""
+    uid = user.id
+    if not _is_admin(user.username):
+        await _w(bot, uid, "Admin/owner only.")
+        return
+    if _reg is None:
+        await _w(bot, uid, "Emote registry unavailable.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !removeemote <alias>")
+        return
+    alias = args[1]
+    ok = _reg.remove_emote(alias)
+    if not ok:
+        await _w(bot, uid, f"Alias '{alias}' not found.")
+        return
+    try:
+        reload_custom_emotes()
+    except Exception:
+        pass
+    await _w(bot, uid, f"✅ Removed alias '{alias}'.")
+
+
+async def handle_exportemotes(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!exportemotes — whisper summary + count + file location."""
+    uid = user.id
+    if not _is_admin(user.username):
+        await _w(bot, uid, "Admin/owner only.")
+        return
+    if _reg is None:
+        await _w(bot, uid, "Emote registry unavailable.")
+        return
+    try:
+        _reg.save()
+        entries = _reg.all_entries()
+        n_player = sum(1 for e in entries.values() if e.get("player"))
+        n_bot    = sum(1 for e in entries.values() if e.get("bot"))
+        await _w(bot, uid,
+                 f"📦 {len(entries)} emotes saved → data/emotes.json  "
+                 f"(player={n_player} bot={n_bot})")
+    except Exception as exc:
+        await _w(bot, uid, f"Export failed: {exc}")
+
+
+async def handle_emotedebug(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emotedebug <alias> — show which handler routes it and exact loop time."""
+    uid = user.id
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !emotedebug <alias>")
+        return
+    if _reg is None:
+        await _w(bot, uid, "Emote registry unavailable.")
+        return
+    name = args[1]
+    entry = _reg.get_emote(name)
+    if not entry:
+        await _w(bot, uid, f"❌ '{name}' not in registry.")
+        return
+    rid = entry["id"]
+    t   = get_emote_time(rid)
+    handler = "emote_system.handle_emote_cmd" if entry.get("player") else "(no player handler)"
+    bot_h   = "emote_system.handle_botemote" if entry.get("bot") else "(no bot handler)"
+    aliases = _reg.aliases_for_id(rid)
+    await _w(bot, uid,
+             f"🔍 {entry.get('name', name)} | id={rid} | loop={t}s | "
+             f"player→{handler} | bot→{bot_h} | aliases={','.join(aliases)}")

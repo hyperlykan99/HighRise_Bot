@@ -1,0 +1,127 @@
+Full emote system rebuild. Replace fragmented emote logic with ONE editable registry.
+
+Goal:
+Every emote must be editable at runtime:
+- alias/name
+- raw emote ID
+- timer
+- bot usable true/false
+- player usable true/false
+- category
+
+Use ONE file:
+data/emotes.json
+
+Schema:
+{
+  "alias": {
+    "name": "Display Name",
+    "id": "raw-emote-id",
+    "time": 5.0,
+    "bot": true,
+    "player": true,
+    "category": "uncategorized"
+  }
+}
+
+Rules:
+1. Load data/emotes.json on startup.
+2. If missing, generate it from current hardcoded BOT_SELF_EMOTES and PLAYER_EMOTES.
+3. After generation, all lookups use ONLY data/emotes.json.
+4. No duplicate timing files for active logic.
+5. No separate player timing.
+6. No separate bot timing.
+7. One function only:
+
+get_emote(alias_or_id)
+get_emote_time(raw_id)
+can_player_use(alias)
+can_bot_use(alias)
+
+8. Timing is always by raw ID.
+If alias changes, timing still follows the raw ID.
+
+Commands:
+!emote list
+- player usable only
+- alphabetical
+- compact columns
+- auto pages
+
+!botemotes
+- bot usable only
+- alphabetical
+- compact columns
+- auto pages
+
+!emote <alias>
+- player uses emote
+- send once immediately
+- then loop using exact emote time
+- cancel previous player loop first
+- player types stop or !emote stop to stop
+
+!botemote @bot <alias>
+- queue command to target bot
+- target bot loops using exact emote time
+
+!botemoteid @bot <raw_id>
+- same but raw ID directly
+
+!setemote <alias> id <raw_id>
+!setemote <alias> name <display name>
+!setemote <alias> time <seconds>
+!setemote <alias> player true/false
+!setemote <alias> bot true/false
+!setemote <alias> category <category>
+
+!addemote <alias> <raw_id> <time> <bot:true/false> <player:true/false> [category]
+Example:
+!addemote justvibing emote-jewelrise-vibing 20 true true dance
+
+!removeemote <alias>
+
+!emoteinfo <alias_or_id>
+Shows:
+alias
+name
+id
+time
+bot/player
+category
+
+!findemote <keyword>
+Search alias, name, id, category.
+
+!emotetime <alias_or_id>
+Show exact timing source from data/emotes.json.
+
+!exportemotes
+Whisper/send file-safe JSON summary.
+
+Migration:
+- Convert existing BOT_SELF_EMOTES to bot=true.
+- Convert existing PLAYER_EMOTES to player=true.
+- Merge duplicates by raw ID.
+- Preserve custom_emotes.json entries.
+- Preserve custom timings.
+- If same raw ID appears multiple aliases, keep aliases but timing should be same raw ID time.
+
+Most important:
+Delete or bypass old player loop logic from room_utils.
+Only modules/emote_system.py should handle:
+!emote
+!botemote
+!botemotes
+player emote loops
+bot emote loops
+
+Add debug:
+!emotedebug <alias>
+Shows which handler will process it and exact loop time.
+
+Compile check:
+python -m py_compile main.py modules/emote_system.py modules/custom_emote_manager.py data/hardcoded_emotes.py
+
+Do not break bot queue system.
+Do not break stable bot startup.
