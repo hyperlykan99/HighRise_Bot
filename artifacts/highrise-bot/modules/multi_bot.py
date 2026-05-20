@@ -299,6 +299,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "botemoteid": "dj", "removewoekingemote": "dj",
     "emotelog": "dj", "emotelogstatus": "dj", "lastemotes": "dj",
     "clearemotelog": "dj", "addobservedemote": "dj", "testobservedemote": "dj",
+    "fakeemote": "dj", "debugemoteevents": "dj",
     "importemotes": "dj", "emotesource": "dj", "emotescanstatus": "dj",
     "emotefailures": "dj", "failedemotes": "dj", "setemoteunverified": "dj",
     # ── dj music / song request system ───────────────────────────────────────

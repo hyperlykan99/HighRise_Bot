@@ -932,6 +932,8 @@ from modules.emote_logger import (
     handle_clearemotelog,
     handle_addobservedemote,
     handle_testobservedemote,
+    handle_fakeemote,
+    handle_debugemoteevents,
 )
 from modules.emote_scan import (
     handle_scanallbotemotes,
@@ -1792,6 +1794,7 @@ EMOTE_DIAG_SCAN_COMMANDS: frozenset[str] = frozenset({
     "botemoteid", "removewoekingemote",
     "emotelog", "emotelogstatus", "lastemotes",
     "clearemotelog", "addobservedemote", "testobservedemote",
+    "fakeemote", "debugemoteevents",
 })
 
 
@@ -3532,8 +3535,12 @@ class HangoutBot(BaseBot):
         # Log which events this session is subscribed to (only overridden hooks)
         try:
             from highrise.__main__ import gather_subscriptions
+            from highrise import BaseBot as _BaseBot
             subs = gather_subscriptions(self)
             print(f"[HangoutBot] Event subscriptions: {subs or '(all)'}")
+            _emote_ovr = type(self).on_emote is not _BaseBot.on_emote
+            _emote_sub = "emote" in subs
+            print(f"[HangoutBot] on_emote overridden={_emote_ovr} emote_subscribed={_emote_sub}")
         except Exception:
             pass
         # ── Bot lifecycle logging + task exception handler ────────────────────
@@ -7473,6 +7480,7 @@ class HangoutBot(BaseBot):
             "botemoteid", "removewoekingemote",
             "emotelog", "emotelogstatus", "lastemotes",
             "clearemotelog", "addobservedemote", "testobservedemote",
+            "fakeemote", "debugemoteevents",
         ):
             if BOT_MODE != "dj":
                 return
@@ -7530,6 +7538,10 @@ class HangoutBot(BaseBot):
                 await handle_addobservedemote(self, user, args)
             elif cmd == "testobservedemote":
                 await handle_testobservedemote(self, user, args)
+            elif cmd == "fakeemote":
+                await handle_fakeemote(self, user, args)
+            elif cmd == "debugemoteevents":
+                await handle_debugemoteevents(self, user, args)
             else:
                 await handle_exportworkingemotes(self, user, args)
         elif cmd == "highfive":
@@ -8359,6 +8371,9 @@ class HangoutBot(BaseBot):
         Logs emotes silently; only prints if emote ID looks tip-related.
         Signals any pending !emotediag silent-failure listeners.
         """
+        # Always-on raw print — fires even when emote logging is OFF
+        print(f"[RAW_ON_EMOTE] user={user.username!r} user_id={user.id!r} "
+              f"emote_id={emote_id!r} receiver={getattr(receiver, 'username', receiver)!r}")
         try:
             time_exp_record_activity(user.id)
             raw = f"user=@{user.username}({user.id}) emote_id={emote_id!r} receiver={receiver!r}"

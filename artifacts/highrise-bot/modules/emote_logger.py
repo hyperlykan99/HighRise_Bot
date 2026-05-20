@@ -13,6 +13,8 @@ Commands (DJ-only):
   !clearemotelog                        — wipe in-memory + disk log
   !addobservedemote <alias> <emote_id>  — store alias → raw emote_id
   !testobservedemote <alias>            — resolve alias and send as bot self-emote
+  !fakeemote <emote_id>                 — manually inject emote into pipeline (bypasses SDK)
+  !debugemoteevents                     — full diagnostic: SDK ver, override status, counts
 
 Persistence:
   data/emote_observed_log.json      — last 50 emote events
@@ -45,6 +47,8 @@ _ALIAS_PATH = os.path.join(_BASE_DIR, "data", "emote_observed_aliases.json")
 _log_enabled: bool = False
 _emote_log: deque[dict] = deque(maxlen=50)
 _observed_aliases: dict[str, str] = {}
+_last_event_ts: float | None = None      # timestamp of the last captured on_emote
+_total_events_seen: int = 0              # lifetime counter (resets on restart)
 
 # ---------------------------------------------------------------------------
 # Persistence helpers
@@ -104,7 +108,10 @@ def set_logging(enabled: bool) -> None:
 
 def log_emote(username: str, user_id: str, emote_id: str,
               receiver: object = None) -> None:
-    """Record one emote event.  Called from on_emote when logging is active."""
+    """Record one emote event.  Called from on_emote (always — logging flag gates storage)."""
+    global _last_event_ts, _total_events_seen
+    _last_event_ts = time.time()
+    _total_events_seen += 1
     if not _log_enabled:
         return
     receiver_name = getattr(receiver, "username", None) if receiver else None
@@ -121,6 +128,14 @@ def log_emote(username: str, user_id: str, emote_id: str,
     print(f"[EMOTE_LOG] username={username!r} user_id={user_id!r} "
           f"emote_id={emote_id!r}{rcv_part}")
     _save_log()
+
+
+def get_total_events_seen() -> int:
+    return _total_events_seen
+
+
+def get_last_event_ts() -> float | None:
+    return _last_event_ts
 
 
 def get_last_emotes(n: int = 10) -> list[dict]:
@@ -313,3 +328,114 @@ async def handle_testobservedemote(bot: "BaseBot", user: "User", args: list) -> 
     except Exception as exc:
         err = str(exc)[:100]
         await _w(bot, uid, f"❌ SDK rejected: {eid} — {err}"[:249])
+
+# ---------------------------------------------------------------------------
+# !fakeemote <emote_id>
+# ---------------------------------------------------------------------------
+
+async def handle_fakeemote(bot: "BaseBot", user: "User", args: list) -> None:
+    """!fakeemote <emote_id> — inject a fake on_emote event to test the logger pipeline.
+
+    Bypasses the Highrise server entirely. If the logger captures this, the
+    pipeline is working and the server is simply not delivering real emote events.
+    """
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid,
+            "Usage: !fakeemote <emote_id>  "
+            "e.g. !fakeemote dance-aerobics")
+        return
+    emote_id = args[1].strip()
+    await _w(bot, uid,
+        f"🧪 Injecting fake emote into pipeline: {emote_id}\n"
+        f"Check !lastemotes and console for [RAW_ON_EMOTE] / [EMOTE_LOG].")
+    # Call on_emote directly — simulates exactly what the SDK would do
+    try:
+        await bot.on_emote(user, emote_id, None)
+        await _w(bot, uid,
+            f"✅ Pipeline OK — fake emote processed. "
+            f"Use !lastemotes to confirm capture.")
+    except Exception as exc:
+        err = str(exc)[:120]
+        await _w(bot, uid, f"❌ Pipeline error: {err}"[:249])
+
+# ---------------------------------------------------------------------------
+# !debugemoteevents
+# ---------------------------------------------------------------------------
+
+async def handle_debugemoteevents(bot: "BaseBot", user: "User", args: list) -> None:
+    """!debugemoteevents — full diagnostic for on_emote event delivery."""
+    uid   = user.id
+    uname = user.username
+    if not _is_admin_user(uname):
+        await _w(bot, uid, "👑 Admin only.")
+        return
+
+    # Gather diagnostics
+    try:
+        import pkg_resources as _pkg
+        sdk_ver = _pkg.get_distribution("highrise-bot-sdk").version
+    except Exception:
+        sdk_ver = "unknown"
+
+    try:
+        from highrise import BaseBot as _BaseBot
+        overridden = type(bot).on_emote is not _BaseBot.on_emote
+    except Exception:
+        overridden = None
+
+    try:
+        from highrise.__main__ import gather_subscriptions as _gs
+        subs = _gs(bot)
+        emote_subbed = "emote" in subs
+    except Exception:
+        subs = "?"
+        emote_subbed = None
+
+    total   = _total_events_seen
+    stored  = len(_emote_log)
+    log_on  = _log_enabled
+
+    if _last_event_ts is not None:
+        import datetime as _dt
+        last_str = _dt.datetime.fromtimestamp(
+            _last_event_ts,
+            tz=_dt.timezone.utc
+        ).strftime("%H:%M:%S UTC")
+    else:
+        last_str = "never"
+
+    lines = [
+        f"📡 Emote Event Diagnostics",
+        f"SDK ver : {sdk_ver}",
+        f"on_emote overridden: {'YES ✅' if overridden else 'NO ❌' if overridden is False else '?'}",
+        f"emote subscribed   : {'YES ✅' if emote_subbed else 'NO ❌' if emote_subbed is False else '?'}",
+        f"log mode   : {'ON' if log_on else 'OFF'}",
+        f"total seen : {total} (since restart)",
+        f"stored     : {stored}/50",
+        f"last event : {last_str}",
+    ]
+
+    # Compatibility note
+    if total == 0:
+        lines.append(
+            "⚠️ Zero events received. "
+            "Server may not deliver emote events unless the bot is the receiver. "
+            "Use !fakeemote to test the pipeline independently."
+        )
+
+    # Send in chunks ≤249
+    chunk = ""
+    for line in lines:
+        candidate = f"{chunk}\n{line}" if chunk else line
+        if len(candidate) > 240:
+            await _w(bot, uid, chunk)
+            chunk = line
+        else:
+            chunk = candidate
+    if chunk:
+        await _w(bot, uid, chunk)
