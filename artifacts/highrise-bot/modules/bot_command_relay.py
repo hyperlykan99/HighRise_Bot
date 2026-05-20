@@ -80,43 +80,46 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
 
     _eid = eid
 
-    # Reload registry from disk so any !setemote/!addemote changes made by
-    # another bot process (e.g. DJ_DUDU) are visible before timing lookup.
+    # Reload registry from disk so !setemote/!addemote changes from DJ_DUDU
+    # are visible in this process before the timing lookup.
+    # Look up by ALIAS (emote_name e.g. "sweetjammer") — _REGISTRY is keyed by
+    # alias, so this is the most direct and reliable path for custom emotes.
+    # Raw-id → _BY_ID lookup is skipped entirely to avoid any rebuild race.
+    _ereg = None
+    _t_initial = 5.0
     try:
         from data import emote_registry as _ereg
         _ereg.reload()
+        _entry = _ereg.get_emote(emote_name) or _ereg.get_emote(eid)
+        if _entry:
+            _v = float(_entry.get("time") or 0)
+            if _v > 0:
+                _t_initial = _v
     except Exception as _re:
-        print(f"[RELAY] registry reload failed: {_re!r}")
-        _ereg = None  # type: ignore[assignment]
-
-    def _get_timing(emote_id: str, fallback: float = 5.0) -> float:
-        try:
-            if _ereg is not None:
-                t = _ereg.get_emote_time(emote_id, fallback)
-            else:
-                from modules.emote_system import get_emote_time as _es_t
-                t = _es_t(emote_id, fallback)
-        except Exception:
-            t = fallback
-        print(f"[BOT_EMOTE_TIMING] alias={emote_name!r} id={emote_id!r} resolved={t} source=registry")
-        return t
-
-    _t_initial = _get_timing(_eid)
+        print(f"[RELAY] registry lookup failed: {_re!r}")
+    print(f"[BOT_LOOP_INTERVAL] alias={emote_name!r} id={eid!r} resolved={_t_initial} source=registry")
 
     async def _loop() -> None:
-        _iter = 0
         while True:
-            _iter += 1
-            sleep_time = _get_timing(_eid) if _iter % 20 == 0 else (
-                _ereg.get_emote_time(_eid) if _ereg is not None else _t_initial
-            )
+            # Re-read timing each iteration so in-process !setemote updates
+            # take effect without a bot restart.
+            _sleep = _t_initial
+            try:
+                if _ereg is not None:
+                    _e = _ereg.get_emote(emote_name) or _ereg.get_emote(_eid)
+                    if _e:
+                        _v2 = float(_e.get("time") or 0)
+                        if _v2 > 0:
+                            _sleep = _v2
+            except Exception:
+                pass
             try:
                 await bot.highrise.send_emote(_eid)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 print(f"[RELAY] emote loop err mode={BOT_MODE!r} eid={_eid!r}: {exc!r}")
-            await asyncio.sleep(sleep_time)
+            await asyncio.sleep(_sleep)
 
     _bot_loops[BOT_MODE] = asyncio.create_task(_loop())
 

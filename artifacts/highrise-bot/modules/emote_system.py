@@ -180,8 +180,6 @@ def reload_custom_emotes() -> None:
 # Timing map — loaded from timed_free_emotes catalog
 # ---------------------------------------------------------------------------
 _EMOTE_DURATIONS: dict[str, float] = {}
-_DEFAULT_LOOP_INTERVAL: float = 5.0
-_BOT_LOOP_INTERVAL: float = 8.0
 
 
 def _load_timing() -> None:
@@ -683,11 +681,13 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
                    bool(this_uname and raw_target == this_uname))
 
     if is_this_bot:
-        # Memory-only: cancel existing loop, start new one at 5s, no DB write.
+        # Memory-only: cancel existing loop, start new one using registry timing.
         old = _bot_loops.pop(BOT_MODE, None)
         if old and not old.done():
             old.cancel()
         _emote_id = eid  # capture for closure
+        _t_imm = get_emote_time(_emote_id)
+        print(f"[BOT_LOOP_INTERVAL] alias={emote_name!r} id={_emote_id!r} resolved={_t_imm} source=registry")
         async def _imm_loop() -> None:
             while True:
                 try:
@@ -701,7 +701,7 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         display = f"@{_get_bot_uname() or BOT_MODE}"
         _log("bot_emote_set", admin=uname, bot=BOT_MODE, emote=eid)
         await _w(bot, uid,
-                 f"✅ {display} is now looping {emote_name} ({eid})")
+                 f"✅ {display} is now looping {emote_name} every {_t_imm}s")
         return
 
     # Not this bot — queue is PRIMARY, direct LIVE_BOTS is fallback if the
@@ -965,16 +965,25 @@ async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
         old = _bot_loops.pop(BOT_MODE, None)
         if old and not old.done():
             old.cancel()
-        # Reload registry from disk so !setemote changes made by another
-        # bot process (e.g. DJ_DUDU) are reflected in timing immediately.
+        # Reload registry from disk so !setemote changes from DJ_DUDU are
+        # visible. Look up timing by alias (most reliable for custom emotes).
         if _reg is not None:
             try:
                 _reg.reload()
             except Exception as _rle:
                 print(f"[EMOTE BOT] ch-event registry reload failed: {_rle!r}")
         _eid = eid
+        # Resolve alias for timing — alias lookup hits _REGISTRY directly.
+        _alias_ch = eid
+        try:
+            if _reg is not None:
+                _ch_entry = _reg.get_emote(eid)
+                if _ch_entry:
+                    _alias_ch = _ch_entry.get("name") or eid
+        except Exception:
+            pass
         _t_ch = get_emote_time(_eid)
-        print(f"[BOT_EMOTE_TIMING] alias={eid!r} id={eid!r} resolved={_t_ch} source=registry")
+        print(f"[BOT_LOOP_INTERVAL] alias={_alias_ch!r} id={_eid!r} resolved={_t_ch} source=registry")
         async def _ch_loop() -> None:
             while True:
                 try:
