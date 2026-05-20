@@ -174,9 +174,10 @@ def _collect_bots() -> list[_BotSpec]:
                 extra_modes  = old.extra_modes + (spec.bot_mode,),
             )
             print(
-                f"[RUNNER] WARN: {spec.label} shares a token with {old.label}. "
-                f"Merging mode '{spec.bot_mode}' into {old.label} as extra mode. "
-                f"Only one subprocess will run for this Highrise account."
+                f"[TOKEN_COLLISION] {spec.token_env} / {old.token_env} share the same token. "
+                f"Merging mode '{spec.bot_mode}' into {old.label}. "
+                f"Only ONE subprocess will run for this account — "
+                f"duplicate skipped to prevent session-kick loop."
             )
         else:
             seen_tokens[spec.token] = len(deduped)
@@ -189,10 +190,9 @@ def _collect_bots() -> list[_BotSpec]:
     for spec in specs:
         if spec.extra_modes:
             print(
-                f"[RUNNER] CRITICAL: {spec.label} token shared with "
-                f"mode(s) {spec.extra_modes} — only ONE connection will run "
-                f"for this Highrise account. Duplicate skipped to prevent "
-                f"session-kick loop."
+                f"[TOKEN_COLLISION] {spec.label} ({spec.token_env}) token is shared with "
+                f"merged mode(s) {spec.extra_modes}. ONE subprocess handles all modes. "
+                f"Confirm these env vars intentionally share the same token."
             )
 
     # ── Staged rollout filter ─────────────────────────────────────────────────
@@ -346,7 +346,9 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
     env["BOT_EXTRA_MODES"] = ",".join(spec.extra_modes)
     main_path = str(HERE / "main.py")
 
+    _MAX_FAST_EXITS  = int(os.environ.get("BOT_RECONNECT_MAX_FAST_EXITS", "5"))
     _reconnect_count = 0
+    _fast_exit_count = 0   # counts exits under 120 s; reset only on stable runs
     _last_reason     = "none"
     delay            = _BACKOFF[0]
 
@@ -390,19 +392,29 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     f" attempt={_reconnect_count} delay={delay}s @ {_ts2}"
                 )
 
-                if uptime < 60:
-                    if _reconnect_count == 1:
+                _FAST_BACKOFF = [30, 60, 120]
+                if uptime < 120:
+                    _fast_exit_count += 1
+                    delay = _FAST_BACKOFF[min(_fast_exit_count - 1, len(_FAST_BACKOFF) - 1)]
+                    if _fast_exit_count >= _MAX_FAST_EXITS:
                         print(
-                            f"[RUNNER] {spec.label} fast-exit after {uptime:.0f}s.\n"
-                            f"         Check {spec.token_env} is a valid Highrise token.\n"
-                            f"         Retrying in {delay}s..."
+                            f"[BOT_DISABLED] {spec.label} mode={spec.bot_mode}"
+                            f" — {_fast_exit_count} fast exits (uptime<120s) in a row."
+                            f" Stopping restarts. Check token / room ID / network."
                         )
-                    else:
-                        print(
-                            f"[RUNNER] {spec.label} fast-exit #{_reconnect_count}"
-                            f" ({_last_reason}). Retrying in {delay}s..."
+                        _write_rc_stats(
+                            spec.bot_mode, _reconnect_count,
+                            f"DISABLED:{_last_reason}", _ts2
                         )
+                        return
+                    remaining = _MAX_FAST_EXITS - _fast_exit_count
+                    print(
+                        f"[RUNNER] {spec.label} fast-exit #{_fast_exit_count}"
+                        f" uptime={uptime:.0f}s ({_last_reason})."
+                        f" Retrying in {delay}s... ({remaining} fast-exit(s) left before disable)"
+                    )
                 else:
+                    _fast_exit_count = 0   # stable run — reset fast-exit counter
                     print(
                         f"[RUNNER] {spec.label} disconnected ({_last_reason})."
                         f" Reconnecting in {delay}s..."

@@ -3617,11 +3617,16 @@ class HangoutBot(BaseBot):
         # bot.py's [PROCESS EXIT] / [WATCHDOG] lines follow immediately after.
         if bot_state.RESTART_COUNT == 1:
             import atexit as _atexit
-            _atexit.register(
-                lambda: print(
-                    f"[BOT DISCONNECTED] mode={BOT_MODE} id={config.BOT_ID} — subprocess exiting"
+            def _on_exit():
+                _err = getattr(bot_state, "LAST_ERROR", "") or "none"
+                import datetime as _dt2
+                _ts_ex = _dt2.datetime.now(_dt2.timezone.utc).strftime("%H:%M:%S UTC")
+                print(
+                    f"[BOT_DISCONNECT] bot={config.BOT_USERNAME or 'unknown'}"
+                    f" mode={BOT_MODE} id={config.BOT_ID}"
+                    f" last_error={_err!r} @ {_ts_ex}"
                 )
-            )
+            _atexit.register(_on_exit)
         # Install unhandled-exception hooks once on first connect only
         if bot_state.RESTART_COUNT == 1:
             import sys as _sys, traceback as _etb
@@ -3775,8 +3780,11 @@ class HangoutBot(BaseBot):
             await self._on_chat_impl(user, message)
         except Exception:
             import traceback as _tb
-            print(f"[ON_CHAT ERROR] mode={BOT_MODE} user={user.username!r} msg={message!r}")
-            _tb.print_exc()
+            _tb_str = _tb.format_exc()
+            print(
+                f"[HANDLER_FATAL] bot={config.BOT_USERNAME or BOT_MODE} mode={BOT_MODE}"
+                f" event=on_chat user={user.username!r} msg={message[:60]!r}\n{_tb_str[:800]}"
+            )
             bot_state.LAST_ERROR = f"{user.username}:{message[:40]}"
             try:
                 await self.highrise.send_whisper(
@@ -8325,6 +8333,18 @@ class HangoutBot(BaseBot):
         _sj(_autospawn_user_on_join(self, user), "autospawn")
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
+        """Crash-proof wrapper — no tip handler can disconnect the bot."""
+        try:
+            await self._on_tip_impl(sender, receiver, tip)
+        except Exception:
+            import traceback as _tb
+            print(
+                f"[HANDLER_FATAL] bot={config.BOT_USERNAME or BOT_MODE} mode={BOT_MODE}"
+                f" event=on_tip sender={getattr(sender, 'username', '?')!r}"
+                f"\n{_tb.format_exc()[:800]}"
+            )
+
+    async def _on_tip_impl(self, sender: User, receiver: User, tip) -> None:
         """
         Official Highrise SDK tip handler.
         Maps to the 'tip_reaction' WebSocket event.
@@ -8333,7 +8353,7 @@ class HangoutBot(BaseBot):
         If this NEVER prints, Highrise is not delivering tip_reaction to the bot.
         Nothing here is echoed to room chat.
         """
-        # ABSOLUTE FIRST LINE — no try/except wrapping, runs unconditionally
+        # ABSOLUTE FIRST LINE — inside crash-proof wrapper
         print("DEBUG EVENT FIRED: on_tip")
         print(f"  sender:    {sender.username} ({sender.id})")
         print(f"  receiver:  {receiver.username} ({receiver.id})")
@@ -8590,6 +8610,18 @@ class HangoutBot(BaseBot):
             print(f"[DM] on_message error: {exc}")
 
     async def on_whisper(self, user: User, message: str) -> None:
+        """Crash-proof wrapper — no whisper handler can disconnect the bot."""
+        try:
+            await self._on_whisper_impl(user, message)
+        except Exception:
+            import traceback as _tb
+            print(
+                f"[HANDLER_FATAL] bot={config.BOT_USERNAME or BOT_MODE} mode={BOT_MODE}"
+                f" event=on_whisper user={getattr(user, 'username', '?')!r}"
+                f"\n{_tb.format_exc()[:800]}"
+            )
+
+    async def _on_whisper_impl(self, user: User, message: str) -> None:
         """
         Dedicated whisper handler.
 
