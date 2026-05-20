@@ -244,10 +244,9 @@ def _cancel_player_loop(uid: str) -> None:
 
 
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
-    # First emote is sent BEFORE this task is created (start_player_emote /
-    # handle_emote_cmd both call _send_player first).  The loop only handles
-    # the repeats: get timing → sleep → send, forever.
-    # Timing is re-read on every iteration so !setemotetime is live immediately.
+    # First emote is sent BEFORE this task is created (_start_player_loop).
+    # The loop only handles repeats: read timing from registry → sleep → send.
+    # Timing is re-read on EVERY iteration so !setemotetime is live immediately.
     while True:
         sleep_time = get_emote_time(eid)
         print(f"[PLAYER_EMOTE_LOOP] uid={uid} eid={eid} sleep={sleep_time}")
@@ -258,6 +257,48 @@ async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
             raise
         except Exception as exc:
             print(f"[EMOTE LOOP FAIL] eid={eid!r} uid={uid!r} {exc!r}")
+
+
+async def _start_player_loop(
+    bot: "BaseBot",
+    uid: str,
+    eid: str,
+    display_name: str,
+    *,
+    username: str = "",
+    log_event: str = "emote_start",
+) -> bool:
+    """Canonical single path for starting a player emote loop.
+
+    BOTH plain-chat triggers AND !emote command MUST call this function.
+    No other code may create _player_loops entries directly.
+
+    Steps:
+      1. Cancel any existing loop for uid
+      2. Send first emote immediately (before the loop task)
+      3. Read timing from registry via get_emote_time(eid) — no cache
+      4. Whisper "✅ Looping <name> every <t>s" to the player
+      5. Create _run_player_loop task (which also re-reads timing each cycle)
+      6. Save task in _player_loops / _player_emotes
+
+    Returns True if started (or one-shot), False if the initial send failed.
+    Callers are responsible for cooldown gating.
+    """
+    _cancel_player_loop(uid)
+    ok = await _send_player(bot, eid, uid)
+    if not ok:
+        await _w(bot, uid, f"Could not send emote '{display_name}'.")
+        return False
+    interval = get_emote_time(eid)
+    if interval <= 0:
+        _log(log_event, user_id=uid, username=username, emote=eid, oneshot=True)
+        return True
+    await _w(bot, uid, f"✅ Looping {display_name} every {interval}s")
+    task = asyncio.create_task(_run_player_loop(bot, uid, eid))
+    _player_loops[uid]  = task
+    _player_emotes[uid] = eid
+    _log(log_event, user_id=uid, username=username, emote=eid)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -333,27 +374,22 @@ def is_plain_emote(text: str) -> bool:
 
 async def start_player_emote(bot: "BaseBot", user: "User",
                               emote_name: str) -> None:
-    """Start (or replace) a looping player emote from a plain chat trigger."""
+    """Start (or replace) a looping player emote from a plain chat trigger.
+
+    Plain-chat path — always delegates to _start_player_loop so the startup
+    logic is identical to the !emote command path.
+    """
     uid = user.id
     if _cd_remaining(_emote_cd, uid, _EMOTE_CD) > 0:
         return
     eid = ALL_PLAYER_EMOTES.get(_norm(emote_name))
     if not eid:
         return
-    _cancel_player_loop(uid)
     _cd_set(_emote_cd, uid)
-    ok = await _send_player(bot, eid, uid)
-    if not ok:
-        return
-    interval = get_emote_time(eid)
-    if interval <= 0:
-        _log("emote_oneshot", user_id=uid, emote=eid)
-        return
-    await _w(bot, uid, f"✅ Looping {emote_name} every {interval}s")
-    task = asyncio.create_task(_run_player_loop(bot, uid, eid))
-    _player_loops[uid]  = task
-    _player_emotes[uid] = eid
-    _log("emote_start", user_id=uid, username=user.username, emote=eid)
+    await _start_player_loop(
+        bot, uid, eid, emote_name,
+        username=user.username, log_event="emote_start",
+    )
 
 
 async def stop_player_emote(bot: "BaseBot", user: "User") -> None:
@@ -412,19 +448,11 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
             await _w(bot, uid,
                      f"Unknown emote '{sub}'. Try !emote list to see all.")
             return
-        _cancel_player_loop(uid)
-        ok = await _send_player(bot, eid, uid)
-        if not ok:
-            await _w(bot, uid, f"Could not send emote '{sub}'.")
-            return
-        interval = get_emote_time(eid)
-        if interval <= 0:
-            return
-        await _w(bot, uid, f"✅ Looping {sub} every {interval}s")
-        task = asyncio.create_task(_run_player_loop(bot, uid, eid))
-        _player_loops[uid]  = task
-        _player_emotes[uid] = eid
-        _log("emote_start_cmd", user_id=uid, username=uname, emote=eid)
+        # Delegate entirely to the canonical helper — identical to plain-chat path.
+        await _start_player_loop(
+            bot, uid, eid, sub,
+            username=uname, log_event="emote_start_cmd",
+        )
 
 
 async def _handle_emote_list(bot: "BaseBot", uid: str) -> None:
