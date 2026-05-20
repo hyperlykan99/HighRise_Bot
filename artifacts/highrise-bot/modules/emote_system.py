@@ -502,16 +502,30 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
     is_this_bot = (raw_target == this_mode or
                    bool(this_uname and raw_target == this_uname))
 
-    store_key = this_mode if is_this_bot else raw_target
-    db.set_room_setting(f"bot_emote_{store_key}", eid)
-    _log("bot_emote_set", admin=uname, bot=store_key, emote=eid)
-
     if is_this_bot:
-        dur     = _start_bot_loop(bot, BOT_MODE, eid)
+        # Memory-only: cancel existing loop, start new one at 5s, no DB write.
+        old = _bot_loops.pop(BOT_MODE, None)
+        if old and not old.done():
+            old.cancel()
+        _emote_id = eid  # capture for closure
+        async def _imm_loop() -> None:
+            while True:
+                try:
+                    await bot.highrise.send_emote(_emote_id)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as _exc:
+                    print(f"[EMOTE BOT] loop err mode={BOT_MODE!r} eid={_emote_id!r}: {_exc!r}")
+                await asyncio.sleep(5.0)
+        _bot_loops[BOT_MODE] = asyncio.create_task(_imm_loop())
         display = f"@{_get_bot_uname() or BOT_MODE}"
-        await _w(bot, uid, f"✅ {display} looping {eid} (every {dur:.0f}s).")
+        _log("bot_emote_set", admin=uname, bot=BOT_MODE, emote=eid)
+        await _w(bot, uid, f"✅ {display} looping {eid} (every 5s).")
         return
 
+    # Not this bot — save to DB so it takes effect on that bot's next restart.
+    db.set_room_setting(f"bot_emote_{raw_target}", eid)
+    _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
     await _w(bot, uid, f"✅ Saved. @{raw_target} will loop {eid} on next restart.")
 
 
@@ -526,13 +540,19 @@ async def handle_stopbotemote(bot: "BaseBot", user: "User",
     if not _is_admin(uname):
         await _w(bot, uid, "Admin only.")
         return
-    from config import BOT_MODE
-    bot_name = args[1].lower() if len(args) >= 2 else BOT_MODE.lower()
-    db.set_room_setting(f"bot_emote_{bot_name}", "")
-    if BOT_MODE.lower() == bot_name:
+    from config import BOT_MODE, BOT_USERNAME
+    from modules.gold import get_bot_username as _get_bot_uname2
+    bot_name     = args[1].lstrip("@").lower() if len(args) >= 2 else BOT_MODE.lower()
+    this_mode_l  = BOT_MODE.lower()
+    this_uname_l = (_get_bot_uname2() or BOT_USERNAME or "").strip().lower()
+    is_this_bot  = (bot_name == this_mode_l or
+                    bool(this_uname_l and bot_name == this_uname_l))
+    if is_this_bot:
         task = _bot_loops.pop(BOT_MODE, None)
         if task and not task.done():
             task.cancel()
+    else:
+        db.set_room_setting(f"bot_emote_{bot_name}", "")
     _log("bot_emote_cleared", admin=uname, bot=bot_name)
     await _w(bot, uid, "✅ Bot emote stopped.")
 
