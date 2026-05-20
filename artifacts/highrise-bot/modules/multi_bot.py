@@ -277,6 +277,13 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "heart": "dj", "hearts": "dj", "heartlb": "dj",
     "swordfight": "dj",
     "emoteinfo": "dj",
+    # ── dj — emote_extras (sync / dancefloor / socials / favs) ───────────────
+    "superpunch": "dj", "bonk": "dj", "yeet": "dj",
+    "hypnotize": "dj", "duel": "dj",
+    "sync": "dj", "syncstop": "dj", "syncdebug": "dj",
+    "favemotes": "dj", "favemote": "dj",
+    "dancefloor": "dj",
+    "emotetestchecklist": "dj",
     # ── dj — emote registry (DJ_DUDU-only, single source of truth) ───────────
     "setemote": "dj", "addemote": "dj", "removeemote": "dj",
     "emotedebug": "dj", "exportemotes": "dj", "timingaudit": "dj",
