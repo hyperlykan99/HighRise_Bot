@@ -62,14 +62,25 @@ _TIMINGS: dict[str, float] = {}   # !setemotetime overrides  {raw_id: seconds}
 
 
 def _register_timing(eid: str, t: float) -> None:
-    """Register a custom emote timing into _TIMINGS (raw ID only).
+    """Write timing to the central registry (single source of truth).
 
-    This is the canonical store for ALL user-supplied timings — populated by
-    !addbotemote, !addplayeremote, and !setemotetime.  Read by the single
-    get_emote_time() function in data/emote_timings.py.
+    ALL timing reads use data.emote_registry exclusively.
+    _TIMINGS is kept in sync so _save() can persist it to custom_emotes.json
+    for the migration path, but it is never read by get_emote_time().
     """
     if t <= 0:
         return
+    # Write to registry — this is what every loop, !timingaudit, !emoteinfo,
+    # and !emotetime now reads.
+    try:
+        from data import emote_registry as _reg
+        aliases = _reg.aliases_for_id(str(eid))
+        if aliases:
+            for alias in aliases:
+                _reg.set_field(alias, "time", float(t))
+    except Exception:
+        pass
+    # Keep _TIMINGS in sync so _save() can persist it to custom_emotes.json.
     _TIMINGS[str(eid)] = float(t)
 
 

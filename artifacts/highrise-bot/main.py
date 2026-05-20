@@ -940,6 +940,7 @@ from modules.emote_system import (
     handle_emotedebug,
     handle_emoteinfo,
     handle_emotetime as handle_emotetime_reg,
+    handle_timingaudit,
 )
 from modules.custom_emote_manager import (
     handle_missingtimings,
@@ -1385,7 +1386,7 @@ ALL_KNOWN_COMMANDS = (
         "removebotemote", "removeplayeremote", "customemotes",
         "setemotetime", "emotetime",
         "setemote", "addemote", "removeemote",
-        "exportemotes", "emotedebug",
+        "exportemotes", "emotedebug", "timingaudit",
         "swordfight", "botemote", "stopbotemote", "livebots",
         "heart", "hearts", "heartlb", "giveheart", "reactheart",
         "hug", "kiss", "slap", "punch", "highfive", "boop", "waveat", "cheer",
@@ -7454,6 +7455,8 @@ class HangoutBot(BaseBot):
             await handle_exportemotes(self, user, args)
         elif cmd == "emotedebug":
             await handle_emotedebug(self, user, args)
+        elif cmd == "timingaudit":
+            await handle_timingaudit(self, user, args)
         elif cmd == "emotes":
             await handle_emotes_auto(self, user, args)
         elif cmd == "botemotes":

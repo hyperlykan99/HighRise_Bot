@@ -226,47 +226,24 @@ TIMED_EMOTES_BY_ID = {
 }
 
 def get_emote_time(emote_id: str, fallback: float = 5.0) -> float:
-    """The single canonical emote-loop timing function — used everywhere.
+    """Single source of truth: data/emotes.json via emote_registry.
 
-    Priority chain (highest → lowest):
-      0. data/emotes.json registry (THE source of truth, raw ID indexed)
-      1. Custom timings — data/custom_emotes.json "timings" (legacy)
-      2. Built-in catalog — TIMED_EMOTES_BY_ID in this file
-      3. Fallback — 5.0 s
-
-    Called on every loop iteration so !setemote / !setemotetime take effect
-    immediately on the next loop iteration.  Raw emote IDs only.
+    ALL timing reads go through the central registry only.
+    No _TIMINGS fallback.  No TIMED_EMOTES_BY_ID fallback.
+    Called on every loop iteration — changes made via !setemote or
+    !setemotetime are live immediately on the next cycle.
+    Raw emote IDs only (never alias names).
     """
-    # Priority 0 — central emote registry (single source of truth)
     try:
         from data import emote_registry as _reg
         aliases = _reg._BY_ID.get(str(emote_id))
         if aliases:
-            any_alias = next(iter(aliases))
+            any_alias = next(iter(sorted(aliases)))
             t = float(_reg._REGISTRY[any_alias].get("time") or 0)
             if t > 0:
                 return t
     except Exception:
         pass
-    # Priority 1 — legacy custom timings (lazy import avoids circular import)
-    try:
-        from modules import custom_emote_manager as _cem
-        t = _cem._TIMINGS.get(emote_id)
-        if t is not None:
-            tv = float(t)
-            if tv > 0:
-                return tv
-    except Exception:
-        pass
-    # Priority 2 — built-in catalog
-    try:
-        if emote_id in TIMED_EMOTES_BY_ID:
-            v = float(TIMED_EMOTES_BY_ID[emote_id])
-            if v > 0:
-                return v
-    except Exception:
-        pass
-    # Priority 3 — fallback
     return float(fallback)
 
 

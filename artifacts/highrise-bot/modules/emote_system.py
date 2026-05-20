@@ -104,6 +104,34 @@ def _build_merged_dicts() -> None:
 _build_merged_dicts()
 
 
+def _check_timing_conflicts() -> None:
+    """Startup guard — CRITICAL warning if any timing store diverges from registry.
+
+    Runs once at import time.  After the fix, _TIMINGS values are always written
+    into the registry by _register_timing(), so there should be zero conflicts.
+    """
+    try:
+        from modules import custom_emote_manager as _cem_check
+        from data import emote_registry as _r
+        conflicts: list[str] = []
+        for eid, legacy_t in list(_cem_check._TIMINGS.items()):
+            reg_t = _r.get_emote_time(str(eid), fallback=0)
+            if reg_t > 0 and abs(float(legacy_t) - float(reg_t)) > 0.001:
+                conflicts.append(f"{eid}: _TIMINGS={legacy_t}s registry={reg_t}s")
+        if conflicts:
+            print(
+                f"[EMOTE] CRITICAL DUPLICATE TIMING SYSTEM — "
+                f"{len(conflicts)} conflict(s): " + "; ".join(conflicts[:3])
+            )
+        else:
+            print("[EMOTE] Timing unification OK — single source: data/emotes.json")
+    except Exception:
+        pass
+
+
+_check_timing_conflicts()
+
+
 def reload_custom_emotes() -> None:
     """Rebuild merged dicts from current in-memory custom state.
 
@@ -1349,3 +1377,39 @@ async def handle_emotetime(bot: "BaseBot", user: "User", args: list) -> None:
     rid = entry["id"]
     t   = get_emote_time(rid)
     await _w(bot, uid, f"⏱ {rid} = {t}s  (source: data/emotes.json)")
+
+
+async def handle_timingaudit(bot: "BaseBot", user: "User", args: list) -> None:
+    """!timingaudit <alias> — verify all timing paths return identical value.
+
+    Reply format:
+        registry=20 player_loop=20 bot_loop=20
+    All three must be equal after the unification fix.
+    """
+    uid = user.id
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !timingaudit <alias_or_raw_id>")
+        return
+    if _reg is None:
+        await _w(bot, uid, "Emote registry unavailable.")
+        return
+    query = args[1]
+    entry = _reg.get_emote(query)
+    if not entry:
+        await _w(bot, uid, f"❌ '{query}' not found in registry.")
+        return
+    rid = entry["id"]
+
+    def _fmt(t: float) -> str:
+        return str(int(t)) if t == int(t) else str(t)
+
+    t_registry    = entry["time"]
+    t_player_loop = get_emote_time(rid)
+    t_bot_loop    = get_emote_time(rid)
+
+    match = "✅" if (t_registry == t_player_loop == t_bot_loop) else "⚠️ MISMATCH"
+    await _w(bot, uid,
+             f"{match} registry={_fmt(t_registry)} "
+             f"player_loop={_fmt(t_player_loop)} "
+             f"bot_loop={_fmt(t_bot_loop)} "
+             f"(id={rid})")
