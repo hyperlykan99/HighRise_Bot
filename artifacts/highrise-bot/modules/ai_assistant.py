@@ -946,7 +946,7 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     "setpokerdailylosslimit":("modules.poker",      "handle_setpokerdailylosslimit"),
     # ── Emote (new) ───────────────────────────────────────────────────────
     "emotes":                ("modules.room_utils", "handle_emotes"),
-    "emoteinfo":             ("modules.room_utils", "handle_emoteinfo"),
+    "emoteinfo":             ("modules.emote_system", "handle_emoteinfo"),
     # ── AI delegations (new) ──────────────────────────────────────────────
     "aidelegations":         ("modules.ai_assistant", "handle_aidelegations"),
     # ── Bot spawn (new) ───────────────────────────────────────────────────

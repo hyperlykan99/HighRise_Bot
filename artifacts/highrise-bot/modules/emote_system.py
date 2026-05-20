@@ -1324,11 +1324,12 @@ async def handle_emoteinfo(bot: "BaseBot", user: "User", args: list) -> None:
     rid     = entry["id"]
     aliases = _reg.aliases_for_id(rid)
     cat     = entry.get("category") or "uncategorized"
+    t_disp  = int(entry["time"]) if entry["time"] == int(entry["time"]) else entry["time"]
     await _w(bot, uid,
-             f"alias={','.join(aliases)} name={entry.get('name','?')} "
-             f"id={rid} time={entry['time']}s "
-             f"bot={_fmt_bool(entry.get('bot'))} player={_fmt_bool(entry.get('player'))} "
-             f"cat={cat}")
+             f"Registry match: alias={','.join(aliases)} "
+             f"id={rid} time={t_disp} "
+             f"player={_fmt_bool(entry.get('player'))} bot={_fmt_bool(entry.get('bot'))} "
+             f"name={entry.get('name','?')} cat={cat}")
 
 
 async def handle_emotetime(bot: "BaseBot", user: "User", args: list) -> None:
