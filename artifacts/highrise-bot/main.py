@@ -938,6 +938,13 @@ from modules.emote_extras import (
     handle_dancefloor, startup_dancefloor_recovery,
     handle_emotetestchecklist,
 )
+from modules.custom_emotes import (
+    cancel_custom_loop, is_in_custom_loop,
+    handle_customemote, handle_customtimed, handle_stopcustom,
+    handle_savecustom, handle_savecustomtimed,
+    handle_playcustom, handle_custompacks,
+    handle_custominfo, handle_renamecustom, handle_deletecustom,
+)
 from modules.emote_system import (   # re-open for remaining symbols
     handle_force_emote,
     handle_room_emote,
@@ -1740,6 +1747,13 @@ ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
     "sync", "syncstop", "syncdebug", "syncstatus", "favemotes", "favemote",
     "dancefloor", "emotetestchecklist",
     "superpunch", "bonk", "yeet", "hypnotize", "duel",
+}
+# custom emote sequence commands
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
+    "customemote", "customtimed", "stopcustom",
+    "savecustom", "savecustomtimed",
+    "playcustom", "custompacks", "custominfo",
+    "renamecustom", "deletecustom",
 }
 STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS | {"syncdebug"}
 ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
@@ -3833,6 +3847,15 @@ class HangoutBot(BaseBot):
                     return
             except Exception as _exc:
                 print(f"[SYNC_SHORTCUT] err: {_exc!r}")
+            # Bare "Stop" also halts any active custom emote loop
+            if message.strip().lower() == "stop" and is_in_custom_loop(user.id):
+                try:
+                    if cancel_custom_loop(user.id):
+                        await self.highrise.send_whisper(
+                            user.id, "⏹ Custom loop stopped.")
+                        return
+                except Exception:
+                    pass
 
         # ── / → ! redirect — tell players to use ! commands ──────────────────
         if message.startswith("/") and not message.startswith("//"):
@@ -7638,6 +7661,26 @@ class HangoutBot(BaseBot):
             await handle_dancefloor(self, user, args)
         elif cmd == "emotetestchecklist":
             await handle_emotetestchecklist(self, user, args)
+        elif cmd == "customemote":
+            await handle_customemote(self, user, args)
+        elif cmd == "customtimed":
+            await handle_customtimed(self, user, args)
+        elif cmd == "stopcustom":
+            await handle_stopcustom(self, user, args)
+        elif cmd == "savecustom":
+            await handle_savecustom(self, user, args)
+        elif cmd == "savecustomtimed":
+            await handle_savecustomtimed(self, user, args)
+        elif cmd == "playcustom":
+            await handle_playcustom(self, user, args)
+        elif cmd == "custompacks":
+            await handle_custompacks(self, user, args)
+        elif cmd == "custominfo":
+            await handle_custominfo(self, user, args)
+        elif cmd == "renamecustom":
+            await handle_renamecustom(self, user, args)
+        elif cmd == "deletecustom":
+            await handle_deletecustom(self, user, args)
         elif cmd == "importemotes":
             await handle_importemotes(self, user, args)
         elif cmd == "reloademotes":

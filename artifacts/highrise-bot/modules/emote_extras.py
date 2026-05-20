@@ -573,10 +573,15 @@ async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
     # Unsubscribe from any prior leader
     _unsubscribe_follower(user.id)
 
-    # Cancel solo player loop + dancefloor slot
+    # Cancel solo player loop, custom loop, and dancefloor slot
     try:
         from modules.emote_system import _cancel_player_loop
         _cancel_player_loop(user.id)
+    except Exception:
+        pass
+    try:
+        from modules.custom_emotes import cancel_custom_loop
+        cancel_custom_loop(user.id)
     except Exception:
         pass
     _df_inside.discard(user.id)
@@ -968,6 +973,11 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
                 current_inside.add(u.id)
                 if u.id not in _df_inside:
                     print(f"[DANCEFLOOR_ENTER] user={u.id}")
+                    try:
+                        from modules.custom_emotes import cancel_custom_loop
+                        cancel_custom_loop(u.id)
+                    except Exception:
+                        pass
 
             print(f"[DANCEFLOOR_TICK] users={len(users)} "
                   f"inside={len(current_inside)} active=true")
@@ -1261,6 +1271,17 @@ _CHECKLIST = [
     "[ ] !dancefloor emotes random 20",
     "[ ] compact emote lists",
     "[ ] persistence after restart",
+    "[ ] !customemote justvibing sit aerobics",
+    "[ ] !customtimed justvibing 6 hipshake 10 laidback 3",
+    "[ ] !stopcustom",
+    "[ ] !savecustom chillpack justvibing sit aerobics",
+    "[ ] !savecustomtimed vibeloop justvibing 6 hipshake 10 laidback 3",
+    "[ ] !playcustom chillpack",
+    "[ ] !custompacks",
+    "[ ] !custominfo chillpack",
+    "[ ] !renamecustom chillpack chillvibes",
+    "[ ] !deletecustom chillvibes",
+    "[ ] saved packs persist after restart",
 ]
 
 

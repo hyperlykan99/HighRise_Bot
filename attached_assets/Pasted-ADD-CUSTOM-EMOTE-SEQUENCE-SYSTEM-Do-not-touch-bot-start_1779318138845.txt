@@ -1,0 +1,130 @@
+ADD CUSTOM EMOTE SEQUENCE SYSTEM.
+
+Do not touch bot startup, tokens, music, casino, sync, or dancefloor unless needed for clean integration.
+
+Goal:
+Create public instant custom emote loops and saved personal custom emote packs.
+
+1. Public instant commands
+
+!customemote <emote1> <emote2> <emote3>
+Example:
+!customemote justvibing sit aerobics
+
+Behavior:
+- Starts looping those emotes in order on the command user
+- Uses registry timing for each emote
+- Repeats forever until stopped
+
+!customtimed <emote1> <seconds1> <emote2> <seconds2>
+Example:
+!customtimed justvibing 6 hipshake 10 laidback 3
+
+Behavior:
+- Starts looping those emotes in order
+- Uses provided seconds instead of registry timing
+- Repeats forever until stopped
+
+!stopcustom
+Stops the user’s active custom emote loop.
+
+2. Saved personal packs
+
+!savecustom <packname> <emote1> <emote2> <emote3>
+Example:
+!savecustom chillpack justvibing sit aerobics
+
+!savecustomtimed <packname> <emote1> <seconds1> <emote2> <seconds2>
+Example:
+!savecustomtimed vibeloop justvibing 6 hipshake 10 laidback 3
+
+Rules:
+- Packs are saved per user_id
+- Different players can use the same pack name
+- Validate emotes before saving
+- Timed packs must validate every time value is positive
+
+3. Play/manage saved packs
+
+!playcustom <packname>
+Loops the user’s saved pack.
+
+!custompacks
+Shows user’s saved packs alphabetically.
+
+!custominfo <packname>
+Shows pack name, mode, emotes, and timings.
+
+!renamecustom <oldname> <newname>
+Renames user’s saved pack.
+
+!deletecustom <packname>
+Deletes user’s saved pack.
+
+4. Engine rules
+
+Use one shared custom sequence runner:
+- cancel existing custom loop for user before starting new one
+- cancel normal player emote loop before starting custom
+- if user types Stop, also stop custom loop
+- if user uses !syncstop, do not break custom unless needed
+- if user starts !sync @leader, cancel custom loop so sync owns them
+- if user enters dancefloor, dancefloor may override custom loop
+- use registry get_emote_time for simple mode
+- use custom seconds for timed mode
+
+5. Persistence
+
+Create DB table if needed:
+custom_emote_packs:
+user_id TEXT
+pack_name TEXT
+mode TEXT simple|timed
+sequence_json TEXT
+created_at TEXT
+updated_at TEXT
+PRIMARY KEY(user_id, pack_name)
+
+6. Add debug logs
+
+[CUSTOM_EMOTE_START] user=<id> mode=<simple|timed> count=<n>
+[CUSTOM_EMOTE_STEP] user=<id> alias=<alias> eid=<id> time=<seconds>
+[CUSTOM_EMOTE_STOP] user=<id>
+[CUSTOM_PACK_SAVE] user=<id> pack=<name> mode=<mode>
+[CUSTOM_PACK_PLAY] user=<id> pack=<name>
+
+7. Help/guide placeholders
+
+Add commands to help registry / future guide list:
+!customemote
+!customtimed
+!stopcustom
+!savecustom
+!savecustomtimed
+!playcustom
+!custompacks
+!custominfo
+!renamecustom
+!deletecustom
+
+Do not fully rewrite help pages yet, just make sure commands are known and searchable.
+
+8. Test checklist
+
+Add to !emotetestchecklist:
+
+[ ] !customemote justvibing sit aerobics
+[ ] !customtimed justvibing 6 hipshake 10 laidback 3
+[ ] !stopcustom
+[ ] !savecustom chillpack justvibing sit aerobics
+[ ] !savecustomtimed vibeloop justvibing 6 hipshake 10 laidback 3
+[ ] !playcustom chillpack
+[ ] !custompacks
+[ ] !custominfo chillpack
+[ ] !renamecustom chillpack chillvibes
+[ ] !deletecustom chillvibes
+[ ] saved packs persist after restart
+
+9. Compile
+
+python -m py_compile bot.py main.py modules/emote_extras.py modules/emote_system.py
