@@ -28,15 +28,6 @@ from data.hardcoded_emotes import (
     _norm,
 )
 
-# Safe import: real emote durations.  If the file is missing or broken,
-# bots still start and fall back to a 5 s loop sleep.
-try:
-    from data.emote_timings import get_emote_time
-except Exception as _eti_exc:
-    print("[emote_timings] disabled:", _eti_exc)
-    def get_emote_time(emote_id: str, fallback: float = 5.0) -> float:
-        return fallback
-
 # Safe import: custom emote manager (legacy — kept for back-compat handlers).
 try:
     import modules.custom_emote_manager as _cem
@@ -50,6 +41,21 @@ try:
 except Exception as _reg_exc:
     print("[emote_registry] CRITICAL — disabled:", _reg_exc)
     _reg = None  # type: ignore[assignment]
+
+
+def get_emote_time(raw_id: str, fallback: float = 5.0) -> float:
+    """Registry-only timing — data/emotes.json is the single source of truth.
+
+    Never reads data.emote_timings, _TIMINGS, or TIMED_EMOTES_BY_ID.
+    Every loop (player, bot, dancefloor, relay) calls this function so all
+    timing paths are identical.
+    """
+    if _reg is None:
+        return float(fallback)
+    try:
+        return float(_reg.get_emote_time(raw_id, fallback))
+    except Exception:
+        return float(fallback)
 
 
 def _merged_bot_names() -> "list[str]":
