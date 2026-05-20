@@ -8370,22 +8370,41 @@ class HangoutBot(BaseBot):
         Debug hook — overriding BaseBot adds 'emote' to subscriptions.
         Logs emotes silently; only prints if emote ID looks tip-related.
         Signals any pending !emotediag silent-failure listeners.
+        on_emote must NEVER raise — all exceptions are caught and printed.
         """
-        # Always-on raw print — fires even when emote logging is OFF
-        print(f"[RAW_ON_EMOTE] user={user.username!r} user_id={user.id!r} "
-              f"emote_id={emote_id!r} receiver={getattr(receiver, 'username', receiver)!r}")
+        import traceback as _tb
+        try:
+            # Safe receiver extraction — receiver is User | None
+            _rcv_name = receiver.username if receiver is not None else None
+            # Always-on raw print — fires even when emote logging is OFF
+            print(f"[RAW_ON_EMOTE] user={user.username!r} user_id={user.id!r} "
+                  f"emote_id={emote_id!r} receiver={_rcv_name!r}")
+        except Exception as _print_err:
+            print(f"[ON_EMOTE] raw-print failed: {_print_err!r}")
         try:
             time_exp_record_activity(user.id)
-            raw = f"user=@{user.username}({user.id}) emote_id={emote_id!r} receiver={receiver!r}"
+        except Exception as _e:
+            print(f"[ON_EMOTE] time_exp error: {_e!r}")
+        try:
+            _rcv_safe = receiver.username if receiver is not None else None
+            raw = (f"user=@{user.username}({user.id}) emote_id={emote_id!r} "
+                   f"receiver={_rcv_safe!r}")
             record_debug_any_event("on_emote", raw)
             if "tip" in emote_id.lower() or "gold" in emote_id.lower():
                 print(f"DEBUG EVENT FIRED: on_emote | {raw}")
+        except Exception as _e:
+            print(f"[ON_EMOTE] debug-record error: {_e!r}")
+        try:
             # Signal any pending silent-failure detection listeners
             notify_emote_event(user.id, emote_id)
+        except Exception as _e:
+            print(f"[ON_EMOTE] notify_emote error: {_e!r}")
+        try:
             # Emote spy — records to log when !emotelog on
             emote_spy_log(user.username, user.id, emote_id, receiver)
         except Exception as _e:
-            print(f"[ON_EMOTE ERROR] {_e!r}")
+            print(f"[ON_EMOTE] emote_spy_log error: {_e!r}")
+            _tb.print_exc()
 
     async def on_message(self, user_id: str, conversation_id: str, is_new_conversation: bool) -> None:
         """

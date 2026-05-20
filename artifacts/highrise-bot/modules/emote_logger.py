@@ -108,26 +108,42 @@ def set_logging(enabled: bool) -> None:
 
 def log_emote(username: str, user_id: str, emote_id: str,
               receiver: object = None) -> None:
-    """Record one emote event.  Called from on_emote (always — logging flag gates storage)."""
+    """Record one emote event.  Called from on_emote.  Must NEVER raise."""
+    import traceback as _tb
     global _last_event_ts, _total_events_seen
-    _last_event_ts = time.time()
-    _total_events_seen += 1
+    try:
+        _last_event_ts = time.time()
+        _total_events_seen += 1
+    except Exception as _e:
+        print(f"[EMOTE_LOG] counter error: {_e!r}")
     if not _log_enabled:
         return
-    receiver_name = getattr(receiver, "username", None) if receiver else None
-    entry: dict = {
-        "ts":       int(time.time()),
-        "username": username,
-        "user_id":  user_id,
-        "emote_id": emote_id,
-    }
-    if receiver_name:
-        entry["receiver"] = receiver_name
-    _emote_log.append(entry)
-    rcv_part = f" receiver={receiver_name!r}" if receiver_name else ""
-    print(f"[EMOTE_LOG] username={username!r} user_id={user_id!r} "
-          f"emote_id={emote_id!r}{rcv_part}")
-    _save_log()
+    try:
+        # receiver is User | None — access username only when not None
+        receiver_name: str | None = receiver.username if receiver is not None else None  # type: ignore[union-attr]
+    except Exception as _e:
+        print(f"[EMOTE_LOG] receiver extract error: {_e!r}")
+        receiver_name = None
+    try:
+        entry: dict = {
+            "ts":       int(time.time()),
+            "username": username,
+            "user_id":  user_id,
+            "emote_id": emote_id,
+        }
+        if receiver_name:
+            entry["receiver"] = receiver_name
+        _emote_log.append(entry)
+        rcv_part = f" receiver={receiver_name!r}" if receiver_name else ""
+        print(f"[EMOTE_LOG] username={username!r} user_id={user_id!r} "
+              f"emote_id={emote_id!r}{rcv_part}")
+    except Exception as _e:
+        print(f"[EMOTE_LOG] append error: {_e!r}")
+        _tb.print_exc()
+    try:
+        _save_log()
+    except Exception as _e:
+        print(f"[EMOTE_LOG] persist error (non-fatal): {_e!r}")
 
 
 def get_total_events_seen() -> int:
