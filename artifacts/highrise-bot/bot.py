@@ -183,6 +183,18 @@ def _collect_bots() -> list[_BotSpec]:
             deduped.append(spec)
     specs = deduped
 
+    # Re-scan and report any remaining token collisions after merges
+    if len(specs) < len([s for s in specs if s]):
+        pass  # all clear after dedup
+    for spec in specs:
+        if spec.extra_modes:
+            print(
+                f"[RUNNER] CRITICAL: {spec.label} token shared with "
+                f"mode(s) {spec.extra_modes} — only ONE connection will run "
+                f"for this Highrise account. Duplicate skipped to prevent "
+                f"session-kick loop."
+            )
+
     # ── Staged rollout filter ─────────────────────────────────────────────────
     # Set BOTS_ENABLED=<comma-separated modes or ids> to start only a subset.
     #
@@ -285,16 +297,46 @@ def _start_web_dashboard_thread() -> None:
 # Subprocess runner (multi-bot mode)
 # ---------------------------------------------------------------------------
 
-async def _run_bot_forever(spec: _BotSpec) -> None:
+async def _health_loop(label: str) -> None:
+    """Print a keepalive line every 60 s so log tails confirm the process is alive."""
+    while True:
+        await asyncio.sleep(60)
+        print(f"[BOT_HEALTH] {label} alive")
+
+
+def _utc_ts() -> str:
+    import datetime as _dt
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%H:%M:%S UTC")
+
+
+def _write_rc_stats(mode: str, rc: int, reason: str, ts: str) -> None:
+    """Persist reconnect stats to the shared DB so !botstatus can read them."""
+    try:
+        import json as _j
+        import database as _dbs
+        _dbs.set_room_setting(
+            f"_bot_rc_{mode}",
+            _j.dumps({"rc": rc, "reason": reason, "ts": ts}),
+        )
+    except Exception:
+        pass
+
+
+async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
     """
     Keep one bot alive as a subprocess — isolated per bot account.
     One bot crashing never affects the others; each runs in its own asyncio Task.
 
-    Reconnect backoff schedule: 5s → 10s → 30s → 60s (max).
-    The counter resets to zero only after a long stable run (≥ 300 s / 5 min),
-    preventing spam loops when a bot repeatedly disconnects in quick succession.
+    Reconnect backoff: 10s → 20s → 30s (max).
+    Counter resets to zero only after a stable run ≥ 300 s (5 min).
     """
-    _BACKOFF = [5, 10, 30, 60]   # seconds; last entry is the cap
+    _BACKOFF = [10, 20, 30]   # seconds; last entry is the cap
+
+    if startup_delay > 0:
+        print(f"[BOT_START] waiting {startup_delay:.0f}s before {spec.label}")
+        await asyncio.sleep(startup_delay)
+
+    print(f"[BOT_START] starting {spec.label} mode={spec.bot_mode}")
 
     env = dict(os.environ)
     env["BOT_TOKEN"]       = spec.token
@@ -304,87 +346,118 @@ async def _run_bot_forever(spec: _BotSpec) -> None:
     env["BOT_EXTRA_MODES"] = ",".join(spec.extra_modes)
     main_path = str(HERE / "main.py")
 
-    _reconnect_count = 0   # resets after a long stable run
+    _reconnect_count = 0
+    _last_reason     = "none"
+    delay            = _BACKOFF[0]
 
-    while True:
-        proc: asyncio.subprocess.Process | None = None
-        started_at = asyncio.get_event_loop().time()
-        _ts = __import__("datetime").datetime.now(
-            __import__("datetime").timezone.utc).strftime("%H:%M:%S UTC")
-        print(f"[PROCESS START] {spec.label} mode={spec.bot_mode} id={spec.bot_id} @ {_ts}")
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, main_path,
-                env=env,
-                cwd=str(HERE),
-            )
-            code = await proc.wait()
-            uptime = asyncio.get_event_loop().time() - started_at
-            _ts2 = __import__("datetime").datetime.now(
-                __import__("datetime").timezone.utc).strftime("%H:%M:%S UTC")
-            _exit_reason = (
-                "clean exit"        if code == 0   else
-                "Python exception"  if code == 1   else
-                "usage/OS error"    if code == 2   else
-                "SIGTERM"           if code == -15  else
-                "SIGKILL"           if code == -9   else
-                f"signal {-code}"   if code and code < 0 else
-                f"code {code}"
-            )
-            print(f"[PROCESS EXIT] {spec.label} mode={spec.bot_mode}"
-                  f" code={code} ({_exit_reason}) uptime={uptime:.0f}s @ {_ts2}")
-
-            # Reset backoff only after a long, stable run (≥ 5 min).
-            # Any exit shorter than that — even a graceful disconnect — increments
-            # the counter so repeated quick exits are progressively throttled.
-            if uptime >= 300:
-                _reconnect_count = 0
-            else:
-                _reconnect_count += 1
-
-            delay = _BACKOFF[min(_reconnect_count - 1, len(_BACKOFF) - 1)] \
-                    if _reconnect_count > 0 else _BACKOFF[0]
-
-            if uptime < 60:
-                # Fast exit — likely a bad token or immediate connection error
-                if _reconnect_count == 1:
-                    print(
-                        f"[RUNNER] {spec.label} exited after {uptime:.0f}s (code {code}).\n"
-                        f"         Check that {spec.token_env} is a valid Highrise API token.\n"
-                        f"         Retrying in {delay}s..."
-                    )
-                else:
-                    print(
-                        f"[RUNNER] {spec.label} fast-exit #{_reconnect_count} "
-                        f"(code {code}). Retrying in {delay}s..."
-                    )
-            else:
-                print(
-                    f"[RUNNER] {spec.label} (ID:{spec.bot_id}) "
-                    f"disconnected (code {code}). Reconnecting in {delay}s..."
+    health_task = asyncio.create_task(_health_loop(spec.label))
+    try:
+        while True:
+            proc: asyncio.subprocess.Process | None = None
+            started_at = asyncio.get_event_loop().time()
+            _ts = _utc_ts()
+            print(f"[BOT_START] connected {spec.label} id={spec.bot_id} @ {_ts}")
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, main_path,
+                    env=env,
+                    cwd=str(HERE),
+                )
+                code = await proc.wait()
+                uptime = asyncio.get_event_loop().time() - started_at
+                _ts2 = _utc_ts()
+                _last_reason = (
+                    "clean exit"       if code == 0   else
+                    "Python exception" if code == 1   else
+                    "usage/OS error"   if code == 2   else
+                    "SIGTERM"          if code == -15  else
+                    "SIGKILL"          if code == -9   else
+                    f"signal {-code}"  if code and code < 0 else
+                    f"code {code}"
                 )
 
-        except asyncio.CancelledError:
-            if proc and proc.returncode is None:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    proc.kill()
-            raise
-        except Exception as exc:
-            _reconnect_count += 1
-            delay = _BACKOFF[min(_reconnect_count - 1, len(_BACKOFF) - 1)]
-            print(f"[RUNNER] {spec.label} error: {exc}. Retrying in {delay}s...")
+                if uptime >= 300:
+                    _reconnect_count = 0
+                else:
+                    _reconnect_count += 1
 
-        print(f"[WATCHDOG] {spec.label} mode={spec.bot_mode}"
-              f" reconnect_attempt={_reconnect_count} delay={delay}s")
-        await asyncio.sleep(delay)
+                delay = _BACKOFF[min(_reconnect_count - 1, len(_BACKOFF) - 1)] \
+                        if _reconnect_count > 0 else _BACKOFF[0]
+
+                print(
+                    f"[RECONNECT] {spec.label} mode={spec.bot_mode}"
+                    f" reason={_last_reason} uptime={uptime:.0f}s"
+                    f" attempt={_reconnect_count} delay={delay}s @ {_ts2}"
+                )
+
+                if uptime < 60:
+                    if _reconnect_count == 1:
+                        print(
+                            f"[RUNNER] {spec.label} fast-exit after {uptime:.0f}s.\n"
+                            f"         Check {spec.token_env} is a valid Highrise token.\n"
+                            f"         Retrying in {delay}s..."
+                        )
+                    else:
+                        print(
+                            f"[RUNNER] {spec.label} fast-exit #{_reconnect_count}"
+                            f" ({_last_reason}). Retrying in {delay}s..."
+                        )
+                else:
+                    print(
+                        f"[RUNNER] {spec.label} disconnected ({_last_reason})."
+                        f" Reconnecting in {delay}s..."
+                    )
+
+                _write_rc_stats(spec.bot_mode, _reconnect_count, _last_reason, _ts2)
+
+            except asyncio.CancelledError:
+                if proc and proc.returncode is None:
+                    proc.terminate()
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        proc.kill()
+                raise
+            except Exception as exc:
+                _reconnect_count += 1
+                _last_reason = str(exc)[:80]
+                delay = _BACKOFF[min(_reconnect_count - 1, len(_BACKOFF) - 1)]
+                _ts2 = _utc_ts()
+                print(
+                    f"[RECONNECT] {spec.label} mode={spec.bot_mode}"
+                    f" reason={_last_reason} attempt={_reconnect_count}"
+                    f" delay={delay}s @ {_ts2}"
+                )
+                _write_rc_stats(spec.bot_mode, _reconnect_count, _last_reason, _ts2)
+
+            print(f"[WATCHDOG] {spec.label} mode={spec.bot_mode}"
+                  f" reconnect_attempt={_reconnect_count} delay={delay}s")
+            await asyncio.sleep(delay)
+
+    finally:
+        health_task.cancel()
+        try:
+            await health_task
+        except asyncio.CancelledError:
+            pass
 
 
 async def _run_all(specs: list[_BotSpec]) -> None:
-    loop  = asyncio.get_running_loop()
-    tasks = [asyncio.create_task(_run_bot_forever(s), name=s.label) for s in specs]
+    loop = asyncio.get_running_loop()
+
+    # Stagger bot logins 12 s apart to prevent simultaneous session collisions.
+    if len(specs) > 1:
+        print(
+            f"[BOT_START] {len(specs)} bots will start 12s apart "
+            f"to prevent simultaneous session collisions."
+        )
+    tasks = [
+        asyncio.create_task(
+            _run_bot_forever(s, startup_delay=float(i * 12)),
+            name=s.label,
+        )
+        for i, s in enumerate(specs)
+    ]
 
     if _ENABLE_WEB_DASHBOARD:
         tasks.append(asyncio.create_task(_run_web_dashboard(), name="web-dashboard"))

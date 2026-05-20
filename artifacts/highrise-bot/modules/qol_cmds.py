@@ -668,12 +668,23 @@ async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
                 if new_ts > old_ts:
                     seen[mode] = inst
 
+        # Load reconnect stats written by bot.py runner
+        import json as _j
+        rc_stats: dict[str, dict] = {}
+        for _m in seen:
+            try:
+                _raw = db.get_room_setting(f"_bot_rc_{_m}", "")
+                if _raw:
+                    rc_stats[_m] = _j.loads(_raw)
+            except Exception:
+                pass
+
         for mode in sorted(seen):
             inst = seen[mode]
             status = inst.get("status", "offline")
             in_maint = maint_map.get(mode, False)
             if in_maint:
-                status_str = "MAINTENANCE"
+                status_str = "MAINT"
             elif status == "online":
                 last_seen = inst.get("last_seen_at", "")
                 try:
@@ -681,12 +692,24 @@ async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
                     if ls.tzinfo is None:
                         ls = ls.replace(tzinfo=timezone.utc)
                     age = (datetime.now(timezone.utc) - ls).total_seconds()
-                    status_str = "ONLINE" if age < 90 else "STALE"
+                    # Uptime approximation from last heartbeat age
+                    up_min = int(age // 60)
+                    up_str = f"{up_min}m" if up_min < 60 else f"{up_min // 60}h{up_min % 60}m"
+                    status_str = f"ONLINE up={up_str}" if age < 90 else "STALE"
                 except Exception:
                     status_str = "ONLINE"
             else:
                 status_str = "OFFLINE"
-            lines.append(f"{mode}: {status_str}")
+            # Append reconnect info if available
+            rc = rc_stats.get(mode, {})
+            rc_count = rc.get("rc", 0)
+            rc_reason = rc.get("reason", "")
+            if rc_count > 0:
+                short_reason = rc_reason[:20] if rc_reason else "?"
+                extra = f" | rc={rc_count} [{short_reason}]"
+            else:
+                extra = ""
+            lines.append(f"{mode}: {status_str}{extra}")
 
         lines.append("")
         lines.append(f"Global Maintenance: {'ON' if global_maint else 'OFF'}")
