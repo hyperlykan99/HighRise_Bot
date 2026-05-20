@@ -86,14 +86,6 @@ def reload_custom_emotes() -> None:
     _build_merged_dicts()
 
 
-# All timing decisions go through the single canonical get_emote_time() in
-# data/emote_timings.py — which implements the full priority chain:
-#   1. custom timings (custom_emote_manager._TIMINGS)
-#   2. built-in TIMED_EMOTES_BY_ID
-#   3. 5.0 s fallback
-# Local alias kept for readability in loop bodies.
-_effective_timing = get_emote_time
-
 # ---------------------------------------------------------------------------
 # Timing map — loaded from timed_free_emotes catalog
 # ---------------------------------------------------------------------------
@@ -191,16 +183,19 @@ def _cancel_player_loop(uid: str) -> None:
 
 
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
-    # Timing is re-read on every iteration so !setemotetime takes effect
-    # immediately on the next cycle — no restart needed.
+    # First emote is sent BEFORE this task is created (in start_player_emote /
+    # handle_emote_cmd).  Sleep first so the repeat comes after the correct
+    # interval, not immediately.  Timing is re-read on every iteration so
+    # !setemotetime takes effect on the very next cycle.
     while True:
+        sleep_time = get_emote_time(eid)
+        await asyncio.sleep(sleep_time)
         try:
             await bot.highrise.send_emote(eid, uid)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             print(f"[EMOTE LOOP FAIL] eid={eid!r} uid={uid!r} {exc!r}")
-        await asyncio.sleep(_effective_timing(eid))
 
 
 # ---------------------------------------------------------------------------
@@ -215,13 +210,13 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
         old.cancel()
 
     # Compute once for logging / return value; loop re-reads dynamically.
-    initial_interval = _effective_timing(eid)
+    initial_interval = get_emote_time(eid)
 
     async def _loop() -> None:
         _iter = 0
         while True:
             _iter += 1
-            sleep_time = _effective_timing(eid)
+            sleep_time = get_emote_time(eid)
             if _iter == 1 or _iter % 20 == 0:
                 print(f"[EMOTE BOT] mode={bot_mode!r} eid={eid!r}"
                       f" iter={_iter} sleep={sleep_time}s")
@@ -288,7 +283,7 @@ async def start_player_emote(bot: "BaseBot", user: "User",
     ok = await _send_player(bot, eid, uid)
     if not ok:
         return
-    interval = _effective_timing(eid)
+    interval = get_emote_time(eid)
     if interval <= 0:
         _log("emote_oneshot", user_id=uid, emote=eid)
         return
@@ -360,7 +355,7 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
         if not ok:
             await _w(bot, uid, f"Could not send emote '{sub}'.")
             return
-        interval = _effective_timing(eid)
+        interval = get_emote_time(eid)
         if interval <= 0:
             return
         await _w(bot, uid, f"✅ Looping {sub} every {interval}s")
