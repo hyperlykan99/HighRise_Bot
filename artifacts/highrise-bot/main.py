@@ -909,6 +909,10 @@ from modules.emote_system import (
     stop_player_emote,
     on_player_leave as emote_on_leave,
     handle_emotes_auto,
+    handle_emote_cmd,
+    handle_botemotes,
+    handle_testplayeremote,
+    handle_findemote,
     handle_playeremotes,
     handle_unresolvedplayeremotes,
     handle_emoteid,
@@ -7390,6 +7394,12 @@ class HangoutBot(BaseBot):
         # ── Emotes ────────────────────────────────────────────────────────────
         elif cmd == "emotes":
             await handle_emotes_auto(self, user, args)
+        elif cmd == "botemotes":
+            await handle_botemotes(self, user, args)
+        elif cmd == "testplayeremote":
+            await handle_testplayeremote(self, user, args)
+        elif cmd == "findemote":
+            await handle_findemote(self, user, args)
         elif cmd == "playeremotes":
             await handle_playeremotes(self, user, args)
         elif cmd == "unresolvedplayeremotes":
@@ -7408,7 +7418,7 @@ class HangoutBot(BaseBot):
             elif len(args) >= 2 and args[1].lower() in ("all", "allbots"):
                 await handle_room_emote(self, user, args)
             else:
-                await handle_emote(self, user, args)
+                await handle_emote_cmd(self, user, args)
         elif cmd == "stopemote":
             await handle_stopemote(self, user)
         elif cmd == "dance":

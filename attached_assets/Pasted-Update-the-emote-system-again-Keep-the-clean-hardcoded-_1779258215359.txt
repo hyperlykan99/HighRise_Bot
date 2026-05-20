@@ -1,0 +1,165 @@
+Update the emote system again. Keep the clean hardcoded system, but change command design and add the new player ID mappings.
+
+RULES:
+- No SDK scan.
+- No auto-prefixing.
+- No guessed IDs.
+- Bots can use all emotes.
+- Players can only use PLAYER_EMOTES.
+- Use exact raw IDs only.
+
+COMMANDS:
+!emote list
+- Show all player emotes.
+- Auto-send all pages continuously.
+- Do NOT require page numbers.
+- Whisper to requester.
+- Format in stacked columns, not comma-separated.
+Example:
+🎭 Player Emotes 1/8
+heartfingers     hug            worm
+clap             wave           dancezombie
+
+!emote <name>
+- Player uses emote on self.
+- Uses PLAYER_EMOTES only.
+- send_emote(emote_id, user.id)
+
+!emote stop
+- Stop player emote loop.
+
+!emote count
+- Show player emote total.
+
+!botemotes
+- Show all bot emotes.
+- Auto-send all pages continuously.
+- Stacked columns, not comma-separated.
+- Admin/DJ only if needed.
+
+!botemote @bot <name>
+- Bot uses emote from BOT_EMOTES.
+- If current bot, use send_emote(emote_id) with NO user_id.
+
+!botemoteid @bot <raw_id>
+- Test exact raw ID on bot.
+- No alias lookup.
+
+!testplayeremote <raw_id>
+- Test exact raw ID on yourself.
+- Use send_emote(raw_id, user.id).
+- Reply success/rejected.
+
+!testplayeremote @user <raw_id>
+- Admin only.
+- Test exact raw ID on target player.
+
+!findemote <keyword>
+- Search bot and player emote names and IDs.
+
+!emoteid <name>
+- Show exact raw ID and status:
+  bot-only / player-usable / both / not found.
+
+REMOVE or deprecate:
+!playeremotes
+!unresolvedplayeremotes
+old scan commands
+old experimental commands
+
+ADD THESE BOT_EMOTES:
+("Sugar Stun", "emote-outfit3")
+("Diva Moment", "emote-threadexchange-posing")
+("Yoga Surprise", "emote-yogaSurprise")
+("Spring Sun", "sit-idle-springSun")
+("Silently Judging", "emote-threadexchange-floating")
+("Spooky Swagger", "emote-littlemonsters-dance")
+("Just Vibing", "emote-jewelrise-vibing")
+("Storm Mood", "emote-rainstruck-fail")
+("Storm Groove", "emote-rainstruck-success")
+("Bloom Flutter", "emote-bloomify-pose1")
+("Bloom Charm", "emote-bloomify-pose2")
+("Bloom Radiance", "emote-bloomify-pose3")
+
+ADD THESE PLAYER_EMOTES:
+("Storm Mood", "emote-rainstruck-fail")
+("Storm Groove", "emote-rainstruck-success")
+("Bloom Flutter", "emote-bloomify-pose1")
+("Bloom Charm", "emote-bloomify-pose2")
+("Bloom Radiance", "emote-bloomify-pose3")
+
+ADD/UPDATE THESE PLAYER EMOTE ALIASES:
+{
+    "fairytwirl": "emote-looping",
+    "fairyfloat": "idle-floating",
+    "launch": "emote-launch",
+    "cutesalute": "emote-cutesalute",
+    "atattention": "emote-salute",
+    "tiktok": "dance-tiktok11",
+    "smooch": "emote-kissing",
+    "jingle": "dance-jinglebell",
+    "gottago": "idle-toilet",
+    "bitnervous": "idle-nervous",
+    "partytime": "emote-celebrate",
+    "arabesque": "emote-pose10",
+    "bashful": "emote-shy2",
+    "revelations": "emote-headblowup",
+    "watchyourback": "emote-creepycute",
+    "saunter": "dance-anime",
+    "sauntersway": "dance-anime",
+    "surprise": "emote-peekaboo",
+    "ditzy": "emote-pose9",
+    "sayso": "idle-dance-tiktok4",
+    "punk": "emote-punkguitar",
+    "zerogravity": "emote-astronaut",
+    "beautiful": "emote-pose7",
+    "wink": "emote-pose1",
+    "fightme": "emote-pose3",
+    "icon": "emote-pose5",
+    "viralgroove": "dance-tiktok9",
+    "shuffle": "dance-tiktok10",
+    "raise": "emoji-celebrate",
+    "savage": "dance-tiktok8",
+    "singalong": "idle_singing",
+    "shakehead": "emote-no",
+    "nod": "emote-yes",
+    "hipshake": "dance-hipshake",
+    "fruity": "dance-fruity",
+    "cheerleader": "dance-cheerleader",
+    "magnetic": "dance-tiktok14",
+    "nocturnal": "idle-howl",
+    "trampoline": "emote-trampoline",
+    "orangejuice": "dance-orangejustice",
+    "orangejuicedance": "dance-orangejustice",
+    "splits": "emote-splitsdrop",
+    "ibelieve": "emote-wings",
+    "wiggledance": "dance-sexy",
+    "renegade": "idle-dance-tiktok7",
+    "sweetsmooch": "emote-kissing",
+    "karmadance": "dance-wild"
+}
+
+KEEP THESE STILL UNRESOLVED / DO NOT MAP YET:
+foryou
+celebration
+omg
+miningfail
+fishingpull
+rough
+fishingidle
+dropped
+miningsuccess
+receivehappy
+fishingcast
+shuffledance
+receivesad
+moonlit
+
+Implementation:
+- Replace PLAYER_EMOTES auto-resolve-only logic with explicit PLAYER_EMOTE_ALIASES.
+- PLAYER_EMOTES should include resolved existing names plus explicit aliases.
+- If an alias maps to an ID not in BOT_EMOTES, still allow it for players and add it to BOT_EMOTES too, because bots can use all emotes.
+- Do not list unresolved aliases in !emote list.
+- !emote list should only show usable PLAYER_EMOTES.
+- !botemotes should show BOT_EMOTES.
+- Add tests/import check showing totals for BOT_EMOTES and PLAYER_EMOTES.

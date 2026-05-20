@@ -1,11 +1,11 @@
 """modules/emote_system.py
 --------------------------
-Clean two-catalog emote system rebuild.
+Clean two-catalog emote system.
 
-BOT_SELF_EMOTES  →  !botemote / bot loops  →  send_emote(eid)           [NO user_id]
-PLAYER_EMOTES    →  player chat trigger    →  send_emote(eid, user.id)   [WITH user_id]
+BOT_SELF_EMOTES  → !botemote / bot loops  → send_emote(eid)           [NO user_id]
+PLAYER_EMOTES    → player chat trigger    → send_emote(eid, user.id)   [WITH user_id]
 
-All IDs are exact — no auto-prefix, no SDK scan, no guessing.
+All IDs exact — no auto-prefix, no SDK scan, no guessing.
 """
 from __future__ import annotations
 
@@ -21,17 +21,17 @@ from modules.admin_cmds import is_admin, is_owner, can_moderate
 from data.hardcoded_emotes import (
     BOT_SELF_EMOTES,
     PLAYER_EMOTES,
-    UNRESOLVED_PLAYER_EMOTES,
+    PLAYER_EMOTE_ALIASES,
     lookup_bot_emote,
     lookup_player_emote,
-    get_player_emote_list,
+    get_player_trigger_names,
     _norm,
 )
 
 # ---------------------------------------------------------------------------
 # Timing map — loaded from timed_free_emotes catalog
 # ---------------------------------------------------------------------------
-_EMOTE_DURATIONS: dict[str, float] = {}   # emote_id → seconds (0 = one-shot)
+_EMOTE_DURATIONS: dict[str, float] = {}
 _DEFAULT_LOOP_INTERVAL: float = 5.0
 _BOT_LOOP_INTERVAL: float = 8.0
 
@@ -70,24 +70,24 @@ def _log(stage: str, **kw: object) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Player emote send + loop
+# Player + bot loop state
 # ---------------------------------------------------------------------------
-_player_loops:  dict[str, asyncio.Task] = {}   # user_id  → active loop Task
-_player_emotes: dict[str, str]          = {}   # user_id  → current emote_id
-_bot_loops:     dict[str, asyncio.Task] = {}   # bot_mode → active loop Task
+_player_loops:  dict[str, asyncio.Task] = {}
+_player_emotes: dict[str, str]          = {}
+_bot_loops:     dict[str, asyncio.Task] = {}
 
-_emote_cd: dict[str, float] = {}
-_punch_cd: dict[str, float] = {}
-_sword_cd: dict[str, float] = {}
+_emote_cd:       dict[str, float] = {}
+_punch_cd:       dict[str, float] = {}
+_sword_cd:       dict[str, float] = {}
 _force_emote_cd: dict[str, float] = {}
 _room_emote_cd:  dict[str, float] = {}
-_EMOTE_CD   = 3
-_PUNCH_CD   = 10
-_SWORD_CD   = 10
+_EMOTE_CD       = 3
+_PUNCH_CD       = 10
+_SWORD_CD       = 10
 _FORCE_EMOTE_CD = 5
 _ROOM_EMOTE_CD  = 30
 
-# For notify_emote_event (used by emote_logger / on_emote in main.py)
+# For notify_emote_event (API-compat with emote_logger / on_emote)
 _emote_event_listeners: dict[tuple[str, str], asyncio.Event] = {}
 
 
@@ -99,15 +99,19 @@ def _cd_set(store: dict, uid: str) -> None:
     store[uid] = time.time()
 
 
+# ---------------------------------------------------------------------------
+# Send helpers
+# ---------------------------------------------------------------------------
+
 async def _send_player(bot: "BaseBot", eid: str, uid: str) -> bool:
-    """Send a player-directed emote: send_emote(eid, uid)."""
+    """send_emote(eid, uid) — player directed."""
     try:
         await bot.highrise.send_emote(eid, uid)
         return True
     except asyncio.CancelledError:
         raise
     except Exception as exc:
-        print(f"[EMOTE FAIL player] eid={eid!r} uid={uid!r} error={exc!r}")
+        print(f"[EMOTE FAIL player] eid={eid!r} uid={uid!r} {exc!r}")
         return False
 
 
@@ -119,19 +123,16 @@ def _cancel_player_loop(uid: str) -> None:
 
 
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
-    """Loop a player emote: send_emote(eid, uid) on interval."""
-    interval = _EMOTE_DURATIONS.get(eid)
-    if interval is None:
-        interval = _DEFAULT_LOOP_INTERVAL
+    interval = _EMOTE_DURATIONS.get(eid) or _DEFAULT_LOOP_INTERVAL
     if interval <= 0:
-        return  # one-shot, do not loop
+        return
     while True:
         try:
             await bot.highrise.send_emote(eid, uid)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            print(f"[EMOTE LOOP FAIL player] eid={eid!r} uid={uid!r} {exc!r}")
+            print(f"[EMOTE LOOP FAIL] eid={eid!r} uid={uid!r} {exc!r}")
         await asyncio.sleep(interval)
 
 
@@ -141,7 +142,7 @@ async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
 
 def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
                     bot_uid: str = "") -> float:
-    """Start (or restart) a bot self-emote loop using send_emote(eid) — no target."""
+    """Start (or restart) a bot self-emote loop — send_emote(eid) only."""
     old = _bot_loops.pop(bot_mode, None)
     if old and not old.done():
         old.cancel()
@@ -151,7 +152,7 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
     if raw_dur is None:
         interval = _BOT_LOOP_INTERVAL
     elif raw_dur <= 0:
-        interval = 30.0   # one-shot: re-play after 30 s
+        interval = 30.0
     else:
         interval = raw_dur
 
@@ -162,9 +163,7 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
             if _iter == 1 or _iter % 20 == 0:
                 print(f"[EMOTE BOT] mode={bot_mode!r} eid={eid!r} iter={_iter}")
             try:
-                await bot.highrise.send_emote(eid)   # ← NO user_id
-                if _iter == 1:
-                    print(f"[EMOTE BOT OK] eid={eid!r}")
+                await bot.highrise.send_emote(eid)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -178,6 +177,31 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
 
 
 # ---------------------------------------------------------------------------
+# Stacked-column page builder  (≤ 249 chars, 3 cols × 4 rows = 12 per page)
+# ---------------------------------------------------------------------------
+_COLS    = 3
+_ROWS    = 4
+_COL_W   = 16
+_PER_PAGE = _COLS * _ROWS   # 12
+
+
+def _stacked_page(items: list[str], page: int, total_pages: int,
+                  header: str) -> str:
+    """Build a multi-line stacked-columns whisper page."""
+    lines = [f"{header} {page}/{total_pages}"]
+    for r in range(_ROWS):
+        chunk = items[r * _COLS: (r + 1) * _COLS]
+        if not chunk:
+            break
+        row_parts = []
+        for i, name in enumerate(chunk):
+            cell = name[:_COL_W - 1]
+            row_parts.append(cell.ljust(_COL_W) if i < len(chunk) - 1 else cell)
+        lines.append("".join(row_parts).rstrip())
+    return "\n".join(lines)[:249]
+
+
+# ---------------------------------------------------------------------------
 # Public API — called from main.py on_chat
 # ---------------------------------------------------------------------------
 
@@ -188,32 +212,22 @@ def is_plain_emote(text: str) -> bool:
 
 async def start_player_emote(bot: "BaseBot", user: "User",
                               emote_name: str) -> None:
-    """Start (or replace) a looping player emote from a plain chat trigger.
-
-    Silently ignores unknown names and rate-limited requests.
-    """
+    """Start (or replace) a looping player emote from a plain chat trigger."""
     uid = user.id
     if _cd_remaining(_emote_cd, uid, _EMOTE_CD) > 0:
         return
-
     eid = lookup_player_emote(emote_name)
     if not eid:
         return
-
     _cancel_player_loop(uid)
     _cd_set(_emote_cd, uid)
-
     ok = await _send_player(bot, eid, uid)
     if not ok:
         return
-
-    interval = _EMOTE_DURATIONS.get(eid)
-    if interval is None:
-        interval = _DEFAULT_LOOP_INTERVAL
+    interval = _EMOTE_DURATIONS.get(eid) or _DEFAULT_LOOP_INTERVAL
     if interval <= 0:
         _log("emote_oneshot", user_id=uid, emote=eid)
         return
-
     task = asyncio.create_task(_run_player_loop(bot, uid, eid))
     _player_loops[uid]  = task
     _player_emotes[uid] = eid
@@ -222,10 +236,10 @@ async def start_player_emote(bot: "BaseBot", user: "User",
 
 async def stop_player_emote(bot: "BaseBot", user: "User") -> None:
     """Cancel a player's active emote loop."""
-    uid      = user.id
-    had_loop = uid in _player_loops
+    uid = user.id
+    had = uid in _player_loops
     _cancel_player_loop(uid)
-    _log("emote_stop", user_id=uid, username=user.username, had_loop=had_loop)
+    _log("emote_stop", user_id=uid, had_loop=had)
     await _w(bot, uid, "Emote stopped.")
 
 
@@ -235,12 +249,7 @@ def on_player_leave(uid: str) -> None:
 
 
 def notify_emote_event(user_id: str, emote_id: str) -> None:
-    """Signal that on_emote fired for (user_id, emote_id).
-
-    Called from main.py on_emote. Releases any scan/diag listener waiting
-    for animation confirmation. (Listeners will be empty after the rebuild —
-    this is kept for API compatibility with emote_logger.)
-    """
+    """Signal that on_emote fired — kept for API compat with emote_logger."""
     key = (user_id, emote_id)
     evt = _emote_event_listeners.pop(key, None)
     if evt:
@@ -249,128 +258,216 @@ def notify_emote_event(user_id: str, emote_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Pagination helper
-# ---------------------------------------------------------------------------
-_PAGE_SIZE = 12
-
-
-def _paginate(items: list[str], page: int,
-              total: int, header: str) -> str:
-    """Build a ≤249-char page string from a flat list of short labels."""
-    pages = max(1, (len(items) + _PAGE_SIZE - 1) // _PAGE_SIZE)
-    page  = max(1, min(page, pages))
-    start = (page - 1) * _PAGE_SIZE
-    chunk = items[start: start + _PAGE_SIZE]
-    prefix = f"{header} p{page}/{pages}: "
-    body   = ", ".join(chunk)
-    msg    = prefix + body
-    if len(msg) > 249:
-        msg = msg[:246] + "..."
-    return msg
-
-
-# ---------------------------------------------------------------------------
-# !emotes [page] — list BOT_SELF_EMOTES
+# !emote <sub> dispatcher — routes: list, stop, count, <name>
 # ---------------------------------------------------------------------------
 
+async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emote <name|list|stop|count> — player self-emote command."""
+    uid   = user.id
+    uname = user.username
+
+    if len(args) < 2:
+        n = len(PLAYER_EMOTES)
+        await _w(bot, uid,
+                 f"Usage: !emote <name>  !emote list  !emote stop  "
+                 f"!emote count  ({n} emotes available)")
+        return
+
+    sub = args[1].lower()
+
+    if sub == "list":
+        await _handle_emote_list(bot, uid)
+    elif sub == "stop":
+        await stop_player_emote(bot, user)
+    elif sub == "count":
+        await _w(bot, uid,
+                 f"Player emotes: {len(PLAYER_EMOTES)} | "
+                 f"Bot emotes: {len(BOT_SELF_EMOTES)}")
+    else:
+        # treat as emote name
+        eid = lookup_player_emote(sub)
+        if not eid:
+            await _w(bot, uid,
+                     f"Unknown emote '{sub}'. Try !emote list to see all.")
+            return
+        _cancel_player_loop(uid)
+        ok = await _send_player(bot, eid, uid)
+        if not ok:
+            await _w(bot, uid, f"Could not send emote '{sub}'.")
+            return
+        interval = _EMOTE_DURATIONS.get(eid) or _DEFAULT_LOOP_INTERVAL
+        if interval <= 0:
+            return
+        task = asyncio.create_task(_run_player_loop(bot, uid, eid))
+        _player_loops[uid]  = task
+        _player_emotes[uid] = eid
+        _log("emote_start_cmd", user_id=uid, username=uname, emote=eid)
+
+
+async def _handle_emote_list(bot: "BaseBot", uid: str) -> None:
+    """Auto-send all pages of PLAYER_EMOTES in stacked columns."""
+    names       = get_player_trigger_names()
+    total       = len(names)
+    total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
+
+    for page in range(1, total_pages + 1):
+        start = (page - 1) * _PER_PAGE
+        chunk = names[start: start + _PER_PAGE]
+        msg   = _stacked_page(chunk, page, total_pages, "🎭 Player Emotes")
+        await _w(bot, uid, msg)
+        if page < total_pages:
+            await asyncio.sleep(0.4)
+
+
+# Legacy alias kept for main.py routing that still calls handle_emotes_auto
 async def handle_emotes_auto(bot: "BaseBot", user: "User",
-                             args: list) -> None:
-    """!emotes [page] — show the bot self-emote catalog (BOT_SELF_EMOTES)."""
-    page = int(args[1]) if len(args) >= 2 and args[1].isdigit() else 1
-    names = [d for d, _ in BOT_SELF_EMOTES]
-    total = len(names)
-    msg   = _paginate(names, page, total, f"🎭 Emotes ({total})")
-    await _w(bot, user.id, msg)
+                              _args: list) -> None:
+    """!emotes — redirect to !emote list (now !botemotes for bot list)."""
+    await _handle_emote_list(bot, user.id)
 
 
 # ---------------------------------------------------------------------------
-# !playeremotes [page] — list resolved PLAYER_EMOTES
+# !botemotes — show all BOT_SELF_EMOTES in stacked columns
 # ---------------------------------------------------------------------------
 
-async def handle_playeremotes(bot: "BaseBot", user: "User",
-                               args: list) -> None:
-    """!playeremotes [page] — show player-trigger emote catalog."""
-    page  = int(args[1]) if len(args) >= 2 and args[1].isdigit() else 1
-    pairs = get_player_emote_list()
-    names = [d for d, _ in pairs]
-    total = len(names)
-    if not names:
-        await _w(bot, user.id, "No player emotes resolved. See !unresolvedplayeremotes.")
+async def handle_botemotes(bot: "BaseBot", user: "User",
+                            args: list) -> None:
+    """!botemotes — show all bot self-emotes in stacked columns, auto-paged."""
+    uid         = user.id
+    names       = [d for d, _ in BOT_SELF_EMOTES]
+    total       = len(names)
+    total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
+
+    for page in range(1, total_pages + 1):
+        start = (page - 1) * _PER_PAGE
+        chunk = names[start: start + _PER_PAGE]
+        msg   = _stacked_page(chunk, page, total_pages, "🤖 Bot Emotes")
+        await _w(bot, uid, msg)
+        if page < total_pages:
+            await asyncio.sleep(0.4)
+
+
+# ---------------------------------------------------------------------------
+# !testplayeremote <raw_id> / !testplayeremote @user <raw_id>
+# ---------------------------------------------------------------------------
+
+async def handle_testplayeremote(bot: "BaseBot", user: "User",
+                                  args: list) -> None:
+    """Test an exact raw emote ID on yourself or a target (admin only)."""
+    uid   = user.id
+    uname = user.username
+
+    if len(args) < 2:
+        await _w(bot, uid,
+                 "Usage: !testplayeremote <raw_id>  "
+                 "or  !testplayeremote @user <raw_id>")
         return
-    msg = _paginate(names, page, total, f"🕹 Player emotes ({total})")
-    await _w(bot, user.id, msg)
+
+    if args[1].startswith("@") and len(args) >= 3:
+        if not _is_admin(uname):
+            await _w(bot, uid, "Admin only.")
+            return
+        target_name = args[1].lstrip("@")
+        raw_id      = args[2]
+        from modules.room_utils import _resolve_user_in_room
+        pair = await _resolve_user_in_room(bot, target_name)
+        if not pair:
+            await _w(bot, uid, f"@{target_name} is not in the room.")
+            return
+        target_user, _ = pair
+        try:
+            await bot.highrise.send_emote(raw_id, target_user.id)
+            await _w(bot, uid,
+                     f"✅ Sent {raw_id!r} to @{target_user.username}")
+        except Exception as exc:
+            await _w(bot, uid,
+                     f"❌ Rejected: {raw_id!r} → {str(exc)}"[:249])
+    else:
+        raw_id = args[1]
+        try:
+            await bot.highrise.send_emote(raw_id, uid)
+            await _w(bot, uid, f"✅ Sent {raw_id!r}")
+        except Exception as exc:
+            await _w(bot, uid,
+                     f"❌ Rejected: {raw_id!r} → {str(exc)}"[:249])
 
 
 # ---------------------------------------------------------------------------
-# !unresolvedplayeremotes — list names that couldn't resolve to an ID
+# !findemote <keyword> — search both catalogs
 # ---------------------------------------------------------------------------
 
-async def handle_unresolvedplayeremotes(bot: "BaseBot", user: "User",
-                                         _args: list) -> None:
-    """!unresolvedplayeremotes — show player names with no matching emote ID."""
+async def handle_findemote(bot: "BaseBot", user: "User",
+                            args: list) -> None:
+    """!findemote <keyword> — search bot and player emote names/IDs."""
     uid = user.id
-    if not UNRESOLVED_PLAYER_EMOTES:
-        await _w(bot, uid, "All player emote names resolved successfully.")
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !findemote <keyword>")
         return
-    n     = len(UNRESOLVED_PLAYER_EMOTES)
-    names = ", ".join(UNRESOLVED_PLAYER_EMOTES)
-    msg   = f"Unresolved ({n}): {names}"
-    # Send in 249-char chunks if needed
-    chunks = [msg[i:i+249] for i in range(0, len(msg), 249)]
-    for chunk in chunks:
-        await _w(bot, uid, chunk)
-        if len(chunks) > 1:
-            await asyncio.sleep(0.3)
+
+    kw = _norm(" ".join(args[1:]))
+
+    bot_hits: list[str] = []
+    for disp, eid in BOT_SELF_EMOTES:
+        if kw in _norm(disp) or kw in _norm(eid):
+            bot_hits.append(f"{disp}={eid}")
+
+    player_hits: list[str] = []
+    for trigger, eid in PLAYER_EMOTES.items():
+        if kw in trigger or kw in _norm(eid):
+            player_hits.append(f"{trigger}={eid}")
+
+    if not bot_hits and not player_hits:
+        await _w(bot, uid, f"No emotes found matching '{kw}'")
+        return
+
+    if bot_hits:
+        snippet = ", ".join(bot_hits[:6])
+        msg = f"Bot ({len(bot_hits)}): {snippet}"
+        await _w(bot, uid, msg[:249])
+    if player_hits:
+        snippet = ", ".join(player_hits[:6])
+        msg = f"Player ({len(player_hits)}): {snippet}"
+        await _w(bot, uid, msg[:249])
 
 
 # ---------------------------------------------------------------------------
-# !emoteid <name> — show the raw ID for a bot self-emote
+# !emoteid <name> — show raw ID + status
 # ---------------------------------------------------------------------------
 
 async def handle_emoteid(bot: "BaseBot", user: "User", args: list) -> None:
-    """!emoteid <name> — show the raw emote_id from BOT_SELF_EMOTES."""
+    """!emoteid <name> — show raw emote ID and status (bot-only / player-usable / both)."""
     uid = user.id
     if len(args) < 2:
         await _w(bot, uid, "Usage: !emoteid <name>")
         return
-    name = " ".join(args[1:]).lower()
-    eid  = lookup_bot_emote(name)
-    if not eid:
-        await _w(bot, uid, f"Not found in bot emote catalog: '{name}'")
+
+    name      = " ".join(args[1:]).lower()
+    bot_eid   = lookup_bot_emote(name)
+    plyr_eid  = lookup_player_emote(name)
+
+    if not bot_eid and not plyr_eid:
+        await _w(bot, uid, f"not found: '{name}'")
         return
-    await _w(bot, uid, f"Bot emote ID: {eid}")
+
+    eid = bot_eid or plyr_eid
+    if bot_eid and plyr_eid:
+        status = "both"
+    elif bot_eid:
+        status = "bot-only"
+    else:
+        status = "player-usable"
+
+    await _w(bot, uid, f"[{status}] {eid}")
 
 
 # ---------------------------------------------------------------------------
-# !playeremoteid <name> — show the raw ID for a player emote
-# ---------------------------------------------------------------------------
-
-async def handle_playeremoteid(bot: "BaseBot", user: "User",
-                                args: list) -> None:
-    """!playeremoteid <name> — show the raw emote_id from PLAYER_EMOTES."""
-    uid = user.id
-    if len(args) < 2:
-        await _w(bot, uid, "Usage: !playeremoteid <name>")
-        return
-    name = " ".join(args[1:]).lower()
-    eid  = lookup_player_emote(name)
-    if not eid:
-        await _w(bot, uid, f"Not found in player emote catalog: '{name}'")
-        return
-    await _w(bot, uid, f"Player emote ID: {eid}")
-
-
-# ---------------------------------------------------------------------------
-# !botemote [@botname] <name> — admin: set a bot self-emote loop
+# !botemote [@botname] <name> — bot self-loop from BOT_SELF_EMOTES
 # ---------------------------------------------------------------------------
 
 async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
     """!botemote [@botname] <emote> — admin: loop a self-emote on a bot.
 
-    Examples:
-      !botemote wave              — loop on this bot
-      !botemote @DJ_DUDU wave     — target by username
-    Sends: send_emote(emote_id)   — NO user_id.
+    Sends: send_emote(emote_id)  — NO user_id.
     """
     uid   = user.id
     uname = user.username
@@ -378,7 +475,8 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, "Admin only.")
         return
     if len(args) < 2:
-        await _w(bot, uid, "Usage: !botemote <emote>  or  !botemote @botname <emote>")
+        await _w(bot, uid,
+                 "Usage: !botemote <emote>  or  !botemote @botname <emote>")
         return
 
     from config import BOT_MODE, BOT_USERNAME
@@ -386,7 +484,6 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
 
     raw1 = args[1].lstrip("@").lower()
 
-    # If args[1] is not a valid emote name, treat it as a bot-name target
     if len(args) >= 3 and not lookup_bot_emote(raw1):
         raw_target = raw1
         emote_name = args[2].lstrip("@").lower()
@@ -397,7 +494,7 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
     eid = lookup_bot_emote(emote_name)
     if not eid:
         await _w(bot, uid,
-                 f"Unknown emote '{emote_name}'. Try !emotes to browse.")
+                 f"Unknown emote '{emote_name}'. Try !botemotes.")
         return
 
     this_mode  = BOT_MODE.lower()
@@ -419,42 +516,34 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
 
 
 # ---------------------------------------------------------------------------
-# !stopbotemote [botname] — admin: stop bot emote loop
+# !stopbotemote [botname]
 # ---------------------------------------------------------------------------
 
 async def handle_stopbotemote(bot: "BaseBot", user: "User",
                                args: list) -> None:
-    """!stopbotemote [botname] — admin: stop this bot's looping emote."""
     uid   = user.id
     uname = user.username
     if not _is_admin(uname):
         await _w(bot, uid, "Admin only.")
         return
-
     from config import BOT_MODE
     bot_name = args[1].lower() if len(args) >= 2 else BOT_MODE.lower()
     db.set_room_setting(f"bot_emote_{bot_name}", "")
-
     if BOT_MODE.lower() == bot_name:
         task = _bot_loops.pop(BOT_MODE, None)
         if task and not task.done():
             task.cancel()
-
     _log("bot_emote_cleared", admin=uname, bot=bot_name)
     await _w(bot, uid, "✅ Bot emote stopped.")
 
 
 # ---------------------------------------------------------------------------
-# !botemoteid [@botname] <raw-id> — admin: loop by exact raw ID
+# !botemoteid [@botname] <raw-id>
 # ---------------------------------------------------------------------------
 
 async def handle_botemoteid(bot: "BaseBot", user: "User",
                              args: list) -> None:
-    """!botemoteid [@botname] <raw-id> — admin: loop an emote by exact raw ID.
-
-    The ID is used exactly as given — no alias lookup, no prefix added.
-    Useful for testing IDs before adding them to the catalog.
-    """
+    """!botemoteid [@botname] <raw-id> — loop by exact raw ID, no alias."""
     uid   = user.id
     uname = user.username
     if not _is_admin(uname):
@@ -476,7 +565,7 @@ async def handle_botemoteid(bot: "BaseBot", user: "User",
         raw_target = BOT_MODE.lower()
         raw_id     = raw1
 
-    eid = raw_id   # exact — no prefix added
+    eid = raw_id
 
     this_mode  = BOT_MODE.lower()
     this_uname = (_get_bot_uname() or BOT_USERNAME or "").strip().lower()
@@ -485,7 +574,6 @@ async def handle_botemoteid(bot: "BaseBot", user: "User",
 
     store_key = this_mode if is_this_bot else raw_target
     db.set_room_setting(f"bot_emote_{store_key}", eid)
-    _log("bot_emote_set", admin=uname, bot=store_key, emote=eid, via="raw_id")
 
     if is_this_bot:
         dur     = _start_bot_loop(bot, BOT_MODE, eid)
@@ -498,66 +586,58 @@ async def handle_botemoteid(bot: "BaseBot", user: "User",
 
 
 # ---------------------------------------------------------------------------
-# Startup recovery — restore bot emote loop from DB
+# Startup recovery
 # ---------------------------------------------------------------------------
 
 async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
-    """On startup, restore a persisted bot emote loop from the DB."""
     from config import BOT_MODE
     eid = db.get_room_setting(f"bot_emote_{BOT_MODE.lower()}", "")
     if not eid:
         return
-    await asyncio.sleep(6)   # let the bot fully connect first
+    await asyncio.sleep(6)
     _start_bot_loop(bot, BOT_MODE, eid)
     _log("emote_recovery", bot=BOT_MODE, emote=eid)
 
 
 # ---------------------------------------------------------------------------
-# Social interactions — !punch / !swordfight
+# Social: !punch / !swordfight
 # ---------------------------------------------------------------------------
-_PUNCH_ATTACKER_EMOTE = "emoji-punch"       # confirmed in BOT_SELF_EMOTES
-_PUNCH_TARGET_EMOTE   = "emote-embarrassed" # confirmed in BOT_SELF_EMOTES
-_SWORD_EMOTE          = "emote-swordfight"  # confirmed in BOT_SELF_EMOTES
+_PUNCH_ATTACKER_EMOTE = "emoji-punch"
+_PUNCH_TARGET_EMOTE   = "emote-embarrassed"
+_SWORD_EMOTE          = "emote-swordfight"
 
 
 async def handle_punch_emote(bot: "BaseBot", user: "User",
                               args: list) -> None:
-    """!punch @user — attacker does punch emote, target does embarrassed; 10 s CD."""
     uid   = user.id
     uname = user.username
-
     remaining = _cd_remaining(_punch_cd, uid, _PUNCH_CD)
     if remaining > 0:
         await _w(bot, uid, f"Punch cooldown: {remaining:.0f}s")
         return
-
     if len(args) < 2:
         await _w(bot, uid, "Usage: !punch @username")
         return
-
     target_name = args[1].lstrip("@")
     if target_name.lower() == uname.lower():
         await _w(bot, uid, "You can't punch yourself!")
         return
-
     from modules.room_utils import _resolve_user_in_room
     pair = await _resolve_user_in_room(bot, target_name)
     if not pair:
         await _w(bot, uid, f"@{target_name} is not in the room.")
         return
     target_user, _ = pair
-
     if can_moderate(target_user.username) and not _is_admin(uname):
         await _w(bot, uid, "You can't punch staff members.")
         return
-
     _cd_set(_punch_cd, uid)
     await _send_player(bot, _PUNCH_ATTACKER_EMOTE, uid)
     await asyncio.sleep(0.3)
     await _send_player(bot, _PUNCH_TARGET_EMOTE, target_user.id)
-
     try:
-        await bot.highrise.chat(f"🥊 {uname} punched {target_user.username}!"[:249])
+        await bot.highrise.chat(
+            f"🥊 {uname} punched {target_user.username}!"[:249])
     except Exception:
         pass
     _log("punch", user_id=uid, username=uname, target=target_user.username)
@@ -565,131 +645,107 @@ async def handle_punch_emote(bot: "BaseBot", user: "User",
 
 async def handle_swordfight(bot: "BaseBot", user: "User",
                              args: list) -> None:
-    """!swordfight @user — both players do swordfight emote simultaneously; 10 s CD."""
     uid   = user.id
     uname = user.username
-
     if len(args) < 2:
         await _w(bot, uid, "Usage: !swordfight @user")
         return
-
     target_name = args[1].lstrip("@")
     if target_name.lower() == uname.lower():
         await _w(bot, uid, "You can't swordfight yourself!")
         return
-
     remaining = _cd_remaining(_sword_cd, uid, _SWORD_CD)
     if remaining > 0:
         await _w(bot, uid, f"Swordfight cooldown: {remaining:.0f}s")
         return
-
     from modules.room_utils import _resolve_user_in_room
     pair = await _resolve_user_in_room(bot, target_name)
     if not pair:
         await _w(bot, uid, f"@{target_name} is not in the room.")
         return
     target_user, _ = pair
-
     _cd_set(_sword_cd, uid)
     await asyncio.gather(
         _send_player(bot, _SWORD_EMOTE, uid),
         _send_player(bot, _SWORD_EMOTE, target_user.id),
     )
-
     try:
         await bot.highrise.chat(
-            f"⚔️ {uname} and {target_user.username} are swordfighting!"[:249]
-        )
+            f"⚔️ {uname} and {target_user.username} are swordfighting!"[:249])
     except Exception:
         pass
     _log("swordfight", user_id=uid, username=uname, target=target_user.username)
 
 
 # ---------------------------------------------------------------------------
-# Staff forced emotes — !emote @user <name> / !emote all <name>
+# Staff forced emotes
 # ---------------------------------------------------------------------------
+_force_emote_cd: dict[str, float] = {}
+_room_emote_cd:  dict[str, float] = {}
+
 
 async def handle_force_emote(bot: "BaseBot", user: "User",
                               args: list) -> None:
-    """!emote @user <emote> — staff: force-loop a player into an emote."""
     uid   = user.id
     uname = user.username
-
     if not can_moderate(uname):
         await _w(bot, uid, "Staff only.")
         return
-
     if len(args) < 3:
         await _w(bot, uid, "Usage: !emote @user <emote>")
         return
-
     target_name = args[1].lstrip("@")
     emote_name  = args[2].lower()
-
     eid = lookup_player_emote(emote_name) or lookup_bot_emote(emote_name)
     if not eid:
-        await _w(bot, uid, f"Unknown emote '{emote_name}'. See !emotes.")
+        await _w(bot, uid, f"Unknown emote '{emote_name}'. See !emote list.")
         return
-
     remaining = _cd_remaining(_force_emote_cd, uid, _FORCE_EMOTE_CD)
     if remaining > 0:
         await _w(bot, uid, f"Cooldown: {remaining:.0f}s")
         return
-
     from modules.room_utils import _resolve_user_in_room
     pair = await _resolve_user_in_room(bot, target_name)
     if not pair:
         await _w(bot, uid, f"@{target_name} is not in the room.")
         return
     target_user, _ = pair
-    target_uid = target_user.id
-
     _cd_set(_force_emote_cd, uid)
-    _cancel_player_loop(target_uid)
-
-    ok = await _send_player(bot, eid, target_uid)
+    _cancel_player_loop(target_user.id)
+    ok = await _send_player(bot, eid, target_user.id)
     if not ok:
         await _w(bot, uid, "Emote could not be sent.")
         return
-
-    task = asyncio.create_task(_run_player_loop(bot, target_uid, eid))
-    _player_loops[target_uid]  = task
-    _player_emotes[target_uid] = eid
-
+    task = asyncio.create_task(_run_player_loop(bot, target_user.id, eid))
+    _player_loops[target_user.id]  = task
+    _player_emotes[target_user.id] = eid
     await _w(bot, uid, f"Forced @{target_user.username} → {eid}")
     _log("force_emote", staff=uname, target=target_user.username, emote=eid)
 
 
 async def handle_room_emote(bot: "BaseBot", user: "User",
                              args: list) -> None:
-    """!emote all|allbots <emote> — staff: one-shot emote for everyone."""
     uid   = user.id
     uname = user.username
-
     if not can_moderate(uname):
         await _w(bot, uid, "Staff only.")
         return
-
     if len(args) < 3:
-        await _w(bot, uid, "Usage: !emote all <emote>  or  !emote allbots <emote>")
+        await _w(bot, uid,
+                 "Usage: !emote all <emote>  or  !emote allbots <emote>")
         return
-
     sub          = args[1].lower()
     emote_name   = args[2].lower()
     include_bots = sub == "allbots"
-
     eid = lookup_player_emote(emote_name) or lookup_bot_emote(emote_name)
     if not eid:
-        await _w(bot, uid, f"Unknown emote '{emote_name}'. See !emotes.")
+        await _w(bot, uid, f"Unknown emote '{emote_name}'. See !emote list.")
         return
-
     remaining = _cd_remaining(_room_emote_cd, uid, _ROOM_EMOTE_CD)
     if remaining > 0:
         await _w(bot, uid, f"Room emote cooldown: {remaining:.0f}s")
         return
-
     _cd_set(_room_emote_cd, uid)
-
     bot_usernames: frozenset[str] = frozenset()
     if not include_bots:
         try:
@@ -700,51 +756,64 @@ async def handle_room_emote(bot: "BaseBot", user: "User",
             )
         except Exception:
             pass
-
     from modules.room_utils import _get_all_room_users
     users = await _get_all_room_users(bot)
-
     count = 0
     for u, _ in users:
         if not include_bots and u.username.lower() in bot_usernames:
             continue
         if await _send_player(bot, eid, u.id):
             count += 1
-
     await _w(bot, uid, f"Room emote → {eid} ({count} players)")
     _log("room_emote", staff=uname, emote=eid, count=count)
 
 
 # ---------------------------------------------------------------------------
-# Stubs for removed commands — kept so main.py imports don't break
+# Stubs for removed/deprecated commands (imports still satisfy main.py)
 # ---------------------------------------------------------------------------
 
 async def handle_emotemode(bot: "BaseBot", user: "User",
                             args: list) -> None:
-    """Removed — emote mode system replaced by two-catalog architecture."""
     await _w(bot, user.id,
-             "Emote mode removed. Use !emotes (bot catalog) and !playeremotes (player catalog).")
+             "Emote mode removed. Use !emote list (player) or !botemotes (bot).")
 
 
 async def handle_emotediag(bot: "BaseBot", user: "User",
                             args: list) -> None:
-    """Removed — replaced by two-catalog system."""
-    await _w(bot, user.id, "Emote diagnostics removed. Use !emoteid <name> or !botemoteid <raw-id>.")
+    await _w(bot, user.id,
+             "Emote diagnostics removed. Use !emoteid <name> or !testplayeremote <raw-id>.")
 
 
 async def handle_unsupportedemotes(bot: "BaseBot", user: "User",
                                     _args: list) -> None:
-    """Removed — replaced by two-catalog system."""
-    await _w(bot, user.id, "Unsupported emotes list removed. Use !unresolvedplayeremotes.")
+    await _w(bot, user.id,
+             "Removed. Use !findemote to search the catalog.")
 
 
 async def handle_markemoteworks(bot: "BaseBot", user: "User",
                                  args: list) -> None:
-    """Removed."""
-    await _w(bot, user.id, "Command removed. Catalog is now hardcoded from verified list.")
+    await _w(bot, user.id, "Command removed. Catalog is hardcoded from verified list.")
 
 
 async def handle_markemoteunsupported(bot: "BaseBot", user: "User",
                                        args: list) -> None:
-    """Removed."""
-    await _w(bot, user.id, "Command removed. Catalog is now hardcoded from verified list.")
+    await _w(bot, user.id, "Command removed. Catalog is hardcoded from verified list.")
+
+
+async def handle_playeremotes(bot: "BaseBot", user: "User",
+                               args: list) -> None:
+    """Deprecated — redirects to !emote list."""
+    await _handle_emote_list(bot, user.id)
+
+
+async def handle_unresolvedplayeremotes(bot: "BaseBot", user: "User",
+                                         _args: list) -> None:
+    """Deprecated — unresolved set replaced by explicit aliases."""
+    await _w(bot, user.id,
+             "Unresolved list removed. All player emotes now use explicit alias mapping.")
+
+
+async def handle_playeremoteid(bot: "BaseBot", user: "User",
+                                args: list) -> None:
+    """Deprecated — use !emoteid instead."""
+    await handle_emoteid(bot, user, args)
