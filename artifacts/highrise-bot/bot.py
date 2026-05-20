@@ -31,6 +31,7 @@ All bots share the same SQLite file for coins, games, and profiles.
 from __future__ import annotations
 
 import asyncio
+import collections
 import os
 import signal
 import sys
@@ -304,6 +305,24 @@ async def _health_loop(label: str) -> None:
         print(f"[BOT_HEALTH] {label} alive")
 
 
+async def _stream_and_buffer(
+    stream: asyncio.StreamReader,
+    ring: "collections.deque[str]",
+) -> None:
+    """
+    Read subprocess stdout/stderr line-by-line, echo each line immediately
+    to the parent process stdout, and store in a fixed-size ring buffer so
+    the last N lines can be reprinted before a restart.
+    """
+    while True:
+        line = await stream.readline()
+        if not line:
+            break
+        decoded = line.decode("utf-8", errors="replace").rstrip("\n")
+        print(decoded, flush=True)
+        ring.append(decoded)
+
+
 def _utc_ts() -> str:
     import datetime as _dt
     return _dt.datetime.now(_dt.timezone.utc).strftime("%H:%M:%S UTC")
@@ -346,11 +365,15 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
     env["BOT_EXTRA_MODES"] = ",".join(spec.extra_modes)
     main_path = str(HERE / "main.py")
 
-    _MAX_FAST_EXITS  = int(os.environ.get("BOT_RECONNECT_MAX_FAST_EXITS", "5"))
+    _MAX_FAST_EXITS      = int(os.environ.get("BOT_RECONNECT_MAX_FAST_EXITS", "999"))
+    _DISABLE_ON_FAST_EXIT = (
+        os.environ.get("BOT_DISABLE_ON_FAST_EXIT", "false").strip().lower() == "true"
+    )
     _reconnect_count = 0
     _fast_exit_count = 0   # counts exits under 120 s; reset only on stable runs
     _last_reason     = "none"
     delay            = _BACKOFF[0]
+    _log_ring: collections.deque[str] = collections.deque(maxlen=50)
 
     health_task = asyncio.create_task(_health_loop(spec.label))
     try:
@@ -364,8 +387,16 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     sys.executable, main_path,
                     env=env,
                     cwd=str(HERE),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                # Echo output in real-time AND buffer last 50 lines for pre-restart summary
+                _reader = asyncio.create_task(
+                    _stream_and_buffer(proc.stdout, _log_ring),  # type: ignore[arg-type]
+                    name=f"log_reader_{spec.bot_id}",
                 )
                 code = await proc.wait()
+                await _reader   # drain remaining buffered output
                 uptime = asyncio.get_event_loop().time() - started_at
                 _ts2 = _utc_ts()
                 _last_reason = (
@@ -400,25 +431,42 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                         print(
                             f"[BOT_DISABLED] {spec.label} mode={spec.bot_mode}"
                             f" — {_fast_exit_count} fast exits (uptime<120s) in a row."
-                            f" Stopping restarts. Check token / room ID / network."
+                            f" Check token / room ID / network."
+                            + (" Stopping restarts." if _DISABLE_ON_FAST_EXIT
+                               else f" Continuing with {delay}s delay"
+                                    f" (set BOT_DISABLE_ON_FAST_EXIT=true to stop).")
                         )
                         _write_rc_stats(
                             spec.bot_mode, _reconnect_count,
                             f"DISABLED:{_last_reason}", _ts2
                         )
-                        return
-                    remaining = _MAX_FAST_EXITS - _fast_exit_count
-                    print(
-                        f"[RUNNER] {spec.label} fast-exit #{_fast_exit_count}"
-                        f" uptime={uptime:.0f}s ({_last_reason})."
-                        f" Retrying in {delay}s... ({remaining} fast-exit(s) left before disable)"
-                    )
+                        if _DISABLE_ON_FAST_EXIT:
+                            return
+                        # Reset counter so we keep cycling at max delay
+                        _fast_exit_count = _MAX_FAST_EXITS - 1
+                    else:
+                        remaining = _MAX_FAST_EXITS - _fast_exit_count
+                        print(
+                            f"[RUNNER] {spec.label} fast-exit #{_fast_exit_count}"
+                            f" uptime={uptime:.0f}s ({_last_reason})."
+                            f" Retrying in {delay}s..."
+                            + (f" ({remaining} until [BOT_DISABLED] warning)"
+                               if _DISABLE_ON_FAST_EXIT else "")
+                        )
                 else:
                     _fast_exit_count = 0   # stable run — reset fast-exit counter
                     print(
                         f"[RUNNER] {spec.label} disconnected ({_last_reason})."
                         f" Reconnecting in {delay}s..."
                     )
+
+                # Print last 50 subprocess log lines before restarting
+                if _log_ring:
+                    print(
+                        f"[PRE_RESTART LOG] {spec.label} — last {len(_log_ring)} lines:"
+                    )
+                    for _ln in _log_ring:
+                        print(f"  {_ln}")
 
                 _write_rc_stats(spec.bot_mode, _reconnect_count, _last_reason, _ts2)
 
