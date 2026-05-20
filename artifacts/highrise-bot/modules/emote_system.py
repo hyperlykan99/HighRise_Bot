@@ -75,6 +75,9 @@ def _log(stage: str, **kw: object) -> None:
 _player_loops:  dict[str, asyncio.Task] = {}
 _player_emotes: dict[str, str]          = {}
 _bot_loops:     dict[str, asyncio.Task] = {}
+# Per-process live bot registry.  Key = mode.lower() OR username.lower() → bot instance.
+# Only populated for bots sharing this subprocess; cross-process bots won't appear here.
+LIVE_BOTS:      dict[str, object] = {}
 
 _emote_cd:       dict[str, float] = {}
 _punch_cd:       dict[str, float] = {}
@@ -523,18 +526,45 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, f"✅ {display} looping {eid} (every 5s).")
         return
 
-    # Not this bot — broadcast channel so target bot starts immediately.
-    # Also save DB as offline fallback (target picks it up on next restart).
+    # Not this bot — try LIVE_BOTS first (same subprocess), then channel (cross-process).
     import json as _json
-    _ch = _json.dumps({"action": "bot_emote_start",
-                        "target": raw_target, "emote_id": eid})
+    target_bot = LIVE_BOTS.get(raw_target)
+    if target_bot is not None:
+        # Same process: drive the target bot's client directly.
+        old = _bot_loops.pop(raw_target, None)
+        if old and not old.done():
+            old.cancel()
+        _eid2, _uid2 = eid, uid
+        async def _direct_loop() -> None:
+            while True:
+                try:
+                    await target_bot.highrise.send_emote(_eid2)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as _exc:
+                    print(f"[EMOTE BOT] direct loop err target={raw_target!r}: {_exc!r}")
+                await asyncio.sleep(5.0)
+        _bot_loops[raw_target] = asyncio.create_task(_direct_loop())
+        _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
+        _tgt_display = db.get_bot_username_for_mode(raw_target) or raw_target
+        await target_bot.highrise.send_whisper(
+            _uid2, f"✅ @{_tgt_display} is now looping {eid}.")
+        return
+    # Cross-process path: resolve mode, check online status.
+    _tgt_mode = (raw_target if db.is_bot_mode_online(raw_target)
+                 else (db.get_bot_mode_for_username(raw_target) or raw_target))
+    if not db.is_bot_mode_online(_tgt_mode):
+        await _w(bot, uid, f"⚠️ @{raw_target} is offline. Emote not started.")
+        return
+    # Target is online in a different subprocess — channel message carries requester_id
+    # so the target bot can whisper the admin directly (this bot stays silent).
+    _ch = _json.dumps({"action": "bot_emote_start", "target": raw_target,
+                        "emote_id": eid, "requester_id": uid})
     try:
         await bot.highrise.send_channel(_ch)
     except Exception as _ce:
         print(f"[EMOTE] channel send failed: {_ce!r}")
-    db.set_room_setting(f"bot_emote_{raw_target}", eid)
     _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
-    await _w(bot, uid, f"✅ @{raw_target} is now looping {eid}.")
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +687,15 @@ async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
                 await asyncio.sleep(5.0)
         _bot_loops[BOT_MODE] = asyncio.create_task(_ch_loop())
         _log("bot_emote_channel_start", bot=BOT_MODE, emote=eid)
+        # Whisper the admin who sent the command — confirmation comes from this bot.
+        requester_id = (payload.get("requester_id") or "").strip()
+        if requester_id:
+            try:
+                _own_disp = _get_uname() or BOT_USERNAME or BOT_MODE
+                await bot.highrise.send_whisper(
+                    requester_id, f"✅ @{_own_disp} is now looping {eid}.")
+            except Exception as _we:
+                print(f"[EMOTE BOT] whisper confirmation failed: {_we!r}")
     elif action == "bot_emote_stop":
         task = _bot_loops.pop(BOT_MODE, None)
         if task and not task.done():

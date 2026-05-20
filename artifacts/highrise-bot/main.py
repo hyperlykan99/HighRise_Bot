@@ -3518,6 +3518,15 @@ class HangoutBot(BaseBot):
         # Store bot identity so gold rain / tip receiver-check can use it
         set_bot_identity(session_metadata.user_id)
         print(f"[HangoutBot] Bot user ID: {session_metadata.user_id}")
+        # Register in same-process LIVE_BOTS so !botemote can target without channel hop.
+        try:
+            from modules.emote_system import LIVE_BOTS as _LIVE_BOTS
+            _LIVE_BOTS[BOT_MODE.lower()] = self
+            _own_uname = (get_bot_username() or config.BOT_USERNAME or "").strip().lower()
+            if _own_uname:
+                _LIVE_BOTS[_own_uname] = self
+        except Exception as _lbe:
+            print(f"[EMOTE] LIVE_BOTS register failed (non-fatal): {_lbe}")
         # Install SDK rate-limit guards — wraps send_whisper + chat on this fresh
         # Highrise() instance (SDK creates a new one each connect/reconnect)
         try:
