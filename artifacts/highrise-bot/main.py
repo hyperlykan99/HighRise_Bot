@@ -941,6 +941,8 @@ from modules.custom_emote_manager import (
     handle_removebotemote,
     handle_removeplayeremote,
     handle_customemotes,
+    handle_setemotetime,
+    handle_emotetime,
 )
 from modules.emote_logger import (
     log_emote as emote_spy_log,
@@ -1375,6 +1377,7 @@ ALL_KNOWN_COMMANDS = (
         "botemotes", "playeremotes",
         "missingtimings", "addbotemote", "addplayeremote",
         "removebotemote", "removeplayeremote", "customemotes",
+        "setemotetime", "emotetime",
         "swordfight", "botemote", "stopbotemote", "livebots",
         "heart", "hearts", "heartlb", "giveheart", "reactheart",
         "hug", "kiss", "slap", "punch", "highfive", "boop", "waveat", "cheer",
@@ -7429,6 +7432,10 @@ class HangoutBot(BaseBot):
             await handle_removeplayeremote(self, user, args)
         elif cmd == "customemotes":
             await handle_customemotes(self, user, args)
+        elif cmd == "setemotetime":
+            await handle_setemotetime(self, user, args)
+        elif cmd == "emotetime":
+            await handle_emotetime(self, user, args)
         elif cmd == "emotes":
             await handle_emotes_auto(self, user, args)
         elif cmd == "botemotes":

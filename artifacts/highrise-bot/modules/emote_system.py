@@ -80,11 +80,14 @@ _build_merged_dicts()
 def reload_custom_emotes() -> None:
     """Rebuild merged dicts from current in-memory custom state.
 
-    Called automatically after !addbotemote / !addplayeremote / !remove*.
-    Custom emotes become live immediately — no bot restart needed.
+    Called automatically after !addbotemote / !addplayeremote / !remove* /
+    !setemotetime.  Changes become live immediately — no bot restart needed.
+
+    Timing priority applied here:
+      _TIMINGS (setemotetime)  >  custom emote time  >  TIMED_EMOTES_BY_ID
     """
     _build_merged_dicts()
-    # Keep _EMOTE_DURATIONS in sync for player-loop timing
+    # Sync _EMOTE_DURATIONS for player-loop timing (custom emote times)
     try:
         if _cem is not None:
             for info in _cem._PLAYER.values():
@@ -95,6 +98,10 @@ def reload_custom_emotes() -> None:
                 t = float(info.get("time") or 5.0)
                 if t > 0:
                     _EMOTE_DURATIONS[info["id"]] = t
+            # _TIMINGS win over all — apply last so they overwrite
+            for eid, t in _cem._TIMINGS.items():
+                if t > 0:
+                    _EMOTE_DURATIONS[eid] = t
     except Exception:
         pass
 

@@ -56,8 +56,9 @@ async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
 # ---------------------------------------------------------------------------
 # In-memory store  { norm_name: {"id": str, "time": float} }
 # ---------------------------------------------------------------------------
-_BOT:    dict[str, dict] = {}   # custom bot emotes
-_PLAYER: dict[str, dict] = {}   # custom player emotes
+_BOT:     dict[str, dict]  = {}   # custom bot emotes
+_PLAYER:  dict[str, dict]  = {}   # custom player emotes
+_TIMINGS: dict[str, float] = {}   # !setemotetime overrides  {raw_id: seconds}
 
 
 def _register_timing(eid: str, t: float) -> None:
@@ -72,8 +73,8 @@ def _register_timing(eid: str, t: float) -> None:
 
 
 def _load() -> None:
-    """Load custom_emotes.json into _BOT / _PLAYER, registering timings."""
-    global _BOT, _PLAYER
+    """Load custom_emotes.json into _BOT / _PLAYER / _TIMINGS, registering timings."""
+    global _BOT, _PLAYER, _TIMINGS
     try:
         with open(_JSON_PATH, "r", encoding="utf-8") as fh:
             raw = json.load(fh)
@@ -85,6 +86,7 @@ def _load() -> None:
 
     _BOT.clear()
     _PLAYER.clear()
+    _TIMINGS.clear()
 
     for name, info in raw.get("bot_emotes", {}).items():
         try:
@@ -104,15 +106,29 @@ def _load() -> None:
         except Exception:
             pass
 
+    # Load !setemotetime overrides last — they take highest priority.
+    for eid, t in raw.get("timings", {}).items():
+        try:
+            t = float(t)
+            if t > 0:
+                _TIMINGS[str(eid)] = t
+                _register_timing(str(eid), t)   # overwrites any lower-priority entry
+        except Exception:
+            pass
+
 
 def _save() -> None:
-    """Persist _BOT / _PLAYER back to custom_emotes.json, then rebuild merged dicts."""
+    """Persist _BOT / _PLAYER / _TIMINGS to custom_emotes.json, then rebuild."""
     try:
         bot_out = {v["display"]: {"id": v["id"], "time": v["time"]}
                    for v in _BOT.values()}
         ply_out = {v["display"]: {"id": v["id"], "time": v["time"]}
                    for v in _PLAYER.values()}
-        payload = {"bot_emotes": bot_out, "player_emotes": ply_out}
+        payload = {
+            "bot_emotes":    bot_out,
+            "player_emotes": ply_out,
+            "timings":       dict(_TIMINGS),
+        }
         os.makedirs(_DATA_DIR, exist_ok=True)
         with open(_JSON_PATH, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2, ensure_ascii=False)
@@ -382,3 +398,107 @@ async def handle_customemotes(bot: "BaseBot", user: "User",
             lines.append(f"  {v['display']} → {v['id']} ({v['time']}s)")
         msg = "\n".join(lines)[:249]
         await _w(bot, uid, msg)
+
+
+# ---------------------------------------------------------------------------
+# Timing overrides
+# ---------------------------------------------------------------------------
+
+def _resolve_emote_id(token: str) -> str | None:
+    """Return raw emote ID from a name/alias or a raw ID string.
+
+    Tries (in order):
+      1. ALL_BOT_EMOTES  (normalised name → id)
+      2. ALL_PLAYER_EMOTES (normalised name → id)
+      3. Treat token as a raw ID and return it directly.
+    """
+    key = _norm(token)
+    try:
+        from modules.emote_system import ALL_BOT_EMOTES, ALL_PLAYER_EMOTES
+        if key in ALL_BOT_EMOTES:
+            return ALL_BOT_EMOTES[key]
+        if key in ALL_PLAYER_EMOTES:
+            return ALL_PLAYER_EMOTES[key]
+    except Exception:
+        pass
+    # Treat as raw ID (e.g. "emote-jewelrise-vibing")
+    return token if token else None
+
+
+async def handle_setemotetime(bot: "BaseBot", user: "User",
+                               args: list) -> None:
+    """!setemotetime <raw_id_or_name> <seconds>  — admin only.
+
+    Sets a persistent custom timing for any emote.  Takes highest priority
+    over all other timing sources.  Effective immediately, no restart needed.
+    """
+    uid = user.id
+    if not _is_admin(user.username):
+        await _w(bot, uid, "❌ Admin only.")
+        return
+
+    if len(args) < 2:
+        await _w(bot, uid,
+                 "Usage: !setemotetime <raw_id_or_name> <seconds>  "
+                 "(e.g. !setemotetime emote-jewelrise-vibing 20)")
+        return
+
+    raw_token = args[0]
+    try:
+        seconds = float(args[1])
+    except ValueError:
+        await _w(bot, uid, f"❌ Invalid number: {args[1]!r}")
+        return
+    if seconds <= 0:
+        await _w(bot, uid, "❌ Seconds must be > 0.")
+        return
+
+    eid = _resolve_emote_id(raw_token)
+    if not eid:
+        await _w(bot, uid, "❌ Could not resolve emote.")
+        return
+
+    _TIMINGS[eid] = seconds
+    _register_timing(eid, seconds)  # immediately hot in TIMED_EMOTES_BY_ID
+    _save()                          # persists + calls reload_custom_emotes()
+    await _w(bot, uid, f"✅ Timing set: {eid} = {seconds}s")
+
+
+async def handle_emotetime(bot: "BaseBot", user: "User",
+                            args: list) -> None:
+    """!emotetime <raw_id_or_name>  — show current timing and its source."""
+    uid = user.id
+    if not args:
+        await _w(bot, uid, "Usage: !emotetime <raw_id_or_name>")
+        return
+
+    eid = _resolve_emote_id(args[0])
+    if not eid:
+        await _w(bot, uid, "❌ Could not resolve emote.")
+        return
+
+    # Priority 1 — _TIMINGS (setemotetime override)
+    if eid in _TIMINGS:
+        t = _TIMINGS[eid]
+        await _w(bot, uid, f"⏱ {eid}: {t}s  [source: custom (setemotetime)]")
+        return
+
+    # Priority 2 — custom emote's own time field
+    for info in list(_BOT.values()) + list(_PLAYER.values()):
+        if info["id"] == eid:
+            t = info["time"]
+            await _w(bot, uid, f"⏱ {eid}: {t}s  [source: custom emote time]")
+            return
+
+    # Priority 3 — built-in catalog
+    try:
+        from data.emote_timings import TIMED_EMOTES_BY_ID
+        if eid in TIMED_EMOTES_BY_ID:
+            t = TIMED_EMOTES_BY_ID[eid]
+            await _w(bot, uid, f"⏱ {eid}: {t}s  [source: built-in]")
+            return
+    except Exception:
+        pass
+
+    # Priority 4 — fallback
+    await _w(bot, uid, f"⏱ {eid}: 5.0s  [source: fallback]")
