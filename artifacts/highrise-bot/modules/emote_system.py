@@ -183,12 +183,13 @@ def _cancel_player_loop(uid: str) -> None:
 
 
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
-    # First emote is sent BEFORE this task is created (in start_player_emote /
-    # handle_emote_cmd).  Sleep first so the repeat comes after the correct
-    # interval, not immediately.  Timing is re-read on every iteration so
-    # !setemotetime takes effect on the very next cycle.
+    # First emote is sent BEFORE this task is created (start_player_emote /
+    # handle_emote_cmd both call _send_player first).  The loop only handles
+    # the repeats: get timing → sleep → send, forever.
+    # Timing is re-read on every iteration so !setemotetime is live immediately.
     while True:
         sleep_time = get_emote_time(eid)
+        print(f"[PLAYER_EMOTE_LOOP] uid={uid} eid={eid} sleep={sleep_time}")
         await asyncio.sleep(sleep_time)
         try:
             await bot.highrise.send_emote(eid, uid)
