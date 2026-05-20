@@ -944,9 +944,18 @@ _HANDLER_MAP: dict[str, tuple[str, str]] = {
     "poker":                 ("modules.poker",      "handle_poker"),
     "setpokerdailywinlimit": ("modules.poker",      "handle_setpokerdailywinlimit"),
     "setpokerdailylosslimit":("modules.poker",      "handle_setpokerdailylosslimit"),
-    # ── Emote (new) ───────────────────────────────────────────────────────
-    "emotes":                ("modules.room_utils", "handle_emotes"),
+    # ── Emote registry ────────────────────────────────────────────────────
+    "emotes":                ("modules.emote_system", "handle_emote_cmd"),
     "emoteinfo":             ("modules.emote_system", "handle_emoteinfo"),
+    "setemote":              ("modules.emote_system", "handle_setemote"),
+    "addemote":              ("modules.emote_system", "handle_addemote"),
+    "removeemote":           ("modules.emote_system", "handle_removeemote"),
+    "emotetime":             ("modules.emote_system", "handle_emotetime"),
+    "emotedebug":            ("modules.emote_system", "handle_emotedebug"),
+    "exportemotes":          ("modules.emote_system", "handle_exportemotes"),
+    "timingaudit":           ("modules.emote_system", "handle_timingaudit"),
+    "missingtimings":        ("modules.emote_system", "handle_missingtimings"),
+    "findemote":             ("modules.emote_system", "handle_findemote"),
     # ── AI delegations (new) ──────────────────────────────────────────────
     "aidelegations":         ("modules.ai_assistant", "handle_aidelegations"),
     # ── Bot spawn (new) ───────────────────────────────────────────────────
