@@ -47,7 +47,7 @@ HERE = Path(__file__).parent
 
 # Apply safe runtime defaults first so the prints reflect what will actually run.
 # Any existing env var (set in Replit Secrets) wins over these defaults.
-os.environ.setdefault("BOTS_ENABLED",                 "main,dj")
+os.environ.setdefault("BOTS_ENABLED",                 "eventhost,dj")
 os.environ.setdefault("BOT_DISABLE_ON_FAST_EXIT",     "false")
 os.environ.setdefault("BOT_RECONNECT_MAX_FAST_EXITS", "999")
 
@@ -234,9 +234,23 @@ def _collect_bots() -> list[_BotSpec]:
     if _enabled_raw:
         _allowed = {m.strip().lower() for m in _enabled_raw.split(",") if m.strip()}
         _include_primary = "main" in _allowed
+        # "main" alias only matches the genuine primary bot (BOT_TOKEN / MAIN_BOT_TOKEN).
+        # Never substitute a split bot just because it happens to be at index 0.
+        _has_real_primary = (
+            bool(specs)
+            and specs[0].token_env in ("BOT_TOKEN", "MAIN_BOT_TOKEN")
+        )
+        if _include_primary and not _has_real_primary:
+            print(
+                "[STARTUP_BLOCKED] main requested in BOTS_ENABLED but "
+                "BOT_TOKEN / MAIN_BOT_TOKEN is not set — "
+                "will not substitute another bot as 'main'. "
+                "Use the bot mode name directly (e.g. BOTS_ENABLED=eventhost,dj)."
+            )
+            _include_primary = False   # prevent false index-0 inclusion
         filtered: list[_BotSpec] = []
         for i, s in enumerate(specs):
-            keep = (i == 0 and _include_primary) or bool(
+            keep = (i == 0 and _include_primary and _has_real_primary) or bool(
                 {s.bot_id.lower(), s.bot_mode.lower()} & _allowed
             )
             if keep:
