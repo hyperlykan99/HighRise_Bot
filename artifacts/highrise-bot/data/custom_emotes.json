@@ -1,4 +1,13 @@
 {
   "bot_emotes": {},
-  "player_emotes": {}
+  "player_emotes": {
+    "justvibing": {
+      "id": "emote-jewelrise-vibing",
+      "time": 5.0
+    },
+    "crowdjammer": {
+      "id": "emote-sicklycute-sing-fast",
+      "time": 5.0
+    }
+  }
 }

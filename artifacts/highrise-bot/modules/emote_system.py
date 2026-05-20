@@ -40,18 +40,63 @@ except Exception as _eti_exc:
 # Safe import: custom emote manager (runtime add/remove).
 try:
     import modules.custom_emote_manager as _cem
-    _lookup_custom_bot    = _cem.lookup_custom_bot
-    _lookup_custom_player = _cem.lookup_custom_player
-    _merged_bot_names     = _cem.get_merged_bot_names
-    _merged_player_names  = _cem.get_merged_player_names
+    _merged_bot_names = _cem.get_merged_bot_names
 except Exception as _cem_exc:
     print("[custom_emote_manager] disabled:", _cem_exc)
-    def _lookup_custom_bot(name: str) -> "str | None":    return None
-    def _lookup_custom_player(name: str) -> "str | None": return None
+    _cem = None  # type: ignore[assignment]
     def _merged_bot_names() -> "list[str]":
-        return [d for d, _ in BOT_SELF_EMOTES]
-    def _merged_player_names() -> "list[str]":
-        return get_player_trigger_names()
+        return sorted([d for d, _ in BOT_SELF_EMOTES], key=str.lower)
+
+# ---------------------------------------------------------------------------
+# Merged runtime emote dicts — rebuilt by reload_custom_emotes()
+# ALL_PLAYER_EMOTES: {norm_trigger -> raw_id}  (hardcoded + custom)
+# ALL_BOT_EMOTES:    {norm_name   -> raw_id}   (hardcoded + custom)
+# Custom entries override hardcoded on collision.
+# ---------------------------------------------------------------------------
+ALL_PLAYER_EMOTES: dict[str, str] = {}
+ALL_BOT_EMOTES:    dict[str, str] = {}
+
+
+def _build_merged_dicts() -> None:
+    """Rebuild ALL_PLAYER_EMOTES and ALL_BOT_EMOTES in-place."""
+    global ALL_PLAYER_EMOTES, ALL_BOT_EMOTES
+    p: dict[str, str] = dict(PLAYER_EMOTES)
+    b: dict[str, str] = {_norm(d): eid for d, eid in BOT_SELF_EMOTES}
+    try:
+        if _cem is not None:
+            for key, info in _cem._PLAYER.items():
+                p[key] = info["id"]
+            for key, info in _cem._BOT.items():
+                b[key] = info["id"]
+    except Exception:
+        pass
+    ALL_PLAYER_EMOTES = p
+    ALL_BOT_EMOTES    = b
+
+
+_build_merged_dicts()
+
+
+def reload_custom_emotes() -> None:
+    """Rebuild merged dicts from current in-memory custom state.
+
+    Called automatically after !addbotemote / !addplayeremote / !remove*.
+    Custom emotes become live immediately — no bot restart needed.
+    """
+    _build_merged_dicts()
+    # Keep _EMOTE_DURATIONS in sync for player-loop timing
+    try:
+        if _cem is not None:
+            for info in _cem._PLAYER.values():
+                t = float(info.get("time") or 5.0)
+                if t > 0:
+                    _EMOTE_DURATIONS[info["id"]] = t
+            for info in _cem._BOT.values():
+                t = float(info.get("time") or 5.0)
+                if t > 0:
+                    _EMOTE_DURATIONS[info["id"]] = t
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Timing map — loaded from timed_free_emotes catalog
@@ -234,7 +279,7 @@ def _stacked_page(items: list[str], page: int, total_pages: int,
 
 def is_plain_emote(text: str) -> bool:
     """True if the player's chat message matches a known PLAYER_EMOTE."""
-    return _norm(text.strip()) in PLAYER_EMOTES
+    return _norm(text.strip()) in ALL_PLAYER_EMOTES
 
 
 async def start_player_emote(bot: "BaseBot", user: "User",
@@ -243,7 +288,7 @@ async def start_player_emote(bot: "BaseBot", user: "User",
     uid = user.id
     if _cd_remaining(_emote_cd, uid, _EMOTE_CD) > 0:
         return
-    eid = lookup_player_emote(emote_name)
+    eid = ALL_PLAYER_EMOTES.get(_norm(emote_name))
     if not eid:
         return
     _cancel_player_loop(uid)
@@ -294,7 +339,7 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
     uname = user.username
 
     if len(args) < 2:
-        n = len(PLAYER_EMOTES)
+        n = len(ALL_PLAYER_EMOTES)
         await _w(bot, uid,
                  f"Usage: !emote <name>  !emote list  !emote stop  "
                  f"!emote count  ({n} emotes available)")
@@ -308,11 +353,11 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
         await stop_player_emote(bot, user)
     elif sub == "count":
         await _w(bot, uid,
-                 f"Player emotes: {len(PLAYER_EMOTES)} | "
-                 f"Bot emotes: {len(BOT_SELF_EMOTES)}")
+                 f"Player emotes: {len(ALL_PLAYER_EMOTES)} | "
+                 f"Bot emotes: {len(ALL_BOT_EMOTES)}")
     else:
-        # treat as emote name — try hardcoded then custom
-        eid = lookup_player_emote(sub) or _lookup_custom_player(sub)
+        # treat as emote name — search merged dict (hardcoded + custom)
+        eid = ALL_PLAYER_EMOTES.get(_norm(sub))
         if not eid:
             await _w(bot, uid,
                      f"Unknown emote '{sub}'. Try !emote list to see all.")
@@ -333,7 +378,7 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
 
 async def _handle_emote_list(bot: "BaseBot", uid: str) -> None:
     """Auto-send all pages of player emotes (hardcoded + custom), alphabetical."""
-    names       = _merged_player_names()
+    names       = sorted(ALL_PLAYER_EMOTES.keys())
     total       = len(names)
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
 
@@ -434,12 +479,12 @@ async def handle_findemote(bot: "BaseBot", user: "User",
     kw = _norm(" ".join(args[1:]))
 
     bot_hits: list[str] = []
-    for disp, eid in BOT_SELF_EMOTES:
-        if kw in _norm(disp) or kw in _norm(eid):
-            bot_hits.append(f"{disp}={eid}")
+    for norm_key, eid in ALL_BOT_EMOTES.items():
+        if kw in norm_key or kw in _norm(eid):
+            bot_hits.append(f"{norm_key}={eid}")
 
     player_hits: list[str] = []
-    for trigger, eid in PLAYER_EMOTES.items():
+    for trigger, eid in ALL_PLAYER_EMOTES.items():
         if kw in trigger or kw in _norm(eid):
             player_hits.append(f"{trigger}={eid}")
 
@@ -468,9 +513,9 @@ async def handle_emoteid(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, "Usage: !emoteid <name>")
         return
 
-    name      = " ".join(args[1:]).lower()
-    bot_eid   = lookup_bot_emote(name)
-    plyr_eid  = lookup_player_emote(name)
+    name      = _norm(" ".join(args[1:]))
+    bot_eid   = ALL_BOT_EMOTES.get(name)
+    plyr_eid  = ALL_PLAYER_EMOTES.get(name)
 
     if not bot_eid and not plyr_eid:
         await _w(bot, uid, f"not found: '{name}'")
@@ -511,14 +556,14 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
 
     raw1 = args[1].lstrip("@").lower()
 
-    if len(args) >= 3 and not lookup_bot_emote(raw1) and not _lookup_custom_bot(raw1):
+    if len(args) >= 3 and not ALL_BOT_EMOTES.get(_norm(raw1)):
         raw_target = raw1
         emote_name = args[2].lstrip("@").lower()
     else:
         raw_target = BOT_MODE.lower()
         emote_name = raw1
 
-    eid = lookup_bot_emote(emote_name) or _lookup_custom_bot(emote_name)
+    eid = ALL_BOT_EMOTES.get(_norm(emote_name))
     if not eid:
         await _w(bot, uid,
                  f"Unknown emote '{emote_name}'. Try !botemotes.")
@@ -947,7 +992,7 @@ async def handle_force_emote(bot: "BaseBot", user: "User",
         return
     target_name = args[1].lstrip("@")
     emote_name  = args[2].lower()
-    eid = lookup_player_emote(emote_name) or lookup_bot_emote(emote_name)
+    eid = ALL_PLAYER_EMOTES.get(_norm(emote_name)) or ALL_BOT_EMOTES.get(_norm(emote_name))
     if not eid:
         await _w(bot, uid, f"Unknown emote '{emote_name}'. See !emote list.")
         return
@@ -988,7 +1033,7 @@ async def handle_room_emote(bot: "BaseBot", user: "User",
     sub          = args[1].lower()
     emote_name   = args[2].lower()
     include_bots = sub == "allbots"
-    eid = lookup_player_emote(emote_name) or lookup_bot_emote(emote_name)
+    eid = ALL_PLAYER_EMOTES.get(_norm(emote_name)) or ALL_BOT_EMOTES.get(_norm(emote_name))
     if not eid:
         await _w(bot, uid, f"Unknown emote '{emote_name}'. See !emote list.")
         return

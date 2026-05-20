@@ -106,7 +106,7 @@ def _load() -> None:
 
 
 def _save() -> None:
-    """Persist _BOT / _PLAYER back to custom_emotes.json."""
+    """Persist _BOT / _PLAYER back to custom_emotes.json, then rebuild merged dicts."""
     try:
         bot_out = {v["display"]: {"id": v["id"], "time": v["time"]}
                    for v in _BOT.values()}
@@ -118,6 +118,12 @@ def _save() -> None:
             json.dump(payload, fh, indent=2, ensure_ascii=False)
     except Exception as exc:
         print(f"[CUSTOM_EMOTE] save failed: {exc}")
+    # Rebuild emote_system merged dicts immediately — no restart needed.
+    try:
+        import modules.emote_system as _es
+        _es.reload_custom_emotes()
+    except Exception as _rel_exc:
+        print(f"[CUSTOM_EMOTE] reload trigger failed: {_rel_exc}")
 
 
 # Load on import (safe — any error is printed, not raised)
