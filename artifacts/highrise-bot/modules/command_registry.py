@@ -469,8 +469,17 @@ REGISTRY: dict[str, Cmd] = {
     "myoutfitstatus":   Cmd("host","botmode", True, True,  False, perm="admin"),
     "directoutfittest": Cmd("host","botmode", True, True,  False, perm="admin"),
 
-    # ── DJ: emote info (new) ─────────────────────────────────────────────────
-    "emoteinfo":        Cmd("dj","social", True, True, False),
+    # ── DJ: emote registry (DJ_DUDU-only, single source of truth) ───────────
+    "emoteinfo":        Cmd("dj","social", True,  True,  False),
+    "emotetime":        Cmd("dj","social", True,  True,  False),
+    "findemote":        Cmd("dj","social", True,  True,  False),
+    "missingtimings":   Cmd("dj","admin",  False, True,  False, perm="admin"),
+    "setemote":         Cmd("dj","admin",  False, False, True,  perm="manager"),
+    "addemote":         Cmd("dj","admin",  False, False, True,  perm="admin"),
+    "removeemote":      Cmd("dj","admin",  False, False, True,  perm="admin"),
+    "emotedebug":       Cmd("dj","admin",  False, True,  False, perm="admin"),
+    "exportemotes":     Cmd("dj","admin",  False, True,  False, perm="admin"),
+    "timingaudit":      Cmd("dj","admin",  False, True,  False, perm="admin"),
     # ── DJ: emote admin ──────────────────────────────────────────────────────
     "emotemode":        Cmd("dj","admin",  False, True,  False, perm="admin"),
     "emotecount":       Cmd("dj","admin",  False, True,  False, perm="manager"),

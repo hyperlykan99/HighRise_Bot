@@ -411,8 +411,10 @@ ROUTED_COMMANDS: frozenset[str] = frozenset({
     # ── Per-bot self-managing outfit commands ──────────────────────────────────────
     "copymyoutfit", "copyoutfitfrom", "savemyoutfit", "wearoutfit",
     "myoutfits", "myoutfitstatus", "directoutfittest",
-    # ── Emote extensions ─────────────────────────────────────────────────────
-    "emoteinfo",
+    # ── Emote registry (DJ_DUDU-only) ────────────────────────────────────────
+    "emoteinfo", "setemote", "addemote", "removeemote",
+    "emotedebug", "exportemotes", "timingaudit",
+    "missingtimings", "findemote", "emotetime",
     # ── Bot spawns ────────────────────────────────────────────────────────────
     "setbotspawn", "setbotspawnhere", "botspawns", "clearbotspawn",
     "mypos", "positiondebug",
