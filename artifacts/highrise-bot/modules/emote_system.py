@@ -18,66 +18,35 @@ if TYPE_CHECKING:
 
 import database as db
 from modules.admin_cmds import is_admin, is_owner, can_moderate
+from data.hardcoded_emotes import (
+    BOT_SELF_EMOTES,
+    PLAYER_EMOTES,
+    PLAYER_EMOTE_ALIASES,
+    lookup_bot_emote,
+    lookup_player_emote,
+    get_player_trigger_names,
+    _norm,
+)
 
 # ---------------------------------------------------------------------------
-# Safe import from data.hardcoded_emotes — bot startup must never fail here.
-# If the file has any error, we fall back to empty stubs and print the trace.
+# Timing map — loaded from timed_free_emotes catalog
 # ---------------------------------------------------------------------------
-import traceback as _tb
-
-_IMPORT_OK = False
-try:
-    from data.hardcoded_emotes import (
-        BOT_SELF_EMOTES,
-        PLAYER_EMOTES,
-        PLAYER_EMOTE_ALIASES,
-        TIMED_EMOTES_BY_ID,
-        lookup_bot_emote,
-        lookup_player_emote,
-        get_player_trigger_names,
-        _norm,
-    )
-    _IMPORT_OK = True
-    print("[EMOTE] data.hardcoded_emotes imported OK —"
-          f" bot={len(BOT_SELF_EMOTES)} player={len(PLAYER_EMOTES)}"
-          f" timed={len(TIMED_EMOTES_BY_ID)}")
-except Exception as _import_exc:
-    print("[EMOTE] ERROR importing data.hardcoded_emotes — "
-          "falling back to empty stubs. Bot will still start.")
-    _tb.print_exc()
-
-    BOT_SELF_EMOTES: list     = []
-    PLAYER_EMOTES: list       = []
-    PLAYER_EMOTE_ALIASES: dict = {}
-    TIMED_EMOTES_BY_ID: dict  = {}
-
-    def lookup_bot_emote(name: str):      return None   # type: ignore[misc]
-    def lookup_player_emote(name: str):   return None   # type: ignore[misc]
-    def get_player_trigger_names():       return []     # type: ignore[misc]
-    def _norm(s: str) -> str:             return s.lower().strip()
-
-# ---------------------------------------------------------------------------
-# Public safe timing accessor — NEVER raises; always returns a float.
-# ---------------------------------------------------------------------------
-_FALLBACK_INTERVAL: float = 5.0
+_EMOTE_DURATIONS: dict[str, float] = {}
+_DEFAULT_LOOP_INTERVAL: float = 5.0
+_BOT_LOOP_INTERVAL: float = 8.0
 
 
-def get_emote_time(emote_id: str) -> float:
-    """Return the loop duration for emote_id in seconds (min 1.0, default 5.0).
-
-    Safe: catches all exceptions and falls back to 5.0 so a bad timing table
-    can never prevent the bot from starting or looping.
-    """
+def _load_timing() -> None:
+    global _EMOTE_DURATIONS
     try:
-        t = TIMED_EMOTES_BY_ID.get(emote_id, _FALLBACK_INTERVAL)
-        return max(1.0, float(t))
-    except Exception:
-        return _FALLBACK_INTERVAL
+        from data.timed_free_emotes import timed_free_emotes_list
+        _EMOTE_DURATIONS = {e["value"]: float(e["time"])
+                            for e in timed_free_emotes_list if e.get("value")}
+    except Exception as exc:
+        print(f"[EMOTE] timing load failed: {exc}")
 
 
-def _dur(eid: str) -> float:
-    """Internal alias for get_emote_time — keeps internal call-sites short."""
-    return get_emote_time(eid)
+_load_timing()
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -154,7 +123,9 @@ def _cancel_player_loop(uid: str) -> None:
 
 
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
-    interval = _dur(eid)
+    interval = _EMOTE_DURATIONS.get(eid) or _DEFAULT_LOOP_INTERVAL
+    if interval <= 0:
+        return
     while True:
         try:
             await bot.highrise.send_emote(eid, uid)
@@ -171,16 +142,19 @@ async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
 
 def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
                     bot_uid: str = "") -> float:
-    """Cancel any running bot loop and immediately start a new one.
-
-    Sends: send_emote(eid)  — NO user_id.
-    Returns the loop interval in seconds.
-    """
+    """Start (or restart) a bot self-emote loop — send_emote(eid) only."""
     old = _bot_loops.pop(bot_mode, None)
     if old and not old.done():
         old.cancel()
 
-    interval = _dur(eid)   # TIMED_EMOTES_BY_ID lookup, 5s fallback, min 1s
+    raw_dur = _EMOTE_DURATIONS.get(eid)
+    interval: float
+    if raw_dur is None:
+        interval = _BOT_LOOP_INTERVAL
+    elif raw_dur <= 0:
+        interval = 30.0
+    else:
+        interval = raw_dur
 
     async def _loop() -> None:
         _iter = 0
@@ -197,13 +171,7 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
                       f" iter={_iter} error={exc!r}")
             await asyncio.sleep(interval)
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        print(f"[EMOTE] _start_bot_loop called with no running event loop "
-              f"(mode={bot_mode!r} eid={eid!r}) — skipped.")
-        return interval
-    _bot_loops[bot_mode] = loop.create_task(_loop())
+    _bot_loops[bot_mode] = asyncio.create_task(_loop())
     _log("bot_loop_start", bot=bot_mode, emote=eid, interval=round(interval, 2))
     return interval
 
@@ -255,6 +223,10 @@ async def start_player_emote(bot: "BaseBot", user: "User",
     _cd_set(_emote_cd, uid)
     ok = await _send_player(bot, eid, uid)
     if not ok:
+        return
+    interval = _EMOTE_DURATIONS.get(eid) or _DEFAULT_LOOP_INTERVAL
+    if interval <= 0:
+        _log("emote_oneshot", user_id=uid, emote=eid)
         return
     task = asyncio.create_task(_run_player_loop(bot, uid, eid))
     _player_loops[uid]  = task
@@ -322,6 +294,9 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
         ok = await _send_player(bot, eid, uid)
         if not ok:
             await _w(bot, uid, f"Could not send emote '{sub}'.")
+            return
+        interval = _EMOTE_DURATIONS.get(eid) or _DEFAULT_LOOP_INTERVAL
+        if interval <= 0:
             return
         task = asyncio.create_task(_run_player_loop(bot, uid, eid))
         _player_loops[uid]  = task
@@ -615,19 +590,13 @@ async def handle_botemoteid(bot: "BaseBot", user: "User",
 # ---------------------------------------------------------------------------
 
 async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
-    """Resume a saved bot emote loop after connect.  Never raises."""
-    try:
-        from config import BOT_MODE
-        eid = db.get_room_setting(f"bot_emote_{BOT_MODE.lower()}", "")
-        if not eid:
-            return
-        await asyncio.sleep(6)          # wait until bot is fully settled
-        _start_bot_loop(bot, BOT_MODE, eid)
-        _log("emote_recovery", bot=BOT_MODE, emote=eid)
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        print(f"[EMOTE] startup_bot_emote_recovery failed (non-fatal): {exc!r}")
+    from config import BOT_MODE
+    eid = db.get_room_setting(f"bot_emote_{BOT_MODE.lower()}", "")
+    if not eid:
+        return
+    await asyncio.sleep(6)
+    _start_bot_loop(bot, BOT_MODE, eid)
+    _log("emote_recovery", bot=BOT_MODE, emote=eid)
 
 
 # ---------------------------------------------------------------------------
