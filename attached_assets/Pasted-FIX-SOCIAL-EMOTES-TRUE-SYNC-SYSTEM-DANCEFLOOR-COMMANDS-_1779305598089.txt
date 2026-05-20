@@ -1,0 +1,254 @@
+FIX SOCIAL EMOTES + TRUE SYNC SYSTEM + DANCEFLOOR COMMANDS
+
+IMPORTANT:
+Do NOT touch startup logic.
+Do NOT touch token loading.
+Do NOT touch stable bot staggering.
+Do NOT touch persistence systems unless explicitly listed below.
+
+==================================================
+1. REMOVE SOCIAL !KICK
+==================================================
+
+Remove social !kick entirely.
+
+Keep ONLY:
+!kick @user
+= actual moderation room kick
+
+Remove !kick from:
+!emotes socials
+
+==================================================
+2. TRUE !SYNC SYSTEM
+==================================================
+
+Current behavior is wrong.
+
+NEW BEHAVIOR:
+
+!sync @targetuser
+
+Means:
+The command user COPY/SYNCS the TARGET USER'S current emotes/movements continuously.
+
+Example:
+AshQuinn_ starts dancing.
+I type:
+!sync @AshQuinn_
+
+My character now mirrors/syncs whatever AshQuinn_ is doing.
+
+If target changes emote:
+sync user updates too.
+
+If target stops:
+sync user stops too.
+
+If target walks:
+sync user follows movement animation/emote state only (NOT physical teleport follow).
+
+==================================================
+3. !SYNC RULES
+==================================================
+
+Everyone can use !sync.
+
+Requirements:
+- target must exist in room
+- cannot sync to self
+- multiple users may sync same target
+- syncing survives emote loops
+- syncing works with dancefloor emotes
+- syncing works with bot emotes
+- syncing works with manual player emotes
+
+Commands:
+
+!sync @user
+Start syncing to target
+
+!syncstop
+Stop syncing
+
+Stop
+Also breaks sync
+
+If sync active:
+new !sync replaces previous target.
+
+==================================================
+4. SOCIAL EMOTES
+==================================================
+
+VIP+ required for social combat/interaction commands.
+Staff bypass allowed.
+
+==================================================
+5. SOCIAL COMMANDS
+==================================================
+
+!slap @user
+sender:
+slap-style emote
+target:
+emote-deathdrop
+
+!kiss @user
+sender:
+emote-kissing
+target:
+bloom charm emote
+
+!superpunch @user
+sender:
+strong punch emote
+target:
+faintdrop/emote-deathdrop
+
+!bonk @user
+sender:
+bonk/point emote
+target:
+dizzy/faint reaction
+
+!yeet @user
+sender:
+throw/push emote
+target:
+deathdrop
+
+!hypnotize @user
+sender:
+magic/witch emote
+target:
+float/dizzy reaction
+
+!duel @user
+both:
+swordfight emote loop
+
+==================================================
+6. SOCIAL RULES
+==================================================
+
+- cannot target self
+- cannot target offline users
+- cannot target bots unless staff
+- cooldown protection
+- clear whisper errors
+- use registry aliases when possible
+- fallback raw emote IDs allowed
+
+==================================================
+7. !EMOTES SOCIALS
+==================================================
+
+Show alphabetically:
+
+!bonk @user
+!duel @user
+!hypnotize @user
+!kiss @user
+!slap @user
+!superpunch @user
+!yeet @user
+
+Compact comma-separated formatting.
+Max 240 chars per message.
+Continue across multiple whispers.
+
+==================================================
+8. FIX DANCEFLOOR RANDOM COMMAND
+==================================================
+
+Current bug:
+!dancefloor emote random 20
+returns unknown subcommand.
+
+Accept BOTH:
+
+!dancefloor emote random 20
+!dancefloor emotes random 20
+
+Same behavior:
+- choose random valid player emotes
+- save to dancefloor config
+- persist after restart
+
+Keep existing:
+!dancefloor emotes emote1, emote2, emote3
+
+==================================================
+9. DANCEFLOOR RANDOM RULES
+==================================================
+
+- only player=true emotes
+- exclude bot-only emotes
+- exclude social emotes
+- exclude duplicates
+- use registry aliases
+- random count capped at 50
+
+==================================================
+10. COMPACT LIST SYSTEM
+==================================================
+
+Keep all lists:
+- alphabetical
+- comma-separated
+- compact
+- max 240 chars per whisper
+- continuous flow
+
+Applies to:
+!emotes
+!botemotes
+!emotes socials
+!favemotes
+
+==================================================
+11. PERSISTENCE
+==================================================
+
+Keep persistence working:
+- bot emotes
+- sync states
+- dancefloor config
+- dancefloor emote lists
+- emote timers
+- favemotes
+
+==================================================
+12. TEST CHECKLIST
+==================================================
+
+Update !emotetestchecklist:
+
+[ ] !sync @user mirrors target
+[ ] target changing emote updates sync user
+[ ] !syncstop works
+[ ] Stop breaks sync
+[ ] !slap @user
+[ ] !kiss @user
+[ ] !superpunch @user
+[ ] !bonk @user
+[ ] !yeet @user
+[ ] !hypnotize @user
+[ ] !duel @user
+[ ] !kick still moderation kick
+[ ] !dancefloor emote random 20
+[ ] !dancefloor emotes random 20
+[ ] compact emote lists
+[ ] persistence after restart
+
+==================================================
+13. COMPILE CHECK
+==================================================
+
+Run:
+python -m py_compile bot.py main.py modules/emote_extras.py modules/emote_system.py
+
+Then grep proof:
+grep -R "Usage: !sync @user <emote>" .
+Should return NONE.

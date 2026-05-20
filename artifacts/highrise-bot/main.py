@@ -928,8 +928,10 @@ from modules.emote_system import (
 )
 from modules.emote_extras import (
     handle_emotes_socials,
-    handle_kick_social, handle_kiss_social, handle_slap_social,
+    handle_kiss_social, handle_slap_social,
+    handle_superpunch, handle_bonk, handle_yeet, handle_hypnotize, handle_duel,
     handle_sync, handle_syncstop, try_sync_shortcut,
+    clear_sync_on_leave,
     handle_emote_all,
     handle_favemotes, handle_favemote,
     handle_dancefloor, startup_dancefloor_recovery,
@@ -1736,6 +1738,7 @@ ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIP_AUDIT_COMMANDS | {"ep"}
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
     "sync", "syncstop", "favemotes", "favemote",
     "dancefloor", "emotetestchecklist",
+    "superpunch", "bonk", "yeet", "hypnotize", "duel",
 }
 STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS
 ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
@@ -7603,32 +7606,20 @@ class HangoutBot(BaseBot):
             else:
                 await handle_slap(self, user, args)
         elif cmd == "punch":
-            # @user → VIP+ gated (per emote+social spec); else fall through.
-            if len(args) >= 2 and args[1].startswith("@"):
-                from modules.emote_extras import _is_vip as _vip, _is_staff as _stf
-                if not _vip(user.id) and not _stf(user.username):
-                    try:
-                        await self.highrise.send_whisper(
-                            user.id, "✨ VIP+ required for social emotes.")
-                    except Exception:
-                        pass
-                else:
-                    await handle_punch_emote(self, user, args)
-            else:
-                await handle_punch_emote(self, user, args)
+            await handle_punch_emote(self, user, args)
         elif cmd == "swordfight":
-            if len(args) >= 2 and args[1].startswith("@"):
-                from modules.emote_extras import _is_vip as _vip, _is_staff as _stf
-                if not _vip(user.id) and not _stf(user.username):
-                    try:
-                        await self.highrise.send_whisper(
-                            user.id, "✨ VIP+ required for social emotes.")
-                    except Exception:
-                        pass
-                else:
-                    await handle_swordfight(self, user, args)
-            else:
-                await handle_swordfight(self, user, args)
+            await handle_swordfight(self, user, args)
+        # ── VIP+ targeted socials (emote_extras) ─────────────────────────────
+        elif cmd == "superpunch":
+            await handle_superpunch(self, user, args)
+        elif cmd == "bonk":
+            await handle_bonk(self, user, args)
+        elif cmd == "yeet":
+            await handle_yeet(self, user, args)
+        elif cmd == "hypnotize":
+            await handle_hypnotize(self, user, args)
+        elif cmd == "duel":
+            await handle_duel(self, user, args)
         # ── New emote_extras commands ────────────────────────────────────────
         elif cmd == "sync":
             await handle_sync(self, user, args)
@@ -8086,12 +8077,8 @@ class HangoutBot(BaseBot):
 
         # ── Extended moderation ───────────────────────────────────────────────
         elif cmd == "kick":
-            # Staff → moderation kick; non-staff → VIP+ social kick emote
-            from modules.permissions import can_moderate as _cm
-            if _cm(user.username) or is_admin(user.username) or is_owner(user.username):
-                await handle_kick(self, user, args)
-            else:
-                await handle_kick_social(self, user, args)
+            # Moderation only — no social-kick fallback (per spec).
+            await handle_kick(self, user, args)
         elif cmd == "ban":
             await handle_ban(self, user, args)
         elif cmd == "tempban":
@@ -8534,6 +8521,10 @@ class HangoutBot(BaseBot):
             emote_on_leave(user.id)
         except Exception:
             pass
+        try:
+            clear_sync_on_leave(user.id)
+        except Exception as _se:
+            print(f"[ON_LEAVE SYNC] @{user.username}: {_se!r}")
         try:
             await handle_poker_user_left(self, user)
         except Exception as _pe:

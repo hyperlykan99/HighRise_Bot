@@ -6,8 +6,9 @@ room-wide emote + per-user favorite emotes + dancefloor + test checklist.
 Sections:
   A) Compact emote lists           — handle_emote_list_compact / handle_botemotes_compact
   B) Socials menu                  — handle_emotes_socials
-  C) VIP+ social target emotes     — handle_kick_social / handle_kiss_social / handle_slap_social
-  D) Sync emotes                   — handle_sync / try_sync_shortcut
+  C) VIP+ social target emotes     — kiss / slap / superpunch / bonk / yeet /
+                                     hypnotize / duel (alphabetical in menu)
+  D) Sync emotes (TRUE mirror)     — handle_sync / try_sync_shortcut
   E) Sync stop                     — handle_syncstop
   F) Staff room-wide emote         — handle_emote_all (with stop sub)
   G) Favorite emotes               — handle_favemotes / handle_favemote
@@ -174,30 +175,60 @@ async def handle_botemotes_compact(bot: "BaseBot", user: "User",
 # ===========================================================================
 async def handle_emotes_socials(bot: "BaseBot", user: "User",
                                 _args: list | None = None) -> None:
-    """!emotes socials — list VIP+ social target commands."""
-    msg = ("💞 Social Emotes (VIP+ for targeted)\n"
-           "!kick @user, !kiss @user, !punch @user, !slap @user, !swordfight @user\n"
-           "Plain: kick, kiss, slap, punch, swordfight")
-    await _w(bot, user.id, msg)
+    """!emotes socials — alphabetical compact list of social target commands."""
+    cmds = ["!bonk @user", "!duel @user", "!hypnotize @user",
+            "!kiss @user", "!slap @user", "!superpunch @user", "!yeet @user"]
+    await _send_compact_pages(bot, user.id, "💞 Socials (VIP+)", cmds)
 
 
 # ===========================================================================
 # Section C — VIP+ social target emotes
 # ===========================================================================
-# (attacker emote alias, target reaction emote alias, broadcast template)
-_SOCIAL_TARGETS: dict[str, tuple[str, str, str]] = {
-    "kick":  ("kick",  "embarrassed",  "🦵 {a} kicked {b}!"),
-    "kiss":  ("kiss",  "cute",         "😘 {a} kissed {b}!"),
-    "slap":  ("slap",  "disappointed", "👋 {a} slapped {b}!"),
+# (attacker_emote_candidates, target_reaction_candidates, broadcast template)
+# Resolver tries each candidate as a registry alias first, then as a raw
+# emote-*/dance-*/idle-* ID. First hit wins.
+_SOCIAL_TARGETS: dict[str, tuple[list[str], list[str], str]] = {
+    "slap":       (["slap", "emote-slap"],
+                   ["deathdrop", "emote-deathdrop"],
+                   "👋 {a} slapped {b}!"),
+    "kiss":       (["kiss", "kissing", "emote-kiss"],
+                   ["charmed", "bloom", "emote-charmed", "idle-loop-aura"],
+                   "😘 {a} kissed {b}!"),
+    "superpunch": (["punch", "strong-punch", "emote-punch-strong", "emote-punch"],
+                   ["deathdrop", "faint", "emote-deathdrop"],
+                   "💥 {a} superpunched {b}!"),
+    "bonk":       (["pointing", "tapdance", "emoji-pointing"],
+                   ["confused", "dizzy", "emote-confused"],
+                   "🔨 {a} bonked {b}!"),
+    "yeet":       (["push", "shrink", "emote-pushit", "emote-shrink"],
+                   ["deathdrop", "emote-deathdrop"],
+                   "🚀 {a} yeeted {b}!"),
+    "hypnotize":  (["witchcraft", "creepycute", "emote-witchcraft"],
+                   ["confused", "dizzy", "float", "emote-confused"],
+                   "🌀 {a} hypnotized {b}!"),
 }
 
 _TARGET_SOCIAL_CD: dict[str, float] = {}
 _TARGET_SOCIAL_CD_SECS = 8
 
+_RAW_ID_PREFIXES = ("emote-", "emoji-", "dance-", "idle-")
+
+
+def _resolve_eid(candidates: list[str]) -> str | None:
+    """Try each candidate as registry alias first, then as raw SDK emote ID."""
+    for c in candidates:
+        ent = _reg_get(c)
+        if ent and ent.get("id"):
+            return ent["id"]
+    for c in candidates:
+        if any(c.startswith(p) for p in _RAW_ID_PREFIXES):
+            return c
+    return None
+
 
 async def _do_target_social(bot: "BaseBot", user: "User",
                              args: list, kind: str) -> None:
-    """Common path for !kick @u / !kiss @u / !slap @u — VIP+ gated."""
+    """Common path for VIP+ target socials (sender + target reaction)."""
     uid   = user.id
     uname = user.username
 
@@ -235,14 +266,12 @@ async def _do_target_social(bot: "BaseBot", user: "User",
         await _w(bot, uid, "Can't target bots.")
         return
 
-    attacker_alias, target_alias, template = _SOCIAL_TARGETS[kind]
-    a_entry = _reg_get(attacker_alias)
-    t_entry = _reg_get(target_alias)
-    a_eid = (a_entry or {}).get("id")
-    t_eid = (t_entry or {}).get("id")
+    a_cands, t_cands, template = _SOCIAL_TARGETS[kind]
+    a_eid = _resolve_eid(a_cands)
+    t_eid = _resolve_eid(t_cands)
 
     if not a_eid:
-        await _w(bot, uid, f"Emote '{attacker_alias}' not in registry.")
+        await _w(bot, uid, f"Emote for !{kind} unavailable in registry.")
         return
 
     _TARGET_SOCIAL_CD[uid] = time.time()
@@ -266,10 +295,6 @@ async def _do_target_social(bot: "BaseBot", user: "User",
         pass
 
 
-async def handle_kick_social(bot, user, args):
-    await _do_target_social(bot, user, args, "kick")
-
-
 async def handle_kiss_social(bot, user, args):
     await _do_target_social(bot, user, args, "kiss")
 
@@ -278,98 +303,156 @@ async def handle_slap_social(bot, user, args):
     await _do_target_social(bot, user, args, "slap")
 
 
+async def handle_superpunch(bot, user, args):
+    await _do_target_social(bot, user, args, "superpunch")
+
+
+async def handle_bonk(bot, user, args):
+    await _do_target_social(bot, user, args, "bonk")
+
+
+async def handle_yeet(bot, user, args):
+    await _do_target_social(bot, user, args, "yeet")
+
+
+async def handle_hypnotize(bot, user, args):
+    await _do_target_social(bot, user, args, "hypnotize")
+
+
+async def handle_duel(bot: "BaseBot", user: "User", args: list) -> None:
+    """!duel @user — both players loop swordfight emote. VIP+ gated."""
+    uid, uname = user.id, user.username
+    if not _is_vip(uid) and not _is_staff(uname):
+        await _w(bot, uid, "✨ VIP+ required for social emotes.")
+        return
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !duel @user")
+        return
+    target_name = args[1].lstrip("@")
+    if target_name.lower() == uname.lower():
+        await _w(bot, uid, "You can't duel yourself.")
+        return
+    last = _TARGET_SOCIAL_CD.get(uid, 0.0)
+    rem  = _TARGET_SOCIAL_CD_SECS - (time.time() - last)
+    if rem > 0:
+        await _w(bot, uid, f"⏱ Wait {rem:.0f}s before another social.")
+        return
+    from modules.room_utils import _resolve_user_in_room
+    pair = await _resolve_user_in_room(bot, target_name)
+    if not pair:
+        await _w(bot, uid, f"@{target_name} is not in the room.")
+        return
+    target_user, _ = pair
+    from modules.live_bot_registry import live_bot_keys
+    bot_names = {str(n).lower() for n in (live_bot_keys() or [])}
+    if target_user.username.lower() in bot_names and not _is_staff(uname):
+        await _w(bot, uid, "Can't target bots.")
+        return
+    eid = _resolve_eid(["swordfight", "emote-swordfight"])
+    if not eid:
+        await _w(bot, uid, "Swordfight emote unavailable.")
+        return
+    _TARGET_SOCIAL_CD[uid] = time.time()
+    from modules.emote_system import _start_player_loop
+    try:
+        await _start_player_loop(bot, uid, eid, "swordfight",
+                                  username=uname, log_event="duel")
+        await _start_player_loop(bot, target_user.id, eid, "swordfight",
+                                  username=target_user.username, log_event="duel")
+    except Exception as exc:
+        print(f"[EMOTE_EXTRAS] duel loop err: {exc!r}")
+    try:
+        await bot.highrise.chat(f"⚔ {uname} dueled {target_user.username}!"[:249])
+    except Exception:
+        pass
+
+
 # ===========================================================================
-# Section D + E — Sync emotes / Sync stop
+# Section D + E — TRUE Sync (follower mirrors target's live emote state)
 # ===========================================================================
-# user_id -> partner_user_id  (mirrored: both directions stored)
-_sync_partners: dict[str, str] = {}
-# Frozenset({uid_a, uid_b}) -> asyncio.Task (one task drives the pair)
-_sync_tasks:    dict[frozenset, asyncio.Task] = {}
+# Follower-uid -> target-uid they're copying
+_sync_target:    dict[str, str]            = {}
+# Target-uid -> set of follower-uids (reverse index, multiple followers allowed)
+_sync_followers: dict[str, set]            = {}
+# Follower-uid -> watcher task
+_sync_tasks:     dict[str, asyncio.Task]   = {}
+
+_SYNC_POLL_SECS = 0.6
 
 
-def _pair_key(a: str, b: str) -> frozenset:
-    return frozenset({a, b})
+async def _sync_watcher(bot: "BaseBot", follower_uid: str,
+                         target_uid: str) -> None:
+    """Continuously mirror target's current looping emote on follower.
+
+    - Polls `_player_emotes[target_uid]` every _SYNC_POLL_SECS.
+    - When target's emote changes, sends new emote to follower.
+    - When target stops, follower stops too.
+    - Re-sends current emote on follower at its registry-timed interval to
+      keep the loop running. Direct send (not _start_player_loop) so we
+      don't spam whispers or pollute `_player_emotes[follower_uid]`.
+    """
+    from modules.emote_system import _player_emotes, _send_player, get_emote_time
+    import time as _time
+
+    cur_eid: str | None = None
+    next_resend = 0.0
+    try:
+        while True:
+            # Bail if this follower's sync was cleared elsewhere
+            if _sync_target.get(follower_uid) != target_uid:
+                return
+
+            target_eid = _player_emotes.get(target_uid)
+            now = _time.time()
+
+            if target_eid != cur_eid:
+                # Target changed (or stopped)
+                cur_eid = target_eid
+                if cur_eid:
+                    try:
+                        await _send_player(bot, cur_eid, follower_uid)
+                    except Exception as exc:
+                        print(f"[SYNC] send err {follower_uid}: {exc!r}")
+                    next_resend = now + max(0.5, get_emote_time(cur_eid))
+                else:
+                    next_resend = 0.0
+            elif cur_eid and now >= next_resend:
+                # Same emote still playing — re-send to keep follower looping
+                try:
+                    await _send_player(bot, cur_eid, follower_uid)
+                except Exception as exc:
+                    print(f"[SYNC] resend err {follower_uid}: {exc!r}")
+                next_resend = now + max(0.5, get_emote_time(cur_eid))
+
+            await asyncio.sleep(_SYNC_POLL_SECS)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        print(f"[SYNC] watcher err follower={follower_uid} "
+              f"target={target_uid}: {exc!r}")
 
 
-async def _sync_loop(bot: "BaseBot", uid_a: str, uid_b: str, eid: str) -> None:
-    """Loop the same emote on two users simultaneously, sleeping registry-timed."""
-    from modules.emote_system import get_emote_time
-    while True:
-        try:
-            await asyncio.gather(
-                bot.highrise.send_emote(eid, uid_a),
-                bot.highrise.send_emote(eid, uid_b),
-                return_exceptions=True,
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            print(f"[SYNC] send err: {exc!r}")
-        await asyncio.sleep(get_emote_time(eid))
-
-
-def _clear_sync_for(uid: str) -> str | None:
-    """Cancel sync task involving uid; return partner uid (if any)."""
-    partner = _sync_partners.pop(uid, None)
-    if not partner:
-        return None
-    _sync_partners.pop(partner, None)
-    task = _sync_tasks.pop(_pair_key(uid, partner), None)
+def _clear_sync_follower(follower_uid: str) -> str | None:
+    """Cancel follower's watcher and drop indices. Returns prior target uid."""
+    target = _sync_target.pop(follower_uid, None)
+    if target:
+        followers = _sync_followers.get(target)
+        if followers:
+            followers.discard(follower_uid)
+            if not followers:
+                _sync_followers.pop(target, None)
+    task = _sync_tasks.pop(follower_uid, None)
     if task and not task.done():
         task.cancel()
-    return partner
-
-
-async def _start_sync(bot: "BaseBot", sender: "User", target_user: "User",
-                      emote_alias: str) -> bool:
-    """Resolve emote, validate player-usable, start shared sync loop."""
-    entry = _reg_get(emote_alias)
-    if not entry:
-        await _w(bot, sender.id, f"Unknown emote '{emote_alias}'.")
-        return False
-    if not entry.get("player"):
-        await _w(bot, sender.id, f"'{emote_alias}' is not a player emote.")
-        return False
-    eid = entry["id"]
-
-    # Cancel any existing sync on either side
-    _clear_sync_for(sender.id)
-    _clear_sync_for(target_user.id)
-
-    # Also cancel any solo player loop they have running
-    try:
-        from modules.emote_system import _cancel_player_loop
-        _cancel_player_loop(sender.id)
-        _cancel_player_loop(target_user.id)
-    except Exception:
-        pass
-
-    _sync_partners[sender.id]      = target_user.id
-    _sync_partners[target_user.id] = sender.id
-
-    task = asyncio.create_task(_sync_loop(bot, sender.id, target_user.id, eid))
-    _sync_tasks[_pair_key(sender.id, target_user.id)] = task
-
-    await _w(bot, sender.id,
-             f"🔄 Synced with @{target_user.username} on '{emote_alias}'. "
-             f"!syncstop to end.")
-    try:
-        await bot.highrise.send_whisper(
-            target_user.id,
-            f"🔄 @{sender.username} synced you to '{emote_alias}'. "
-            f"!syncstop or 'Stop' to end."[:249])
-    except Exception:
-        pass
-    return True
+    return target
 
 
 async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
-    """!sync @user <emote>"""
-    if len(args) < 3:
-        await _w(bot, user.id, "Usage: !sync @user <emote>")
+    """!sync @user — start mirroring target's live emote state."""
+    if len(args) < 2 or not args[1].startswith("@"):
+        await _w(bot, user.id, "Usage: !sync @user")
         return
     target_name = args[1].lstrip("@")
-    emote_alias = args[2]
     if target_name.lower() == user.username.lower():
         await _w(bot, user.id, "You can't sync with yourself.")
         return
@@ -379,71 +462,72 @@ async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, user.id, f"@{target_name} is not in the room.")
         return
     target_user, _ = pair
-    await _start_sync(bot, user, target_user, emote_alias)
+
+    # Replace any prior sync this follower had
+    _clear_sync_follower(user.id)
+
+    # Cancel any solo player loop / dancefloor loop the follower has so the
+    # mirror is exclusive (otherwise both systems would fight to send emotes).
+    try:
+        from modules.emote_system import _cancel_player_loop
+        _cancel_player_loop(user.id)
+    except Exception:
+        pass
+
+    _sync_target[user.id] = target_user.id
+    _sync_followers.setdefault(target_user.id, set()).add(user.id)
+    _sync_tasks[user.id] = asyncio.create_task(
+        _sync_watcher(bot, user.id, target_user.id))
+
+    await _w(bot, user.id,
+             f"🔄 Syncing to @{target_user.username}. "
+             f"Type 'Stop' or !syncstop to end.")
 
 
 async def try_sync_shortcut(bot: "BaseBot", user: "User",
                              message: str) -> bool:
-    """Handles two chat shortcuts. Returns True if handled.
-       1) bare `Stop` (any case) from a user in an active sync → !syncstop
-       2) `<emote> @user`                                       → !sync @user <emote>"""
+    """Bare 'Stop' (any case) from a syncing user ends their sync. Returns True if handled."""
     if not message:
         return False
-    stripped = message.strip()
-
-    # 1) Bare "Stop" — only acts when this user is actually in a sync,
-    #    so we don't intercept casual chat from non-synced users.
-    if stripped.lower() == "stop" and is_in_sync(user.id):
+    if message.strip().lower() == "stop" and is_in_sync(user.id):
         await handle_syncstop(bot, user, [])
         return True
-
-    # 2) <emote> @user
-    if "@" not in stripped:
-        return False
-    parts = stripped.split()
-    if len(parts) != 2:
-        return False
-    word, mention = parts[0], parts[1]
-    if not mention.startswith("@"):
-        return False
-    entry = _reg_get(word)
-    if not entry or not entry.get("player"):
-        return False
-    target_name = mention.lstrip("@")
-    if target_name.lower() == user.username.lower():
-        return False
-    from modules.room_utils import _resolve_user_in_room
-    pair = await _resolve_user_in_room(bot, target_name)
-    if not pair:
-        return False
-    target_user, _ = pair
-    await _start_sync(bot, user, target_user, word)
-    return True
+    return False
 
 
 async def handle_syncstop(bot: "BaseBot", user: "User",
                            _args: list | None = None) -> None:
-    """!syncstop — stop sender's sync AND linked target's sync."""
-    partner = _clear_sync_for(user.id)
-    if not partner:
+    """!syncstop — end this user's sync."""
+    prior = _clear_sync_follower(user.id)
+    if not prior:
         await _w(bot, user.id, "You have no active sync.")
         return
-    # Also stop solo player loops on both sides (in case they leaked)
+    # Cancel any residual loop on follower (mirrored emote)
     try:
         from modules.emote_system import _cancel_player_loop
         _cancel_player_loop(user.id)
-        _cancel_player_loop(partner)
     except Exception:
         pass
-    await _w(bot, user.id, "⏹ Sync stopped for both users.")
-    try:
-        await bot.highrise.send_whisper(partner, "⏹ Sync stopped.")
-    except Exception:
-        pass
+    await _w(bot, user.id, "⏹ Sync stopped.")
 
 
 def is_in_sync(user_id: str) -> bool:
-    return user_id in _sync_partners
+    return user_id in _sync_target
+
+
+def clear_sync_on_leave(user_id: str) -> None:
+    """Called from main.on_user_leave — clean up sync state for a leaving user.
+
+    - If they were a follower: cancel their watcher + drop indices.
+    - If they were a target: cancel every follower's watcher and drop indices.
+    """
+    # As follower
+    _clear_sync_follower(user_id)
+    # As target — copy follower set since _clear_sync_follower mutates it
+    followers = list(_sync_followers.get(user_id, set()))
+    for f_uid in followers:
+        _clear_sync_follower(f_uid)
+    _sync_followers.pop(user_id, None)
 
 
 # ===========================================================================
@@ -788,8 +872,8 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
                           f"z[{min(z1,z2):.1f}..{max(z1,z2):.1f}].")
         return
 
-    # ----- emotes -------------------------------------------------------
-    if sub == "emotes":
+    # ----- emotes / emote (alias) ---------------------------------------
+    if sub in ("emotes", "emote"):
         rest = args[2:]
         if not rest:
             cur = _df_get_emotes()
@@ -801,7 +885,26 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
             except Exception:
                 await _w(bot, uid, "Usage: !dancefloor emotes random <N>")
                 return
-            pool = _reg_player_aliases()
+            # Build exclusion set of social-emote aliases (attacker + reaction)
+            social_excl: set[str] = set()
+            for a_cands, t_cands, _ in _SOCIAL_TARGETS.values():
+                for c in (*a_cands, *t_cands):
+                    social_excl.add(c.lower())
+                    ent = _reg_get(c)
+                    if ent:
+                        nm = (ent.get("name") or "").lower()
+                        if nm:
+                            social_excl.add(nm)
+            raw_pool = _reg_player_aliases()
+            # Dedup case-insensitively + drop socials
+            seen: set[str] = set()
+            pool: list[str] = []
+            for a in raw_pool:
+                low = a.lower()
+                if low in seen or low in social_excl:
+                    continue
+                seen.add(low)
+                pool.append(a)
             if not pool:
                 await _w(bot, uid, "No player emotes available.")
                 return
@@ -896,24 +999,22 @@ async def startup_dancefloor_recovery(bot: "BaseBot") -> None:
 # Section I — Test checklist
 # ===========================================================================
 _CHECKLIST = [
-    "[ ] !emotes compact list",
-    "[ ] !botemotes compact list",
-    "[ ] !emotes socials",
-    "[ ] VIP can !slap @user",
-    "[ ] non-VIP blocked from !slap @user",
+    "[ ] !sync @user mirrors target",
+    "[ ] target changing emote updates sync user",
+    "[ ] !syncstop works",
+    "[ ] Stop breaks sync",
+    "[ ] !slap @user",
     "[ ] !kiss @user",
-    "[ ] !kick @user",
-    "[ ] !sync @user sweetjammer",
-    "[ ] sweetjammer @user shortcut",
-    "[ ] !syncstop stops both users",
-    "[ ] !emote all sweetjammer",
-    "[ ] !emote all stop",
-    "[ ] !favemote add sweetjammer",
-    "[ ] !favemotes persists",
-    "[ ] dancefloor points save",
-    "[ ] dancefloor random 10 works",
-    "[ ] dancefloor starts/stops",
-    "[ ] dancefloor persists after restart",
+    "[ ] !superpunch @user",
+    "[ ] !bonk @user",
+    "[ ] !yeet @user",
+    "[ ] !hypnotize @user",
+    "[ ] !duel @user",
+    "[ ] !kick still moderation kick",
+    "[ ] !dancefloor emote random 20",
+    "[ ] !dancefloor emotes random 20",
+    "[ ] compact emote lists",
+    "[ ] persistence after restart",
 ]
 
 
