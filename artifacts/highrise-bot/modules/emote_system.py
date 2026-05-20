@@ -1290,7 +1290,7 @@ async def handle_setemote(bot: "BaseBot", user: "User", args: list) -> None:
 
 
 async def handle_addemote(bot: "BaseBot", user: "User", args: list) -> None:
-    """!addemote <alias> <raw_id> <time> <bot:true/false> <player:true/false> [category]"""
+    """!addemote <alias> <emote_id> <category>"""
     uid = user.id
     if not _is_admin(user.username):
         await _w(bot, uid, "Admin/owner only.")
@@ -1298,26 +1298,17 @@ async def handle_addemote(bot: "BaseBot", user: "User", args: list) -> None:
     if _reg is None:
         await _w(bot, uid, "Emote registry unavailable.")
         return
-    if len(args) < 6:
+    if len(args) < 4:
         await _w(bot, uid,
-                 "Usage: !addemote <alias> <raw_id> <time> <bot> <player> [category]")
+                 "Usage: !addemote <alias> <emote_id> <category>")
         return
-    alias  = args[1]
-    raw_id = args[2]
-    try:
-        t = float(args[3])
-        if t <= 0:
-            raise ValueError
-    except Exception:
-        await _w(bot, uid, "Time must be a positive number (seconds).")
-        return
-    b = _parse_bool(args[4])
-    p = _parse_bool(args[5])
-    if b is None or p is None:
-        await _w(bot, uid, "bot and player must be true or false.")
-        return
-    category = args[6] if len(args) >= 7 else "uncategorized"
-    ok = _reg.add_emote(alias, raw_id, t, b, p, category)
+    alias    = args[1]
+    emote_id = args[2]
+    category = args[3]
+    # Defaults: 5s duration, playable by both bot and player
+    t, b, p = 5.0, True, True
+    print(f"[ADD_EMOTE_PARSE] alias={alias!r} id={emote_id!r} category={category!r}")
+    ok = _reg.add_emote(alias, emote_id, t, b, p, category)
     if not ok:
         await _w(bot, uid, f"Failed — alias '{alias}' already exists. Use !setemote.")
         return
@@ -1326,7 +1317,7 @@ async def handle_addemote(bot: "BaseBot", user: "User", args: list) -> None:
     except Exception:
         pass
     await _w(bot, uid,
-             f"✅ Added {alias} → {raw_id} ({t}s bot={_fmt_bool(b)} player={_fmt_bool(p)} cat={category})")
+             f"Added {alias} → {emote_id} cat={category}")
 
 
 async def handle_removeemote(bot: "BaseBot", user: "User", args: list) -> None:
