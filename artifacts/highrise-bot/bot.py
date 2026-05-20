@@ -183,11 +183,6 @@ def _collect_bots() -> list[_BotSpec]:
             deduped.append(spec)
     specs = deduped
 
-    # ── [DIAGNOSTIC] Single-bot mode — remove this line after crash is found ──
-    specs = specs[:1]
-    if specs:
-        print(f"[RUNNER] [DIAGNOSTIC] Single-bot mode — only starting: {specs[0].label} (mode={specs[0].bot_mode})")
-
     # ── Staged rollout filter ─────────────────────────────────────────────────
     # Set BOTS_ENABLED=<comma-separated modes or ids> to start only a subset.
     #

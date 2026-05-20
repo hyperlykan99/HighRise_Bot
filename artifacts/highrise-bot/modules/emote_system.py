@@ -171,13 +171,7 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
                       f" iter={_iter} error={exc!r}")
             await asyncio.sleep(interval)
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        print(f"[EMOTE] _start_bot_loop: no running event loop "
-              f"(mode={bot_mode!r} eid={eid!r}) — skipped.")
-        return interval
-    _bot_loops[bot_mode] = loop.create_task(_loop())
+    _bot_loops[bot_mode] = asyncio.create_task(_loop())
     _log("bot_loop_start", bot=bot_mode, emote=eid, interval=round(interval, 2))
     return interval
 
@@ -596,9 +590,13 @@ async def handle_botemoteid(bot: "BaseBot", user: "User",
 # ---------------------------------------------------------------------------
 
 async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
-    """Emote loop recovery — DISABLED for diagnostic run. Re-enable after crash is found."""
     from config import BOT_MODE
-    print(f"[EMOTE] startup_bot_emote_recovery: SKIPPED (diagnostic mode) bot={BOT_MODE}")
+    eid = db.get_room_setting(f"bot_emote_{BOT_MODE.lower()}", "")
+    if not eid:
+        return
+    await asyncio.sleep(6)
+    _start_bot_loop(bot, BOT_MODE, eid)
+    _log("emote_recovery", bot=BOT_MODE, emote=eid)
 
 
 # ---------------------------------------------------------------------------
