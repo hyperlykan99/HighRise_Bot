@@ -80,12 +80,15 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
 
     _eid = eid
 
-    # Safe import: real per-emote duration; falls back to 5 s if unavailable.
+    # Use full priority chain: _TIMINGS > custom emote time > built-in > 5.0
     try:
-        from data.emote_timings import get_emote_time as _get_emote_time
+        from modules.emote_system import _effective_timing as _get_emote_time
     except Exception:
-        def _get_emote_time(emote_id: str, fallback: float = 5.0) -> float:
-            return fallback
+        try:
+            from data.emote_timings import get_emote_time as _get_emote_time
+        except Exception:
+            def _get_emote_time(emote_id: str, fallback: float = 5.0) -> float:  # type: ignore[misc]
+                return fallback
 
     async def _loop() -> None:
         while True:
