@@ -1,0 +1,209 @@
+FULL EMOTE + SOCIAL + SYNC + DANCEFLOOR PATCH
+
+Do not touch bot startup/stability.
+Do not change bot token logic.
+Do not change casino/game systems.
+Keep registry persistence fixes intact.
+
+A) COMPRESS EMOTE LISTS
+
+Update:
+!emote list
+!emotes
+!botemotes
+
+Requirements:
+- Alphabetical order
+- Comma-separated
+- Maximize each whisper up to 240 chars
+- Hard cap 249 chars
+- Auto-page continuously
+- No stacked columns
+- No fixed-width spacing
+
+Example:
+🎭 Emotes 1/4
+angry, bow, clap, dance, kiss, slap, sweetjammer
+
+🤖 Bot Emotes 1/6
+aerobics, angry, bow, breakdance, chill, cute, dance
+
+B) SOCIAL EMOTES MENU
+
+Add:
+!emotes socials
+
+Shows alphabetically:
+!kick @user
+!kiss @user
+!punch @user
+!slap @user
+!swordfight @user
+
+Also show:
+VIP+ required for targeted socials.
+
+C) SOCIAL TARGET EMOTES
+
+VIP+ required:
+!kick @user
+!kiss @user
+!punch @user
+!slap @user
+!swordfight @user
+
+Already existing:
+!punch @user
+!swordfight @user
+
+Add new:
+!kick @user
+!kiss @user
+!slap @user
+
+Behavior:
+- Sender performs action emote
+- Target performs matching reaction emote
+- Cooldown per user
+- Must resolve @target in room
+- Cannot target bots unless staff
+- Cannot target self
+- Non-VIP gets whisper:
+  VIP+ required for social emotes.
+
+Self/plain emotes stay public:
+slap
+kiss
+kick
+punch
+swordfight
+
+D) SYNC EMOTES
+
+Add:
+!sync @user <emote>
+
+Everyone can use it.
+
+Example:
+!sync @Claire sweetjammer
+
+Behavior:
+- Resolve target in room
+- Validate emote exists and is player-usable
+- Sender and target both start same looping emote
+- Uses registry timing
+- Both loops stay synced as close as possible
+- Either user can stop using:
+  !syncstop
+  Stop
+
+Also support shortcut:
+<emote> @user
+
+Example:
+sweetjammer @Claire
+
+E) SYNC STOP
+
+Add:
+!syncstop
+
+Behavior:
+- Stops sender’s active sync
+- Stops linked target’s active sync too
+- Clean task cancellation
+- Clear sync state for both users
+
+F) STAFF ROOM-WIDE EMOTE
+
+Add:
+!emote all <emote>
+
+Staff only.
+
+Behavior:
+- All current players in room perform/loop the emote
+- Uses registry timing
+- Ignore bots
+- Non-staff blocked
+- Add:
+  !emote all stop
+
+G) FAVORITE EMOTES
+
+Add:
+!favemotes
+!favemote add <emote>
+!favemote remove <emote>
+!favemote clear
+
+Requirements:
+- Per-user saved favorites
+- Persist in DB
+- Alphabetical display
+- Comma-separated compact paging
+- Validate emote exists before adding
+
+H) DANCEFLOOR SYSTEM
+
+Add commands:
+!dancefloor setpoint 1
+!dancefloor setpoint 2
+!dancefloor save
+!dancefloor emotes <emote1>, <emote2>, <emote3>
+!dancefloor emotes random 10
+!dancefloor start
+!dancefloor stop
+!dancefloor status
+!dancefloor clear
+
+Permissions:
+Staff only for setup/start/stop.
+
+Behavior:
+- Two points define rectangular dancefloor box
+- Save box coordinates in DB
+- Detect players inside box
+- Players inside dancefloor auto-loop selected emotes
+- Players leaving box stop dancefloor loop
+- Uses registry timing
+- Excludes bots
+- Random option:
+  !dancefloor emotes random 10
+  randomly selects 10 valid player emotes from registry
+- Random list persists after restart
+
+I) TEST CHECKLIST COMMAND
+
+Add:
+!emotetestchecklist
+
+Whispers checklist:
+[ ] !emotes compact list
+[ ] !botemotes compact list
+[ ] !emotes socials
+[ ] VIP can !slap @user
+[ ] non-VIP blocked from !slap @user
+[ ] !kiss @user
+[ ] !kick @user
+[ ] !sync @user sweetjammer
+[ ] sweetjammer @user shortcut
+[ ] !syncstop stops both users
+[ ] !emote all sweetjammer
+[ ] !emote all stop
+[ ] !favemote add sweetjammer
+[ ] !favemotes persists
+[ ] dancefloor points save
+[ ] dancefloor random 10 works
+[ ] dancefloor starts/stops
+[ ] dancefloor persists after restart
+
+J) COMPILE CHECK
+
+Run:
+python -m py_compile bot.py main.py modules/emote_system.py
+
+Do not modify startup runner.
+Do not modify token handling.
+Do not modify casino systems.

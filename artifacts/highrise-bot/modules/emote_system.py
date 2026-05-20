@@ -483,18 +483,24 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
 
 
 async def _handle_emote_list(bot: "BaseBot", uid: str) -> None:
-    """Auto-send all pages of player emotes (hardcoded + custom), alphabetical."""
-    names       = sorted(ALL_PLAYER_EMOTES.keys())
-    total       = len(names)
-    total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
-
-    for page in range(1, total_pages + 1):
-        start = (page - 1) * _PER_PAGE
-        chunk = names[start: start + _PER_PAGE]
-        msg   = _stacked_page(chunk, page, total_pages, "🎭 Player Emotes")
-        await _w(bot, uid, msg)
-        if page < total_pages:
-            await asyncio.sleep(0.4)
+    """Auto-send all pages of player emotes — compact, alphabetical, comma-sep."""
+    try:
+        from modules.emote_extras import _send_compact_pages
+        names = sorted(ALL_PLAYER_EMOTES.keys())
+        await _send_compact_pages(bot, uid, "🎭 Emotes", names)
+    except Exception as exc:
+        print(f"[EMOTE_LIST compact fail] {exc!r}")
+        # Fallback to legacy stacked output
+        names       = sorted(ALL_PLAYER_EMOTES.keys())
+        total       = len(names)
+        total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
+        for page in range(1, total_pages + 1):
+            start = (page - 1) * _PER_PAGE
+            chunk = names[start: start + _PER_PAGE]
+            msg   = _stacked_page(chunk, page, total_pages, "🎭 Player Emotes")
+            await _w(bot, uid, msg)
+            if page < total_pages:
+                await asyncio.sleep(0.4)
 
 
 # Legacy alias kept for main.py routing that still calls handle_emotes_auto
@@ -510,12 +516,18 @@ async def handle_emotes_auto(bot: "BaseBot", user: "User",
 
 async def handle_botemotes(bot: "BaseBot", user: "User",
                             args: list) -> None:
-    """!botemotes — all bot emotes (hardcoded + custom), alphabetical, auto-paged."""
-    uid         = user.id
-    names       = _merged_bot_names()
+    """!botemotes — all bot emotes, compact, alphabetical, comma-separated."""
+    uid   = user.id
+    names = _merged_bot_names()
+    try:
+        from modules.emote_extras import _send_compact_pages
+        await _send_compact_pages(bot, uid, "🤖 Bot Emotes", names)
+        return
+    except Exception as exc:
+        print(f"[BOTEMOTES compact fail] {exc!r}")
+    # Fallback: legacy stacked
     total       = len(names)
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
-
     for page in range(1, total_pages + 1):
         start = (page - 1) * _PER_PAGE
         chunk = names[start: start + _PER_PAGE]

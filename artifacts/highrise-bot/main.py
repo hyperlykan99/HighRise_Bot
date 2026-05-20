@@ -924,6 +924,18 @@ from modules.emote_system import (
     startup_bot_emote_recovery,
     handle_punch_emote,
     handle_swordfight,
+    # ── emote_extras (compact lists, VIP+ socials, sync, room-all, favs, dancefloor) ──
+)
+from modules.emote_extras import (
+    handle_emotes_socials,
+    handle_kick_social, handle_kiss_social, handle_slap_social,
+    handle_sync, handle_syncstop, try_sync_shortcut,
+    handle_emote_all,
+    handle_favemotes, handle_favemote,
+    handle_dancefloor, startup_dancefloor_recovery,
+    handle_emotetestchecklist,
+)
+from modules.emote_system import (   # re-open for remaining symbols
     handle_force_emote,
     handle_room_emote,
     handle_emotemode,
@@ -1720,6 +1732,11 @@ TIP_AUDIT_COMMANDS: frozenset[str] = frozenset({
     "tipaudit", "tipauditdetails", "conversionlogs",
 })
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIP_AUDIT_COMMANDS | {"ep"}
+# emote_extras commands (sync/socials/favorites/dancefloor/checklist)
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
+    "sync", "syncstop", "favemotes", "favemote",
+    "dancefloor", "emotetestchecklist",
+}
 STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS
 ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 
@@ -3729,6 +3746,11 @@ class HangoutBot(BaseBot):
             print(f"[YT_CLEANUP] Cleanup loop skipped — not DJ bot ({BOT_MODE}).")
         # Bot emote loop recovery — all bot modes (each bot checks its own DB key)
         _safe_task(startup_bot_emote_recovery(self), "startup_bot_emote_recovery")
+        # Dancefloor recovery — DJ owns the polling loop in multi-bot deployments
+        # (BOT_MODE=all stays the single-bot fallback). Other modes skip to avoid
+        # duplicate pollers fighting over per-user emote loops.
+        if BOT_MODE in ("dj", "all"):
+            _safe_task(startup_dancefloor_recovery(self), "startup_dancefloor_recovery")
         # Emote discovery — only runs on dj bot (emote test uses dj's Highrise account)
         if BOT_MODE == "dj":
             _safe_task(startup_emote_discovery(self), "startup_emote_discovery")
@@ -3799,6 +3821,14 @@ class HangoutBot(BaseBot):
         Accepts ! commands. Redirects / commands to use ! instead.
         """
         message = message.strip()
+
+        # ── Sync shortcut: `<emote> @user` or bare `Stop` (sync participant) ──
+        if message and not message.startswith("!") and not message.startswith("/"):
+            try:
+                if await try_sync_shortcut(self, user, message):
+                    return
+            except Exception as _exc:
+                print(f"[SYNC_SHORTCUT] err: {_exc!r}")
 
         # ── / → ! redirect — tell players to use ! commands ──────────────────
         if message.startswith("/") and not message.startswith("//"):
@@ -7469,7 +7499,11 @@ class HangoutBot(BaseBot):
             elif cmd == "timingaudit":
                 await handle_timingaudit(self, user, args)
             elif cmd == "emotes":
-                await handle_emotes_auto(self, user, args)
+                # !emotes socials → socials menu; otherwise compact list
+                if len(args) >= 2 and args[1].lower() in ("socials", "social"):
+                    await handle_emotes_socials(self, user, args)
+                else:
+                    await handle_emotes_auto(self, user, args)
             elif cmd == "emoteinfo":
                 await handle_emoteinfo(self, user, args)
             elif cmd == "findemote":
@@ -7506,7 +7540,10 @@ class HangoutBot(BaseBot):
         elif cmd == "emote":
             if len(args) >= 2 and args[1].startswith("@"):
                 await handle_force_emote(self, user, args)
-            elif len(args) >= 2 and args[1].lower() in ("all", "allbots"):
+            elif len(args) >= 2 and args[1].lower() == "all":
+                # New: looping room-wide player emote w/ stop (staff only).
+                await handle_emote_all(self, user, args)
+            elif len(args) >= 2 and args[1].lower() == "allbots":
                 await handle_room_emote(self, user, args)
             else:
                 # Player self-emote (!emote <name>): DJ_DUDU only.
@@ -7555,13 +7592,56 @@ class HangoutBot(BaseBot):
         elif cmd == "hug":
             await handle_hug(self, user, args)
         elif cmd == "kiss":
-            await handle_kiss(self, user, args)
+            # @user → VIP+ social emote (sender + target reaction); else legacy
+            if len(args) >= 2 and args[1].startswith("@"):
+                await handle_kiss_social(self, user, args)
+            else:
+                await handle_kiss(self, user, args)
         elif cmd == "slap":
-            await handle_slap(self, user, args)
+            if len(args) >= 2 and args[1].startswith("@"):
+                await handle_slap_social(self, user, args)
+            else:
+                await handle_slap(self, user, args)
         elif cmd == "punch":
-            await handle_punch_emote(self, user, args)
+            # @user → VIP+ gated (per emote+social spec); else fall through.
+            if len(args) >= 2 and args[1].startswith("@"):
+                from modules.emote_extras import _is_vip as _vip, _is_staff as _stf
+                if not _vip(user.id) and not _stf(user.username):
+                    try:
+                        await self.highrise.send_whisper(
+                            user.id, "✨ VIP+ required for social emotes.")
+                    except Exception:
+                        pass
+                else:
+                    await handle_punch_emote(self, user, args)
+            else:
+                await handle_punch_emote(self, user, args)
         elif cmd == "swordfight":
-            await handle_swordfight(self, user, args)
+            if len(args) >= 2 and args[1].startswith("@"):
+                from modules.emote_extras import _is_vip as _vip, _is_staff as _stf
+                if not _vip(user.id) and not _stf(user.username):
+                    try:
+                        await self.highrise.send_whisper(
+                            user.id, "✨ VIP+ required for social emotes.")
+                    except Exception:
+                        pass
+                else:
+                    await handle_swordfight(self, user, args)
+            else:
+                await handle_swordfight(self, user, args)
+        # ── New emote_extras commands ────────────────────────────────────────
+        elif cmd == "sync":
+            await handle_sync(self, user, args)
+        elif cmd == "syncstop":
+            await handle_syncstop(self, user, args)
+        elif cmd == "favemotes":
+            await handle_favemotes(self, user, args)
+        elif cmd == "favemote":
+            await handle_favemote(self, user, args)
+        elif cmd == "dancefloor":
+            await handle_dancefloor(self, user, args)
+        elif cmd == "emotetestchecklist":
+            await handle_emotetestchecklist(self, user, args)
         elif cmd == "importemotes":
             await handle_importemotes(self, user, args)
         elif cmd == "reloademotes":
@@ -8006,7 +8086,12 @@ class HangoutBot(BaseBot):
 
         # ── Extended moderation ───────────────────────────────────────────────
         elif cmd == "kick":
-            await handle_kick(self, user, args)
+            # Staff → moderation kick; non-staff → VIP+ social kick emote
+            from modules.permissions import can_moderate as _cm
+            if _cm(user.username) or is_admin(user.username) or is_owner(user.username):
+                await handle_kick(self, user, args)
+            else:
+                await handle_kick_social(self, user, args)
         elif cmd == "ban":
             await handle_ban(self, user, args)
         elif cmd == "tempban":
