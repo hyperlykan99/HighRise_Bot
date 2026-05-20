@@ -931,6 +931,7 @@ from modules.emote_system import (
     handle_markemoteworks,
     handle_markemoteunsupported,
     notify_emote_event,
+    handle_bot_emote_channel_event,
 )
 from modules.emote_logger import (
     log_emote as emote_spy_log,
@@ -8386,6 +8387,15 @@ class HangoutBot(BaseBot):
                     asyncio.create_task(handle_notif_dispatch_channel(self, payload))
             except Exception as _e:
                 print(f"[SUB_NOTIF] on_channel parse error: {_e}")
+        # Bot emote cross-bot channel (instant start/stop without restart)
+        if "bot_emote_start" in msg_lower or "bot_emote_stop" in msg_lower:
+            try:
+                import json as _json
+                _ep = _json.loads(message)
+                if _ep.get("action") in ("bot_emote_start", "bot_emote_stop"):
+                    asyncio.create_task(handle_bot_emote_channel_event(self, _ep))
+            except Exception as _e:
+                print(f"[EMOTE] on_channel parse error: {_e}")
 
     async def on_emote(self, user: User, emote_id: str, receiver) -> None:
         """

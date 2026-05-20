@@ -523,10 +523,18 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, f"✅ {display} looping {eid} (every 5s).")
         return
 
-    # Not this bot — save to DB so it takes effect on that bot's next restart.
+    # Not this bot — broadcast channel so target bot starts immediately.
+    # Also save DB as offline fallback (target picks it up on next restart).
+    import json as _json
+    _ch = _json.dumps({"action": "bot_emote_start",
+                        "target": raw_target, "emote_id": eid})
+    try:
+        await bot.highrise.send_channel(_ch)
+    except Exception as _ce:
+        print(f"[EMOTE] channel send failed: {_ce!r}")
     db.set_room_setting(f"bot_emote_{raw_target}", eid)
     _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
-    await _w(bot, uid, f"✅ Saved. @{raw_target} will loop {eid} on next restart.")
+    await _w(bot, uid, f"✅ @{raw_target} is now looping {eid}.")
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +560,12 @@ async def handle_stopbotemote(bot: "BaseBot", user: "User",
         if task and not task.done():
             task.cancel()
     else:
+        import json as _json
+        _ch = _json.dumps({"action": "bot_emote_stop", "target": bot_name})
+        try:
+            await bot.highrise.send_channel(_ch)
+        except Exception as _ce:
+            print(f"[EMOTE] channel send failed: {_ce!r}")
         db.set_room_setting(f"bot_emote_{bot_name}", "")
     _log("bot_emote_cleared", admin=uname, bot=bot_name)
     await _w(bot, uid, "✅ Bot emote stopped.")
@@ -608,6 +622,47 @@ async def handle_botemoteid(bot: "BaseBot", user: "User",
 # ---------------------------------------------------------------------------
 # Startup recovery
 # ---------------------------------------------------------------------------
+
+async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
+    """Called from on_channel when action=bot_emote_start or bot_emote_stop.
+
+    Lets any bot instantly start/stop another bot's emote loop via channel.
+    """
+    from config import BOT_MODE, BOT_USERNAME
+    from modules.gold import get_bot_username as _get_uname
+    action       = payload.get("action", "")
+    target       = (payload.get("target") or "").strip().lower()
+    this_mode_l  = BOT_MODE.lower()
+    this_uname_l = (_get_uname() or BOT_USERNAME or "").strip().lower()
+    is_me = (target == this_mode_l or
+             bool(this_uname_l and target == this_uname_l))
+    if not is_me:
+        return
+    if action == "bot_emote_start":
+        eid = (payload.get("emote_id") or "").strip()
+        if not eid:
+            return
+        old = _bot_loops.pop(BOT_MODE, None)
+        if old and not old.done():
+            old.cancel()
+        _eid = eid
+        async def _ch_loop() -> None:
+            while True:
+                try:
+                    await bot.highrise.send_emote(_eid)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as _exc:
+                    print(f"[EMOTE BOT] ch-loop err mode={BOT_MODE!r} eid={_eid!r}: {_exc!r}")
+                await asyncio.sleep(5.0)
+        _bot_loops[BOT_MODE] = asyncio.create_task(_ch_loop())
+        _log("bot_emote_channel_start", bot=BOT_MODE, emote=eid)
+    elif action == "bot_emote_stop":
+        task = _bot_loops.pop(BOT_MODE, None)
+        if task and not task.done():
+            task.cancel()
+        _log("bot_emote_channel_stop", bot=BOT_MODE)
+
 
 async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
     from config import BOT_MODE
