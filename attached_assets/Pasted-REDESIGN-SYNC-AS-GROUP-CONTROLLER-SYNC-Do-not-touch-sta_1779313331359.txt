@@ -1,0 +1,80 @@
+REDESIGN SYNC AS GROUP-CONTROLLER SYNC.
+
+Do not touch startup, tokens, music, casino, or bot stability.
+
+Problem:
+Current !sync watches/copies after the target emotes, so it is delayed and not truly synced.
+
+New design:
+!sync @Leader means follower subscribes to Leader’s emote group.
+
+When Leader uses any bot-controlled emote:
+- plain emote word: sweetjammer
+- !emote sweetjammer
+- player loop emote
+- dancefloor if Leader is inside
+
+Bot sends the same emote to:
+Leader + all synced followers
+at the same time using asyncio.gather().
+
+Rules:
+1. Everyone can use !sync @Leader.
+2. Cannot sync to self.
+3. Multiple followers can sync to one leader.
+4. One follower can only follow one leader at a time.
+5. !syncstop unsubscribes follower.
+6. Stop also unsubscribes follower.
+7. If leader starts a looping emote, one shared group loop controls leader + followers.
+8. If leader changes emote, cancel old group loop and start new shared group loop.
+9. If leader stops, followers stop too.
+10. If follower leaves room, remove them from group.
+11. If leader leaves room, dissolve group.
+
+Important:
+Do NOT rely on polling target’s current emote.
+Do NOT run separate loop tasks for each synced player.
+Use one shared group send per leader.
+
+Add helper:
+get_sync_group(leader_id) -> [leader_id + follower_ids]
+
+When any bot-controlled player emote starts for a leader:
+call:
+start_sync_group_emote(bot, leader_id, emote_id, alias)
+
+That function:
+- cancels old group task for leader
+- sends emote to leader + followers with asyncio.gather()
+- repeats using registry timing if looped
+
+Add debug:
+[SYNC_SUBSCRIBE] follower=<id> leader=<id>
+[SYNC_GROUP_SEND] leader=<id> members=<count> emote=<id>
+[SYNC_GROUP_LOOP] leader=<id> alias=<alias> time=<seconds>
+[SYNC_UNSUBSCRIBE] follower=<id>
+[SYNC_DISSOLVE] leader=<id>
+
+Commands:
+!sync @user
+!syncstop
+!syncstatus
+
+!syncstatus should show:
+Synced to: @Leader
+or
+Followers: @user1, @user2
+
+Also update dancefloor:
+Dancefloor should also use group-controller design:
+- one dancefloor cycle task
+- all players inside receive the same emote at the same time
+- cycle through saved dancefloor pool
+- random 50 means saved pool of 50, then rotate through the pool
+- no separate random loop per player
+
+Dancefloor debug:
+[DANCEFLOOR_CYCLE] alias=<alias> eid=<id> time=<seconds> players=<count>
+
+Compile:
+python -m py_compile bot.py main.py modules/emote_extras.py modules/emote_system.py

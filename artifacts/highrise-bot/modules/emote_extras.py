@@ -376,89 +376,146 @@ async def handle_duel(bot: "BaseBot", user: "User", args: list) -> None:
 
 
 # ===========================================================================
-# Section D + E — TRUE Sync (follower mirrors target's live emote state)
+# Section D + E — Group-Controller Sync
 # ===========================================================================
-# Follower-uid -> target-uid they're copying
-_sync_target:    dict[str, str]            = {}
-# Target-uid -> set of follower-uids (reverse index, multiple followers allowed)
-_sync_followers: dict[str, set]            = {}
-# Follower-uid -> watcher task
-_sync_tasks:     dict[str, asyncio.Task]   = {}
+# follower_uid -> leader_uid
+_sync_leader_of:    dict[str, str]          = {}
+# leader_uid -> set of follower_uids (multiple followers per leader)
+_sync_followers:    dict[str, set[str]]     = {}
+# leader_uid -> shared group loop asyncio.Task
+_sync_group_tasks:  dict[str, asyncio.Task] = {}
+# leader_uid -> emote_id the current group task is cycling (dedup guard)
+_sync_group_emote:  dict[str, str]          = {}
+# follower_uid -> leader_username  (for !syncstatus display)
+_sync_leader_name:  dict[str, str]          = {}
+# follower_uid -> follower_username (for leader's !syncstatus display)
+_sync_follower_name: dict[str, str]         = {}
 
-_SYNC_POLL_SECS = 0.3
+
+def get_sync_group(leader_id: str) -> list[str]:
+    """[leader_id] + all current follower_ids."""
+    return [leader_id] + list(_sync_followers.get(leader_id, set()))
 
 
-async def _sync_watcher(bot: "BaseBot", follower_uid: str,
-                         target_uid: str) -> None:
-    """Continuously mirror target's current looping emote on follower.
+async def _sync_group_loop(bot: "BaseBot", leader_id: str,
+                           emote_id: str, alias: str) -> None:
+    """Shared keepalive loop for a sync group.
 
-    - Polls `_player_emotes[target_uid]` every _SYNC_POLL_SECS.
-    - When target's emote changes, sends new emote to follower.
-    - When target stops, follower stops too.
-    - Re-sends current emote on follower at its registry-timed interval to
-      keep the loop running. Direct send (not _start_player_loop) so we
-      don't spam whispers or pollute `_player_emotes[follower_uid]`.
+    Sleeps one emote-duration then re-sends the emote to all current
+    followers.  Leader's own _run_player_loop keeps leader looping in
+    parallel; both use get_emote_time() so they stay on the same cadence.
+    Exits cleanly when no followers remain.
     """
-    from modules.emote_system import _player_emotes, _send_player, get_emote_time
-    import time as _time
-
-    cur_eid: str | None = None
-    next_resend = 0.0
+    from modules.emote_system import _send_player, get_emote_time
     try:
         while True:
-            # Bail if this follower's sync was cleared elsewhere
-            if _sync_target.get(follower_uid) != target_uid:
+            duration = max(0.5, get_emote_time(emote_id))
+            print(f"[SYNC_GROUP_LOOP] leader={leader_id} alias={alias} "
+                  f"time={duration:.1f}")
+            await asyncio.sleep(duration)
+            followers = [f for f in _sync_followers.get(leader_id, set())
+                         if _sync_leader_of.get(f) == leader_id]
+            if not followers:
+                _sync_group_tasks.pop(leader_id, None)
+                _sync_group_emote.pop(leader_id, None)
                 return
-
-            target_eid = _player_emotes.get(target_uid)
-            now = _time.time()
-
-            if target_eid != cur_eid:
-                # Target changed (or stopped)
-                cur_eid = target_eid
-                if cur_eid:
-                    print(f"[SYNC_COPY] follower={follower_uid} "
-                          f"target={target_uid} emote={cur_eid}")
-                    try:
-                        await _send_player(bot, cur_eid, follower_uid)
-                    except Exception as exc:
-                        print(f"[SYNC] send err {follower_uid}: {exc!r}")
-                    next_resend = now + max(0.5, get_emote_time(cur_eid))
-                else:
-                    next_resend = 0.0
-            elif cur_eid and now >= next_resend:
-                # Same emote still playing — re-send to keep follower looping
-                try:
-                    await _send_player(bot, cur_eid, follower_uid)
-                except Exception as exc:
-                    print(f"[SYNC] resend err {follower_uid}: {exc!r}")
-                next_resend = now + max(0.5, get_emote_time(cur_eid))
-
-            await asyncio.sleep(_SYNC_POLL_SECS)
+            await asyncio.gather(
+                *[_send_player(bot, emote_id, f) for f in followers],
+                return_exceptions=True,
+            )
     except asyncio.CancelledError:
         raise
     except Exception as exc:
-        print(f"[SYNC] watcher err follower={follower_uid} "
-              f"target={target_uid}: {exc!r}")
+        print(f"[SYNC_GROUP_LOOP] err leader={leader_id}: {exc!r}")
 
 
-def _clear_sync_follower(follower_uid: str) -> str | None:
-    """Cancel follower's watcher and drop indices. Returns prior target uid."""
-    target = _sync_target.pop(follower_uid, None)
-    if target:
-        followers = _sync_followers.get(target)
-        if followers:
-            followers.discard(follower_uid)
-            if not followers:
-                _sync_followers.pop(target, None)
-    task = _sync_tasks.pop(follower_uid, None)
-    if task and not task.done():
-        task.cancel()
-    return target
+async def start_sync_group_emote(bot: "BaseBot", leader_id: str,
+                                  emote_id: str, alias: str) -> bool:
+    """Called (via hook) when a bot-controlled player emote starts for leader_id.
+
+    - If leader has no followers: returns False — _start_player_loop sends normally.
+    - Otherwise: sends emote to leader + all followers simultaneously via
+      asyncio.gather(), starts a shared group loop for follower keepalive,
+      and returns True — caller skips its individual _send_player for the leader.
+    Dedup guard: if the same emote is already running for this leader, skips.
+    """
+    followers = list(_sync_followers.get(leader_id, set()))
+    if not followers:
+        return False
+
+    # Dedup: hook fires AND on_emote fires for bot-triggered emotes — skip second
+    existing = _sync_group_tasks.get(leader_id)
+    if (existing and not existing.done()
+            and _sync_group_emote.get(leader_id) == emote_id):
+        return True
+
+    # Cancel old group task (leader changed emote)
+    old = _sync_group_tasks.pop(leader_id, None)
+    if old and not old.done():
+        old.cancel()
+
+    # Simultaneous send to leader + all valid followers
+    group = get_sync_group(leader_id)
+    print(f"[SYNC_GROUP_SEND] leader={leader_id} members={len(group)} emote={emote_id}")
+    try:
+        from modules.emote_system import _send_player
+        await asyncio.gather(
+            *[_send_player(bot, emote_id, uid) for uid in group],
+            return_exceptions=True,
+        )
+    except Exception as exc:
+        print(f"[SYNC_GROUP_SEND] gather err: {exc!r}")
+
+    _sync_group_emote[leader_id] = emote_id
+    # Group loop re-sends followers only; leader's _run_player_loop handles leader
+    _sync_group_tasks[leader_id] = asyncio.create_task(
+        _sync_group_loop(bot, leader_id, emote_id, alias))
+    return True
+
+
+def _on_cancel_player_loop(uid: str) -> None:
+    """Hook called by _cancel_player_loop — cancel group loop for this leader.
+
+    Subscriptions are kept intact: next emote from the leader re-engages
+    the group.  Only clear() / leave / syncstop unsubscribes followers.
+    """
+    old = _sync_group_tasks.pop(uid, None)
+    if old and not old.done():
+        old.cancel()
+    _sync_group_emote.pop(uid, None)
+
+
+def _dissolve_leader(leader_id: str) -> None:
+    """Cancel group task and remove all follower subscriptions."""
+    old = _sync_group_tasks.pop(leader_id, None)
+    if old and not old.done():
+        old.cancel()
+    _sync_group_emote.pop(leader_id, None)
+    for f in list(_sync_followers.pop(leader_id, set())):
+        _sync_leader_of.pop(f, None)
+        _sync_leader_name.pop(f, None)
+        _sync_follower_name.pop(f, None)
+    print(f"[SYNC_DISSOLVE] leader={leader_id}")
+
+
+def _unsubscribe_follower(follower_id: str) -> str | None:
+    """Remove follower from their leader's group. Returns prior leader_id."""
+    leader_id = _sync_leader_of.pop(follower_id, None)
+    _sync_leader_name.pop(follower_id, None)
+    _sync_follower_name.pop(follower_id, None)
+    if leader_id is None:
+        return None
+    followers = _sync_followers.get(leader_id)
+    if followers:
+        followers.discard(follower_id)
+        if not followers:
+            _dissolve_leader(leader_id)
+    print(f"[SYNC_UNSUBSCRIBE] follower={follower_id}")
+    return leader_id
 
 
 async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
-    """!sync @user — start mirroring target's live emote state."""
+    """!sync @Leader — subscribe to Leader's emote group."""
     if len(args) < 2 or not args[1].startswith("@"):
         await _w(bot, user.id, "Usage: !sync @user")
         return
@@ -471,35 +528,33 @@ async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
     if not pair:
         await _w(bot, user.id, f"@{target_name} is not in the room.")
         return
-    target_user, _ = pair
+    leader_user, _ = pair
 
-    # Replace any prior sync this follower had
-    _clear_sync_follower(user.id)
+    # Unsubscribe from any prior leader
+    _unsubscribe_follower(user.id)
 
-    # Cancel any solo player loop / dancefloor loop the follower has so the
-    # mirror is exclusive (otherwise both systems would fight to send emotes).
+    # Cancel solo player loop + dancefloor slot
     try:
         from modules.emote_system import _cancel_player_loop
         _cancel_player_loop(user.id)
     except Exception:
         pass
-    # Remove from dancefloor tracking so dancefloor doesn't restart them.
     _df_inside.discard(user.id)
     _df_user_emote.pop(user.id, None)
 
-    _sync_target[user.id] = target_user.id
-    _sync_followers.setdefault(target_user.id, set()).add(user.id)
-    _sync_tasks[user.id] = asyncio.create_task(
-        _sync_watcher(bot, user.id, target_user.id))
-
+    _sync_leader_of[user.id]    = leader_user.id
+    _sync_leader_name[user.id]  = leader_user.username
+    _sync_follower_name[user.id] = user.username
+    _sync_followers.setdefault(leader_user.id, set()).add(user.id)
+    print(f"[SYNC_SUBSCRIBE] follower={user.id} leader={leader_user.id}")
     await _w(bot, user.id,
-             f"🔄 Syncing to @{target_user.username}. "
+             f"🔄 Syncing to @{leader_user.username}. "
              f"Type 'Stop' or !syncstop to end.")
 
 
 async def try_sync_shortcut(bot: "BaseBot", user: "User",
                              message: str) -> bool:
-    """Bare 'Stop' (any case) from a syncing user ends their sync. Returns True if handled."""
+    """Bare 'Stop' from a follower ends sync. Returns True if handled."""
     if not message:
         return False
     if message.strip().lower() == "stop" and is_in_sync(user.id):
@@ -510,77 +565,64 @@ async def try_sync_shortcut(bot: "BaseBot", user: "User",
 
 async def handle_syncstop(bot: "BaseBot", user: "User",
                            _args: list | None = None) -> None:
-    """!syncstop — end this user's sync."""
-    prior = _clear_sync_follower(user.id)
-    if not prior:
+    """!syncstop — leave sync group."""
+    prior = _unsubscribe_follower(user.id)
+    if prior is None:
         await _w(bot, user.id, "You have no active sync.")
         return
-    # Cancel any residual loop on follower (mirrored emote)
     try:
         from modules.emote_system import _cancel_player_loop
         _cancel_player_loop(user.id)
     except Exception:
         pass
-    print(f"[SYNC_STOP] follower={user.id}")
     await _w(bot, user.id, "⏹ Sync stopped.")
 
 
 def is_in_sync(user_id: str) -> bool:
-    return user_id in _sync_target
+    """True if user_id is subscribed to a sync group as a follower."""
+    return user_id in _sync_leader_of
 
 
-async def sync_push_emote_event(bot: "BaseBot", uid: str,
-                                emote_id: str) -> None:
-    """Called from main.on_emote — update _player_emotes so the watcher poll
-    stays accurate, then immediately push the new emote to any followers.
-
-    This makes sync event-driven (no poll-lag) for both bot-command emotes
-    and in-game emote-wheel emotes.
-    """
-    # Keep the shared dict accurate so the watcher's timing logic is correct.
-    try:
-        from modules.emote_system import _player_emotes
-        _player_emotes[uid] = emote_id
-    except Exception:
-        pass
+async def handle_syncstatus(bot: "BaseBot", user: "User",
+                             _args: list | None = None) -> None:
+    """!syncstatus — show your sync group status."""
+    uid = user.id
+    # As follower
+    if uid in _sync_leader_of:
+        leader_name = _sync_leader_name.get(uid, "?")
+        await _w(bot, uid, f"🔄 Synced to: @{leader_name}")
+        return
+    # As leader
     followers = list(_sync_followers.get(uid, set()))
-    if not followers:
+    if followers:
+        names = ", ".join(
+            f"@{_sync_follower_name.get(f, f[:6])}" for f in followers[:6])
+        await _w(bot, uid,
+                 f"👥 Followers ({len(followers)}): {names}"[:249])
         return
-    print(f"[SYNC_TARGET_EVENT] target={uid} emote={emote_id} "
-          f"followers={len(followers)}")
-    try:
-        from modules.emote_system import _send_player
-    except Exception:
-        return
-    # Filter to valid followers and log before gather
-    valid_fids = [f for f in followers if _sync_target.get(f) == uid]
-    for f_uid in valid_fids:
-        print(f"[SYNC_COPY] follower={f_uid} target={uid} emote={emote_id}")
-    if not valid_fids:
-        return
-    # Send to all followers simultaneously — closest server-side sync possible
-    results = await asyncio.gather(
-        *[_send_player(bot, emote_id, f) for f in valid_fids],
-        return_exceptions=True,
-    )
-    for f_uid, r in zip(valid_fids, results):
-        if isinstance(r, Exception):
-            print(f"[SYNC_COPY] send err follower={f_uid}: {r!r}")
+    await _w(bot, uid, "No active sync.")
 
 
 def clear_sync_on_leave(user_id: str) -> None:
-    """Called from main.on_user_leave — clean up sync state for a leaving user.
-
-    - If they were a follower: cancel their watcher + drop indices.
-    - If they were a target: cancel every follower's watcher and drop indices.
-    """
+    """Called from main.on_user_leave — clean up sync state for a leaving user."""
     # As follower
-    _clear_sync_follower(user_id)
-    # As target — copy follower set since _clear_sync_follower mutates it
-    followers = list(_sync_followers.get(user_id, set()))
-    for f_uid in followers:
-        _clear_sync_follower(f_uid)
-    _sync_followers.pop(user_id, None)
+    _unsubscribe_follower(user_id)
+    # As leader — dissolve entire group
+    if user_id in _sync_followers:
+        _dissolve_leader(user_id)
+
+
+# Register hooks with emote_system at import time.
+# emote_system never imports emote_extras, so there is no circular import.
+try:
+    from modules.emote_system import (
+        set_group_start_hook as _set_gs_hook,
+        set_cancel_loop_hook as _set_cl_hook,
+    )
+    _set_gs_hook(start_sync_group_emote)
+    _set_cl_hook(_on_cancel_player_loop)
+except Exception as _hook_exc:
+    print(f"[SYNC] hook registration failed: {_hook_exc!r}")
 
 
 # ===========================================================================
@@ -710,20 +752,20 @@ async def handle_favemote(bot: "BaseBot", user: "User", args: list) -> None:
 # personal emote loop.
 
 _DF_POLL_SECS = 2.0
-_df_task: dict[str, asyncio.Task] = {}
-_df_inside: set[str] = set()                   # user_ids currently inside
-_df_user_emote: dict[str, str] = {}            # uid -> current emote alias
-_df_player_tasks: dict[str, asyncio.Task] = {} # uid -> per-player cycle task
+_df_task:       dict[str, asyncio.Task] = {}  # {"_": position-polling loop task}
+_df_cycle_task: dict[str, asyncio.Task] = {}  # {"_": shared emote-cycle task}
+_df_inside:     set[str]                = set()  # user_ids currently inside box
+_df_user_emote: dict[str, str]          = {}     # uid -> last emote alias (compat)
 
 
-async def _df_player_cycle(bot: "BaseBot", uid: str) -> None:
-    """Cycle through the full dancefloor emote pool for one player.
+async def _df_shared_cycle(bot: "BaseBot") -> None:
+    """Single shared cycle — broadcasts the same emote to ALL players inside.
 
     Each lap:
       - Re-reads the saved pool (picks up live config changes).
-      - Shuffles into random order; avoids starting on the same emote as the
-        previous lap's last emote.
-      - Sends each emote in sequence; waits for its registry-timed duration.
+      - Shuffles into random order; avoids starting on the prev lap's last emote.
+      - Sends each emote to everyone currently inside via asyncio.gather().
+      - Waits for its registry-timed duration before advancing.
     """
     from modules.emote_system import _send_player, get_emote_time
     import random as _rnd
@@ -731,6 +773,10 @@ async def _df_player_cycle(bot: "BaseBot", uid: str) -> None:
     prev_alias: str | None = None
     try:
         while True:
+            if not _df_inside:
+                await asyncio.sleep(1.0)
+                continue
+
             emotes = _df_get_emotes()
             valid_pairs: list[tuple[str, str]] = []
             for alias in emotes:
@@ -748,30 +794,22 @@ async def _df_player_cycle(bot: "BaseBot", uid: str) -> None:
                 valid_pairs.append(valid_pairs.pop(0))
 
             for alias, eid in valid_pairs:
-                # Check task is still wanted (player may have left mid-lap)
-                if uid not in _df_inside:
-                    return
+                players = list(_df_inside)
+                if not players:
+                    break
                 duration = max(0.5, get_emote_time(eid))
                 print(f"[DANCEFLOOR_CYCLE] alias={alias} eid={eid} "
-                      f"time={duration:.1f} players={len(_df_inside)}")
-                try:
-                    await _send_player(bot, eid, uid)
-                except Exception as exc:
-                    print(f"[DANCEFLOOR_CYCLE] send err uid={uid}: {exc!r}")
+                      f"time={duration:.1f} players={len(players)}")
+                await asyncio.gather(
+                    *[_send_player(bot, eid, uid) for uid in players],
+                    return_exceptions=True,
+                )
                 prev_alias = alias
                 await asyncio.sleep(duration)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
-        print(f"[DANCEFLOOR_CYCLE] err uid={uid}: {exc!r}")
-
-
-def _df_cancel_player(uid: str) -> None:
-    """Cancel this player's dancefloor cycle task."""
-    t = _df_player_tasks.pop(uid, None)
-    if t and not t.done():
-        t.cancel()
-    _df_user_emote.pop(uid, None)
+        print(f"[DANCEFLOOR_CYCLE] err: {exc!r}")
 
 
 def _df_get_point(slot: int) -> tuple[float, float, float] | None:
@@ -817,7 +855,7 @@ def _in_box(pos, box) -> bool:
 
 
 async def _dancefloor_loop(bot: "BaseBot") -> None:
-    """Poll positions every _DF_POLL_SECS; start/stop per-player cycle tasks."""
+    """Poll positions every _DF_POLL_SECS; update _df_inside; manage shared cycle."""
     from modules.live_bot_registry import live_bot_keys
     print("[DANCEFLOOR] loop started")
     while True:
@@ -844,29 +882,32 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
                     continue
                 if not _in_box(pos, box):
                     continue
+                # Skip players that are currently in a sync group as followers
+                if is_in_sync(u.id):
+                    print(f"[DANCEFLOOR_SKIP_SYNC] user={u.id}")
+                    continue
                 current_inside.add(u.id)
                 if u.id not in _df_inside:
-                    # New entrant — skip if they are currently syncing
-                    if is_in_sync(u.id):
-                        print(f"[DANCEFLOOR_SKIP_SYNC] user={u.id}")
-                        continue
-                    # Entered — launch cycle task (picks emotes itself each lap)
                     print(f"[DANCEFLOOR_ENTER] user={u.id}")
-                    t = _df_player_tasks.get(u.id)
-                    if not t or t.done():
-                        _df_player_tasks[u.id] = asyncio.create_task(
-                            _df_player_cycle(bot, u.id))
 
             print(f"[DANCEFLOOR_TICK] users={len(users)} "
                   f"inside={len(current_inside)} active=true")
 
-            # Stop cycle tasks for those who left
             for left_uid in (_df_inside - current_inside):
                 print(f"[DANCEFLOOR_EXIT] user={left_uid}")
-                _df_cancel_player(left_uid)
 
             _df_inside.clear()
             _df_inside.update(current_inside)
+
+            # Ensure shared cycle is running iff players are inside
+            cyc = _df_cycle_task.get("_")
+            if _df_inside and (cyc is None or cyc.done()):
+                _df_cycle_task["_"] = asyncio.create_task(_df_shared_cycle(bot))
+                print("[DANCEFLOOR] shared cycle started")
+            elif not _df_inside and cyc and not cyc.done():
+                cyc.cancel()
+                _df_cycle_task.pop("_", None)
+                print("[DANCEFLOOR] shared cycle stopped (empty)")
         except asyncio.CancelledError:
             print("[DANCEFLOOR] loop cancelled")
             raise
@@ -883,15 +924,16 @@ def _ensure_dancefloor_task(bot: "BaseBot") -> None:
 
 
 def _stop_dancefloor_task() -> None:
+    # Cancel position-polling loop
     t = _df_task.pop("_", None)
     if t and not t.done():
         t.cancel()
-    # Cancel all per-player cycle tasks
-    for uid in list(_df_inside):
-        _df_cancel_player(uid)
+    # Cancel shared emote-cycle task
+    cyc = _df_cycle_task.pop("_", None)
+    if cyc and not cyc.done():
+        cyc.cancel()
     _df_inside.clear()
     _df_user_emote.clear()
-    _df_player_tasks.clear()
 
 
 async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
@@ -1058,14 +1100,16 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
         box = _df_get_box()
         emotes = _df_get_emotes()
         active = _df_is_active()
-        task = _df_task.get("_")
-        task_running = bool(task and not task.done())
+        poll_task = _df_task.get("_")
+        cyc_task  = _df_cycle_task.get("_")
+        poll_run  = bool(poll_task and not poll_task.done())
+        cyc_run   = bool(cyc_task and not cyc_task.done())
         inside_list = list(_df_inside)
         box_str = (f"x[{box[0]:.1f}..{box[2]:.1f}] z[{box[1]:.1f}..{box[3]:.1f}]"
                    if box else "unset")
         await _w(bot, uid,
-                 f"🔍 DF: active={active} task={task_running} box={box_str} "
-                 f"emotes={len(emotes)} inside={len(inside_list)}")
+                 f"🔍 DF: active={active} poll={poll_run} cycle={cyc_run} "
+                 f"box={box_str} emotes={len(emotes)} inside={len(inside_list)}"[:249])
         if inside_list:
             await _w(bot, uid, f"Inside IDs: {', '.join(inside_list[:5])}"[:249])
         return
@@ -1089,18 +1133,17 @@ async def handle_syncdebug(bot: "BaseBot", user: "User", args: list) -> None:
         return
     target_user, _ = pair
     tid = target_user.id
-    from modules.emote_system import _player_emotes
-    syncing_to = _sync_target.get(tid, "(none)")
-    followers  = list(_sync_followers.get(tid, set()))
-    tracked    = _player_emotes.get(tid, "(none)")
-    t_task     = _sync_tasks.get(tid)
-    watcher    = bool(t_task and not t_task.done())
+    leader    = _sync_leader_of.get(tid, "(none)")
+    followers = list(_sync_followers.get(tid, set()))
+    grp_task  = _sync_group_tasks.get(tid)
+    grp_run   = bool(grp_task and not grp_task.done())
+    cur_emote = _sync_group_emote.get(tid, "(none)")
     await _w(bot, user.id,
              f"🔍 Sync: @{target_user.username} uid={tid}")
     await _w(bot, user.id,
-             f"syncing_to={syncing_to} followers={len(followers)}"[:249])
+             f"syncing_to={leader} followers={len(followers)}"[:249])
     await _w(bot, user.id,
-             f"tracked_emote={tracked} watcher={watcher}"[:249])
+             f"group_emote={cur_emote} group_task={grp_run}"[:249])
     if followers:
         await _w(bot, user.id,
                  f"follower IDs: {', '.join(followers[:4])}"[:249])

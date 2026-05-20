@@ -251,6 +251,26 @@ def _cd_set(store: dict, uid: str) -> None:
 # Send helpers
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Group-sync hooks — registered by emote_extras at import time.
+# Using a callback avoids circular imports (emote_system never imports extras).
+# ---------------------------------------------------------------------------
+_group_start_hook: "Callable | None" = None   # async (bot, uid, eid, alias) -> bool
+_cancel_loop_hook: "Callable | None" = None   # (uid) -> None
+
+
+def set_group_start_hook(fn: "Callable") -> None:
+    """Register hook called before leader's first send in _start_player_loop."""
+    global _group_start_hook
+    _group_start_hook = fn
+
+
+def set_cancel_loop_hook(fn: "Callable") -> None:
+    """Register hook called when _cancel_player_loop fires (for group cleanup)."""
+    global _cancel_loop_hook
+    _cancel_loop_hook = fn
+
+
 async def _send_player(bot: "BaseBot", eid: str, uid: str) -> bool:
     """send_emote(eid, uid) — player directed."""
     try:
@@ -268,6 +288,11 @@ def _cancel_player_loop(uid: str) -> None:
     if task and not task.done():
         task.cancel()
     _player_emotes.pop(uid, None)
+    if _cancel_loop_hook is not None:
+        try:
+            _cancel_loop_hook(uid)
+        except Exception:
+            pass
 
 
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
@@ -312,10 +337,20 @@ async def _start_player_loop(
     Callers are responsible for cooldown gating.
     """
     _cancel_player_loop(uid)
-    ok = await _send_player(bot, eid, uid)
-    if not ok:
-        await _w(bot, uid, f"Could not send emote '{display_name}'.")
-        return False
+    # If a group-sync hook is registered and uid is a leader with followers,
+    # let it handle the initial send to leader + followers together.
+    # Returns True → skip individual _send_player (hook already sent to leader).
+    leader_sent = False
+    if _group_start_hook is not None:
+        try:
+            leader_sent = bool(await _group_start_hook(bot, uid, eid, display_name))
+        except Exception:
+            pass
+    if not leader_sent:
+        ok = await _send_player(bot, eid, uid)
+        if not ok:
+            await _w(bot, uid, f"Could not send emote '{display_name}'.")
+            return False
     interval = get_emote_time(eid)
     if interval <= 0:
         _log(log_event, user_id=uid, username=username, emote=eid, oneshot=True)

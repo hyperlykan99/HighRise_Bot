@@ -280,7 +280,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── dj — emote_extras (sync / dancefloor / socials / favs) ───────────────
     "superpunch": "dj", "bonk": "dj", "yeet": "dj",
     "hypnotize": "dj", "duel": "dj",
-    "sync": "dj", "syncstop": "dj", "syncdebug": "dj",
+    "sync": "dj", "syncstop": "dj", "syncdebug": "dj", "syncstatus": "dj",
     "favemotes": "dj", "favemote": "dj",
     "dancefloor": "dj",
     "emotetestchecklist": "dj",

@@ -930,8 +930,8 @@ from modules.emote_extras import (
     handle_emotes_socials,
     handle_kiss_social, handle_slap_social,
     handle_superpunch, handle_bonk, handle_yeet, handle_hypnotize, handle_duel,
-    handle_sync, handle_syncstop, handle_syncdebug, try_sync_shortcut,
-    sync_push_emote_event,
+    handle_sync, handle_syncstop, handle_syncdebug, handle_syncstatus,
+    try_sync_shortcut, start_sync_group_emote,
     clear_sync_on_leave,
     handle_emote_all,
     handle_favemotes, handle_favemote,
@@ -1737,7 +1737,7 @@ TIP_AUDIT_COMMANDS: frozenset[str] = frozenset({
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIP_AUDIT_COMMANDS | {"ep"}
 # emote_extras commands (sync/socials/favorites/dancefloor/checklist)
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
-    "sync", "syncstop", "syncdebug", "favemotes", "favemote",
+    "sync", "syncstop", "syncdebug", "syncstatus", "favemotes", "favemote",
     "dancefloor", "emotetestchecklist",
     "superpunch", "bonk", "yeet", "hypnotize", "duel",
 }
@@ -7628,6 +7628,8 @@ class HangoutBot(BaseBot):
             await handle_syncstop(self, user, args)
         elif cmd == "syncdebug":
             await handle_syncdebug(self, user, args)
+        elif cmd == "syncstatus":
+            await handle_syncstatus(self, user, args)
         elif cmd == "favemotes":
             await handle_favemotes(self, user, args)
         elif cmd == "favemote":
@@ -8619,7 +8621,7 @@ class HangoutBot(BaseBot):
         try:
             # Event-driven sync push — updates _player_emotes + sends to
             # any followers immediately (covers in-game emote wheel too).
-            await sync_push_emote_event(self, user.id, emote_id)
+            await start_sync_group_emote(self, user.id, emote_id, emote_id)
         except Exception as _e:
             print(f"[ON_EMOTE] sync_push err: {_e!r}")
         try:
