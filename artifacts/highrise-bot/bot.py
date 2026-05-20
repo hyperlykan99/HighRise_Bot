@@ -47,7 +47,7 @@ HERE = Path(__file__).parent
 
 # Apply safe runtime defaults first so the prints reflect what will actually run.
 # Any existing env var (set in Replit Secrets) wins over these defaults.
-os.environ.setdefault("BOTS_ENABLED",                 "eventhost,dj")
+os.environ.setdefault("BOTS_ENABLED",                 "eventhost,dj,blackjack,poker")
 os.environ.setdefault("BOT_DISABLE_ON_FAST_EXIT",     "false")
 os.environ.setdefault("BOT_RECONNECT_MAX_FAST_EXITS", "999")
 
