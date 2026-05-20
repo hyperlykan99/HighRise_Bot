@@ -3525,6 +3525,12 @@ class HangoutBot(BaseBot):
             register_bot(self)
         except Exception as _lbe:
             print(f"[LIVE_BOTS] register failed (non-fatal): {_lbe}")
+        # Start the cross-process bot command relay poller (1 s interval).
+        try:
+            from modules.bot_command_relay import poller_loop as _relay_poller
+            asyncio.create_task(_relay_poller(self), name="bot_command_relay")
+        except Exception as _rpe:
+            print(f"[RELAY] poller start failed (non-fatal): {_rpe}")
         # Install SDK rate-limit guards — wraps send_whisper + chat on this fresh
         # Highrise() instance (SDK creates a new one each connect/reconnect)
         try:

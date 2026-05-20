@@ -1478,6 +1478,23 @@ def _migrate_db():
         "module TEXT NOT NULL DEFAULT '', "
         "owner_bot_mode TEXT NOT NULL, "
         "fallback_allowed INTEGER NOT NULL DEFAULT 1)",
+        # ── Cross-process bot command relay queue ─────────────────────────────
+        # Used so any bot can ask another bot (in a different subprocess) to
+        # perform an action.  Each bot polls this table every ~1 s for rows
+        # whose target_bot matches one of its own aliases.
+        "CREATE TABLE IF NOT EXISTS bot_command_queue ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "target_bot TEXT NOT NULL, "
+        "action TEXT NOT NULL, "
+        "payload TEXT NOT NULL DEFAULT '{}', "
+        "status TEXT NOT NULL DEFAULT 'pending', "
+        "requester_id TEXT NOT NULL DEFAULT '', "
+        "created_at TEXT NOT NULL DEFAULT '', "
+        "claimed_at TEXT NOT NULL DEFAULT '', "
+        "claimed_by TEXT NOT NULL DEFAULT '', "
+        "completed_at TEXT NOT NULL DEFAULT '')",
+        "CREATE INDEX IF NOT EXISTS idx_bot_cmd_queue_pending "
+        "ON bot_command_queue (status, target_bot)",
         # ── Casino integrity checker ──────────────────────────────────────────
         "CREATE TABLE IF NOT EXISTS casino_integrity_logs ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -3719,6 +3736,98 @@ def is_bot_mode_online(mode: str) -> bool:
     ).fetchone()
     conn.close()
     return row is not None
+
+
+# ---------------------------------------------------------------------------
+# Cross-process bot command relay queue helpers
+# ---------------------------------------------------------------------------
+
+def enqueue_bot_command(target_bot: str, action: str, payload_json: str,
+                        requester_id: str = "") -> int:
+    """Insert a pending command for `target_bot` and return its row id."""
+    import datetime as _dt
+    now = _dt.datetime.utcnow().isoformat()
+    conn = get_connection()
+    cur  = conn.execute(
+        "INSERT INTO bot_command_queue "
+        "(target_bot, action, payload, status, requester_id, created_at) "
+        "VALUES (?, ?, ?, 'pending', ?, ?)",
+        (target_bot.strip().lower().lstrip("@"), action, payload_json,
+         requester_id, now),
+    )
+    cmd_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return int(cmd_id)
+
+
+def claim_pending_bot_commands(aliases: list, claimer: str,
+                                limit: int = 25) -> list:
+    """Atomically claim any pending commands whose target_bot is in aliases.
+
+    Returns a list of dict rows that THIS caller successfully claimed.
+    """
+    if not aliases:
+        return []
+    import datetime as _dt
+    now = _dt.datetime.utcnow().isoformat()
+    norm = [a.strip().lower().lstrip("@") for a in aliases if a]
+    if not norm:
+        return []
+    placeholders = ",".join("?" for _ in norm)
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            f"SELECT id, target_bot, action, payload, requester_id, created_at "
+            f"FROM bot_command_queue "
+            f"WHERE status='pending' AND target_bot IN ({placeholders}) "
+            f"ORDER BY id ASC LIMIT ?",
+            (*norm, limit),
+        ).fetchall()
+        claimed: list = []
+        for r in rows:
+            cur = conn.execute(
+                "UPDATE bot_command_queue "
+                "SET status='claimed', claimed_at=?, claimed_by=? "
+                "WHERE id=? AND status='pending'",
+                (now, claimer, r["id"]),
+            )
+            if cur.rowcount == 1:
+                claimed.append({
+                    "id":           r["id"],
+                    "target_bot":   r["target_bot"],
+                    "action":       r["action"],
+                    "payload":      r["payload"],
+                    "requester_id": r["requester_id"],
+                    "created_at":   r["created_at"],
+                })
+        conn.commit()
+    finally:
+        conn.close()
+    return claimed
+
+
+def mark_bot_command_completed(cmd_id: int, status: str = "completed") -> None:
+    import datetime as _dt
+    now = _dt.datetime.utcnow().isoformat()
+    conn = get_connection()
+    conn.execute(
+        "UPDATE bot_command_queue SET status=?, completed_at=? WHERE id=?",
+        (status, now, cmd_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_bot_command_status(cmd_id: int) -> str:
+    """Return the current status of a queued command ('' if not found)."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT status FROM bot_command_queue WHERE id=? LIMIT 1",
+        (cmd_id,),
+    ).fetchone()
+    conn.close()
+    return (row["status"] if row else "") or ""
 
 
 # ---------------------------------------------------------------------------

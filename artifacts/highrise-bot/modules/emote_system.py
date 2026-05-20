@@ -525,11 +525,10 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, f"✅ {display} looping {eid} (every 5s).")
         return
 
-    # Not this bot — try shared LIVE_BOTS first (same subprocess), then channel.
+    # Not this bot — try shared LIVE_BOTS first (same subprocess fast path).
     import json as _json
     target_bot = get_live_bot(raw_target)
     if target_bot is not None:
-        # Same process: drive the target bot's client directly.
         old = _bot_loops.pop(raw_target, None)
         if old and not old.done():
             old.cancel()
@@ -549,17 +548,27 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         await target_bot.highrise.send_whisper(
             _uid2, f"✅ @{_tgt_display} is now looping {eid}.")
         return
-    # Not in this subprocess — broadcast on Highrise channel so the target bot
-    # (running in another subprocess) starts the loop and whispers the admin.
-    # We do NOT pre-check online status here: the channel will simply be a no-op
-    # if no bot picks it up.  Admins can run !livebots to debug presence.
-    _ch = _json.dumps({"action": "bot_emote_start", "target": raw_target,
-                        "emote_id": eid, "requester_id": uid})
-    try:
-        await bot.highrise.send_channel(_ch)
-    except Exception as _ce:
-        print(f"[EMOTE] channel send failed: {_ce!r}")
+    # Target lives in another subprocess — enqueue a command and let its
+    # 1-second poller pick it up.  Wait up to 5 s for it to be picked up;
+    # if not, warn the admin.
+    payload_json = _json.dumps({"emote_id": eid, "loop": True})
+    cmd_id = db.enqueue_bot_command(
+        target_bot=raw_target, action="botemote",
+        payload_json=payload_json, requester_id=str(uid),
+    )
     _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
+    # Poll the row up to 5 s — the target's relay will whisper the admin
+    # itself once it claims & runs the command, so we stay silent on success.
+    deadline = asyncio.get_event_loop().time() + 5.0
+    final_status = "pending"
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.5)
+        final_status = db.get_bot_command_status(cmd_id)
+        if final_status in ("completed", "error", "unknown_action"):
+            break
+    if final_status != "completed":
+        await _w(bot, uid,
+                 f"⚠️ @{raw_target} did not respond. It may be offline.")
 
 
 # ---------------------------------------------------------------------------
