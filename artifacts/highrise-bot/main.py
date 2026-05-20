@@ -934,6 +934,14 @@ from modules.emote_system import (
     notify_emote_event,
     handle_bot_emote_channel_event,
 )
+from modules.custom_emote_manager import (
+    handle_missingtimings,
+    handle_addbotemote,
+    handle_addplayeremote,
+    handle_removebotemote,
+    handle_removeplayeremote,
+    handle_customemotes,
+)
 from modules.emote_logger import (
     log_emote as emote_spy_log,
     handle_emotelog,
@@ -1364,6 +1372,9 @@ ALL_KNOWN_COMMANDS = (
         # ── Room utility — public ─────────────────────────────────────────────
         "players", "roomlist", "online", "staffonline", "vipsinroom", "rolelist",
         "emotes", "emote", "stopemote", "dance", "wave", "sit", "clap",
+        "botemotes", "playeremotes",
+        "missingtimings", "addbotemote", "addplayeremote",
+        "removebotemote", "removeplayeremote", "customemotes",
         "swordfight", "botemote", "stopbotemote", "livebots",
         "heart", "hearts", "heartlb", "giveheart", "reactheart",
         "hug", "kiss", "slap", "punch", "highfive", "boop", "waveat", "cheer",
@@ -7406,6 +7417,18 @@ class HangoutBot(BaseBot):
             await handle_groupteleport(self, user, args)
 
         # ── Emotes ────────────────────────────────────────────────────────────
+        elif cmd == "missingtimings":
+            await handle_missingtimings(self, user, args)
+        elif cmd == "addbotemote":
+            await handle_addbotemote(self, user, args)
+        elif cmd == "addplayeremote":
+            await handle_addplayeremote(self, user, args)
+        elif cmd == "removebotemote":
+            await handle_removebotemote(self, user, args)
+        elif cmd == "removeplayeremote":
+            await handle_removeplayeremote(self, user, args)
+        elif cmd == "customemotes":
+            await handle_customemotes(self, user, args)
         elif cmd == "emotes":
             await handle_emotes_auto(self, user, args)
         elif cmd == "botemotes":
