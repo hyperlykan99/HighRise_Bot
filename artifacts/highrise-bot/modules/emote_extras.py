@@ -514,6 +514,46 @@ def _unsubscribe_follower(follower_id: str) -> str | None:
     return leader_id
 
 
+def get_current_controlled_emote(user_id: str) -> dict | None:
+    """Return info about user_id's current bot-controlled emote, or None.
+
+    Checks in priority order:
+      1. Active player loop  (_player_emotes / _player_loops in emote_system)
+      2. Dancefloor          (user is inside box and shared cycle is broadcasting)
+      3. Sync group          (user is a leader whose group task is running)
+
+    Returns a dict: {source, alias, eid, interval}
+    Python resolves _df_inside / _df_current_eid at call-time so the forward
+    reference to dancefloor state (defined later in this file) is safe.
+    """
+    from modules.emote_system import _player_emotes, _player_loops, get_emote_time
+
+    # 1. Player loop (plain emote trigger or !emote command)
+    eid = _player_emotes.get(user_id)
+    if eid:
+        task = _player_loops.get(user_id)
+        if task and not task.done():
+            return {"source": "player_loop", "alias": eid,
+                    "eid": eid, "interval": get_emote_time(eid)}
+
+    # 2. Dancefloor (user inside box; shared cycle currently active)
+    if user_id in _df_inside:
+        cur_eid = _df_current_eid[0]
+        if cur_eid:
+            return {"source": "dancefloor", "alias": cur_eid,
+                    "eid": cur_eid, "interval": get_emote_time(cur_eid)}
+
+    # 3. Sync group (user is a leader with a running group task)
+    grp_eid = _sync_group_emote.get(user_id)
+    if grp_eid:
+        grp_task = _sync_group_tasks.get(user_id)
+        if grp_task and not grp_task.done():
+            return {"source": "sync_group", "alias": grp_eid,
+                    "eid": grp_eid, "interval": get_emote_time(grp_eid)}
+
+    return None
+
+
 async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
     """!sync @Leader — subscribe to Leader's emote group."""
     if len(args) < 2 or not args[1].startswith("@"):
@@ -547,9 +587,32 @@ async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
     _sync_follower_name[user.id] = user.username
     _sync_followers.setdefault(leader_user.id, set()).add(user.id)
     print(f"[SYNC_SUBSCRIBE] follower={user.id} leader={leader_user.id}")
-    await _w(bot, user.id,
-             f"🔄 Syncing to @{leader_user.username}. "
-             f"Type 'Stop' or !syncstop to end.")
+
+    # Catch-up: leader already in a bot-controlled emote → send it now
+    cur = get_current_controlled_emote(leader_user.id)
+    if cur:
+        eid, alias = cur["eid"], cur["alias"]
+        print(f"[SYNC_CATCHUP] follower={user.id} leader={leader_user.id} "
+              f"source={cur['source']} alias={alias} eid={eid}")
+        try:
+            from modules.emote_system import _send_player
+            await _send_player(bot, eid, user.id)
+        except Exception as exc:
+            print(f"[SYNC_CATCHUP] send err: {exc!r}")
+        # Start group loop if not already running (covers first-follower case)
+        existing_task = _sync_group_tasks.get(leader_user.id)
+        if existing_task is None or existing_task.done():
+            _sync_group_emote[leader_user.id] = eid
+            _sync_group_tasks[leader_user.id] = asyncio.create_task(
+                _sync_group_loop(bot, leader_user.id, eid, alias))
+        await _w(bot, user.id,
+                 f"🔄 Synced to @{leader_user.username} — "
+                 f"now doing: {alias}"[:249])
+    else:
+        print(f"[SYNC_WAITING] follower={user.id} leader={leader_user.id}")
+        await _w(bot, user.id,
+                 f"🔄 Synced to @{leader_user.username}. "
+                 f"Waiting for their next emote.")
 
 
 async def try_sync_shortcut(bot: "BaseBot", user: "User",
@@ -752,10 +815,11 @@ async def handle_favemote(bot: "BaseBot", user: "User", args: list) -> None:
 # personal emote loop.
 
 _DF_POLL_SECS = 2.0
-_df_task:       dict[str, asyncio.Task] = {}  # {"_": position-polling loop task}
-_df_cycle_task: dict[str, asyncio.Task] = {}  # {"_": shared emote-cycle task}
-_df_inside:     set[str]                = set()  # user_ids currently inside box
-_df_user_emote: dict[str, str]          = {}     # uid -> last emote alias (compat)
+_df_task:        dict[str, asyncio.Task] = {}  # {"_": position-polling loop task}
+_df_cycle_task:  dict[str, asyncio.Task] = {}  # {"_": shared emote-cycle task}
+_df_inside:      set[str]                = set()  # user_ids currently inside box
+_df_user_emote:  dict[str, str]          = {}     # uid -> last emote alias (compat)
+_df_current_eid: list[str]               = [""]   # [0] = eid currently being broadcast
 
 
 async def _df_shared_cycle(bot: "BaseBot") -> None:
@@ -797,11 +861,26 @@ async def _df_shared_cycle(bot: "BaseBot") -> None:
                 players = list(_df_inside)
                 if not players:
                     break
+                # Track so get_current_controlled_emote() can report this
+                _df_current_eid[0] = eid
+                # Collect sync followers of inside players not already on the floor
+                extra: list[str] = []
+                for inside_uid in players:
+                    fols = [
+                        f for f in _sync_followers.get(inside_uid, set())
+                        if _sync_leader_of.get(f) == inside_uid
+                        and f not in _df_inside
+                    ]
+                    if fols:
+                        print(f"[DANCEFLOOR_SYNC_FOLLOWERS] leader={inside_uid} "
+                              f"followers={len(fols)} alias={alias}")
+                        extra.extend(fols)
+                all_targets = players + extra
                 duration = max(0.5, get_emote_time(eid))
                 print(f"[DANCEFLOOR_CYCLE] alias={alias} eid={eid} "
                       f"time={duration:.1f} players={len(players)}")
                 await asyncio.gather(
-                    *[_send_player(bot, eid, uid) for uid in players],
+                    *[_send_player(bot, eid, uid) for uid in all_targets],
                     return_exceptions=True,
                 )
                 prev_alias = alias

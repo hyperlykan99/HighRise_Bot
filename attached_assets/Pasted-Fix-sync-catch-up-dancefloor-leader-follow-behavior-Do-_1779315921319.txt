@@ -1,0 +1,70 @@
+Fix sync catch-up + dancefloor leader-follow behavior.
+
+Do not touch startup, tokens, music, casino, or unrelated systems.
+
+Current issue:
+Sync works only if follower syncs first, then leader starts an emote.
+But if leader is already emoting, follower types !sync @leader and nothing starts until leader changes emote.
+
+Required behavior:
+When follower types:
+!sync @4ktreyMarion
+
+If 4ktreyMarion is already in any active bot-controlled emote/loop:
+- immediately add follower to leader’s sync group
+- immediately send leader’s current emote to follower
+- attach follower to the same shared group loop/timing
+- follower should continue on the same timing cycle as leader
+
+Sources that count as leader current emote:
+1. normal player emote loop from plain emote word
+2. !emote <name>
+3. dancefloor current emote if leader is inside dancefloor
+4. room/player loop currently controlled by emote_system
+
+Add helper:
+get_current_controlled_emote(user_id) -> {
+  source: "player_loop" | "dancefloor" | "sync_group" | None,
+  alias: str,
+  eid: str,
+  started_at: float,
+  interval: float
+}
+
+On !sync:
+- subscribe follower to leader
+- call get_current_controlled_emote(leader_id)
+- if current emote exists:
+    start_sync_group_emote(bot, leader_id, eid, alias, catchup=True)
+    send same emote to follower immediately
+- whisper:
+  "Synced to @leader and joined current emote: <alias>"
+- if no current emote:
+  whisper:
+  "Synced to @leader. Waiting for their next emote."
+
+Dancefloor issue:
+If leader enters dancefloor and has sync followers, followers should follow the leader’s dancefloor emote too.
+
+Required:
+When dancefloor cycle sends emote to players inside:
+- for each inside player, if that player has sync followers, include followers in the same asyncio.gather send
+- followers do NOT need to be physically inside the dancefloor
+- sync followers receive same emote as their leader
+- do not duplicate-send if follower is also inside dancefloor
+
+Add debug:
+[SYNC_CATCHUP] follower=<id> leader=<id> source=<source> alias=<alias> eid=<eid>
+[SYNC_WAITING] follower=<id> leader=<id>
+[DANCEFLOOR_SYNC_FOLLOWERS] leader=<id> followers=<count> alias=<alias>
+
+Test:
+1. 4ktreyMarion: justvibing
+2. AshQuinn_: !sync @4ktreyMarion
+Expected: AshQuinn immediately starts justvibing.
+
+3. 4ktreyMarion enters dancefloor
+Expected: AshQuinn copies the same dancefloor emotes even outside the floor.
+
+Compile:
+python -m py_compile bot.py main.py modules/emote_extras.py modules/emote_system.py
