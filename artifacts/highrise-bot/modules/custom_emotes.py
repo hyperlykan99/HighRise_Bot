@@ -112,18 +112,29 @@ async def _run_custom_loop(
     uid: str,
     steps: list[tuple[str, str, float]],
 ) -> None:
-    """Loop the given (alias, eid, seconds) steps forever until cancelled."""
+    """Loop the given (alias, eid, seconds) steps forever until cancelled.
+
+    Each step is sent to the leader (uid) AND any sync followers who have
+    subscribed to uid as their group leader, so followers mirror the sequence.
+    """
+    from modules.emote_system import _send_player
+    from modules.emote_extras import _sync_followers, _sync_leader_of
     try:
         while True:
             for alias, eid, duration in steps:
+                # Collect valid sync followers of uid
+                followers = [
+                    f for f in _sync_followers.get(uid, set())
+                    if _sync_leader_of.get(f) == uid
+                ]
+                targets = [uid] + followers
                 print(f"[CUSTOM_EMOTE_STEP] user={uid} alias={alias} "
-                      f"eid={eid} time={duration:.1f}")
-                try:
-                    await bot.highrise.send_emote(eid, uid)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    print(f"[CUSTOM_EMOTE_STEP] send err: {exc!r}")
+                      f"eid={eid} time={duration:.1f} "
+                      f"followers={len(followers)}")
+                await asyncio.gather(
+                    *[_send_player(bot, eid, t) for t in targets],
+                    return_exceptions=True,
+                )
                 await asyncio.sleep(max(0.5, duration))
     except asyncio.CancelledError:
         raise
