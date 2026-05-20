@@ -264,13 +264,26 @@ def _load() -> None:
 
 
 def save() -> None:
-    """Persist the registry to data/emotes.json."""
+    """Atomically persist the registry to data/emotes.json.
+
+    Uses write-to-temp + os.replace() so a mid-write crash (SIGKILL/SIGTERM)
+    never leaves a corrupted or truncated JSON file.  The old file stays intact
+    until the new one is fully flushed and renamed.
+    """
+    tmp = _JSON_PATH + ".tmp"
     try:
         os.makedirs(_HERE, exist_ok=True)
-        with open(_JSON_PATH, "w", encoding="utf-8") as fh:
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(_REGISTRY, fh, indent=2, ensure_ascii=False, sort_keys=True)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, _JSON_PATH)
     except Exception as exc:
         print(f"[EMOTE_REGISTRY] save failed: {exc}")
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 # Load on import (safe — never raises).
@@ -427,6 +440,7 @@ def set_field(alias: str, field: str, value: Any) -> bool:
         entry["category"] = str(value) if value else "uncategorized"
 
     save()
+    print(f"[EMOTE_REGISTRY_SAVE] alias={alias!r} field={field!r} value={value!r} path={_JSON_PATH}")
     return True
 
 
