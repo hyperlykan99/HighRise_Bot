@@ -41,6 +41,29 @@ from typing import NamedTuple
 
 HERE = Path(__file__).parent
 
+# ─── STARTUP DOCTOR ──────────────────────────────────────────────────────────
+# Runs at the very top — before database, config, or SDK imports.
+# Never prints token values — only presence booleans.
+
+# Apply safe runtime defaults first so the prints reflect what will actually run.
+# Any existing env var (set in Replit Secrets) wins over these defaults.
+os.environ.setdefault("BOTS_ENABLED",                 "main,dj")
+os.environ.setdefault("BOT_DISABLE_ON_FAST_EXIT",     "false")
+os.environ.setdefault("BOT_RECONNECT_MAX_FAST_EXITS", "999")
+
+def _yn(key: str) -> str:
+    """Return 'true'/'false' for whether env var is set (never leaks the value)."""
+    return "true" if os.environ.get(key) else "false"
+
+print(f"[STARTUP_DOCTOR] run_command=python3 bot.py (confirmed)",    flush=True)
+print(f"[STARTUP_DOCTOR] cwd={Path.cwd()}",                         flush=True)
+print(f"[STARTUP_DOCTOR] python={sys.executable}",                  flush=True)
+print(f"[STARTUP_DOCTOR] ROOM_ID present={_yn('ROOM_ID')}",         flush=True)
+print(f"[STARTUP_DOCTOR] BOT_TOKEN present={_yn('BOT_TOKEN')}",     flush=True)
+print(f"[STARTUP_DOCTOR] MAIN_BOT_TOKEN present={_yn('MAIN_BOT_TOKEN')}", flush=True)
+print(f"[STARTUP_DOCTOR] DJ_BOT_TOKEN present={_yn('DJ_BOT_TOKEN')}", flush=True)
+print(f"[STARTUP_DOCTOR] BOTS_ENABLED={os.environ.get('BOTS_ENABLED', '(not set)')}", flush=True)
+
 # ─── Web Dashboard flag ───────────────────────────────────────────────────────
 # Set ENABLE_WEB_DASHBOARD=true to start a lightweight HTTP status server
 # alongside the bot (useful when deploying as a web application).
@@ -562,14 +585,34 @@ def run() -> None:
         )
         sys.exit(1)
 
+    # ── Validate critical env vars before touching DB ─────────────────────────
+    # ROOM_ID is always required — without it the bot can never join a room.
+    if not os.environ.get("ROOM_ID"):
+        print(
+            "[STARTUP_BLOCKED] reason=missing ROOM_ID\n"
+            "  Add ROOM_ID to Replit Secrets — it must be the numeric Highrise room ID."
+        )
+        sys.exit(1)
+    # Note: BOT_TOKEN is NOT required if split-bot tokens are present.
+    # The `if not specs` guard above already caught the zero-token case.
+    # BOT_TOKEN is seeded from specs[0].token below for config.py / database.py.
+
     # Initialise the DB exactly once, before any subprocess or asyncio loop
     # starts — this avoids all concurrent-writer races at startup.
     # config.py requires BOT_TOKEN at import time; seed it from the first
     # spec so database can import cleanly even in split-token mode.
     os.environ.setdefault("BOT_TOKEN", specs[0].token)
-    import database as _db
-    _db.init_db()
-    print("[RUNNER] DB initialised.")
+    try:
+        import database as _db
+        _db.init_db()
+        print("[RUNNER] DB initialised.")
+    except Exception:
+        import traceback as _tb_db
+        print(
+            f"[STARTUP_BLOCKED] database init failed — full traceback:\n"
+            f"{_tb_db.format_exc()}"
+        )
+        sys.exit(1)
 
     if len(specs) == 1:
         # ── Single-bot mode ──────────────────────────────────────────────────
