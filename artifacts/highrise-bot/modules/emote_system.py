@@ -28,6 +28,15 @@ from data.hardcoded_emotes import (
     _norm,
 )
 
+# Safe import: real emote durations.  If the file is missing or broken,
+# bots still start and fall back to a 5 s loop sleep.
+try:
+    from data.emote_timings import get_emote_time
+except Exception as _eti_exc:
+    print("[emote_timings] disabled:", _eti_exc)
+    def get_emote_time(emote_id: str, fallback: float = 5.0) -> float:
+        return fallback
+
 # ---------------------------------------------------------------------------
 # Timing map — loaded from timed_free_emotes catalog
 # ---------------------------------------------------------------------------
@@ -518,7 +527,7 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
                     raise
                 except Exception as _exc:
                     print(f"[EMOTE BOT] loop err mode={BOT_MODE!r} eid={_emote_id!r}: {_exc!r}")
-                await asyncio.sleep(5.0)
+                await asyncio.sleep(get_emote_time(_emote_id))
         _bot_loops[BOT_MODE] = asyncio.create_task(_imm_loop())
         display = f"@{_get_bot_uname() or BOT_MODE}"
         _log("bot_emote_set", admin=uname, bot=BOT_MODE, emote=eid)
@@ -590,7 +599,7 @@ async def _direct_emote_fallback(bot, uid, raw_target: str,
                     raise
                 except Exception as _exc:
                     print(f"[EMOTE BOT] direct loop err target={raw_target!r}: {_exc!r}")
-                await asyncio.sleep(5.0)
+                await asyncio.sleep(get_emote_time(_eid2))
         _bot_loops[raw_target] = asyncio.create_task(_direct_loop())
         tgt_display = (db.get_bot_username_for_mode(raw_target) or raw_target)
         msg = f"✅ @{tgt_display} is now looping {emote_name} ({eid})"
@@ -796,7 +805,7 @@ async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
                     raise
                 except Exception as _exc:
                     print(f"[EMOTE BOT] ch-loop err mode={BOT_MODE!r} eid={_eid!r}: {_exc!r}")
-                await asyncio.sleep(5.0)
+                await asyncio.sleep(get_emote_time(_eid))
         _bot_loops[BOT_MODE] = asyncio.create_task(_ch_loop())
         _log("bot_emote_channel_start", bot=BOT_MODE, emote=eid)
         # Whisper the admin who sent the command — confirmation comes from this bot.
