@@ -188,14 +188,16 @@ async def handle_emotes_socials(bot: "BaseBot", user: "User",
 # Resolver tries each candidate as a registry alias first, then as a raw
 # emote-*/dance-*/idle-* ID. First hit wins.
 _SOCIAL_TARGETS: dict[str, tuple[list[str], list[str], str]] = {
-    "slap":       (["slap", "emote-slap"],
-                   ["deathdrop", "emote-deathdrop"],
+    # Emote ID resolution: registry alias → raw SDK ID (prefix or upper).
+    # Use exact SDK IDs as first candidate so they always win.
+    "slap":       (["SLAP", "slap", "emote-slap"],
+                   ["emote-death", "death", "deathdrop", "emote-deathdrop"],
                    "👋 {a} slapped {b}!"),
-    "kiss":       (["kiss", "kissing", "emote-kiss"],
-                   ["charmed", "bloom", "emote-charmed", "idle-loop-aura"],
+    "kiss":       (["emote-kissing", "kissing", "kiss"],
+                   ["emote-bloomify-pose2", "bloomify", "bloom", "emote-bloom"],
                    "😘 {a} kissed {b}!"),
-    "superpunch": (["punch", "strong-punch", "emote-punch-strong", "emote-punch"],
-                   ["deathdrop", "faint", "emote-deathdrop"],
+    "superpunch": (["emote-superpunch", "superpunch", "emote-punch-strong"],
+                   ["emote-death", "death", "deathdrop", "emote-deathdrop"],
                    "💥 {a} superpunched {b}!"),
     "bonk":       (["pointing", "tapdance", "emoji-pointing"],
                    ["confused", "dizzy", "emote-confused"],
@@ -215,13 +217,19 @@ _RAW_ID_PREFIXES = ("emote-", "emoji-", "dance-", "idle-")
 
 
 def _resolve_eid(candidates: list[str]) -> str | None:
-    """Try each candidate as registry alias first, then as raw SDK emote ID."""
+    """Try each candidate as registry alias first, then as raw SDK emote ID.
+
+    Accepts:
+      - registry alias  → returns registry id
+      - known prefix    → returns as-is  (emote-*, emoji-*, dance-*, idle-*)
+      - all-uppercase   → returns as-is  (e.g. 'SLAP')
+    """
     for c in candidates:
         ent = _reg_get(c)
         if ent and ent.get("id"):
             return ent["id"]
     for c in candidates:
-        if any(c.startswith(p) for p in _RAW_ID_PREFIXES):
+        if any(c.startswith(p) for p in _RAW_ID_PREFIXES) or c.isupper():
             return c
     return None
 
@@ -475,6 +483,9 @@ async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
         _cancel_player_loop(user.id)
     except Exception:
         pass
+    # Remove from dancefloor tracking so dancefloor doesn't restart them.
+    _df_inside.discard(user.id)
+    _df_user_emote.pop(user.id, None)
 
     _sync_target[user.id] = target_user.id
     _sync_followers.setdefault(target_user.id, set()).add(user.id)
@@ -510,6 +521,7 @@ async def handle_syncstop(bot: "BaseBot", user: "User",
         _cancel_player_loop(user.id)
     except Exception:
         pass
+    print(f"[SYNC_STOP] follower={user.id}")
     await _w(bot, user.id, "⏹ Sync stopped.")
 
 
@@ -534,6 +546,8 @@ async def sync_push_emote_event(bot: "BaseBot", uid: str,
     followers = list(_sync_followers.get(uid, set()))
     if not followers:
         return
+    print(f"[SYNC_TARGET_EVENT] target={uid} emote={emote_id} "
+          f"followers={len(followers)}")
     try:
         from modules.emote_system import _send_player
     except Exception:
@@ -689,7 +703,7 @@ async def handle_favemote(bot: "BaseBot", user: "User", args: list) -> None:
 # The polling task tracks who is currently inside and runs/stops their
 # personal emote loop.
 
-_DF_POLL_SECS = 2.5
+_DF_POLL_SECS = 2.0
 _df_task: dict[str, asyncio.Task] = {}
 _df_inside: set[str] = set()                   # user_ids currently inside
 _df_user_emote: dict[str, str] = {}            # uid -> current emote alias
@@ -779,10 +793,14 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
                     continue
                 current_inside.add(u.id)
                 if u.id not in _df_inside:
+                    # New entrant — skip if they are currently syncing
+                    if is_in_sync(u.id):
+                        print(f"[DANCEFLOOR_SKIP_SYNC] user={u.id}")
+                        continue
                     # Entered — pick an emote and start loop
                     alias, eid = random.choice(valid_pairs)
                     _df_user_emote[u.id] = alias
-                    print(f"[DANCEFLOOR_ENTER] user={u.id}")
+                    print(f"[DANCEFLOOR_ENTER] user={u.id} alias={alias} eid={eid}")
                     try:
                         await _start_player_loop(
                             bot, u.id, eid, alias,
@@ -790,6 +808,9 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
                         )
                     except Exception as exc:
                         print(f"[DANCEFLOOR] start err {u.id}: {exc!r}")
+
+            print(f"[DANCEFLOOR_TICK] users={len(users)} "
+                  f"inside={len(current_inside)} active=true")
 
             # Stop loops for those who left
             for left_uid in (_df_inside - current_inside):
@@ -991,7 +1012,57 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, "🗑 Dancefloor cleared.")
         return
 
+    # ----- debug --------------------------------------------------------
+    if sub == "debug":
+        box = _df_get_box()
+        emotes = _df_get_emotes()
+        active = _df_is_active()
+        task = _df_task.get("_")
+        task_running = bool(task and not task.done())
+        inside_list = list(_df_inside)
+        box_str = (f"x[{box[0]:.1f}..{box[2]:.1f}] z[{box[1]:.1f}..{box[3]:.1f}]"
+                   if box else "unset")
+        await _w(bot, uid,
+                 f"🔍 DF: active={active} task={task_running} box={box_str} "
+                 f"emotes={len(emotes)} inside={len(inside_list)}")
+        if inside_list:
+            await _w(bot, uid, f"Inside IDs: {', '.join(inside_list[:5])}"[:249])
+        return
+
     await _w(bot, uid, f"Unknown dancefloor subcommand: {sub}")
+
+
+async def handle_syncdebug(bot: "BaseBot", user: "User", args: list) -> None:
+    """!syncdebug @user — show sync state for a user (staff only)."""
+    if not _is_staff(user.username):
+        await _w(bot, user.id, "Staff only.")
+        return
+    if len(args) < 2 or not args[1].startswith("@"):
+        await _w(bot, user.id, "Usage: !syncdebug @user")
+        return
+    target_name = args[1].lstrip("@")
+    from modules.room_utils import _resolve_user_in_room
+    pair = await _resolve_user_in_room(bot, target_name)
+    if not pair:
+        await _w(bot, user.id, f"@{target_name} not in room.")
+        return
+    target_user, _ = pair
+    tid = target_user.id
+    from modules.emote_system import _player_emotes
+    syncing_to = _sync_target.get(tid, "(none)")
+    followers  = list(_sync_followers.get(tid, set()))
+    tracked    = _player_emotes.get(tid, "(none)")
+    t_task     = _sync_tasks.get(tid)
+    watcher    = bool(t_task and not t_task.done())
+    await _w(bot, user.id,
+             f"🔍 Sync: @{target_user.username} uid={tid}")
+    await _w(bot, user.id,
+             f"syncing_to={syncing_to} followers={len(followers)}"[:249])
+    await _w(bot, user.id,
+             f"tracked_emote={tracked} watcher={watcher}"[:249])
+    if followers:
+        await _w(bot, user.id,
+                 f"follower IDs: {', '.join(followers[:4])}"[:249])
 
 
 async def startup_dancefloor_recovery(bot: "BaseBot") -> None:

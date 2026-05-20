@@ -930,7 +930,7 @@ from modules.emote_extras import (
     handle_emotes_socials,
     handle_kiss_social, handle_slap_social,
     handle_superpunch, handle_bonk, handle_yeet, handle_hypnotize, handle_duel,
-    handle_sync, handle_syncstop, try_sync_shortcut,
+    handle_sync, handle_syncstop, handle_syncdebug, try_sync_shortcut,
     sync_push_emote_event,
     clear_sync_on_leave,
     handle_emote_all,
@@ -1737,11 +1737,11 @@ TIP_AUDIT_COMMANDS: frozenset[str] = frozenset({
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIP_AUDIT_COMMANDS | {"ep"}
 # emote_extras commands (sync/socials/favorites/dancefloor/checklist)
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
-    "sync", "syncstop", "favemotes", "favemote",
+    "sync", "syncstop", "syncdebug", "favemotes", "favemote",
     "dancefloor", "emotetestchecklist",
     "superpunch", "bonk", "yeet", "hypnotize", "duel",
 }
-STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS
+STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS | {"syncdebug"}
 ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 
 # ── DJ Music commands (owned by DJ_DUDU, BOT_MODE=dj) ────────────────────────
@@ -7626,6 +7626,8 @@ class HangoutBot(BaseBot):
             await handle_sync(self, user, args)
         elif cmd == "syncstop":
             await handle_syncstop(self, user, args)
+        elif cmd == "syncdebug":
+            await handle_syncdebug(self, user, args)
         elif cmd == "favemotes":
             await handle_favemotes(self, user, args)
         elif cmd == "favemote":

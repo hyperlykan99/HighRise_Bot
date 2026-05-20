@@ -1,0 +1,99 @@
+FIX SYNC + DANCEFLOOR + SOCIAL EMOTE IDS ONLY.
+
+Do not touch startup, tokens, bot staggering, music, casino, or unrelated commands.
+
+1. Fix social emote IDs exactly:
+
+!kiss @user
+sender emote ID = emote-kissing
+target emote ID = emote-bloomify-pose2
+
+!superpunch @user
+sender emote ID = emote-superpunch
+target emote ID = emote-death
+
+!slap @user
+sender emote ID = SLAP
+target emote ID = emote-death
+
+Bring back:
+!punch @user
+sender uses normal punch emote
+target uses normal punch reaction/deathdrop fallback
+
+Keep:
+!kick @user = moderation room kick only.
+No social kick.
+
+2. Fix TRUE !sync @user
+
+Goal:
+!sync @target means follower copies target’s live emotes.
+
+Current bug:
+It says syncing, but follower does not copy target.
+
+Required fix:
+- Find all places where player emotes start:
+  plain emote word
+  !emote <name>
+  dancefloor loop
+  !emote all
+  social emotes if needed
+  Highrise on_emote event if available
+- Whenever target user starts/sends an emote, call:
+  sync_push_emote_event(bot, target_user_id, emote_id)
+
+- If target changes emote, followers immediately receive same emote.
+- If target stops, followers stop.
+- !syncstop stops follower sync.
+- Stop also stops follower sync.
+
+Add debug logs:
+[SYNC_TARGET_EVENT] target=<id> emote=<id>
+[SYNC_COPY] follower=<id> target=<id> emote=<id>
+[SYNC_STOP] follower=<id>
+
+3. Fix dancefloor
+
+Dancefloor must work like:
+Any player entering saved box automatically starts looping one of the dancefloor emotes.
+Any player leaving box stops the dancefloor loop.
+
+Required:
+- Poll get_room_users every 2 seconds.
+- Read every user’s live Position x/y/z.
+- Use saved box x/z bounds.
+- Exclude bots.
+- If user enters box and is not already dancing:
+  choose random saved dancefloor emote
+  start player loop using registry timing.
+- If user leaves box:
+  stop only dancefloor loop for that user.
+- If user is already synced to someone, do not override sync.
+- If user starts !sync, cancel their dancefloor loop.
+
+Add debug:
+[DANCEFLOOR_TICK] users=<count> inside=<count> active=<true/false>
+[DANCEFLOOR_ENTER] user=<id> alias=<alias> eid=<id>
+[DANCEFLOOR_EXIT] user=<id>
+[DANCEFLOOR_SKIP_SYNC] user=<id>
+
+4. Add test commands:
+!dancefloor debug
+Shows:
+active=true/false
+box coordinates
+saved emotes count
+players detected inside
+task running true/false
+
+!syncdebug @user
+Shows:
+target user id
+followers
+current tracked emote
+watcher running true/false
+
+5. Compile:
+python -m py_compile bot.py main.py modules/emote_extras.py modules/emote_system.py
