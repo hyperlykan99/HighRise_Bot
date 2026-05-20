@@ -965,7 +965,16 @@ async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
         old = _bot_loops.pop(BOT_MODE, None)
         if old and not old.done():
             old.cancel()
+        # Reload registry from disk so !setemote changes made by another
+        # bot process (e.g. DJ_DUDU) are reflected in timing immediately.
+        if _reg is not None:
+            try:
+                _reg.reload()
+            except Exception as _rle:
+                print(f"[EMOTE BOT] ch-event registry reload failed: {_rle!r}")
         _eid = eid
+        _t_ch = get_emote_time(_eid)
+        print(f"[BOT_EMOTE_TIMING] alias={eid!r} id={eid!r} resolved={_t_ch} source=registry")
         async def _ch_loop() -> None:
             while True:
                 try:
@@ -983,7 +992,7 @@ async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
             try:
                 _own_disp = _get_uname() or BOT_USERNAME or BOT_MODE
                 await bot.highrise.send_whisper(
-                    requester_id, f"✅ @{_own_disp} is now looping {eid}.")
+                    requester_id, f"✅ @{_own_disp} is now looping {eid} every {_t_ch}s.")
             except Exception as _we:
                 print(f"[EMOTE BOT] whisper confirmation failed: {_we!r}")
     elif action == "bot_emote_stop":

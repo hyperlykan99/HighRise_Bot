@@ -2031,6 +2031,14 @@
     "player": true,
     "time": 4.353037
   },
+  "sweetjammer": {
+    "bot": true,
+    "category": "dance",
+    "id": "emote-sicklycute-sing-slow",
+    "name": "sweetjammer",
+    "player": true,
+    "time": 10.0
+  },
   "sweetsmooch": {
     "bot": false,
     "category": "uncategorized",

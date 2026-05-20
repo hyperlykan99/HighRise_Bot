@@ -64,7 +64,7 @@ def _self_display() -> str:
 
 
 async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None:
-    """Start the 5s emote loop on THIS bot for the given emote_id."""
+    """Start a registry-timed emote loop on THIS bot for the given emote_id."""
     from modules.emote_system import _bot_loops
     from config import BOT_MODE
 
@@ -80,22 +80,43 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
 
     _eid = eid
 
-    # Single canonical timing function — same one used everywhere.
+    # Reload registry from disk so any !setemote/!addemote changes made by
+    # another bot process (e.g. DJ_DUDU) are visible before timing lookup.
     try:
-        from data.emote_timings import get_emote_time as _get_emote_time
-    except Exception:
-        def _get_emote_time(emote_id: str, fallback: float = 5.0) -> float:  # type: ignore[misc]
-            return fallback
+        from data import emote_registry as _ereg
+        _ereg.reload()
+    except Exception as _re:
+        print(f"[RELAY] registry reload failed: {_re!r}")
+        _ereg = None  # type: ignore[assignment]
+
+    def _get_timing(emote_id: str, fallback: float = 5.0) -> float:
+        try:
+            if _ereg is not None:
+                t = _ereg.get_emote_time(emote_id, fallback)
+            else:
+                from modules.emote_system import get_emote_time as _es_t
+                t = _es_t(emote_id, fallback)
+        except Exception:
+            t = fallback
+        print(f"[BOT_EMOTE_TIMING] alias={emote_name!r} id={emote_id!r} resolved={t} source=registry")
+        return t
+
+    _t_initial = _get_timing(_eid)
 
     async def _loop() -> None:
+        _iter = 0
         while True:
+            _iter += 1
+            sleep_time = _get_timing(_eid) if _iter % 20 == 0 else (
+                _ereg.get_emote_time(_eid) if _ereg is not None else _t_initial
+            )
             try:
                 await bot.highrise.send_emote(_eid)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 print(f"[RELAY] emote loop err mode={BOT_MODE!r} eid={_eid!r}: {exc!r}")
-            await asyncio.sleep(_get_emote_time(_eid))
+            await asyncio.sleep(sleep_time)
 
     _bot_loops[BOT_MODE] = asyncio.create_task(_loop())
 
@@ -103,8 +124,7 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
     if requester_id:
         try:
             disp = _self_display()
-            t    = _get_emote_time(_eid)
-            msg  = f"✅ @{disp} looping {emote_name} every {t}s"
+            msg  = f"✅ @{disp} looping {emote_name} every {_t_initial}s"
             await bot.highrise.send_whisper(requester_id, msg[:249])
         except Exception as exc:
             print(f"[RELAY] confirm whisper failed: {exc!r}")
