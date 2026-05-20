@@ -226,10 +226,44 @@ TIMED_EMOTES_BY_ID = {
 }
 
 def get_emote_time(emote_id: str, fallback: float = 5.0) -> float:
+    """The single canonical emote-loop timing function — used everywhere.
+
+    Priority chain (highest → lowest):
+      1. Custom timings — data/custom_emotes.json "timings" (raw ID only)
+                          (in-memory: custom_emote_manager._TIMINGS)
+      2. Built-in catalog — TIMED_EMOTES_BY_ID in this file
+      3. Fallback — 5.0 s
+
+    Called on every loop iteration so !setemotetime takes effect immediately.
+    No alias/name lookup here — only raw emote IDs.
+    """
+    # Priority 1 — custom timings (lazy import avoids circular import)
     try:
-        value = float(TIMED_EMOTES_BY_ID.get(emote_id, fallback))
-        if value <= 0:
-            return fallback
-        return value
+        from modules import custom_emote_manager as _cem
+        t = _cem._TIMINGS.get(emote_id)
+        if t is not None:
+            tv = float(t)
+            if tv > 0:
+                return tv
     except Exception:
-        return fallback
+        pass
+    # Priority 2 — built-in catalog
+    try:
+        if emote_id in TIMED_EMOTES_BY_ID:
+            v = float(TIMED_EMOTES_BY_ID[emote_id])
+            if v > 0:
+                return v
+    except Exception:
+        pass
+    # Priority 3 — fallback
+    return float(fallback)
+
+
+def get_sync_interval(emote_id: str) -> float:
+    """Alias for get_emote_time — for synced dancefloor / player-sync loops.
+
+    All current and future dancefloor / room-wide synced dance systems MUST
+    call this function so every participant uses the same timing source and
+    stays in step.  Behaviour is identical to get_emote_time().
+    """
+    return get_emote_time(emote_id)

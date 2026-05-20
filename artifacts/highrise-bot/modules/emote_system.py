@@ -86,33 +86,13 @@ def reload_custom_emotes() -> None:
     _build_merged_dicts()
 
 
-def _effective_timing(eid: str) -> float:
-    """Return the live effective loop duration for an emote (in seconds).
-
-    Priority chain (highest → lowest):
-      1. _TIMINGS  — !setemotetime overrides
-      2. Custom emote time  — time field from !addbotemote / !addplayeremote
-      3. TIMED_EMOTES_BY_ID — built-in data/emote_timings.py catalog
-      4. 5.0 s fallback
-
-    Called on every loop iteration so timing changes take effect immediately.
-    """
-    try:
-        if _cem is not None:
-            # Priority 1 — explicit setemotetime override
-            t = _cem._TIMINGS.get(eid)
-            if t is not None and t > 0:
-                return t
-            # Priority 2 — custom emote's own time field
-            for info in list(_cem._PLAYER.values()) + list(_cem._BOT.values()):
-                if info.get("id") == eid:
-                    ct = float(info.get("time") or 0)
-                    if ct > 0:
-                        return ct
-    except Exception:
-        pass
-    # Priority 3 — built-in catalog (also contains any _register_timing writes)
-    return get_emote_time(eid)
+# All timing decisions go through the single canonical get_emote_time() in
+# data/emote_timings.py — which implements the full priority chain:
+#   1. custom timings (custom_emote_manager._TIMINGS)
+#   2. built-in TIMED_EMOTES_BY_ID
+#   3. 5.0 s fallback
+# Local alias kept for readability in loop bodies.
+_effective_timing = get_emote_time
 
 # ---------------------------------------------------------------------------
 # Timing map — loaded from timed_free_emotes catalog

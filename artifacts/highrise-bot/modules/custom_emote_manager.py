@@ -62,14 +62,15 @@ _TIMINGS: dict[str, float] = {}   # !setemotetime overrides  {raw_id: seconds}
 
 
 def _register_timing(eid: str, t: float) -> None:
-    """Push a custom emote's timing into TIMED_EMOTES_BY_ID (shared dict)."""
+    """Register a custom emote timing into _TIMINGS (raw ID only).
+
+    This is the canonical store for ALL user-supplied timings — populated by
+    !addbotemote, !addplayeremote, and !setemotetime.  Read by the single
+    get_emote_time() function in data/emote_timings.py.
+    """
     if t <= 0:
         return
-    try:
-        from data.emote_timings import TIMED_EMOTES_BY_ID
-        TIMED_EMOTES_BY_ID[eid] = t
-    except Exception:
-        pass
+    _TIMINGS[str(eid)] = float(t)
 
 
 def _load() -> None:
@@ -491,28 +492,20 @@ async def handle_emotetime(bot: "BaseBot", user: "User",
         await _w(bot, uid, "❌ Could not resolve emote.")
         return
 
-    # Priority 1 — _TIMINGS (setemotetime override)
+    # Priority 1 — custom timings (raw ID, set by !setemotetime / !addbotemote etc.)
     if eid in _TIMINGS:
-        t = _TIMINGS[eid]
-        await _w(bot, uid, f"⏱ {eid}: {t}s  [source: custom (setemotetime)]")
+        await _w(bot, uid, f"{eid} = {_TIMINGS[eid]}s source=custom")
         return
 
-    # Priority 2 — custom emote's own time field
-    for info in list(_BOT.values()) + list(_PLAYER.values()):
-        if info["id"] == eid:
-            t = info["time"]
-            await _w(bot, uid, f"⏱ {eid}: {t}s  [source: custom emote time]")
-            return
-
-    # Priority 3 — built-in catalog
+    # Priority 2 — built-in catalog
     try:
         from data.emote_timings import TIMED_EMOTES_BY_ID
         if eid in TIMED_EMOTES_BY_ID:
-            t = TIMED_EMOTES_BY_ID[eid]
-            await _w(bot, uid, f"⏱ {eid}: {t}s  [source: built-in]")
+            await _w(bot, uid,
+                     f"{eid} = {TIMED_EMOTES_BY_ID[eid]}s source=built-in")
             return
     except Exception:
         pass
 
-    # Priority 4 — fallback
-    await _w(bot, uid, f"⏱ {eid}: 5.0s  [source: fallback]")
+    # Priority 3 — fallback
+    await _w(bot, uid, f"{eid} = 5.0s source=fallback")

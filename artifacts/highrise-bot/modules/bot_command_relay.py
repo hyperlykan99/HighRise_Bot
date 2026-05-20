@@ -80,15 +80,12 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
 
     _eid = eid
 
-    # Use full priority chain: _TIMINGS > custom emote time > built-in > 5.0
+    # Single canonical timing function — same one used everywhere.
     try:
-        from modules.emote_system import _effective_timing as _get_emote_time
+        from data.emote_timings import get_emote_time as _get_emote_time
     except Exception:
-        try:
-            from data.emote_timings import get_emote_time as _get_emote_time
-        except Exception:
-            def _get_emote_time(emote_id: str, fallback: float = 5.0) -> float:  # type: ignore[misc]
-                return fallback
+        def _get_emote_time(emote_id: str, fallback: float = 5.0) -> float:  # type: ignore[misc]
+            return fallback
 
     async def _loop() -> None:
         while True:
@@ -106,7 +103,8 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
     if requester_id:
         try:
             disp = _self_display()
-            msg  = f"✅ @{disp} is now looping {emote_name} ({eid})"
+            t    = _get_emote_time(_eid)
+            msg  = f"✅ @{disp} looping {emote_name} every {t}s"
             await bot.highrise.send_whisper(requester_id, msg[:249])
         except Exception as exc:
             print(f"[RELAY] confirm whisper failed: {exc!r}")
