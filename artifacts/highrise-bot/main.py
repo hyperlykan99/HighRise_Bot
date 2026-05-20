@@ -924,6 +924,15 @@ from modules.emote_system import (
     handle_markemoteunsupported,
     notify_emote_event,
 )
+from modules.emote_logger import (
+    log_emote as emote_spy_log,
+    handle_emotelog,
+    handle_emotelogstatus,
+    handle_lastemotes,
+    handle_clearemotelog,
+    handle_addobservedemote,
+    handle_testobservedemote,
+)
 from modules.emote_scan import (
     handle_scanallbotemotes,
     handle_pauseemotescan,
@@ -1781,6 +1790,8 @@ EMOTE_DIAG_SCAN_COMMANDS: frozenset[str] = frozenset({
     "addworkingemote", "removeworkingemote", "workingcount", "experimentalemotes",
     "resolveemote", "testemoteid",
     "botemoteid", "removewoekingemote",
+    "emotelog", "emotelogstatus", "lastemotes",
+    "clearemotelog", "addobservedemote", "testobservedemote",
 })
 
 
@@ -7460,6 +7471,8 @@ class HangoutBot(BaseBot):
             "addworkingemote", "removeworkingemote", "workingcount", "experimentalemotes",
             "resolveemote", "testemoteid",
             "botemoteid", "removewoekingemote",
+            "emotelog", "emotelogstatus", "lastemotes",
+            "clearemotelog", "addobservedemote", "testobservedemote",
         ):
             if BOT_MODE != "dj":
                 return
@@ -7505,6 +7518,18 @@ class HangoutBot(BaseBot):
                 await handle_botemoteid(self, user, args)
             elif cmd == "removewoekingemote":
                 await handle_removeworkingemote(self, user, args)
+            elif cmd == "emotelog":
+                await handle_emotelog(self, user, args)
+            elif cmd == "emotelogstatus":
+                await handle_emotelogstatus(self, user, args)
+            elif cmd == "lastemotes":
+                await handle_lastemotes(self, user, args)
+            elif cmd == "clearemotelog":
+                await handle_clearemotelog(self, user, args)
+            elif cmd == "addobservedemote":
+                await handle_addobservedemote(self, user, args)
+            elif cmd == "testobservedemote":
+                await handle_testobservedemote(self, user, args)
             else:
                 await handle_exportworkingemotes(self, user, args)
         elif cmd == "highfive":
@@ -8342,6 +8367,8 @@ class HangoutBot(BaseBot):
                 print(f"DEBUG EVENT FIRED: on_emote | {raw}")
             # Signal any pending silent-failure detection listeners
             notify_emote_event(user.id, emote_id)
+            # Emote spy — records to log when !emotelog on
+            emote_spy_log(user.username, user.id, emote_id, receiver)
         except Exception as _e:
             print(f"[ON_EMOTE ERROR] {_e!r}")
 
