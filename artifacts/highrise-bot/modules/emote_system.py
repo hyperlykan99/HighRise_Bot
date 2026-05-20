@@ -681,7 +681,12 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
                    bool(this_uname and raw_target == this_uname))
 
     if is_this_bot:
-        # Memory-only: cancel existing loop, start new one using registry timing.
+        # Persist for restart recovery, then start loop.
+        try:
+            db.set_room_setting(f"bot_emote_{BOT_MODE.lower()}", eid)
+            print(f"[BOT_EMOTE_PERSIST] mode={BOT_MODE.lower()!r} eid={eid!r}")
+        except Exception as _pe:
+            print(f"[BOT_EMOTE_PERSIST] save failed: {_pe!r}")
         old = _bot_loops.pop(BOT_MODE, None)
         if old and not old.done():
             old.cancel()
@@ -770,6 +775,12 @@ async def _direct_emote_fallback(bot, uid, raw_target: str,
                     print(f"[EMOTE BOT] direct loop err target={raw_target!r}: {_exc!r}")
                 await asyncio.sleep(get_emote_time(_eid2))
         _bot_loops[raw_target] = asyncio.create_task(_direct_loop())
+        # Persist using the resolved target mode so recovery can resume it.
+        try:
+            db.set_room_setting(f"bot_emote_{raw_target}", eid)
+            print(f"[BOT_EMOTE_PERSIST] mode={raw_target!r} eid={eid!r}")
+        except Exception as _pe:
+            print(f"[BOT_EMOTE_PERSIST] save failed: {_pe!r}")
         tgt_display = (db.get_bot_username_for_mode(raw_target) or raw_target)
         msg = f"✅ @{tgt_display} is now looping {emote_name} ({eid})"
         await target_bot.highrise.send_whisper(uid, msg[:249])
@@ -994,6 +1005,12 @@ async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
                     print(f"[EMOTE BOT] ch-loop err mode={BOT_MODE!r} eid={_eid!r}: {_exc!r}")
                 await asyncio.sleep(get_emote_time(_eid))
         _bot_loops[BOT_MODE] = asyncio.create_task(_ch_loop())
+        # Persist for restart recovery.
+        try:
+            db.set_room_setting(f"bot_emote_{BOT_MODE.lower()}", eid)
+            print(f"[BOT_EMOTE_PERSIST] mode={BOT_MODE.lower()!r} eid={eid!r}")
+        except Exception as _pe:
+            print(f"[BOT_EMOTE_PERSIST] save failed: {_pe!r}")
         _log("bot_emote_channel_start", bot=BOT_MODE, emote=eid)
         # Whisper the admin who sent the command — confirmation comes from this bot.
         requester_id = (payload.get("requester_id") or "").strip()

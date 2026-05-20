@@ -123,6 +123,13 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
 
     _bot_loops[BOT_MODE] = asyncio.create_task(_loop())
 
+    # Persist so startup_bot_emote_recovery can resume after a restart.
+    try:
+        db.set_room_setting(f"bot_emote_{BOT_MODE.lower()}", eid)
+        print(f"[BOT_EMOTE_PERSIST] mode={BOT_MODE.lower()!r} eid={eid!r}")
+    except Exception as _pe:
+        print(f"[BOT_EMOTE_PERSIST] save failed: {_pe!r}")
+
     # Confirm to the admin who requested the emote.
     if requester_id:
         try:
