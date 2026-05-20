@@ -250,8 +250,15 @@ def _collect_bots() -> list[_BotSpec]:
             _include_primary = False   # prevent false index-0 inclusion
         filtered: list[_BotSpec] = []
         for i, s in enumerate(specs):
+            # Also match against extra_modes so that a merged bot
+            # (e.g. host+eventhost sharing a token) is included when
+            # any of its merged mode names appears in BOTS_ENABLED.
+            _spec_names = (
+                {s.bot_id.lower(), s.bot_mode.lower()}
+                | {m.lower() for m in s.extra_modes}
+            )
             keep = (i == 0 and _include_primary and _has_real_primary) or bool(
-                {s.bot_id.lower(), s.bot_mode.lower()} & _allowed
+                _spec_names & _allowed
             )
             if keep:
                 filtered.append(s)
