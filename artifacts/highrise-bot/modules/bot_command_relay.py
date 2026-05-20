@@ -50,12 +50,26 @@ def _own_aliases() -> list[str]:
     return [a for a in aliases if a]
 
 
+def _self_display() -> str:
+    """Return the human-readable @name for this bot."""
+    from config import BOT_MODE, BOT_USERNAME
+    try:
+        from modules.gold import get_bot_username as _get_uname
+        gu = _get_uname()
+        if gu:
+            return gu
+    except Exception:
+        pass
+    return BOT_USERNAME or BOT_MODE
+
+
 async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None:
     """Start the 5s emote loop on THIS bot for the given emote_id."""
     from modules.emote_system import _bot_loops
-    from config import BOT_MODE, BOT_USERNAME
+    from config import BOT_MODE
 
-    eid = (payload.get("emote_id") or "").strip()
+    eid        = (payload.get("emote_id")   or "").strip()
+    emote_name = (payload.get("emote_name") or eid).strip()
     if not eid:
         return
 
@@ -81,17 +95,16 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
     # Confirm to the admin who requested the emote.
     if requester_id:
         try:
-            from modules.gold import get_bot_username as _get_uname
-            disp = _get_uname() or BOT_USERNAME or BOT_MODE
-            await bot.highrise.send_whisper(
-                requester_id, f"✅ @{disp} is now looping {eid}.")
+            disp = _self_display()
+            msg  = f"✅ @{disp} is now looping {emote_name} ({eid})"
+            await bot.highrise.send_whisper(requester_id, msg[:249])
         except Exception as exc:
             print(f"[RELAY] confirm whisper failed: {exc!r}")
 
 
 async def _do_stopbotemote(bot: "BaseBot", payload: dict, requester_id: str) -> None:
     from modules.emote_system import _bot_loops
-    from config import BOT_MODE, BOT_USERNAME
+    from config import BOT_MODE
 
     task = _bot_loops.pop(BOT_MODE, None)
     if task and not task.done():
@@ -99,8 +112,7 @@ async def _do_stopbotemote(bot: "BaseBot", payload: dict, requester_id: str) -> 
 
     if requester_id:
         try:
-            from modules.gold import get_bot_username as _get_uname
-            disp = _get_uname() or BOT_USERNAME or BOT_MODE
+            disp = _self_display()
             await bot.highrise.send_whisper(
                 requester_id, f"✅ @{disp} stopped emote loop.")
         except Exception as exc:

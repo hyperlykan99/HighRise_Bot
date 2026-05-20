@@ -522,17 +522,66 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         _bot_loops[BOT_MODE] = asyncio.create_task(_imm_loop())
         display = f"@{_get_bot_uname() or BOT_MODE}"
         _log("bot_emote_set", admin=uname, bot=BOT_MODE, emote=eid)
-        await _w(bot, uid, f"✅ {display} looping {eid} (every 5s).")
+        await _w(bot, uid,
+                 f"✅ {display} is now looping {emote_name} ({eid})")
         return
 
-    # Not this bot — try shared LIVE_BOTS first (same subprocess fast path).
+    # Not this bot — queue is PRIMARY, direct LIVE_BOTS is fallback if the
+    # queue write itself fails.
+    _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
+    await _dispatch_emote_to_other_bot(
+        bot, uid, raw_target, eid, emote_name,
+    )
+
+
+async def _dispatch_emote_to_other_bot(bot, uid, raw_target: str,
+                                       eid: str, emote_name: str) -> None:
+    """Primary: write to bot_command_queue, poll for completion (5 s).
+
+    Fallback (direct LIVE_BOTS) is used ONLY if the queue write itself fails.
+    On queue timeout we warn the admin instead — per upgrade spec.
+    """
     import json as _json
+    cmd_id = None
+    try:
+        payload_json = _json.dumps({
+            "emote_id":   eid,
+            "emote_name": emote_name,
+            "loop":       True,
+        })
+        cmd_id = db.enqueue_bot_command(
+            target_bot=raw_target, action="botemote",
+            payload_json=payload_json, requester_id=str(uid),
+        )
+    except Exception as exc:
+        print(f"[EMOTE] queue write failed ({exc!r}) — using direct fallback.")
+        await _direct_emote_fallback(bot, uid, raw_target, eid, emote_name)
+        return
+
+    # Target's 1 s poller will pick this up and whisper the admin itself.
+    deadline = asyncio.get_event_loop().time() + 5.0
+    final_status = "pending"
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.5)
+        final_status = db.get_bot_command_status(cmd_id)
+        if final_status in ("completed", "error", "unknown_action"):
+            break
+    if final_status == "completed":
+        return
+    # Queue is up but target never claimed in time — do NOT fall back, just warn.
+    await _w(bot, uid,
+             f"⚠️ @{raw_target} did not respond. It may be offline.")
+
+
+async def _direct_emote_fallback(bot, uid, raw_target: str,
+                                 eid: str, emote_name: str) -> None:
+    """Same-process LIVE_BOTS direct loop — used only when DB write failed."""
     target_bot = get_live_bot(raw_target)
     if target_bot is not None:
         old = _bot_loops.pop(raw_target, None)
         if old and not old.done():
             old.cancel()
-        _eid2, _uid2 = eid, uid
+        _eid2 = eid
         async def _direct_loop() -> None:
             while True:
                 try:
@@ -543,32 +592,12 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
                     print(f"[EMOTE BOT] direct loop err target={raw_target!r}: {_exc!r}")
                 await asyncio.sleep(5.0)
         _bot_loops[raw_target] = asyncio.create_task(_direct_loop())
-        _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
-        _tgt_display = (db.get_bot_username_for_mode(raw_target) or raw_target)
-        await target_bot.highrise.send_whisper(
-            _uid2, f"✅ @{_tgt_display} is now looping {eid}.")
+        tgt_display = (db.get_bot_username_for_mode(raw_target) or raw_target)
+        msg = f"✅ @{tgt_display} is now looping {emote_name} ({eid})"
+        await target_bot.highrise.send_whisper(uid, msg[:249])
         return
-    # Target lives in another subprocess — enqueue a command and let its
-    # 1-second poller pick it up.  Wait up to 5 s for it to be picked up;
-    # if not, warn the admin.
-    payload_json = _json.dumps({"emote_id": eid, "loop": True})
-    cmd_id = db.enqueue_bot_command(
-        target_bot=raw_target, action="botemote",
-        payload_json=payload_json, requester_id=str(uid),
-    )
-    _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
-    # Poll the row up to 5 s — the target's relay will whisper the admin
-    # itself once it claims & runs the command, so we stay silent on success.
-    deadline = asyncio.get_event_loop().time() + 5.0
-    final_status = "pending"
-    while asyncio.get_event_loop().time() < deadline:
-        await asyncio.sleep(0.5)
-        final_status = db.get_bot_command_status(cmd_id)
-        if final_status in ("completed", "error", "unknown_action"):
-            break
-    if final_status != "completed":
-        await _w(bot, uid,
-                 f"⚠️ @{raw_target} did not respond. It may be offline.")
+    await _w(bot, uid,
+             f"⚠️ @{raw_target} did not respond. It may be offline.")
 
 
 # ---------------------------------------------------------------------------
@@ -589,20 +618,79 @@ async def handle_stopbotemote(bot: "BaseBot", user: "User",
     this_uname_l = (_get_bot_uname2() or BOT_USERNAME or "").strip().lower()
     is_this_bot  = (bot_name == this_mode_l or
                     bool(this_uname_l and bot_name == this_uname_l))
+
     if is_this_bot:
         task = _bot_loops.pop(BOT_MODE, None)
         if task and not task.done():
             task.cancel()
-    else:
-        import json as _json
-        _ch = _json.dumps({"action": "bot_emote_stop", "target": bot_name})
+        # Clear restart-recovery key so we don't resume on next start.
         try:
-            await bot.highrise.send_channel(_ch)
-        except Exception as _ce:
-            print(f"[EMOTE] channel send failed: {_ce!r}")
-        db.set_room_setting(f"bot_emote_{bot_name}", "")
+            db.set_room_setting(f"bot_emote_{BOT_MODE.lower()}", "")
+        except Exception:
+            pass
+        _log("bot_emote_cleared", admin=uname, bot=bot_name)
+        disp = _get_bot_uname2() or BOT_USERNAME or BOT_MODE
+        await _w(bot, uid, f"✅ @{disp} stopped emote loop.")
+        return
+
+    # Cross-bot: queue is PRIMARY.  Target replies when it claims the row.
     _log("bot_emote_cleared", admin=uname, bot=bot_name)
-    await _w(bot, uid, "✅ Bot emote stopped.")
+    await _dispatch_stop_to_other_bot(bot, uid, bot_name)
+
+
+def _clear_emote_recovery_keys(raw_target: str) -> None:
+    """Clear room_setting recovery key by BOTH raw_target and canonical mode."""
+    try:
+        db.set_room_setting(f"bot_emote_{raw_target}", "")
+    except Exception:
+        pass
+    try:
+        mode = db.get_bot_mode_for_username(raw_target)
+        if mode and mode.lower() != raw_target:
+            db.set_room_setting(f"bot_emote_{mode.lower()}", "")
+    except Exception:
+        pass
+
+
+async def _dispatch_stop_to_other_bot(bot, uid, raw_target: str) -> None:
+    import json as _json
+    try:
+        cmd_id = db.enqueue_bot_command(
+            target_bot=raw_target, action="stopbotemote",
+            payload_json=_json.dumps({}), requester_id=str(uid),
+        )
+        _clear_emote_recovery_keys(raw_target)
+    except Exception as exc:
+        print(f"[EMOTE] stop queue write failed ({exc!r}) — using fallback.")
+        await _direct_stop_fallback(bot, uid, raw_target)
+        return
+
+    deadline = asyncio.get_event_loop().time() + 5.0
+    final_status = "pending"
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.5)
+        final_status = db.get_bot_command_status(cmd_id)
+        if final_status in ("completed", "error", "unknown_action"):
+            break
+    if final_status == "completed":
+        return
+    await _w(bot, uid,
+             f"⚠️ @{raw_target} did not respond. It may be offline.")
+
+
+async def _direct_stop_fallback(bot, uid, raw_target: str) -> None:
+    target_bot = get_live_bot(raw_target)
+    if target_bot is not None:
+        task = _bot_loops.pop(raw_target, None)
+        if task and not task.done():
+            task.cancel()
+        _clear_emote_recovery_keys(raw_target)
+        tgt_display = (db.get_bot_username_for_mode(raw_target) or raw_target)
+        await target_bot.highrise.send_whisper(
+            uid, f"✅ @{tgt_display} stopped emote loop.")
+        return
+    await _w(bot, uid,
+             f"⚠️ @{raw_target} did not respond. It may be offline.")
 
 
 # ---------------------------------------------------------------------------
@@ -633,24 +721,31 @@ async def handle_botemoteid(bot: "BaseBot", user: "User",
         raw_target = BOT_MODE.lower()
         raw_id     = raw1
 
-    eid = raw_id
+    eid        = raw_id
+    emote_name = raw_id  # no alias lookup — name == id
 
     this_mode  = BOT_MODE.lower()
     this_uname = (_get_bot_uname() or BOT_USERNAME or "").strip().lower()
     is_this_bot = (raw_target == this_mode or
                    bool(this_uname and raw_target == this_uname))
 
-    store_key = this_mode if is_this_bot else raw_target
-    db.set_room_setting(f"bot_emote_{store_key}", eid)
-
     if is_this_bot:
+        # Persist for restart recovery (raw ID always).
+        try:
+            db.set_room_setting(f"bot_emote_{this_mode}", eid)
+        except Exception:
+            pass
         dur     = _start_bot_loop(bot, BOT_MODE, eid)
         display = f"@{_get_bot_uname() or BOT_MODE}"
         await _w(bot, uid,
-                 f"✅ {display} looping {eid} (every {dur:.0f}s) [raw ID].")
+                 f"✅ {display} is now looping {eid} ({eid}) [every {dur:.0f}s]")
         return
 
-    await _w(bot, uid, f"✅ Saved. @{raw_target} will loop {eid} on next restart.")
+    # Cross-bot: queue is PRIMARY (same path as !botemote, no alias lookup).
+    _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
+    await _dispatch_emote_to_other_bot(
+        bot, uid, raw_target, eid, emote_name,
+    )
 
 
 # ---------------------------------------------------------------------------
