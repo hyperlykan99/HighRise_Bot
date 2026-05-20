@@ -3507,7 +3507,18 @@ class HangoutBot(BaseBot):
     """
 
     async def on_start(self, session_metadata) -> None:
+        """Crash-proof wrapper — prints full traceback if on_start itself throws."""
+        try:
+            await self._on_start_impl(session_metadata)
+        except Exception:
+            import traceback as _tb
+            print(f"[ON_START FATAL] bot={BOT_MODE} — full traceback:")
+            _tb.print_exc()
+            raise   # re-raise so SDK knows the coroutine failed
+
+    async def _on_start_impl(self, session_metadata) -> None:
         """Called once when the bot successfully connects to the room."""
+        print(f"[ON_START 1/14] identity — bot={BOT_MODE}")
         print(f"[SDK] bot mode={BOT_MODE} ready")
         if BOT_MODE == "dj":
             print(f"[DJ MODE ACTIVE] mode={BOT_MODE} — music/radio commands enabled")
@@ -3563,6 +3574,7 @@ class HangoutBot(BaseBot):
                   f" reconnect #{bot_state.RESTART_COUNT - 1} @ {_now_ts}")
         _join_type = "first_connect" if bot_state.RESTART_COUNT == 1 else f"reconnect #{bot_state.RESTART_COUNT - 1}"
         print(f"[ROOM JOIN SUCCESS] bot={BOT_MODE} room={config.ROOM_ID} type={_join_type} @ {_now_ts}")
+        print(f"[ON_START 2/14] task exception handler — bot={BOT_MODE}")
         _install_task_exception_handler()
         # Health-check: log when this subprocess exits (disconnect / crash / kick)
         # atexit fires on both normal and exception exits (not SIGKILL).
@@ -3595,6 +3607,8 @@ class HangoutBot(BaseBot):
             except Exception:
                 pass
 
+        print(f"[ON_START 3/14] unhandled-exc hooks installed — bot={BOT_MODE}")
+
         def _safe_task(coro, label: str):
             """Wrap a startup coroutine so one failure never kills the bot."""
             async def _guarded():
@@ -3606,6 +3620,7 @@ class HangoutBot(BaseBot):
                     _tb.print_exc()
             return asyncio.create_task(_guarded())
 
+        print(f"[ON_START 4/14] launching startup tasks — bot={BOT_MODE}")
         # Seed the room user cache from the live room list
         _safe_task(refresh_room_cache(self), "refresh_room_cache")
         # Recover active event — events bot only
@@ -3634,6 +3649,7 @@ class HangoutBot(BaseBot):
             _safe_task(startup_autofish_recovery(self), "startup_autofish_recovery")
         else:
             print(f"[AUTOFISH] Recovery skipped — not fisher bot ({BOT_MODE}).")
+        print(f"[ON_START 5/14] module-ownership tasks queued — bot={BOT_MODE}")
         # Seed Title V2 catalog from TITLE_CATALOG dict (idempotent, fast)
         try:
             seed_title_catalog_startup()
@@ -3674,14 +3690,18 @@ class HangoutBot(BaseBot):
             _safe_task(startup_radio(self), "startup_radio")
         else:
             print(f"[YT_CLEANUP] Cleanup loop skipped — not DJ bot ({BOT_MODE}).")
-        # Bot emote loop recovery — all bot modes (each bot checks its own DB key)
-        _safe_task(startup_bot_emote_recovery(self), "startup_bot_emote_recovery")
+        print(f"[ON_START 6/14] jail/announce/radio tasks queued — bot={BOT_MODE}")
+        # Bot emote loop recovery — DISABLED for diagnostic run
+        # _safe_task(startup_bot_emote_recovery(self), "startup_bot_emote_recovery")
+        print(f"[EMOTE] startup_bot_emote_recovery disabled (diagnostic mode) — bot={BOT_MODE}")
         # Emote discovery — only runs on dj bot (emote test uses dj's Highrise account)
         if BOT_MODE == "dj":
             _safe_task(startup_emote_discovery(self), "startup_emote_discovery")
         else:
             print(f"[EMOTE] Discovery skipped — not dj bot ({BOT_MODE})")
+        print(f"[ON_START 7/14] emote/discovery tasks queued — bot={BOT_MODE}")
         # Background automation loops (idempotent — safe on reconnect)
+        print(f"[ON_START 8/14] auto-game/event loops — bot={BOT_MODE}")
         try:
             start_auto_game_loop(self)
         except Exception:
@@ -3698,27 +3718,33 @@ class HangoutBot(BaseBot):
             import traceback; traceback.print_exc()
             print("[STARTUP ERROR] start_activity_prompt_loop failed — bot continues.")
         # Room interval message loop
+        print(f"[ON_START 9/14] start_interval_loop — bot={BOT_MODE}")
         try:
             await start_interval_loop(self)
         except Exception:
             import traceback; traceback.print_exc()
             print("[STARTUP ERROR] start_interval_loop failed — bot continues.")
+        print(f"[ON_START 10/14] interval loop done — bot={BOT_MODE}")
         # Multi-bot heartbeat
         _safe_task(start_multibot_heartbeat(self), "start_multibot_heartbeat")
         # 3.3A — AI delegated task loop removed (old EmceeBot system quarantined)
         # Startup safety checks (logs warnings only)
+        print(f"[ON_START 11/14] heartbeat queued — bot={BOT_MODE}")
         try:
             check_startup_safety()
         except Exception:
             import traceback; traceback.print_exc()
             print("[STARTUP ERROR] check_startup_safety failed — bot continues.")
+        print(f"[ON_START 12/14] safety checks done — bot={BOT_MODE}")
         # Startup room announce
         _safe_task(send_startup_announce(self), "send_startup_announce")
+        print(f"[ON_START 13/14] announce queued — bot={BOT_MODE}")
         # Bot spawn
         _safe_task(
             apply_bot_spawn(self, get_bot_username() or config.BOT_USERNAME),
             "apply_bot_spawn"
         )
+        print(f"[ON_START 14/14] COMPLETE — bot={BOT_MODE} on_start finished cleanly")
 
     # ── on_chat safety wrapper ────────────────────────────────────────────────
     async def on_chat(self, user: User, message: str) -> None:
