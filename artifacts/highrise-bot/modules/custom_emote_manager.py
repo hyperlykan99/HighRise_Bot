@@ -431,23 +431,29 @@ async def handle_setemotetime(bot: "BaseBot", user: "User",
 
     Sets a persistent custom timing for any emote.  Takes highest priority
     over all other timing sources.  Effective immediately, no restart needed.
+
+    NOTE: `args` here includes the command word at args[0] (project convention,
+    same as handle_addbotemote etc.) — so we read args[1] and args[2].
     """
     uid = user.id
     if not _is_admin(user.username):
         await _w(bot, uid, "❌ Admin only.")
         return
 
-    if len(args) < 2:
+    # Strip command word — real args start at index 1.
+    if len(args) < 3:
         await _w(bot, uid,
                  "Usage: !setemotetime <raw_id_or_name> <seconds>  "
                  "(e.g. !setemotetime emote-jewelrise-vibing 20)")
         return
 
-    raw_token = args[0]
+    raw_token = args[1]
     try:
-        seconds = float(args[1])
-    except ValueError:
-        await _w(bot, uid, f"❌ Invalid number: {args[1]!r}")
+        seconds = float(args[2])
+    except (ValueError, TypeError):
+        await _w(bot, uid,
+                 "Usage: !setemotetime <raw_id_or_name> <seconds>  "
+                 f"(got non-number: {args[2]!r})")
         return
     if seconds <= 0:
         await _w(bot, uid, "❌ Seconds must be > 0.")
@@ -458,6 +464,11 @@ async def handle_setemotetime(bot: "BaseBot", user: "User",
         await _w(bot, uid, "❌ Could not resolve emote.")
         return
 
+    # Safety: never accept the command word itself as the emote ID.
+    if eid.lower() in {"setemotetime", "emotetime"}:
+        await _w(bot, uid, "❌ Could not resolve emote (got command word).")
+        return
+
     _TIMINGS[eid] = seconds
     _register_timing(eid, seconds)  # immediately hot in TIMED_EMOTES_BY_ID
     _save()                          # persists + calls reload_custom_emotes()
@@ -466,13 +477,16 @@ async def handle_setemotetime(bot: "BaseBot", user: "User",
 
 async def handle_emotetime(bot: "BaseBot", user: "User",
                             args: list) -> None:
-    """!emotetime <raw_id_or_name>  — show current timing and its source."""
+    """!emotetime <raw_id_or_name>  — show current timing and its source.
+
+    `args[0]` is the command word; real argument is args[1].
+    """
     uid = user.id
-    if not args:
+    if len(args) < 2:
         await _w(bot, uid, "Usage: !emotetime <raw_id_or_name>")
         return
 
-    eid = _resolve_emote_id(args[0])
+    eid = _resolve_emote_id(args[1])
     if not eid:
         await _w(bot, uid, "❌ Could not resolve emote.")
         return
