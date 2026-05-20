@@ -1375,6 +1375,10 @@
     "emote-zombie": {
       "status": "sdk_accepted_needs_visual",
       "tested_at": "2026-05-19T22:19:07"
+    },
+    "emote-littlemonsters-dance": {
+      "status": "sdk_accepted_needs_visual",
+      "tested_at": "2026-05-20T16:56:01"
     }
   },
   "scan": {

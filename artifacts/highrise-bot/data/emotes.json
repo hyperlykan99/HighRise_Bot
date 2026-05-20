@@ -1901,7 +1901,7 @@
     "id": "emote-littlemonsters-dance",
     "name": "Spooky Swagger",
     "player": false,
-    "time": 5.0
+    "time": 20.0
   },
   "springsun": {
     "bot": true,
