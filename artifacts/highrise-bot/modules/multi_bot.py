@@ -284,6 +284,11 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "favemotes": "dj", "favemote": "dj",
     "dancefloor": "dj",
     "emotetestchecklist": "dj",
+    # ── dj — custom emote sequences (custom_emotes.py) ───────────────────────
+    "customemote": "dj", "customtimed": "dj", "stopcustom": "dj",
+    "savecustom": "dj", "savecustomtimed": "dj",
+    "playcustom": "dj", "custompacks": "dj", "custominfo": "dj",
+    "renamecustom": "dj", "deletecustom": "dj",
     # ── dj — emote registry (DJ_DUDU-only, single source of truth) ───────────
     "setemote": "dj", "addemote": "dj", "removeemote": "dj",
     "emotedebug": "dj", "exportemotes": "dj", "timingaudit": "dj",
