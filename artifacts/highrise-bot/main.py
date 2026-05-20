@@ -920,6 +920,7 @@ from modules.emote_system import (
     handle_botemote,
     handle_botemoteid,
     handle_stopbotemote,
+    handle_livebots,
     startup_bot_emote_recovery,
     handle_punch_emote,
     handle_swordfight,
@@ -1363,7 +1364,7 @@ ALL_KNOWN_COMMANDS = (
         # ── Room utility — public ─────────────────────────────────────────────
         "players", "roomlist", "online", "staffonline", "vipsinroom", "rolelist",
         "emotes", "emote", "stopemote", "dance", "wave", "sit", "clap",
-        "swordfight", "botemote", "stopbotemote",
+        "swordfight", "botemote", "stopbotemote", "livebots",
         "heart", "hearts", "heartlb", "giveheart", "reactheart",
         "hug", "kiss", "slap", "punch", "highfive", "boop", "waveat", "cheer",
         "social", "blocksocial", "unblocksocial", "socialhelp",
@@ -3518,15 +3519,12 @@ class HangoutBot(BaseBot):
         # Store bot identity so gold rain / tip receiver-check can use it
         set_bot_identity(session_metadata.user_id)
         print(f"[HangoutBot] Bot user ID: {session_metadata.user_id}")
-        # Register in same-process LIVE_BOTS so !botemote can target without channel hop.
+        # Register in shared LIVE_BOTS registry so !botemote can target this bot.
         try:
-            from modules.emote_system import LIVE_BOTS as _LIVE_BOTS
-            _LIVE_BOTS[BOT_MODE.lower()] = self
-            _own_uname = (get_bot_username() or config.BOT_USERNAME or "").strip().lower()
-            if _own_uname:
-                _LIVE_BOTS[_own_uname] = self
+            from modules.live_bot_registry import register_bot
+            register_bot(self)
         except Exception as _lbe:
-            print(f"[EMOTE] LIVE_BOTS register failed (non-fatal): {_lbe}")
+            print(f"[LIVE_BOTS] register failed (non-fatal): {_lbe}")
         # Install SDK rate-limit guards — wraps send_whisper + chat on this fresh
         # Highrise() instance (SDK creates a new one each connect/reconnect)
         try:
@@ -7501,6 +7499,8 @@ class HangoutBot(BaseBot):
             await handle_botemote(self, user, args)
         elif cmd == "stopbotemote":
             await handle_stopbotemote(self, user, args)
+        elif cmd == "livebots":
+            await handle_livebots(self, user, args)
         elif cmd in (
             "emoteresolve", "emotediag", "unsupportedemotes",
             "markemoteworks", "markemoteunsupported",

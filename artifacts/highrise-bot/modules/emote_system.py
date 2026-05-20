@@ -75,9 +75,8 @@ def _log(stage: str, **kw: object) -> None:
 _player_loops:  dict[str, asyncio.Task] = {}
 _player_emotes: dict[str, str]          = {}
 _bot_loops:     dict[str, asyncio.Task] = {}
-# Per-process live bot registry.  Key = mode.lower() OR username.lower() → bot instance.
-# Only populated for bots sharing this subprocess; cross-process bots won't appear here.
-LIVE_BOTS:      dict[str, object] = {}
+# Shared registry lives in modules.live_bot_registry — re-exported here for callers.
+from modules.live_bot_registry import LIVE_BOTS, get_live_bot, live_bot_keys
 
 _emote_cd:       dict[str, float] = {}
 _punch_cd:       dict[str, float] = {}
@@ -526,9 +525,9 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, f"✅ {display} looping {eid} (every 5s).")
         return
 
-    # Not this bot — try LIVE_BOTS first (same subprocess), then channel (cross-process).
+    # Not this bot — try shared LIVE_BOTS first (same subprocess), then channel.
     import json as _json
-    target_bot = LIVE_BOTS.get(raw_target)
+    target_bot = get_live_bot(raw_target)
     if target_bot is not None:
         # Same process: drive the target bot's client directly.
         old = _bot_loops.pop(raw_target, None)
@@ -546,18 +545,14 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
                 await asyncio.sleep(5.0)
         _bot_loops[raw_target] = asyncio.create_task(_direct_loop())
         _log("bot_emote_set", admin=uname, bot=raw_target, emote=eid)
-        _tgt_display = db.get_bot_username_for_mode(raw_target) or raw_target
+        _tgt_display = (db.get_bot_username_for_mode(raw_target) or raw_target)
         await target_bot.highrise.send_whisper(
             _uid2, f"✅ @{_tgt_display} is now looping {eid}.")
         return
-    # Cross-process path: resolve mode, check online status.
-    _tgt_mode = (raw_target if db.is_bot_mode_online(raw_target)
-                 else (db.get_bot_mode_for_username(raw_target) or raw_target))
-    if not db.is_bot_mode_online(_tgt_mode):
-        await _w(bot, uid, f"⚠️ @{raw_target} is offline. Emote not started.")
-        return
-    # Target is online in a different subprocess — channel message carries requester_id
-    # so the target bot can whisper the admin directly (this bot stays silent).
+    # Not in this subprocess — broadcast on Highrise channel so the target bot
+    # (running in another subprocess) starts the loop and whispers the admin.
+    # We do NOT pre-check online status here: the channel will simply be a no-op
+    # if no bot picks it up.  Admins can run !livebots to debug presence.
     _ch = _json.dumps({"action": "bot_emote_start", "target": raw_target,
                         "emote_id": eid, "requester_id": uid})
     try:
@@ -652,6 +647,19 @@ async def handle_botemoteid(bot: "BaseBot", user: "User",
 # ---------------------------------------------------------------------------
 # Startup recovery
 # ---------------------------------------------------------------------------
+
+async def handle_livebots(bot: "BaseBot", user: "User", args: list) -> None:
+    """!livebots — admin debug: show keys registered in LIVE_BOTS this process."""
+    if not _is_admin(user.username):
+        await _w(bot, user.id, "Admin only.")
+        return
+    keys = live_bot_keys()
+    if not keys:
+        await _w(bot, user.id, "LIVE_BOTS empty in this process.")
+        return
+    msg = "LIVE_BOTS (this proc): " + ", ".join(keys)
+    await _w(bot, user.id, msg[:249])
+
 
 async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
     """Called from on_channel when action=bot_emote_start or bot_emote_stop.
