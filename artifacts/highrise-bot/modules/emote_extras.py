@@ -385,7 +385,7 @@ _sync_followers: dict[str, set]            = {}
 # Follower-uid -> watcher task
 _sync_tasks:     dict[str, asyncio.Task]   = {}
 
-_SYNC_POLL_SECS = 0.6
+_SYNC_POLL_SECS = 0.3
 
 
 async def _sync_watcher(bot: "BaseBot", follower_uid: str,
@@ -552,14 +552,20 @@ async def sync_push_emote_event(bot: "BaseBot", uid: str,
         from modules.emote_system import _send_player
     except Exception:
         return
-    for f_uid in followers:
-        if _sync_target.get(f_uid) != uid:
-            continue
+    # Filter to valid followers and log before gather
+    valid_fids = [f for f in followers if _sync_target.get(f) == uid]
+    for f_uid in valid_fids:
         print(f"[SYNC_COPY] follower={f_uid} target={uid} emote={emote_id}")
-        try:
-            await _send_player(bot, emote_id, f_uid)
-        except Exception as exc:
-            print(f"[SYNC_COPY] send err follower={f_uid}: {exc!r}")
+    if not valid_fids:
+        return
+    # Send to all followers simultaneously — closest server-side sync possible
+    results = await asyncio.gather(
+        *[_send_player(bot, emote_id, f) for f in valid_fids],
+        return_exceptions=True,
+    )
+    for f_uid, r in zip(valid_fids, results):
+        if isinstance(r, Exception):
+            print(f"[SYNC_COPY] send err follower={f_uid}: {r!r}")
 
 
 def clear_sync_on_leave(user_id: str) -> None:
@@ -707,6 +713,65 @@ _DF_POLL_SECS = 2.0
 _df_task: dict[str, asyncio.Task] = {}
 _df_inside: set[str] = set()                   # user_ids currently inside
 _df_user_emote: dict[str, str] = {}            # uid -> current emote alias
+_df_player_tasks: dict[str, asyncio.Task] = {} # uid -> per-player cycle task
+
+
+async def _df_player_cycle(bot: "BaseBot", uid: str) -> None:
+    """Cycle through the full dancefloor emote pool for one player.
+
+    Each lap:
+      - Re-reads the saved pool (picks up live config changes).
+      - Shuffles into random order; avoids starting on the same emote as the
+        previous lap's last emote.
+      - Sends each emote in sequence; waits for its registry-timed duration.
+    """
+    from modules.emote_system import _send_player, get_emote_time
+    import random as _rnd
+
+    prev_alias: str | None = None
+    try:
+        while True:
+            emotes = _df_get_emotes()
+            valid_pairs: list[tuple[str, str]] = []
+            for alias in emotes:
+                ent = _reg_get(alias)
+                if ent and ent.get("id") and ent.get("player"):
+                    valid_pairs.append((alias, ent["id"]))
+
+            if not valid_pairs:
+                await asyncio.sleep(2.0)
+                continue
+
+            # Shuffle; move prev_alias to end to avoid immediate repeat
+            _rnd.shuffle(valid_pairs)
+            if len(valid_pairs) > 1 and valid_pairs[0][0] == prev_alias:
+                valid_pairs.append(valid_pairs.pop(0))
+
+            for alias, eid in valid_pairs:
+                # Check task is still wanted (player may have left mid-lap)
+                if uid not in _df_inside:
+                    return
+                duration = max(0.5, get_emote_time(eid))
+                print(f"[DANCEFLOOR_CYCLE] alias={alias} eid={eid} "
+                      f"time={duration:.1f} players={len(_df_inside)}")
+                try:
+                    await _send_player(bot, eid, uid)
+                except Exception as exc:
+                    print(f"[DANCEFLOOR_CYCLE] send err uid={uid}: {exc!r}")
+                prev_alias = alias
+                await asyncio.sleep(duration)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        print(f"[DANCEFLOOR_CYCLE] err uid={uid}: {exc!r}")
+
+
+def _df_cancel_player(uid: str) -> None:
+    """Cancel this player's dancefloor cycle task."""
+    t = _df_player_tasks.pop(uid, None)
+    if t and not t.done():
+        t.cancel()
+    _df_user_emote.pop(uid, None)
 
 
 def _df_get_point(slot: int) -> tuple[float, float, float] | None:
@@ -752,8 +817,7 @@ def _in_box(pos, box) -> bool:
 
 
 async def _dancefloor_loop(bot: "BaseBot") -> None:
-    """Poll positions every _DF_POLL_SECS; toggle player loops on box entry/exit."""
-    from modules.emote_system import _start_player_loop, _cancel_player_loop
+    """Poll positions every _DF_POLL_SECS; start/stop per-player cycle tasks."""
     from modules.live_bot_registry import live_bot_keys
     print("[DANCEFLOOR] loop started")
     while True:
@@ -762,18 +826,7 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
                 await asyncio.sleep(_DF_POLL_SECS)
                 continue
             box = _df_get_box()
-            emotes = _df_get_emotes()
-            if not box or not emotes:
-                await asyncio.sleep(_DF_POLL_SECS)
-                continue
-
-            # Resolve emote IDs once per tick
-            valid_pairs: list[tuple[str, str]] = []   # (alias, eid)
-            for alias in emotes:
-                ent = _reg_get(alias)
-                if ent and ent.get("id") and ent.get("player"):
-                    valid_pairs.append((alias, ent["id"]))
-            if not valid_pairs:
+            if not box or not _df_get_emotes():
                 await asyncio.sleep(_DF_POLL_SECS)
                 continue
 
@@ -797,29 +850,20 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
                     if is_in_sync(u.id):
                         print(f"[DANCEFLOOR_SKIP_SYNC] user={u.id}")
                         continue
-                    # Entered — pick an emote and start loop
-                    alias, eid = random.choice(valid_pairs)
-                    _df_user_emote[u.id] = alias
-                    print(f"[DANCEFLOOR_ENTER] user={u.id} alias={alias} eid={eid}")
-                    try:
-                        await _start_player_loop(
-                            bot, u.id, eid, alias,
-                            username=u.username, log_event="dancefloor_enter",
-                        )
-                    except Exception as exc:
-                        print(f"[DANCEFLOOR] start err {u.id}: {exc!r}")
+                    # Entered — launch cycle task (picks emotes itself each lap)
+                    print(f"[DANCEFLOOR_ENTER] user={u.id}")
+                    t = _df_player_tasks.get(u.id)
+                    if not t or t.done():
+                        _df_player_tasks[u.id] = asyncio.create_task(
+                            _df_player_cycle(bot, u.id))
 
             print(f"[DANCEFLOOR_TICK] users={len(users)} "
                   f"inside={len(current_inside)} active=true")
 
-            # Stop loops for those who left
+            # Stop cycle tasks for those who left
             for left_uid in (_df_inside - current_inside):
                 print(f"[DANCEFLOOR_EXIT] user={left_uid}")
-                try:
-                    _cancel_player_loop(left_uid)
-                except Exception:
-                    pass
-                _df_user_emote.pop(left_uid, None)
+                _df_cancel_player(left_uid)
 
             _df_inside.clear()
             _df_inside.update(current_inside)
@@ -842,15 +886,12 @@ def _stop_dancefloor_task() -> None:
     t = _df_task.pop("_", None)
     if t and not t.done():
         t.cancel()
-    # Also stop any per-user dancefloor loops still running
-    from modules.emote_system import _cancel_player_loop
+    # Cancel all per-player cycle tasks
     for uid in list(_df_inside):
-        try:
-            _cancel_player_loop(uid)
-        except Exception:
-            pass
+        _df_cancel_player(uid)
     _df_inside.clear()
     _df_user_emote.clear()
+    _df_player_tasks.clear()
 
 
 async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
