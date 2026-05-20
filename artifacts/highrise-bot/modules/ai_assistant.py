@@ -1283,12 +1283,29 @@ def _resolve_delegation(cmd: str, args_str: str) -> tuple[str | None, str]:
 # Core command execution
 # ---------------------------------------------------------------------------
 
+# Emote registry commands that only DJ_DUDU (BOT_MODE=dj) should handle.
+# If another bot's AI tries to dispatch one, it silently defers.
+_EMOTE_CTRL_AI_CMDS: frozenset[str] = frozenset({
+    "emotes", "emoteinfo", "findemote", "emotetime", "timingaudit",
+    "setemote", "addemote", "removeemote", "exportemotes", "emotedebug",
+    "missingtimings",
+})
+
+
 async def _execute_handler(bot, user, cmd: str, args_list: list[str]) -> None:
     """Call a handler from _HANDLER_MAP with correct arity."""
     if cmd not in _HANDLER_MAP:
         await _w(bot, user.id,
                  f"✅ Try !{cmd}{(' ' + ' '.join(args_list[1:])) if len(args_list) > 1 else ''} manually.")
         return
+    # Emote registry commands: only DJ_DUDU (BOT_MODE=dj) responds.
+    if cmd in _EMOTE_CTRL_AI_CMDS:
+        try:
+            from config import BOT_MODE
+            if BOT_MODE != "dj":
+                return
+        except Exception:
+            pass
     module_path, fn_name = _HANDLER_MAP[cmd]
     try:
         mod     = importlib.import_module(module_path)

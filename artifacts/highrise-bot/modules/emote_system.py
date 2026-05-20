@@ -58,6 +58,35 @@ def get_emote_time(raw_id: str, fallback: float = 5.0) -> float:
         return float(fallback)
 
 
+def is_emote_controller_bot() -> bool:
+    """True when this subprocess is DJ_DUDU (BOT_MODE=dj).
+
+    DJ_DUDU is the sole owner of all global emote registry commands
+    (!emoteinfo, !setemote, !addemote, !removeemote, !exportemotes,
+    !emotedebug, !timingaudit, !missingtimings, !findemote, !emotetime,
+    !emotes, !stopemote) and all player self-emote triggers (plain chat +
+    !emote <name>).  All other bots silently ignore those.
+    """
+    try:
+        from config import BOT_MODE
+        return BOT_MODE == "dj"
+    except Exception:
+        return False
+
+
+def reload_emote_registry() -> None:
+    """Reload data/emotes.json into memory before a registry read or write.
+
+    Called at the top of every emote registry command handler so that stale
+    in-memory state from other bots' writes is never used.
+    """
+    if _reg is not None:
+        try:
+            _reg.reload()
+        except Exception as exc:
+            print(f"[EMOTE] registry reload failed: {exc!r}")
+
+
 def _merged_bot_names() -> "list[str]":
     """Sorted display names of all bot-usable emotes (registry-driven)."""
     if _reg is not None:

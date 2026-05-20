@@ -941,6 +941,8 @@ from modules.emote_system import (
     handle_emoteinfo,
     handle_emotetime as handle_emotetime_reg,
     handle_timingaudit,
+    is_emote_controller_bot,
+    reload_emote_registry,
 )
 from modules.custom_emote_manager import (
     handle_missingtimings,
@@ -1828,6 +1830,15 @@ EMOTE_DIAG_SCAN_COMMANDS: frozenset[str] = frozenset({
     "emotelog", "emotelogstatus", "lastemotes",
     "clearemotelog", "addobservedemote", "testobservedemote",
     "fakeemote", "debugemoteevents",
+})
+
+# ── Emote registry / player-emote commands owned exclusively by DJ_DUDU ────
+# Any other BOT_MODE must silently return on these.  botemote/stopbotemote/
+# botemoteid/botemotes are intentionally excluded — they target specific bots.
+_EMOTE_CTRL_CMDS: frozenset[str] = frozenset({
+    "missingtimings", "emotetime", "setemote", "addemote", "removeemote",
+    "exportemotes", "emotedebug", "timingaudit", "emotes", "emoteinfo",
+    "findemote", "stopemote",
 })
 
 
@@ -7428,9 +7439,36 @@ class HangoutBot(BaseBot):
         elif cmd == "groupteleport":
             await handle_groupteleport(self, user, args)
 
-        # ── Emotes ────────────────────────────────────────────────────────────
-        elif cmd == "missingtimings":
-            await handle_missingtimings(self, user, args)
+        # ── Emote registry commands — DJ_DUDU (emote controller) only ─────────
+        elif cmd in _EMOTE_CTRL_CMDS:
+            if not is_emote_controller_bot():
+                return
+            reload_emote_registry()
+            if cmd == "missingtimings":
+                await handle_missingtimings(self, user, args)
+            elif cmd == "emotetime":
+                await handle_emotetime_reg(self, user, args)
+            elif cmd == "setemote":
+                await handle_setemote(self, user, args)
+            elif cmd == "addemote":
+                await handle_addemote(self, user, args)
+            elif cmd == "removeemote":
+                await handle_removeemote(self, user, args)
+            elif cmd == "exportemotes":
+                await handle_exportemotes(self, user, args)
+            elif cmd == "emotedebug":
+                await handle_emotedebug(self, user, args)
+            elif cmd == "timingaudit":
+                await handle_timingaudit(self, user, args)
+            elif cmd == "emotes":
+                await handle_emotes_auto(self, user, args)
+            elif cmd == "emoteinfo":
+                await handle_emoteinfo(self, user, args)
+            elif cmd == "findemote":
+                await handle_findemote(self, user, args)
+            elif cmd == "stopemote":
+                await handle_stopemote(self, user)
+        # ── Emote commands — all bots ─────────────────────────────────────────
         elif cmd == "addbotemote":
             await handle_addbotemote(self, user, args)
         elif cmd == "addplayeremote":
@@ -7443,28 +7481,10 @@ class HangoutBot(BaseBot):
             await handle_customemotes(self, user, args)
         elif cmd == "setemotetime":
             await handle_setemotetime(self, user, args)
-        elif cmd == "emotetime":
-            await handle_emotetime_reg(self, user, args)
-        elif cmd == "setemote":
-            await handle_setemote(self, user, args)
-        elif cmd == "addemote":
-            await handle_addemote(self, user, args)
-        elif cmd == "removeemote":
-            await handle_removeemote(self, user, args)
-        elif cmd == "exportemotes":
-            await handle_exportemotes(self, user, args)
-        elif cmd == "emotedebug":
-            await handle_emotedebug(self, user, args)
-        elif cmd == "timingaudit":
-            await handle_timingaudit(self, user, args)
-        elif cmd == "emotes":
-            await handle_emotes_auto(self, user, args)
         elif cmd == "botemotes":
             await handle_botemotes(self, user, args)
         elif cmd == "testplayeremote":
             await handle_testplayeremote(self, user, args)
-        elif cmd == "findemote":
-            await handle_findemote(self, user, args)
         elif cmd == "playeremotes":
             await handle_playeremotes(self, user, args)
         elif cmd == "unresolvedplayeremotes":
@@ -7475,17 +7495,17 @@ class HangoutBot(BaseBot):
             await handle_playeremoteid(self, user, args)
         elif cmd == "emotemode":
             await handle_emotemode(self, user, args)
-        elif cmd == "emoteinfo":
-            await handle_emoteinfo(self, user, args)
         elif cmd == "emote":
             if len(args) >= 2 and args[1].startswith("@"):
                 await handle_force_emote(self, user, args)
             elif len(args) >= 2 and args[1].lower() in ("all", "allbots"):
                 await handle_room_emote(self, user, args)
             else:
+                # Player self-emote (!emote <name>): DJ_DUDU only.
+                if not is_emote_controller_bot():
+                    return
+                reload_emote_registry()
                 await handle_emote_cmd(self, user, args)
-        elif cmd == "stopemote":
-            await handle_stopemote(self, user)
         elif cmd == "dance":
             await handle_dance(self, user)
         elif cmd == "wave":
