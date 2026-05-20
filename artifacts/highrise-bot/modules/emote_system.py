@@ -1305,3 +1305,46 @@ async def handle_emotedebug(bot: "BaseBot", user: "User", args: list) -> None:
     await _w(bot, uid,
              f"🔍 {entry.get('name', name)} | id={rid} | loop={t}s | "
              f"player→{handler} | bot→{bot_h} | aliases={','.join(aliases)}")
+
+
+async def handle_emoteinfo(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emoteinfo <alias_or_id> — show full registry entry for an emote."""
+    uid = user.id
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !emoteinfo <alias_or_id>")
+        return
+    if _reg is None:
+        await _w(bot, uid, "Emote registry unavailable.")
+        return
+    query = args[1]
+    entry = _reg.get_emote(query)
+    if not entry:
+        await _w(bot, uid, f"❌ '{query}' not found in registry.")
+        return
+    rid     = entry["id"]
+    aliases = _reg.aliases_for_id(rid)
+    cat     = entry.get("category") or "uncategorized"
+    await _w(bot, uid,
+             f"alias={','.join(aliases)} name={entry.get('name','?')} "
+             f"id={rid} time={entry['time']}s "
+             f"bot={_fmt_bool(entry.get('bot'))} player={_fmt_bool(entry.get('player'))} "
+             f"cat={cat}")
+
+
+async def handle_emotetime(bot: "BaseBot", user: "User", args: list) -> None:
+    """!emotetime <alias_or_id> — show exact timing from data/emotes.json."""
+    uid = user.id
+    if len(args) < 2:
+        await _w(bot, uid, "Usage: !emotetime <alias_or_id>")
+        return
+    if _reg is None:
+        await _w(bot, uid, "Emote registry unavailable.")
+        return
+    query = args[1]
+    entry = _reg.get_emote(query)
+    if not entry:
+        await _w(bot, uid, f"❌ '{query}' not found in registry.")
+        return
+    rid = entry["id"]
+    t   = get_emote_time(rid)
+    await _w(bot, uid, f"⏱ {rid} = {t}s  (source: data/emotes.json)")

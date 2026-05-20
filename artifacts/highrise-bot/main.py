@@ -892,7 +892,7 @@ from modules.room_utils import (
     handle_selftp, handle_groupteleport,
     handle_spawns, handle_spawn, handle_setspawn, handle_delspawn,
     handle_spawninfo, handle_setspawncoords, handle_savepos,
-    handle_emote, handle_stopemote, handle_emoteinfo,
+    handle_emote, handle_stopemote,
     handle_setbotspawn, handle_setbotspawnhere, handle_botspawns,
     handle_clearbotspawn, apply_bot_spawn,
     teleport_bot_to_saved_spawn, handle_returnbots,
@@ -938,6 +938,8 @@ from modules.emote_system import (
     handle_removeemote,
     handle_exportemotes,
     handle_emotedebug,
+    handle_emoteinfo,
+    handle_emotetime as handle_emotetime_reg,
 )
 from modules.custom_emote_manager import (
     handle_missingtimings,
@@ -947,7 +949,6 @@ from modules.custom_emote_manager import (
     handle_removeplayeremote,
     handle_customemotes,
     handle_setemotetime,
-    handle_emotetime,
 )
 from modules.emote_logger import (
     log_emote as emote_spy_log,
@@ -7442,7 +7443,7 @@ class HangoutBot(BaseBot):
         elif cmd == "setemotetime":
             await handle_setemotetime(self, user, args)
         elif cmd == "emotetime":
-            await handle_emotetime(self, user, args)
+            await handle_emotetime_reg(self, user, args)
         elif cmd == "setemote":
             await handle_setemote(self, user, args)
         elif cmd == "addemote":
