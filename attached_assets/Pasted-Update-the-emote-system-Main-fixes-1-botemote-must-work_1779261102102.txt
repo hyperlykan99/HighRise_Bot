@@ -1,0 +1,85 @@
+Update the emote system.
+
+Main fixes:
+1. !botemote must work instantly.
+- When I type !botemote @DJ_DUDU heartfingers, the bot must immediately start looping it.
+- Do NOT save only for next reconnect.
+- Do NOT require bot restart.
+- If the target bot is the current running bot, start the loop immediately in memory.
+- Also persist it to DB/config so it resumes after restart.
+
+2. Add real timing support.
+- Use the timed_emotes list I pasted as the timing source.
+- Match by raw ID/value.
+- Example:
+  emote-heartfingers uses 4.001974 seconds.
+  dance-floss uses 21.329661 seconds.
+- If an emote ID is missing from timed_emotes, fallback to 5 seconds.
+
+3. Bot emote looping.
+Command:
+!botemote @bot <name>
+- Resolve name/id from BOT_EMOTES.
+- Get timing from TIMED_EMOTES_BY_ID.
+- Immediately loop:
+  await highrise.send_emote(emote_id)
+  await asyncio.sleep(time)
+- Keep looping until stopped.
+
+Command:
+!botemoteid @bot <raw_id>
+- Same but raw ID directly.
+- Use timing if raw ID exists in timed_emotes.
+- Fallback 5 sec.
+
+Command:
+!stopbotemote @bot
+- Stops that bot’s active loop immediately.
+- Also clears persisted saved emote.
+
+4. Player emote looping.
+Command:
+!emote <name>
+- Resolve from PLAYER_EMOTES.
+- Start looping the emote on the player who typed it.
+- Use:
+  await highrise.send_emote(emote_id, user.id)
+- Use exact timing from timed_emotes.
+- Keep looping until player stops.
+
+Players stop by typing:
+stop
+
+Also support:
+!emote stop
+
+Both should stop their active player emote loop.
+
+5. Multiple players can loop emotes at the same time.
+- Store active player loops by user.id.
+- If player starts a new emote, cancel their old loop first.
+- Do not stop other players.
+
+6. Prevent crash.
+- Every loop must catch exceptions.
+- If API rejects an emote, stop that loop and whisper error.
+- Bot must stay online.
+
+7. Keep current commands:
+!emote list
+!emote count
+!botemotes
+!findemote
+!emoteid
+!testplayeremote
+
+8. List formatting stays stacked columns and auto-pages.
+No comma spam.
+
+Important:
+- Do not auto-prefix IDs.
+- Do not use SDK scan.
+- Use exact hardcoded raw IDs.
+- Bots can use all BOT_EMOTES.
+- Players can only use PLAYER_EMOTES.
+- timed_emotes is only for timing, not for deciding player permissions.

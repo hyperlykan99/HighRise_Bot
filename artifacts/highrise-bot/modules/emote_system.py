@@ -22,6 +22,7 @@ from data.hardcoded_emotes import (
     BOT_SELF_EMOTES,
     PLAYER_EMOTES,
     PLAYER_EMOTE_ALIASES,
+    TIMED_EMOTES_BY_ID,
     lookup_bot_emote,
     lookup_player_emote,
     get_player_trigger_names,
@@ -29,24 +30,16 @@ from data.hardcoded_emotes import (
 )
 
 # ---------------------------------------------------------------------------
-# Timing map — loaded from timed_free_emotes catalog
+# Timing — sourced directly from TIMED_EMOTES_BY_ID (full 220-entry table).
+# Fallback for any emote not in the table: 5 seconds.
 # ---------------------------------------------------------------------------
-_EMOTE_DURATIONS: dict[str, float] = {}
-_DEFAULT_LOOP_INTERVAL: float = 5.0
-_BOT_LOOP_INTERVAL: float = 8.0
+_FALLBACK_INTERVAL: float = 5.0
 
 
-def _load_timing() -> None:
-    global _EMOTE_DURATIONS
-    try:
-        from data.timed_free_emotes import timed_free_emotes_list
-        _EMOTE_DURATIONS = {e["value"]: float(e["time"])
-                            for e in timed_free_emotes_list if e.get("value")}
-    except Exception as exc:
-        print(f"[EMOTE] timing load failed: {exc}")
-
-
-_load_timing()
+def _dur(eid: str) -> float:
+    """Return loop interval for emote_id.  Minimum 1.0s, fallback 5.0s."""
+    t = TIMED_EMOTES_BY_ID.get(eid, _FALLBACK_INTERVAL)
+    return max(1.0, t)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -123,9 +116,7 @@ def _cancel_player_loop(uid: str) -> None:
 
 
 async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
-    interval = _EMOTE_DURATIONS.get(eid) or _DEFAULT_LOOP_INTERVAL
-    if interval <= 0:
-        return
+    interval = _dur(eid)
     while True:
         try:
             await bot.highrise.send_emote(eid, uid)
@@ -142,19 +133,16 @@ async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
 
 def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
                     bot_uid: str = "") -> float:
-    """Start (or restart) a bot self-emote loop — send_emote(eid) only."""
+    """Cancel any running bot loop and immediately start a new one.
+
+    Sends: send_emote(eid)  — NO user_id.
+    Returns the loop interval in seconds.
+    """
     old = _bot_loops.pop(bot_mode, None)
     if old and not old.done():
         old.cancel()
 
-    raw_dur = _EMOTE_DURATIONS.get(eid)
-    interval: float
-    if raw_dur is None:
-        interval = _BOT_LOOP_INTERVAL
-    elif raw_dur <= 0:
-        interval = 30.0
-    else:
-        interval = raw_dur
+    interval = _dur(eid)   # TIMED_EMOTES_BY_ID lookup, 5s fallback, min 1s
 
     async def _loop() -> None:
         _iter = 0
@@ -224,10 +212,6 @@ async def start_player_emote(bot: "BaseBot", user: "User",
     ok = await _send_player(bot, eid, uid)
     if not ok:
         return
-    interval = _EMOTE_DURATIONS.get(eid) or _DEFAULT_LOOP_INTERVAL
-    if interval <= 0:
-        _log("emote_oneshot", user_id=uid, emote=eid)
-        return
     task = asyncio.create_task(_run_player_loop(bot, uid, eid))
     _player_loops[uid]  = task
     _player_emotes[uid] = eid
@@ -294,9 +278,6 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
         ok = await _send_player(bot, eid, uid)
         if not ok:
             await _w(bot, uid, f"Could not send emote '{sub}'.")
-            return
-        interval = _EMOTE_DURATIONS.get(eid) or _DEFAULT_LOOP_INTERVAL
-        if interval <= 0:
             return
         task = asyncio.create_task(_run_player_loop(bot, uid, eid))
         _player_loops[uid]  = task
