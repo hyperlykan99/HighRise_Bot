@@ -216,6 +216,7 @@ def _db_set_status(db_id: int, status: str, media_id: str = "") -> None:
                     "UPDATE yt_request_jobs SET status=? WHERE id=?",
                     (status, db_id),
                 )
+        print(f"[RADIO_STATUS] job={db_id} new={status!r} reason=playback_engine")
     except Exception as exc:
         print(f"{_LOG} _db_set_status({db_id},{status!r}): {exc}")
 

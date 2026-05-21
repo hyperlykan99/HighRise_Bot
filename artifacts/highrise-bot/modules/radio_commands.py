@@ -706,20 +706,25 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         f" np_title={np_title!r}"
     )
 
-    # ── Load display queue (already excludes 'playing' status) ────────────────
-    waiting = rq.display_jobs()
+    # ── Load display queue (all visible in-flight stages incl. playing) ─────────
+    all_jobs = rq.display_jobs()
 
-    # ── Filter out any item that matches the current NP ───────────────────────
-    filtered: list = []
-    for j in waiting:
+    # ── Classify: playing (now-on-air) vs waiting (everything else) ──────────
+    playing_jobs: list = []
+    waiting_jobs: list = []
+
+    for j in all_jobs:
         jfid   = (j.get("azura_file_id") or "").strip()
         jsid   = (j.get("azura_song_id") or "").strip()
         jfn    = (j.get("filename")      or "").lower()
         jvid   = (j.get("video_id")      or "").strip()
         jtitle = (j.get("title")         or "").lower().strip()
+        jst    = j.get("status", "")
 
         match_method: "str | None" = None
-        if np_fid and jfid and np_fid == jfid:
+        if jst == "playing":
+            match_method = "status_playing"
+        elif np_fid and jfid and np_fid == jfid:
             match_method = "media_id"
         elif np_sid and jsid and (np_sid == jsid or np_uid == jsid):
             match_method = "song_id"
@@ -731,57 +736,76 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
             match_method = "title_fuzzy"
 
         if match_method:
-            rq.mark_as_playing(j["id"])
-            print(
-                f"{_LOG} stage=nowplaying_match"
-                f" request_id={j['id']}"
-                f" match_method={match_method!r}"
-                f" title={j.get('title','?')!r}"
-                f" nowplaying_title={np_title!r}"
-            )
-            print(
-                f"{_LOG} stage=queue_status_fix"
-                f" request_id={j['id']}"
-                f" old_status={j.get('status','?')!r} new_status=playing"
-                f" reason=nowplaying_match"
-            )
+            if jst != "playing":
+                rq.mark_as_playing(j["id"])
+                print(
+                    f"{_LOG} stage=nowplaying_match"
+                    f" request_id={j['id']}"
+                    f" match_method={match_method!r}"
+                    f" old_status={jst!r} new_status=playing"
+                    f" title={j.get('title','?')!r}"
+                    f" nowplaying_title={np_title!r}"
+                )
+                print(
+                    f"[RADIO_STATUS] job={j['id']} old={jst!r} new=playing"
+                    f" reason=nowplaying_match"
+                )
+            playing_jobs.append(j)
         else:
-            filtered.append(j)
+            waiting_jobs.append(j)
 
     print(
-        f"{_LOG} stage=queue_nowplaying_filter"
-        f" count_before={len(waiting)} count_after={len(filtered)}"
+        f"{_LOG} stage=queue_read command=queue"
+        f" playing={len(playing_jobs)} waiting={len(waiting_jobs)}"
         f" np_title={np_title!r}"
     )
 
-    total = len(filtered)
-    print(
-        f"{_LOG} stage=queue_read command=queue"
-        f" statuses={list(rq._DISPLAY_STATUSES)!r}"
-        f" count={total}"
-    )
+    _MAX   = 249
+    _TTMAX = 25
 
-    if not total:
-        await _w(bot, user.id, "🎧 UP NEXT:\nEmpty")
+    def _status_icon(st: str) -> str:
+        if st == "ready":                       return "✅"
+        if st == "staged":                      return "📦"
+        if st == "playing":                     return "▶️"
+        if st in ("error", "failed_download"):  return "❌"
+        return "⏳"
+
+    # ── Whisper 1: NOW PLAYING (if there is a request currently on air) ───────
+    if playing_jobs:
+        pj  = playing_jobs[0]
+        pt  = (pj.get("title")    or "…").strip()[:40]
+        pu  = (pj.get("username") or "?").strip()[:12]
+        pa  = (pj.get("artist")   or "").strip()[:18]
+        if pa:
+            np_line = f"▶️ NOW: {pt} — {pa} (req. @{pu})"
+        else:
+            np_line = f"▶️ NOW: {pt} — req. by @{pu}"
+        await _w(bot, user.id, np_line[:_MAX])
+        await asyncio.sleep(0.15)
+
+    # ── Whisper 2: UP NEXT (pending / staged / ready jobs) ───────────────────
+    if not waiting_jobs:
+        if not playing_jobs:
+            await _w(bot, user.id, "🎧 Queue empty")
+        else:
+            await _w(bot, user.id, "🎧 UP NEXT: nothing queued yet")
         return
 
-    _MAX   = 249
-    _TTMAX = 28
-
     rows: list[str] = []
-    for i, j in enumerate(filtered, 1):
-        t    = (j.get("title")    or "…").strip()[:_TTMAX]
-        a    = (j.get("artist")   or "").strip()[:15]
-        u    = (j.get("username") or "?").strip()[:12]
-        st   = j.get("status", "")
-        pri  = int(j.get("priority") or 0)
-        icon = "✅" if st == "ready" else ("❌" if st in ("error", "failed_download") else "⏳")
-        pfx  = "⭐" if pri else ""
+    for i, j in enumerate(waiting_jobs, 1):
+        t   = (j.get("title")    or "…").strip()[:_TTMAX]
+        a   = (j.get("artist")   or "").strip()[:12]
+        u   = (j.get("username") or "?").strip()[:10]
+        st  = j.get("status", "")
+        pri = int(j.get("priority") or 0)
+        pfx = "⭐" if pri else ""
+        icon = _status_icon(st)
         if a:
-            rows.append(f"{i}.{pfx} {t} - {a} - @{u} {icon}")
+            rows.append(f"{i}.{pfx} {t} — {a} @{u} {icon}")
         else:
-            rows.append(f"{i}.{pfx} {t} - @{u} {icon}")
+            rows.append(f"{i}.{pfx} {t} — @{u} {icon}")
 
+    total  = len(rows)
     header = "🎧 UP NEXT:"
     shown  = total
     msg    = ""
@@ -789,8 +813,9 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         body = "\n".join(rows[:shown])
         rest = total - shown
         tail = f"\n+{rest} more" if rest > 0 else ""
-        if len(header) + 1 + len(body) + len(tail) <= _MAX:
-            msg = header + "\n" + body + tail
+        candidate = header + "\n" + body + tail
+        if len(candidate) <= _MAX:
+            msg = candidate
             break
         shown -= 1
     if not msg:
@@ -799,7 +824,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     print(
         f"{_LOG} stage=queue_render"
         f" total={total} visible_count={shown}"
-        f" message_len={len(msg)}"
+        f" playing={len(playing_jobs)}"
     )
     await _w(bot, user.id, msg[:_MAX])
 

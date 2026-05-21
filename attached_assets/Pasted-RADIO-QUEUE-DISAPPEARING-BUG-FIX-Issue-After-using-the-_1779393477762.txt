@@ -1,0 +1,114 @@
+RADIO QUEUE DISAPPEARING BUG FIX
+
+Issue:
+After using the radio request command, the song appeared as queue #1 with ⏳, then changed to ✅, then disappeared from queue.
+
+Expected:
+A requested song should stay visible in queue/status until it is actually playing or has finished/been skipped.
+It should not disappear immediately after becoming ready/uploaded.
+
+Important:
+Do not rewrite the radio system.
+Do not merge modules.
+Do not change yt-dlp download logic.
+Do not change SFTP/AzuraCast upload logic unless needed to fix status/cleanup timing.
+Do not touch emote system.
+
+First inspect the active radio system:
+- modules/radio_commands.py
+- modules/request_queue.py
+- modules/playback_engine.py
+- modules/azuracast_controller.py
+- modules/dj_announcer.py
+- modules/music_credits.py
+- modules/payment_service.py
+- database.py tables related to yt_request_jobs / request queue / dj queue
+
+Known active user-facing module:
+modules/radio_commands.py
+
+Investigate why a request goes:
+queued/staged/loading → ✅ ready/uploaded → disappears
+
+Fix requirements:
+
+1. Queue display should include active radio request states:
+- pending
+- downloading
+- uploading
+- staged
+- queued
+- ready
+- playing
+
+Do not hide a request just because it reached ✅ ready/uploaded.
+
+2. Only remove/hide a request from queue when it is truly completed:
+- played
+- skipped
+- cancelled
+- failed
+
+3. If AzuraCast accepts the file/request but it has not played yet, keep it visible as:
+✅ Ready / waiting for radio
+
+4. If the file is staged locally waiting for the Requests slot, show:
+📦 Staged / waiting to upload
+
+5. If the file is uploaded and waiting in AzuraCast Requests, show:
+✅ Ready / waiting for radio
+
+6. If it is currently playing, show:
+▶️ Now playing
+
+7. Fix cleanup timing:
+Do not delete/remove the request file or mark it played immediately after upload.
+Only cleanup after confirming the track has started/finished, or after the existing playback engine says it is safe.
+
+8. Make !queue / !q show:
+- Now playing
+- Pending queue
+- Staged/ready requests
+- Requester name
+- Position
+- Status emoji
+
+9. Make !nowplaying / !np check AzuraCast nowplaying first if available.
+If AzuraCast has no current request, fall back to local queue state.
+
+10. Add debug logging:
+When a job changes status, log:
+[RADIO_STATUS] job=<id> old=<old> new=<new> reason=<reason>
+
+11. Add admin debug command or improve existing status:
+!radiostatus or !ytstatus should show counts by status:
+pending:
+downloading:
+uploading:
+staged:
+queued:
+ready:
+playing:
+played:
+failed:
+cancelled:
+
+12. Make sure !play is the advertised public command if active.
+Keep !request as backward-compatible alias only if it still exists.
+
+Expected test:
+- User runs !play <song or URL>
+- Bot shows queue #1 ⏳
+- After processing, queue shows ✅ Ready / waiting for radio
+- It does NOT disappear
+- When it starts playing, !np shows it as now playing
+- After it finishes/skips, it moves to history and disappears from active queue
+
+Checklist:
+- !queue shows ready jobs
+- !queue shows staged jobs
+- !queue shows playing job
+- !queue does not show played/skipped/cancelled jobs
+- !history shows completed songs
+- no duplicate bot replies
+- only DJ_DUDU responds

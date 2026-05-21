@@ -2177,7 +2177,7 @@ async def handle_ytqueue(bot: "BaseBot", user: "User", _args: list[str]) -> None
 
 
 async def handle_ytstatus(bot: "BaseBot", user: "User", _args: list[str]) -> None:
-    """!ytstatus — show YT request system config and session stats (admin+)."""
+    """!ytstatus / !radiostatus — YT request config + per-status job counts (admin+)."""
     if not is_admin(user.username):
         await _w(bot, user.id, "🔒 Admin only.")
         return
@@ -2185,26 +2185,45 @@ async def handle_ytstatus(bot: "BaseBot", user: "User", _args: list[str]) -> Non
     cfg   = _sftp_cfg()
     ready = _sftp_ready()
     cd    = _cooldown_secs()
+    api   = _azura_api_cfg()
 
-    with _jobs_lock:
-        total  = len(_jobs)
-        active = sum(1 for j in _jobs.values() if j["status"] in ("pending", "downloading", "uploading"))
-        done   = sum(1 for j in _jobs.values() if j["status"] == "ready")
-        errors = sum(1 for j in _jobs.values() if j["status"] == "error")
-
-    sftp_ok   = "✅" if ready else "❌ missing vars"
-    host_disp = cfg["host"][:30] if cfg["host"] else "(not set)"
-    api_cfg   = _azura_api_cfg()
-    api_disp  = "✅ " + (api_cfg["base_url"][:25] if api_cfg else "") if api_cfg else "⬜ disabled"
+    sftp_ok = "✅" if ready else "❌ missing"
+    host_d  = cfg["host"][:20] if cfg["host"] else "(not set)"
+    api_ok  = "✅" if api else "⬜ disabled"
+    station = api["station_id"] if api else "?"
+    folder  = cfg["folder"] or "(not set)"
+    plist   = os.environ.get("AZURA_PLAYLIST_ID", "?")[:10]
 
     await _w(
         bot, user.id,
-        (f"📻 YT Request System:\n"
-         f"SFTP: {sftp_ok} | {host_disp}:{cfg['port']}\n"
-         f"API: {api_disp}\n"
-         f"Folder: {cfg['folder']} | CD: {cd}s\n"
-         f"Active: {active} | Done: {done} | Err: {errors} | Total: {total}")[:249],
+        (f"📻 YT Request Status\n"
+         f"SFTP: {sftp_ok} {host_d}:{cfg['port']}\n"
+         f"path: {folder}  API: {api_ok}\n"
+         f"station: {station}  playlist: {plist}  CD: {cd}s")[:249],
     )
+
+    # ── Per-status counts from DB ──────────────────────────────────────────────
+    try:
+        import sqlite3 as _sq
+        with _sq.connect(_DB_PATH) as _conn:
+            _rows = _conn.execute(
+                "SELECT status, COUNT(*) FROM yt_request_jobs "
+                "WHERE played_at IS NULL GROUP BY status"
+            ).fetchall()
+            _counts: dict = {r[0]: r[1] for r in _rows}
+            _pd_row = _conn.execute(
+                "SELECT COUNT(*) FROM yt_request_jobs "
+                "WHERE strftime('%Y-%m-%d', played_at) = strftime('%Y-%m-%d', 'now')"
+            ).fetchone()
+            _played_today = _pd_row[0] if _pd_row else 0
+    except Exception as _exc:
+        await _w(bot, user.id, f"⚠️ DB error: {str(_exc)[:80]}")
+        return
+
+    _order = ("pending", "downloading", "uploading", "staged", "ready", "playing", "error")
+    _parts = [f"{s}: {_counts.get(s, 0)}" for s in _order]
+    _parts.append(f"played today: {_played_today}")
+    await _w(bot, user.id, ("📋 Status counts\n" + "\n".join(_parts))[:249])
 
 
 async def handle_ytnow(bot: "BaseBot", user: "User", _args: list[str]) -> None:

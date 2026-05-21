@@ -32,17 +32,33 @@ if TYPE_CHECKING:
 _LOG = "[RQ]"
 
 # All in-flight statuses used for capacity / dedup checks (full pipeline).
-_ACTIVE = ("pending", "downloading", "downloaded", "uploading", "ready", "playing")
+_ACTIVE = (
+    "pending", "downloading", "downloaded", "uploading",
+    "staged", "ready", "queued", "done", "playing",
+)
 _ACT_PH = ",".join("?" * len(_ACTIVE))
 
-# Statuses shown by !queue / dashboard — all in-flight prep stages plus ready.
-# "ready"      = uploaded to AzuraCast Requests playlist, awaiting playback
-# "downloading"/"downloaded"/"uploading" = still preparing
-_DISPLAY_STATUSES = ("downloading", "downloaded", "uploading", "ready")
+# Statuses shown by !queue — every visible in-flight stage including playing.
+# "pending"  = job created, pipeline not yet started
+# "staged"   = download done, waiting for AzuraCast /Requests slot (📦)
+# "ready"    = uploaded to AzuraCast Requests playlist, awaiting playback (✅)
+# "playing"  = currently streaming — shown as ▶️ NOW PLAYING at top of !queue
+_DISPLAY_STATUSES = (
+    "pending", "downloading", "downloaded", "uploading",
+    "staged", "ready", "playing",
+)
 _DSP_PH = ",".join("?" * len(_DISPLAY_STATUSES))
 
+# Statuses counted for queue-position / per-user limit checks.
+# Excludes "playing" so the on-air song is not counted against a user's limit.
+_WAITING_STATUSES = ("pending", "downloading", "downloaded", "uploading", "staged", "ready")
+_WAI_PH = ",".join("?" * len(_WAITING_STATUSES))
+
 # Statuses cancelled by !djclear / !clearqueue.
-_CLEAR_STATUSES = ("pending", "downloading", "downloaded", "uploading", "ready")
+_CLEAR_STATUSES = (
+    "pending", "downloading", "downloaded", "uploading",
+    "staged", "ready", "queued", "done",
+)
 _CLR_PH = ",".join("?" * len(_CLEAR_STATUSES))
 
 _COLS = (
@@ -91,13 +107,16 @@ def pending_jobs() -> list:
 
 def display_jobs() -> list:
     """
-    Jobs shown by !queue and the dashboard — all in-flight preparation stages
-    plus ready: downloading, downloaded, uploading, ready.
+    Jobs shown by !queue — all visible in-flight stages.
 
-    Excludes: pending (transitions immediately to downloading), playing (on
-    air), played/error (terminal).  Oldest-first so queue position numbers
-    are stable.
+    Includes: pending, downloading, downloaded, uploading, staged, ready,
+    playing.  Excludes played/error (terminal).
 
+    "playing" rows appear at the top of !queue as ▶️ NOW PLAYING.
+    "staged"  rows are downloaded but waiting for AzuraCast slot (📦).
+    "ready"   rows are uploaded and waiting to stream (✅).
+
+    Oldest-first so queue position numbers are stable.
     stage=queue_read is logged by the calling command handler.
     """
     try:
@@ -133,6 +152,10 @@ def mark_as_playing(job_id: int) -> None:
                 "WHERE id=? AND status NOT IN ('played','error')",
                 (job_id,),
             )
+        print(
+            f"[RADIO_STATUS] job={job_id} new=playing"
+            f" reason=mark_as_playing"
+        )
     except Exception as exc:
         print(f"{_LOG} mark_as_playing({job_id}): {exc}")
 
@@ -154,6 +177,10 @@ def mark_as_played(job_id: int) -> None:
                 "WHERE id=? AND status NOT IN ('error')",
                 (job_id,),
             )
+        print(
+            f"[RADIO_STATUS] job={job_id} new=played"
+            f" reason=mark_as_played"
+        )
     except Exception as exc:
         print(f"{_LOG} mark_as_played({job_id}): {exc}")
 
@@ -365,7 +392,7 @@ def user_active_count(user_id: str) -> int:
 
 def future_count() -> int:
     """
-    Count of jobs waiting to play: downloading, downloaded, uploading, ready.
+    Count of jobs waiting to play (pending→staged→ready, excludes playing).
 
     Excludes the currently-playing request and all terminal statuses so the
     queue position shown to users never includes the song already on air.
@@ -374,8 +401,8 @@ def future_count() -> int:
         with db.db_conn() as conn:
             row = conn.execute(
                 f"SELECT COUNT(*) FROM yt_request_jobs "
-                f"WHERE status IN ({_DSP_PH}) AND played_at IS NULL",
-                _DISPLAY_STATUSES,
+                f"WHERE status IN ({_WAI_PH}) AND played_at IS NULL",
+                _WAITING_STATUSES,
             ).fetchone()
             return row[0] if row else 0
     except Exception as exc:
