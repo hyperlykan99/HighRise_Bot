@@ -1,0 +1,201 @@
+RADIOSTATS DATA HOOK FIX
+
+Issue:
+!radiostats replies:
+
+🎧 Radio Stats
+No radio activity yet. Use !play to request a song.
+
+But the user already has radio activity:
+- requested songs
+- liked/disliked songs
+- favorited songs
+- created playlists
+- added playlist songs
+- played playlist songs
+
+So the !radiostats command exists, but the stats tracker is not connected to existing radio actions.
+
+Do not rewrite radio backend.
+Do not change playback/AzuraCast/SFTP logic.
+Do not touch emote system.
+
+Inspect:
+- modules/radio_commands.py
+- modules/request_queue.py
+- modules/payment_service.py
+- modules/music_credits.py
+- modules/playback_engine.py
+- database.py
+- radio_user_stats / radio_reward_log tables if added
+- dj_ratings
+- dj_favorites
+- radio playlist tables
+- yt_request_jobs or request queue tables
+
+==================================================
+1. CONNECT RADIOSTATS TO REAL EXISTING DATA
+==================================================
+
+!radiostats should not rely only on a new empty radio_user_stats row.
+
+If radio_user_stats exists but has no data, aggregate from existing real tables:
+
+Requests:
+- successful completed/queued/played requests from request_queue / yt_request_jobs / radio request tables
+- count only successful requests by this user
+
+Likes:
+- count rows in dj_ratings where user_id = current user and rating='like'
+
+Dislikes:
+- count rows in dj_ratings where user_id = current user and rating='dislike'
+
+Favorites:
+- count rows in dj_favorites where user_id = current user
+
+Playlists:
+- count playlists owned by user in radio playlist table
+
+Playlist songs:
+- count playlist songs added by user if tracked
+
+Playlist plays:
+- count playlist plays if tracked
+
+Points:
+- use radio_user_stats.radio_points if available
+- if missing, calculate safe estimate:
+  requests*5 + likes*1 + dislikes*1 + favorites*2 + playlists*3
+
+Expected:
+If user has favorites/ratings/playlists but no radio_user_stats row yet, !radiostats must still show those counts.
+
+==================================================
+2. ADD HOOKS FOR FUTURE STATS
+==================================================
+
+Make sure successful actions update radio_user_stats:
+
+!play successful queue:
+- increment requests_count
+- add radio_points
+
+!like:
+- increment likes_count only for first rating on that song
+- do not reward repeated same like
+
+!dislike:
+- increment dislikes_count only for first rating on that song
+- do not reward repeated same dislike
+
+!fav / !favorite:
+- increment favorites_count only when newly added
+
+!playlist create:
+- increment playlists_created only when new playlist created
+
+!playlist add / addcurrent:
+- increment playlist_songs_added only when non-duplicate song is added
+
+!playlist play:
+- increment playlist_plays only when at least one song queues successfully
+
+Do not increment for:
+- failed request
+- duplicate favorite
+- duplicate playlist song
+- command that only displays a list
+- like/dislike toggle farming
+
+==================================================
+3. BACKFILL-SAFE RADIOSTATS
+==================================================
+
+!radiostats output should combine:
+- stored stats from radio_user_stats
+- live counts from existing tables
+
+Use max(stored_count, live_count) when appropriate so old activity shows up.
+
+Example:
+stored favorites_count = 0
+dj_favorites count = 4
+Show Favorites: 4
+
+stored likes_count = 0
+dj_ratings likes count = 3
+Show Likes: 3
+
+==================================================
+4. OUTPUT FORMAT
+==================================================
+
+If user has any activity, show:
+
+🎧 Radio Stats
+Requests: <n>
+Likes: <n> | Dislikes: <n>
+Favorites: <n>
+Playlists: <n>
+Points: <n>
+
+If truly no activity anywhere, show:
+
+🎧 Radio Stats
+No radio activity yet. Use !play to request a song.
+
+Keep under 249 chars.
+Whisper only.
+Only DJ_DUDU replies.
+
+==================================================
+5. UPDATE LEADERBOARDS TOO
+==================================================
+
+Leaderboards should also fall back to aggregating real existing tables if radio_user_stats is empty.
+
+!toplisteners:
+- use radio_user_stats.radio_points if available
+- else derive points from requests/ratings/favorites/playlists
+
+!toprequests:
+- aggregate successful requests by username/user_id
+
+!topsongs:
+- aggregate song request/play counts
+
+!topliked:
+- aggregate dj_ratings rating='like'
+
+!topdisliked:
+- aggregate dj_ratings rating='dislike'
+
+Do not silently fail if stats tables are empty.
+
+==================================================
+6. CHECKLIST
+==================================================
+
+Test with existing user who already has activity:
+- !radiostats should not say no activity
+- likes count matches dj_ratings
+- dislikes count matches dj_ratings
+- favorites count matches dj_favorites
+- playlists count matches playlist table
+- points > 0 if any activity exists
+
+Test new future activity:
+- !like updates stats
+- !dislike updates stats
+- !fav updates stats
+- !playlist create updates stats
+- !playlist addcurrent updates stats
+- !playlist play updates stats
+- successful !play updates stats
+
+Regression:
+- no duplicate rewards from repeated !like
+- duplicate !fav does not increase stats
+- failed !play does not increase stats
+- only DJ_DUDU replies

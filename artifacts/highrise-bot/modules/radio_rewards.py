@@ -262,78 +262,216 @@ def update_song_info(song_key: str, title: str, artist: str = "") -> None:
 
 # ─── Read helpers ─────────────────────────────────────────────────────────────
 
-def get_user_stats(user_id: str) -> dict:
-    """Return stats dict for a user (all zeros if no record)."""
-    _bootstrap()
+def _sq(conn, sql: str, params: tuple = ()) -> int:
+    """Run a scalar COUNT query, return 0 on any error."""
     try:
-        with db.db_conn() as conn:
-            row = conn.execute(
-                "SELECT requests_count, likes_count, dislikes_count, "
-                "favorites_count, playlists_created, playlist_songs_added, "
-                "playlist_plays, radio_points "
-                "FROM radio_user_stats WHERE user_id=?",
-                (user_id,),
-            ).fetchone()
+        return (conn.execute(sql, params).fetchone() or (0,))[0] or 0
     except Exception:
-        row = None
-    if row:
-        return {
-            "requests":   row[0], "likes":    row[1],
-            "dislikes":   row[2], "favorites": row[3],
-            "playlists":  row[4], "pl_songs": row[5],
-            "pl_plays":   row[6], "points":   row[7],
-        }
-    return {
+        return 0
+
+
+def get_user_stats(user_id: str) -> dict:
+    """
+    Return stats dict for a user.
+    Backfill-safe: uses max(stored_counter, live_count) so that users who
+    were active before radio_user_stats existed still see their real data.
+    """
+    _bootstrap()
+    stored = {
         "requests": 0, "likes": 0, "dislikes": 0, "favorites": 0,
         "playlists": 0, "pl_songs": 0, "pl_plays": 0, "points": 0,
     }
+    try:
+        conn = db.get_connection()
+
+        # ── stored counters ───────────────────────────────────────────────
+        row = conn.execute(
+            "SELECT requests_count, likes_count, dislikes_count, "
+            "favorites_count, playlists_created, playlist_songs_added, "
+            "playlist_plays, radio_points "
+            "FROM radio_user_stats WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if row:
+            stored = {
+                "requests":  row[0], "likes":    row[1],
+                "dislikes":  row[2], "favorites": row[3],
+                "playlists": row[4], "pl_songs":  row[5],
+                "pl_plays":  row[6], "points":    row[7],
+            }
+
+        # ── live counts from source tables ────────────────────────────────
+        live_likes     = _sq(conn,
+            "SELECT COUNT(*) FROM dj_ratings WHERE user_id=? AND rating='like'",
+            (user_id,))
+        live_dislikes  = _sq(conn,
+            "SELECT COUNT(*) FROM dj_ratings WHERE user_id=? AND rating='dislike'",
+            (user_id,))
+        live_favorites = _sq(conn,
+            "SELECT COUNT(*) FROM dj_favorites WHERE user_id=?",
+            (user_id,))
+        live_playlists = _sq(conn,
+            "SELECT COUNT(*) FROM radio_playlists WHERE user_id=?",
+            (user_id,))
+        live_pl_songs  = _sq(conn,
+            "SELECT COUNT(*) FROM radio_playlist_songs WHERE user_id=?",
+            (user_id,))
+        live_requests  = _sq(conn,
+            "SELECT COUNT(*) FROM yt_request_jobs WHERE user_id=?",
+            (user_id,))
+
+        conn.close()
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return stored
+
+    # ── max(stored, live) so old activity is never hidden ─────────────────
+    result = {
+        "requests":  max(stored["requests"],  live_requests),
+        "likes":     max(stored["likes"],     live_likes),
+        "dislikes":  max(stored["dislikes"],  live_dislikes),
+        "favorites": max(stored["favorites"], live_favorites),
+        "playlists": max(stored["playlists"], live_playlists),
+        "pl_songs":  max(stored["pl_songs"],  live_pl_songs),
+        "pl_plays":  stored["pl_plays"],
+        "points":    stored["points"],
+    }
+
+    # ── derive a point estimate when stored points are still zero ─────────
+    if result["points"] == 0 and (
+        result["requests"] or result["likes"] or result["dislikes"]
+        or result["favorites"] or result["playlists"]
+    ):
+        result["points"] = (
+            result["requests"]  * _POINT_MAP["request"]
+            + result["likes"]     * _POINT_MAP["like"]
+            + result["dislikes"]  * _POINT_MAP["dislike"]
+            + result["favorites"] * _POINT_MAP["favorite"]
+            + result["playlists"] * _POINT_MAP["playlist_create"]
+        )
+
+    return result
 
 
 def top_listeners(limit: int = 5) -> list:
-    """Users with most radio_points, descending."""
+    """
+    Users with highest activity points, descending.
+    Primary source: radio_user_stats.radio_points.
+    Fallback: derive estimated points from dj_ratings when stats table is empty.
+    """
     _bootstrap()
     try:
-        with db.db_conn() as conn:
+        conn = db.get_connection()
+
+        # Try stored stats first
+        rows = conn.execute(
+            "SELECT username, radio_points FROM radio_user_stats "
+            "WHERE radio_points > 0 ORDER BY radio_points DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+        if not rows:
+            # Fallback: estimate points from dj_ratings per user
             rows = conn.execute(
-                "SELECT username, radio_points FROM radio_user_stats "
-                "WHERE radio_points > 0 "
-                "ORDER BY radio_points DESC LIMIT ?",
+                "SELECT username, "
+                "  SUM(CASE WHEN rating='like'    THEN 1 ELSE 0 END)"
+                " +SUM(CASE WHEN rating='dislike' THEN 1 ELSE 0 END) AS est "
+                "FROM dj_ratings "
+                "WHERE username != '' "
+                "GROUP BY LOWER(username) "
+                "ORDER BY est DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return [{"username": r[0], "points": r[1]} for r in rows]
+
+        conn.close()
+        return [{"username": r[0], "points": int(r[1] or 0)} for r in rows if r[1]]
     except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
         return []
 
 
 def top_requesters(limit: int = 5) -> list:
-    """Users with most successful requests, descending."""
+    """
+    Users with the most successful requests, descending.
+    Primary source: radio_user_stats.requests_count.
+    Fallback: aggregate from yt_request_jobs when stats table is empty.
+    """
     _bootstrap()
     try:
-        with db.db_conn() as conn:
+        conn = db.get_connection()
+
+        rows = conn.execute(
+            "SELECT username, requests_count FROM radio_user_stats "
+            "WHERE requests_count > 0 ORDER BY requests_count DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+        if not rows:
             rows = conn.execute(
-                "SELECT username, requests_count FROM radio_user_stats "
-                "WHERE requests_count > 0 "
-                "ORDER BY requests_count DESC LIMIT ?",
+                "SELECT username, COUNT(*) AS cnt "
+                "FROM yt_request_jobs "
+                "WHERE username != '' "
+                "GROUP BY LOWER(username) "
+                "ORDER BY cnt DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return [{"username": r[0], "count": r[1]} for r in rows]
+
+        conn.close()
+        return [{"username": r[0], "count": int(r[1] or 0)} for r in rows if r[1]]
     except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
         return []
 
 
 def top_songs(limit: int = 5) -> list:
-    """Songs with most requests, descending."""
+    """
+    Songs with the most requests/plays, descending.
+    Primary source: radio_song_stats.request_count.
+    Fallback: aggregate from yt_request_jobs when stats table is empty.
+    """
     _bootstrap()
     try:
-        with db.db_conn() as conn:
+        conn = db.get_connection()
+
+        rows = conn.execute(
+            "SELECT song_key, title, request_count FROM radio_song_stats "
+            "WHERE request_count > 0 ORDER BY request_count DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+        if not rows:
+            # Derive from yt_request_jobs — song_key = LOWER(SUBSTR(title,1,150))
             rows = conn.execute(
-                "SELECT song_key, title, request_count FROM radio_song_stats "
-                "WHERE request_count > 0 "
-                "ORDER BY request_count DESC LIMIT ?",
+                "SELECT LOWER(SUBSTR(title,1,150)) AS sk, title, COUNT(*) AS cnt "
+                "FROM yt_request_jobs "
+                "WHERE title != '' "
+                "GROUP BY LOWER(SUBSTR(title,1,150)) "
+                "ORDER BY cnt DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return [{"song_key": r[0], "title": r[1], "count": r[2]} for r in rows]
+            conn.close()
+            return [
+                {"song_key": r[0], "title": r[1], "count": int(r[2] or 0)}
+                for r in rows if r[2]
+            ]
+
+        conn.close()
+        return [{"song_key": r[0], "title": r[1], "count": int(r[2] or 0)}
+                for r in rows if r[2]]
     except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
         return []
 
 
