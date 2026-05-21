@@ -1,0 +1,122 @@
+ADD TO EMOTE POLISH UPDATE — MODULE OWNERSHIP / BOT ROUTING
+
+Goal:
+Make sure the right bot replies to its own modules only. Prevent duplicate responses from multiple bots.
+
+Important:
+Do not touch radio/music yet.
+Do not edit dj_music.py, yt_request.py, or radio_vibe.py in this update.
+Focus on emote/custom/sync/dancefloor/social/heart/botemote routing only.
+
+Known architecture:
+- DJ_DUDU / BOT_MODE=dj owns centralized emote control.
+- ChillTopiaMC handles dancefloor/sync presence in-room but should not duplicate public command replies unless required.
+- Other bots should ignore emote controller commands unless they are specifically responsible for that module.
+- Multi-bot routing already exists. Reuse it. Do not create a second routing system.
+
+Commands DJ_DUDU should own and reply to:
+- !emotehelp
+- !customhelp
+- !dancefloorhelp
+- !synchelp
+- !socialhelp
+- !botemotehelp
+- !commands emotes
+- !commands emote
+- !command emote
+- !command customemote
+- !command customtimed
+- !command sync
+- !command heart
+- !command social
+- !command dancefloor
+- !command botemote
+- !command setemote
+- !emoteinfo <name>
+- !setemote <emote> time <sec>
+- !customemote
+- !customtimed
+- !stopcustom
+- !savecustom
+- !savecustomtimed
+- !playcustom
+- !custompacks
+- !custominfo
+- !renamecustom
+- !deletecustom
+- !sync
+- !syncstop
+- !syncstatus
+- !syncpersist
+- !dancefloor
+- !botemote
+- !botemotes
+- social emotes:
+  !kiss
+  !slap
+  !superpunch
+  !punch
+  !bonk
+  !yeet
+  !hypnotize
+  !duel
+  !swordfight
+- heart commands:
+  !heart
+  !hearts
+
+Routing requirements:
+1. Only DJ_DUDU should send command replies for the above emote system commands.
+2. Other bots must silently ignore these commands unless the existing routing system explicitly forwards them to DJ_DUDU.
+3. Do not let ChillTopiaMC and DJ_DUDU both reply to the same command.
+4. Do not let all 8 bots respond to help commands.
+5. If a command must affect another bot, DJ_DUDU should control it centrally.
+   Example:
+   !botemote @ChillTopiaMC wave
+   DJ_DUDU receives the command, validates permission, then tells/uses the correct live bot instance.
+6. For dancefloor/sync presence, keep existing stable behavior:
+   - sync with dancefloor still works
+   - sync with custom loops still works
+   - dancefloor persistence still works
+   - dancefloor catch-up still only sends one immediate emote and does not start duplicate loops
+7. Do not break multi-bot live registry.
+
+Implementation guidance:
+- Search existing modules/multi_bot.py, modules/bot_names.py, and any BOT_MODE checks.
+- Reuse existing helpers like is_emote_controller_bot(), should_handle_command(), or routing maps if present.
+- If a command handler is imported by all bots, add an early guard so non-owner bots return silently.
+- Prefer one central command ownership map instead of scattered random checks if the project already has one.
+
+Expected behavior:
+Normal player types:
+!emotehelp
+
+Only DJ_DUDU whispers/replies.
+
+Normal player types:
+!dancefloorhelp
+
+Only DJ_DUDU replies with blocked message if user is not staff/admin/owner.
+
+Admin types:
+!botemote @ChillTopiaMC wave
+
+Only DJ_DUDU replies with success/error. ChillTopiaMC should perform the emote if commanded through the live bot system, but should not also reply.
+
+Admin types:
+!dancefloor start
+
+Only DJ_DUDU replies with status. Dancefloor behavior still works in-room.
+
+Test checklist:
+- Run !emotehelp: only one bot replies
+- Run !customhelp: only one bot replies
+- Run !synchelp: only one bot replies
+- Run !dancefloorhelp: only one bot replies
+- Run !botemotehelp: only one bot replies
+- Run !socialhelp: only one bot replies
+- Run !heart @user: only one bot replies/sends heart behavior
+- Run !sync @user: only one bot replies
+- Run !dancefloor start as admin: only one bot replies
+- Run !botemote @ChillTopiaMC wave: only DJ_DUDU replies; target bot performs emote
+- Confirm radio/music commands are not changed in this update
