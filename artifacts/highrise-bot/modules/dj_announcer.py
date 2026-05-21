@@ -84,7 +84,8 @@ async def announce_now_playing(
         await announce_request_live(bot, title, artist, requester)
         return
 
-    from modules.track_resolver import render_now_playing, _get_ratings
+    from modules.track_resolver  import render_now_playing, _get_ratings
+    from modules.playback_engine import get_cur_duration
     song_key = title.lower()[:150] if title and title.lower() != "unknown" else ""
     counts   = _get_ratings(song_key)
     track = {
@@ -92,6 +93,8 @@ async def announce_now_playing(
         "title":     title,
         "artist":    artist,
         "vibe":      vibe,
+        "elapsed":   0,
+        "duration":  get_cur_duration(),
         "likes":     counts["likes"],
         "dislikes":  counts["dislikes"],
     }
@@ -112,7 +115,8 @@ async def announce_request_live(
     Uses render_now_playing() — the single canonical renderer.
     Reads real like/dislike counts from dj_ratings (same key as !like/!dislike).
     """
-    from modules.track_resolver import render_now_playing, _get_ratings
+    from modules.track_resolver  import render_now_playing, _get_ratings
+    from modules.playback_engine import get_cur_duration
     song_key = title.lower()[:150] if title else ""
     counts   = _get_ratings(song_key)
     track = {
@@ -120,6 +124,8 @@ async def announce_request_live(
         "title":     title,
         "artist":    artist,
         "requester": requester,
+        "elapsed":   0,
+        "duration":  get_cur_duration(),
         "likes":     counts["likes"],
         "dislikes":  counts["dislikes"],
     }

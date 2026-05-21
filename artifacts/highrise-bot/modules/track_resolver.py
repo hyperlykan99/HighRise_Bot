@@ -169,8 +169,30 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
 
     title    = (song.get("title")     or "").strip() or "Unknown"
     artist   = (song.get("artist")    or "").strip()
-    duration = int(np_obj.get("duration") or song.get("length") or 0)
-    elapsed  = int(np_obj.get("elapsed")  or 0)
+    # duration: prefer np_obj["duration"] (int seconds from AzuraCast),
+    # fall back to song["length"] which may be an "M:SS" string.
+    _raw_dur  = np_obj.get("duration") or 0
+    try:
+        duration = int(_raw_dur)
+    except (ValueError, TypeError):
+        duration = 0
+    if not duration:
+        _raw_len = song.get("length") or ""
+        if isinstance(_raw_len, str) and ":" in _raw_len:
+            try:
+                _p = _raw_len.split(":")
+                duration = int(_p[0]) * 60 + int(_p[-1])
+            except (ValueError, IndexError):
+                duration = 0
+        elif _raw_len:
+            try:
+                duration = int(_raw_len)
+            except (ValueError, TypeError):
+                duration = 0
+    try:
+        elapsed = int(np_obj.get("elapsed") or 0)
+    except (ValueError, TypeError):
+        elapsed = 0
     song_id  = (song.get("id")        or "").strip()
     song_uid = (song.get("unique_id") or "").strip()
     media_id = str(media.get("id")    or "").strip()

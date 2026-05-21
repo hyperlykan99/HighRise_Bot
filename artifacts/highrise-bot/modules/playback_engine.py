@@ -1164,6 +1164,13 @@ def get_playlist_mode() -> str:
         return _mode
 
 
+def get_cur_duration() -> int:
+    """Return the AzuraCast-reported total duration of the current song (seconds).
+    Updated each poll cycle. Used by dj_announcer for room-announce progress bars."""
+    with _lock:
+        return _cur_duration
+
+
 def get_current_request() -> "dict | None":
     """Return the DB record of the request currently playing, or None."""
     return _db_find_playing()
