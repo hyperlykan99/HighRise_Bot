@@ -795,20 +795,46 @@ async def _heart_bot_names() -> set[str]:
         return set()
 
 
+_HEART_DELAY_STAFF  = 0.03   # seconds between hearts for staff/owner
+_HEART_DELAY_VIP    = 0.07   # seconds between hearts for VIP
+_HEART_DELAY_SLOW   = 0.10   # fallback delay on rate-limit
+
+
 async def _heart_send_batch(bot: BaseBot, sender_id: str,
-                             target_user: User, amount: int) -> int:
-    """Send `amount` hearts to one target. Returns count actually sent."""
+                             target_user: User, amount: int,
+                             delay: float = 0.15) -> int:
+    """Send `amount` hearts to one target. Returns count actually sent.
+
+    `delay` — seconds between each heart. On a transient failure the loop
+    automatically slows to _HEART_DELAY_SLOW and retries instead of aborting.
+    """
+    if amount > 1:
+        print(f"[HEART_BURST] amount={amount} delay={delay}")
+    current_delay = delay
     sent = 0
     for _ in range(amount):
         try:
             await _send_heart_to_user(bot, target_user.id)
             sent += 1
         except Exception as exc:
-            print(f"[HEART_SEND_FAIL] sender={sender_id} "
-                  f"target={target_user.id} err={exc!r}")
-            break
+            if current_delay < _HEART_DELAY_SLOW:
+                # First failure → slow down and retry rather than abort
+                current_delay = _HEART_DELAY_SLOW
+                print(f"[HEART_RATE_LIMIT_SLOWDOWN] delay={_HEART_DELAY_SLOW}")
+                await asyncio.sleep(current_delay)
+                try:
+                    await _send_heart_to_user(bot, target_user.id)
+                    sent += 1
+                except Exception as exc2:
+                    print(f"[HEART_SEND_FAIL] sender={sender_id} "
+                          f"target={target_user.id} err={exc2!r}")
+                    break
+            else:
+                print(f"[HEART_SEND_FAIL] sender={sender_id} "
+                      f"target={target_user.id} err={exc!r}")
+                break
         if amount > 1:
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(current_delay)
     if sent:
         print(f"[HEART_SEND] sender={sender_id} "
               f"target={target_user.id} amount={sent}")
@@ -872,7 +898,8 @@ async def _heart_do_all(bot: BaseBot, user: User,
         return
     player_count = 0
     for t in targets:
-        sent = await _heart_send_batch(bot, uid, t, amount)
+        sent = await _heart_send_batch(bot, uid, t, amount,
+                                       delay=_HEART_DELAY_STAFF)
         if sent:
             db.give_hearts_bulk(user.username, t.username, sent)
             player_count += 1
@@ -913,7 +940,11 @@ async def _heart_do_single(bot: BaseBot, user: User,
             await _w(bot, uid, f"⏳ Heart cooldown: {int(remaining)+1}s remaining.")
             return
 
-    sent = await _heart_send_batch(bot, uid, target_user, amount)
+    burst_delay = (_HEART_DELAY_STAFF if is_staff
+                   else _HEART_DELAY_VIP if is_vip
+                   else 0.15)
+    sent = await _heart_send_batch(bot, uid, target_user, amount,
+                                   delay=burst_delay)
     if not sent:
         await _w(bot, uid, "Heart API unavailable in this SDK.")
         return
