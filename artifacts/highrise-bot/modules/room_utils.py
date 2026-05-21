@@ -28,6 +28,16 @@ from modules.permissions import (
 # user_id → Position (updated from on_user_move and on_user_join)
 _user_positions: dict[str, Position] = {}
 
+# ---------------------------------------------------------------------------
+# Heart cooldown state  (in-memory; resets on restart — intentional)
+# uid → timestamp of last heart send
+# ---------------------------------------------------------------------------
+_heart_cd: dict[str, float] = {}
+_HEART_CD_NORMAL = 10.0   # seconds — non-VIP
+_HEART_CD_VIP    =  5.0   # seconds — VIP+
+_HEART_MAX_VIP   = 20     # max hearts per !hearts for VIP
+_HEART_MAX_STAFF = 100    # max hearts per !hearts for staff/owner
+
 # user_id → unix timestamp of last position update
 _user_position_times: dict[str, float] = {}
 
@@ -772,30 +782,75 @@ async def handle_setemoteloopinterval(bot: BaseBot, user: User, args: list[str])
 # HEART REACTIONS  (Part 13)
 # ---------------------------------------------------------------------------
 
+async def _send_heart_to_user(bot: BaseBot, target_id: str) -> None:
+    """Wrapper around the SDK heart reaction. Raises on failure."""
+    await bot.highrise.react("heart", target_id)
+
+
 async def handle_heart(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!heart @user — send 1 heart. Everyone can use; tiered cooldown."""
+    uid   = user.id
+    uname = user.username.lower()
+    is_staff = can_moderate(uname)
+    is_vip   = db.owns_item(uid, "vip")
+
+    # No-arg → show own heart totals
     if len(args) < 2:
-        totals = db.get_heart_totals(user.username)
-        await _w(bot, user.id,
+        totals = db.get_heart_totals(uname)
+        await _w(bot, uid,
                  f"💖 @{user.username}: {totals['hearts_received']} hearts received.")
         return
+
     target_name = args[1].lstrip("@")
-    if target_name.lower() == user.username.lower():
-        await _w(bot, user.id, "You can't heart yourself!")
+
+    # Self-target guard
+    if target_name.lower() == uname:
+        await _w(bot, uid, "You can't heart yourself!")
         return
-    wait = db.get_heart_cooldown_remaining(user.username, target_name)
-    if wait > 0:
-        await _w(bot, user.id, f"⏳ Heart cooldown: {int(wait)}s remaining.")
-        return
-    # Find target in room
+
+    # Resolve target in room
     pair = await _resolve_user_in_room(bot, target_name)
-    if pair:
-        target_user, _ = pair
-        try:
-            await bot.highrise.react("heart", target_user.id)
-        except Exception:
-            pass
+    if not pair:
+        await _w(bot, uid, f"@{target_name} is not in the room.")
+        return
+    target_user, _ = pair
+
+    # Bot-target guard
+    try:
+        from modules.live_bot_registry import live_bot_keys
+        bot_names = {str(n).lower() for n in (live_bot_keys() or [])}
+    except Exception:
+        bot_names = set()
+    if target_user.username.lower() in bot_names and not is_staff:
+        await _w(bot, uid, "You can't heart a bot.")
+        return
+
+    # Tiered cooldown (staff: none)
+    if not is_staff:
+        cd = _HEART_CD_VIP if is_vip else _HEART_CD_NORMAL
+        last = _heart_cd.get(uid, 0.0)
+        remaining = cd - (time.monotonic() - last)
+        if remaining > 0:
+            print(f"[HEART_COOLDOWN] sender={uid} remaining={remaining:.1f}s")
+            await _w(bot, uid, f"⏳ Heart cooldown: {int(remaining)+1}s remaining.")
+            return
+
+    # Send heart via SDK
+    try:
+        await _send_heart_to_user(bot, target_user.id)
+        print(f"[HEART_SEND] sender={uid} target={target_user.id} amount=1")
+    except Exception as exc:
+        print(f"[HEART_SEND_FAIL] sender={uid} target={target_user.id} err={exc!r}")
+        await _w(bot, uid, "Heart API unavailable in this SDK.")
+        return
+
+    # Record cooldown timestamp
+    if not is_staff:
+        _heart_cd[uid] = time.monotonic()
+
+    # DB logging + room announce
     result      = db.give_heart(user.username, target_name)
-    sender_disp = db.get_display_name(user.id, user.username)
+    sender_disp = db.get_display_name(uid, user.username)
     target_disp = db.get_display_name_by_username(target_name)
     await bot.highrise.chat(
         f"💖 {sender_disp} sent a heart to {target_disp}. "
@@ -804,11 +859,95 @@ async def handle_heart(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 async def handle_hearts(bot: BaseBot, user: User, args: list[str]) -> None:
-    target = args[1].lstrip("@") if len(args) > 1 else user.username
-    totals = db.get_heart_totals(target)
-    await _w(bot, user.id,
-             f"💖 @{target}: {totals['hearts_received']} hearts received, "
-             f"{totals['hearts_given']} given.")
+    """!hearts @user <amount> — send multiple hearts. VIP+ only."""
+    uid   = user.id
+    uname = user.username.lower()
+    is_staff = can_moderate(uname)
+    is_vip   = db.owns_item(uid, "vip")
+
+    # Permission gate — normal users denied
+    if not is_staff and not is_vip:
+        await _w(bot, uid, "💖 VIP+ required for !hearts. Use !heart @user instead.")
+        return
+
+    if len(args) < 3:
+        lim = _HEART_MAX_STAFF if is_staff else _HEART_MAX_VIP
+        await _w(bot, uid, f"Usage: !hearts @user <1-{lim}>")
+        return
+
+    target_name = args[1].lstrip("@")
+    try:
+        amount = int(args[2])
+    except ValueError:
+        await _w(bot, uid, "Amount must be a whole number.")
+        return
+    if amount < 1:
+        await _w(bot, uid, "Amount must be at least 1.")
+        return
+
+    # Clamp
+    max_hearts = _HEART_MAX_STAFF if is_staff else _HEART_MAX_VIP
+    amount = min(amount, max_hearts)
+
+    # Self-target guard
+    if target_name.lower() == uname:
+        await _w(bot, uid, "You can't heart yourself!")
+        return
+
+    # Resolve target
+    pair = await _resolve_user_in_room(bot, target_name)
+    if not pair:
+        await _w(bot, uid, f"@{target_name} is not in the room.")
+        return
+    target_user, _ = pair
+
+    # Bot-target guard
+    try:
+        from modules.live_bot_registry import live_bot_keys
+        bot_names = {str(n).lower() for n in (live_bot_keys() or [])}
+    except Exception:
+        bot_names = set()
+    if target_user.username.lower() in bot_names and not is_staff:
+        await _w(bot, uid, "You can't heart a bot.")
+        return
+
+    # Tiered cooldown (staff: none)
+    if not is_staff:
+        last = _heart_cd.get(uid, 0.0)
+        remaining = _HEART_CD_VIP - (time.monotonic() - last)
+        if remaining > 0:
+            print(f"[HEART_COOLDOWN] sender={uid} remaining={remaining:.1f}s")
+            await _w(bot, uid, f"⏳ Heart cooldown: {int(remaining)+1}s remaining.")
+            return
+
+    # Send hearts
+    sent = 0
+    for _ in range(amount):
+        try:
+            await _send_heart_to_user(bot, target_user.id)
+            sent += 1
+        except Exception as exc:
+            print(f"[HEART_SEND_FAIL] sender={uid} target={target_user.id} err={exc!r}")
+            break
+        if amount > 1:
+            await asyncio.sleep(0.15)   # small gap to avoid rate-limit
+
+    print(f"[HEART_SEND] sender={uid} target={target_user.id} amount={sent}")
+
+    if sent == 0:
+        await _w(bot, uid, "Heart API unavailable in this SDK.")
+        return
+
+    if not is_staff:
+        _heart_cd[uid] = time.monotonic()
+
+    result      = db.give_heart(user.username, target_name)
+    sender_disp = db.get_display_name(uid, user.username)
+    target_disp = db.get_display_name_by_username(target_name)
+    await bot.highrise.chat(
+        f"💖 {sender_disp} sent {sent} heart{'s' if sent != 1 else ''} to "
+        f"{target_disp}! Total: {result['total']}."[:249]
+    )
 
 
 async def handle_heartlb(bot: BaseBot, user: User) -> None:

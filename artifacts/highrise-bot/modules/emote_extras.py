@@ -176,9 +176,11 @@ async def handle_botemotes_compact(bot: "BaseBot", user: "User",
 async def handle_emotes_socials(bot: "BaseBot", user: "User",
                                 _args: list | None = None) -> None:
     """!emotes socials — alphabetical compact list of social target commands."""
-    cmds = ["!bonk @user", "!duel @user", "!hypnotize @user",
-            "!kiss @user", "!slap @user", "!superpunch @user", "!yeet @user"]
-    await _send_compact_pages(bot, user.id, "💞 Socials (VIP+)", cmds)
+    cmds = ["!bonk @user", "!duel @user",
+            "!heart @user", "!hearts @user <n>",
+            "!hypnotize @user", "!kiss @user",
+            "!slap @user", "!superpunch @user", "!yeet @user"]
+    await _send_compact_pages(bot, user.id, "💞 Socials", cmds)
 
 
 # ===========================================================================
