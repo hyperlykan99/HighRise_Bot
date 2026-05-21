@@ -1843,14 +1843,18 @@ async def handle_topsongs(bot: "BaseBot", user: "User", _args: list) -> None:
     """!topsongs — songs with the most requests/plays."""
     rows = rr.top_songs(limit=5)
     if not rows:
-        await _w(bot, user.id, "🔥 No song stats yet. Use !play to request a song!")
+        await _w(bot, user.id, "🔥 No song stats yet.")
         return
     lines = ["🔥 Top Songs"]
     for i, r in enumerate(rows, 1):
-        title  = (r.get("title") or r["song_key"] or "?")
-        title  = title.replace("-", " ").replace("_", " ")
-        title  = (title[:1].upper() + title[1:])[:30]
-        lines.append(f"{i}. {title} • {r['count']} plays")
+        try:
+            raw   = str(r.get("title") or r.get("song_key") or "")
+            title = rr._prettify(raw) or "Unknown Title"
+            title = rr._trunc(title, 28)
+            cnt   = int(r.get("count") or 0)
+            lines.append(f"{i}. {title} • {cnt} plays")
+        except Exception:
+            lines.append(f"{i}. (data error)")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -1860,11 +1864,16 @@ async def handle_toprequesters(bot: "BaseBot", user: "User", _args: list) -> Non
     """!toprequesters — users with the most successful song requests."""
     rows = rr.top_requesters(limit=5)
     if not rows:
-        await _w(bot, user.id, "💿 No requests yet. Use !play to request a song!")
+        await _w(bot, user.id, "💿 No requester data yet.")
         return
     lines = ["💿 Top Requesters"]
     for i, r in enumerate(rows, 1):
-        lines.append(f"{i}. @{r['username'][:18]} — {r['count']} requests")
+        try:
+            uname = str(r.get("username") or "unknown")[:18]
+            cnt   = int(r.get("count") or 0)
+            lines.append(f"{i}. @{uname} — {cnt} requests")
+        except Exception:
+            lines.append(f"{i}. (data error)")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 

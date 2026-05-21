@@ -1,0 +1,152 @@
+RADIO LEADERBOARD PAGINATION + FORMAT BUG FIX
+
+Issue:
+!topliked partially works, but after showing:
+
+👍 Top Liked Songs 1/2
+
+the command crashes and sends:
+⚠️ Command error logged. Bot stayed online.
+
+This means page 2 or pagination formatting is crashing.
+
+Do not rewrite radio backend.
+Do not change playback/AzuraCast/SFTP logic.
+Do not touch emote system.
+
+Inspect:
+- modules/radio_commands.py
+- database.py
+- leaderboard helpers
+- safe pagination/message chunking helpers
+
+==================================================
+1. FIX PAGE 2 CRASH
+==================================================
+
+Fix pagination for:
+- !topliked
+- !topdisliked
+- !topsongs
+- !toprequests
+- !toplisteners
+
+Requirements:
+- If there are multiple pages, every page must send safely.
+- No page should exceed 249 chars.
+- No malformed row should crash the whole command.
+- If one row has bad/missing data, skip it or show Unknown safely.
+
+Add defensive handling:
+- title = title or "Unknown Title"
+- artist = artist or "Unknown Artist"
+- count = int(count or 0)
+- username = username or "unknown"
+
+If a row cannot be parsed:
+- log it
+- skip it
+- continue sending the rest
+
+Do not let leaderboard commands throw user-facing command errors.
+
+==================================================
+2. CLEAN SONG FORMATTING
+==================================================
+
+Current bad examples:
+Impulse  super slowed • 2 likes
+Demi lovato  let it go (f • 2 likes
+
+Expected:
+1. Impulse Super Slowed — Unknown Artist • 2 likes
+2. Let It Go — Demi Lovato • 2 likes
+
+Use consistent format:
+<title> — <artist> • <count> likes
+
+For disliked:
+<title> — <artist> • <count> dislikes
+
+For top songs:
+<title> — <artist> • <count> plays
+
+If artist is missing:
+<title> — Unknown Artist • <count> likes
+
+Clean extra spaces:
+- collapse double spaces
+- strip weird separators
+- avoid malformed parentheses cutoffs
+- truncate safely at the end
+
+==================================================
+3. SAFE TRUNCATION
+==================================================
+
+Keep each leaderboard row compact.
+
+Suggested:
+- title max 28 chars
+- artist max 18 chars
+- if too long, add …
+
+Example:
+1. Kehlani - Folded Offic… — Kehlani • 6 likes
+
+Never cut in a way that crashes or leaves raw broken formatting.
+
+==================================================
+4. EMPTY STATES
+==================================================
+
+If no rows:
+!topliked:
+👍 No liked songs yet.
+
+!topdisliked:
+👎 No disliked songs yet.
+
+!topsongs:
+🔥 No song stats yet.
+
+!toprequests:
+💿 No requester data yet.
+
+!toplisteners:
+🎧 No listener data yet.
+
+==================================================
+5. OUTPUT EXAMPLES
+==================================================
+
+!topliked:
+
+👍 Top Liked Songs 1/2
+1. Impulse Super Slowed — Unknown • 2 likes
+2. Let It Go — Demi Lovato • 2 likes
+3. Titanium — Sia • 1 like
+
+👍 Top Liked Songs 2/2
+4. Sweater Weather — The Neighbour… • 1 like
+5. Folded — Kehlani • 1 like
+
+!topdisliked:
+
+👎 Top Disliked Songs
+1. Song Title — Artist • 3 dislikes
+
+==================================================
+6. CHECKLIST
+==================================================
+
+Test:
+- !topliked sends all pages without crashing
+- !topdisliked sends all pages without crashing
+- !topsongs sends all pages without crashing
+- !toprequests sends all pages without crashing
+- !toplisteners sends all pages without crashing
+- malformed title/artist does not crash
+- empty data gives clean empty message
+- no message exceeds 249 chars
+- only DJ_DUDU replies

@@ -19,6 +19,8 @@ Point schedule (configurable via _POINT_MAP):
 Daily cap: 50 radio points per user per day.
 """
 from __future__ import annotations
+import asyncio
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -370,11 +372,16 @@ async def handle_toplisteners(bot: "BaseBot", user: "User", _args: list) -> None
     """!toplisteners — users with the most radio points."""
     rows = top_listeners(limit=5)
     if not rows:
-        await _w(bot, user.id, "🎧 No listener stats yet. Start engaging to earn points!")
+        await _w(bot, user.id, "🎧 No listener data yet.")
         return
     lines = ["🎧 Top Listeners"]
-    for i, r in enumerate(rows, 1):
-        lines.append(f"{i}. @{r['username'][:18]} — {r['points']} pts")
+    for r in rows[:5]:
+        try:
+            uname  = str(r.get("username") or "unknown")[:18]
+            pts    = int(r.get("points") or 0)
+            lines.append(f"{len(lines)}. @{uname} — {pts} pts")
+        except Exception:
+            lines.append(f"{len(lines)}. (data error)")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -382,11 +389,16 @@ async def handle_toprequests(bot: "BaseBot", user: "User", _args: list) -> None:
     """!toprequests — users with the most successful song requests."""
     rows = top_requesters(limit=5)
     if not rows:
-        await _w(bot, user.id, "💿 No request stats yet. Use !play to request a song!")
+        await _w(bot, user.id, "💿 No requester data yet.")
         return
     lines = ["💿 Top Requesters"]
-    for i, r in enumerate(rows, 1):
-        lines.append(f"{i}. @{r['username'][:18]} — {r['count']} requests")
+    for r in rows[:5]:
+        try:
+            uname = str(r.get("username") or "unknown")[:18]
+            cnt   = int(r.get("count") or 0)
+            lines.append(f"{len(lines)}. @{uname} — {cnt} requests")
+        except Exception:
+            lines.append(f"{len(lines)}. (data error)")
     await _w(bot, user.id, "\n".join(lines)[:249])
 
 
@@ -436,50 +448,79 @@ def top_disliked_songs(limit: int = 5) -> list:
         return []
 
 
+def _prettify(raw: str) -> str:
+    """Lower-case song_key → readable title (hyphens/underscores → spaces, title-case)."""
+    text = re.sub(r"[-_]", " ", raw or "")
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    return text.title() if text else ""
+
+
+def _trunc(s: str, maxlen: int) -> str:
+    """Truncate string with ellipsis if it exceeds maxlen."""
+    s = s.strip()
+    return s if len(s) <= maxlen else s[:maxlen - 1] + "…"
+
+
 def _fmt_song_line(i: int, row: dict, label: str) -> str:
-    """Format one leaderboard song line. Title prettified; no raw file paths exposed."""
-    raw   = row.get("title") or row.get("song_key") or "Unknown"
-    # Prettify a lowercased song_key (replace hyphens, apply title-case)
-    title  = raw.replace("-", " ").replace("_", " ").strip()
-    title  = title[:1].upper() + title[1:] if title else "Unknown"
-    title  = title[:26]
-    artist = (row.get("artist") or "")[:14].strip()
-    n      = row["count"]
-    core   = f"{i}. {title}"
-    if artist:
-        core += f" — {artist}"
-    return f"{core} • {n} {label}"
+    """Format one leaderboard song line — fully defensive, ≤ 72 chars."""
+    try:
+        raw_title  = str(row.get("title") or row.get("song_key") or "")
+        raw_artist = str(row.get("artist") or "")
+        n          = int(row.get("count") or 0)
+
+        title  = _prettify(raw_title) or "Unknown Title"
+        title  = _trunc(title, 28)
+
+        artist = _prettify(raw_artist) or "Unknown"
+        artist = _trunc(artist, 18)
+
+        # singular vs plural  (1 like, 2 likes)
+        word = label[:-1] if (n == 1 and label.endswith("s")) else label
+        return f"{i}. {title} — {artist} • {n} {word}"
+    except Exception:
+        return f"{i}. (data error)"
+
+
+async def _send_song_pages(
+    bot: "BaseBot",
+    uid: str,
+    header: str,
+    rows: list,
+    label: str,
+) -> None:
+    """Paginate formatted song rows (3 per page), every page ≤ 249 chars."""
+    items: list[str] = []
+    for i, r in enumerate(rows, 1):
+        try:
+            items.append(_fmt_song_line(i, r, label))
+        except Exception:
+            items.append(f"{i}. (data error)")
+
+    chunks    = [items[k:k + 3] for k in range(0, len(items), 3)]
+    total_pgs = len(chunks)
+    for pg, chunk in enumerate(chunks, 1):
+        hdr  = f"{header} {pg}/{total_pgs}" if total_pgs > 1 else header
+        body = "\n".join(chunk)
+        msg  = f"{hdr}\n{body}"
+        # Hard-trim if somehow still over 249 (shouldn't happen with our limits)
+        await _w(bot, uid, msg[:249])
+        if pg < total_pgs:
+            await asyncio.sleep(0.25)
 
 
 async def handle_topliked(bot: "BaseBot", user: "User", _args: list) -> None:
     """!topliked — top 5 songs by most likes."""
     rows = top_liked_songs(limit=5)
     if not rows:
-        await _w(bot, user.id, "👍 No song ratings yet. React with !like while a song plays!")
+        await _w(bot, user.id, "👍 No liked songs yet.")
         return
-    items      = [_fmt_song_line(i, r, "likes") for i, r in enumerate(rows, 1)]
-    header     = "👍 Top Liked Songs"
-    chunks     = [items[i:i + 3] for i in range(0, len(items), 3)]
-    total_pgs  = len(chunks)
-    for pg, chunk in enumerate(chunks, 1):
-        hdr = f"{header} {pg}/{total_pgs}" if total_pgs > 1 else header
-        await _w(bot, user.id, (hdr + "\n" + "\n".join(chunk))[:249])
-        if pg < total_pgs:
-            await asyncio.sleep(0.1)
+    await _send_song_pages(bot, user.id, "👍 Top Liked Songs", rows, "likes")
 
 
 async def handle_topdisliked(bot: "BaseBot", user: "User", _args: list) -> None:
     """!topdisliked — top 5 songs by most dislikes."""
     rows = top_disliked_songs(limit=5)
     if not rows:
-        await _w(bot, user.id, "👎 No dislike ratings yet.")
+        await _w(bot, user.id, "👎 No disliked songs yet.")
         return
-    items      = [_fmt_song_line(i, r, "dislikes") for i, r in enumerate(rows, 1)]
-    header     = "👎 Top Disliked Songs"
-    chunks     = [items[i:i + 3] for i in range(0, len(items), 3)]
-    total_pgs  = len(chunks)
-    for pg, chunk in enumerate(chunks, 1):
-        hdr = f"{header} {pg}/{total_pgs}" if total_pgs > 1 else header
-        await _w(bot, user.id, (hdr + "\n" + "\n".join(chunk))[:249])
-        if pg < total_pgs:
-            await asyncio.sleep(0.1)
+    await _send_song_pages(bot, user.id, "👎 Top Disliked Songs", rows, "dislikes")
