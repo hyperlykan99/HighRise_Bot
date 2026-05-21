@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from highrise import BaseBot, User
 
+import config as _config
+
 from modules.permissions import (
     can_moderate, is_admin, is_owner, can_manage_economy,
 )
@@ -539,6 +541,8 @@ async def handle_commands(bot: BaseBot, user: User, args: list[str]) -> None:
         return
 
     if sub in ("emotes", "emote"):
+        if _config.BOT_MODE != "dj":
+            return
         await _w(bot, user.id,
                  "🎭 Emotes\n"
                  "!emotehelp — emote list & loops\n"

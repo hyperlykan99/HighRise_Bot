@@ -3599,6 +3599,13 @@ class HangoutBot(BaseBot):
         # Store bot identity so gold rain / tip receiver-check can use it
         set_bot_identity(session_metadata.user_id)
         print(f"[HangoutBot] Bot user ID: {session_metadata.user_id}")
+        # Purge stale bot_command_ownership DB rows for emote commands so
+        # DJ_DUDU always stays the sole owner — self-heals on every connect.
+        try:
+            from modules.multi_bot import purge_stale_emote_command_owners
+            purge_stale_emote_command_owners()
+        except Exception as _coe:
+            print(f"[CMD_OWNER_SYNC] purge call failed (non-fatal): {_coe}")
         # Register in shared LIVE_BOTS registry so !botemote can target this bot.
         try:
             from modules.live_bot_registry import register_bot

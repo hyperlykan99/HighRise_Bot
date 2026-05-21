@@ -1080,6 +1080,54 @@ def _refresh_owner_cache() -> None:
         pass
 
 
+# DJ-owned commands — any DB rows that don't point to "dj" are stale
+# (written when ownership was still "host").  Purged on each startup.
+_DJ_MUST_OWN: frozenset[str] = frozenset({
+    "emotehelp", "socialhelp", "customhelp", "botemotehelp",
+    "botemotes", "kicksocial",
+    "emote", "emotes", "emoteinfo", "setemote", "loopemote",
+    "customemote", "customtimed", "stopcustom",
+    "savecustom", "savecustomtimed", "playcustom",
+    "custompacks", "custominfo", "renamecustom", "deletecustom",
+    "sync", "syncstop", "syncstatus", "syncpersist", "synchelp",
+    "dancefloor", "dancefloorhelp",
+    "botemote", "stopbotemote",
+    "kiss", "slap", "punch", "superpunch", "bonk", "yeet",
+    "hypnotize", "duel", "swordfight",
+    "heart", "hearts",
+    "social", "blocksocial", "unblocksocial",
+})
+
+
+def purge_stale_emote_command_owners() -> int:
+    """Delete bot_command_ownership DB rows for dj-owned emote commands
+    that incorrectly point to a non-dj mode (e.g. stale 'host' entries
+    written before the ownership map was updated).  Called once per
+    on_start so the bot self-heals without manual /setcommandowner work.
+    Returns the number of rows deleted.
+    """
+    deleted = 0
+    try:
+        conn = db.get_connection()
+        ph = ",".join("?" * len(_DJ_MUST_OWN))
+        cur = conn.execute(
+            f"DELETE FROM bot_command_ownership "
+            f"WHERE command IN ({ph}) AND owner_bot_mode != 'dj'",
+            tuple(_DJ_MUST_OWN),
+        )
+        deleted = cur.rowcount
+        conn.commit()
+        conn.close()
+        if deleted:
+            global _owner_cache_ts
+            _owner_cache_ts = 0.0
+            print(f"[CMD_OWNER_SYNC] Purged {deleted} stale dj-owned "
+                  f"command owner row(s) from DB.")
+    except Exception as exc:
+        print(f"[CMD_OWNER_SYNC] purge error: {exc!r}")
+    return deleted
+
+
 def _refresh_online_cache() -> None:
     global _online_cache, _online_cache_ts
     try:

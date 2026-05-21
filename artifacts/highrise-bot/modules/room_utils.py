@@ -2108,8 +2108,8 @@ async def handle_emotehelp(bot: BaseBot, user: User) -> None:
         await _w(bot, uid,
                  "⭐ VIP Socials\n"
                  "!kiss  !slap  !bonk  !yeet\n"
-                 "!superpunch  !hypnotize\n"
-                 "!duel  !kicksocial  (all: @user)")
+                 "!superpunch  !hypnotize  !duel\n"
+                 "(all target @user)")
     else:
         await _w(bot, uid,
                  "⭐ VIP Social Emotes\n"
@@ -2159,8 +2159,8 @@ async def handle_socialhelp(bot: BaseBot, user: User) -> None:
              "💞 VIP+ Socials\n"
              "!bonk @user  !duel @user\n"
              "!hypnotize @user  !kiss @user\n"
-             "!kicksocial @user  !slap @user\n"
-             "!superpunch @user  !yeet @user")
+             "!slap @user  !superpunch @user\n"
+             "!yeet @user")
     await _w(bot, uid,
              "💖 Hearts\n"
              "!heart @user — send hearts\n"
