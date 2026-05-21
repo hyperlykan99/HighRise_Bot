@@ -1,0 +1,193 @@
+RADIO ANNOUNCEMENT / NOWPLAYING POLISH
+
+Goal:
+Polish DJ DUDU radio announcements and now-playing display.
+
+Do not rewrite the radio system.
+Do not change queue/request/playback logic.
+Do not change AzuraCast/SFTP logic.
+Do not touch emote system.
+Do not break DJ_DUDU internal routing or BOT_MODE=dj.
+
+Important display rule:
+Use “DJ DUDU” in user-facing messages.
+Do NOT display “DJ_DUDU” to users.
+
+Keep internal bot/account references as-is if needed for routing.
+Only change user-facing display text.
+
+Relevant files to inspect:
+- modules/radio_commands.py
+- modules/dj_announcer.py
+- modules/playback_engine.py
+- modules/azuracast_controller.py
+- modules/request_queue.py
+- modules/help_cmds.py
+- database.py
+
+==================================================
+1. FIX DJ ANNOUNCEMENT LIKES/DISLIKES
+==================================================
+
+Bug:
+DJ announcement displays likes/dislikes as 0 even when songs have ratings.
+
+Fix:
+DJ announcements must read real likes/dislikes from the same rating source used by:
+- !like
+- !dislike
+- !ratings
+
+Do not use a separate rating counter.
+Do not default to 0 if ratings exist.
+
+Use stable song key:
+- YouTube URL or video ID if available
+- else AzuraCast song unique_id if available
+- else normalized title + artist
+
+Announcement should show:
+👍 <real_like_count> | 👎 <real_dislike_count>
+
+==================================================
+2. KEEP VIRTUAL MEDIA PLAYER DESIGN
+==================================================
+
+Never remove the virtual media player design.
+
+DJ announcement and !np / !nowplaying must keep:
+- separated title
+- separated artist
+- elapsed time
+- progress bar
+- total duration
+
+Required format:
+
+🎧 DJ DUDU RADIO
+▶️ Now Playing
+
+🎵 Title: <title>
+🎤 Artist: <artist>
+
+<elapsed> <progress_bar> <duration>
+
+👍 <likes> | 👎 <dislikes>
+💿 Request: !play <song or YouTube URL>
+
+Example:
+
+🎧 DJ DUDU RADIO
+▶️ Now Playing
+
+🎵 Title: Folded
+🎤 Artist: Kehlani
+
+1:20 ▰▰▰▰▱▱▱▱▱▱ 4:20
+
+👍 12 | 👎 2
+💿 Request: !play <song or YouTube URL>
+
+If artist is missing:
+🎤 Artist: Unknown Artist
+
+If duration is missing:
+Use a safe fallback:
+0:00 ▱▱▱▱▱▱▱▱▱▱ ?:??
+
+Do not remove the progress bar.
+
+==================================================
+3. ADVERTISE !play
+==================================================
+
+At the bottom of DJ announcement / now-playing card, show:
+
+💿 Request: !play <song or YouTube URL>
+
+Use !play as the main public request command.
+Do not advertise !request as the main command.
+
+Keep !request as hidden/backward-compatible alias if it already exists.
+
+==================================================
+4. SOURCE AWARENESS
+==================================================
+
+If source is available, optionally include compact source text if it fits:
+
+📀 Source: User Request
+📀 Source: Chill Vibe
+📀 Source: Party Vibe
+📀 Source: Local Radio
+
+But do not remove title, artist, progress bar, likes/dislikes, or !play advertisement to make room.
+
+Priority:
+1. Title
+2. Artist
+3. Progress bar
+4. Likes/dislikes
+5. !play advertisement
+6. Source
+
+==================================================
+5. 249 CHARACTER SAFE OUTPUT
+==================================================
+
+Highrise messages are capped.
+
+Never send raw radio announcement / !np text over 249 characters.
+
+If the full virtual media player card is too long:
+- truncate title safely
+- truncate artist safely
+- keep progress bar
+- keep likes/dislikes
+- keep !play advertisement
+
+Do not cut off in the middle of text.
+
+If existing system supports pagination for !np, use it.
+Otherwise keep the card compact enough for one safe message.
+
+==================================================
+6. DISPLAY TEXT CLEANUP
+==================================================
+
+User-facing display:
+Use:
+DJ DUDU
+
+Do not show:
+DJ_DUDU
+
+Apply to:
+- DJ announcements
+- !np / !nowplaying
+- !radiohelp if relevant
+- !queue if relevant
+- radio action footers if relevant
+
+Do not change:
+- internal bot username
+- routing checks
+- BOT_MODE=dj
+- database owner identifiers
+- live bot registry keys
+
+==================================================
+7. CHECKLIST
+==================================================
+
+Test:
+- !np shows “DJ DUDU RADIO”
+- !np separates Title and Artist
+- !np keeps elapsed/progress/duration format
+- !np shows real likes/dislikes after !like / !dislike
+- DJ announcement shows real likes/dislikes
+- DJ announcement advertises !play
+- No announcement uses “DJ_DUDU” in user-facing text
+- No radio announcement exceeds 249 characters
+- Progress bar is never removed
+- Only DJ DUDU replies

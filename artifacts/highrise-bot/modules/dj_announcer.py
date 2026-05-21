@@ -78,19 +78,22 @@ async def announce_now_playing(
 
     If `requester` is provided the REQUEST LIVE format is used instead.
     Uses render_now_playing() — the single canonical renderer.
+    Reads real like/dislike counts from dj_ratings (same key as !like/!dislike).
     """
     if requester:
         await announce_request_live(bot, title, artist, requester)
         return
 
-    from modules.track_resolver import render_now_playing
+    from modules.track_resolver import render_now_playing, _get_ratings
+    song_key = title.lower()[:150] if title and title.lower() != "unknown" else ""
+    counts   = _get_ratings(song_key)
     track = {
         "source":    "autodj",
         "title":     title,
         "artist":    artist,
         "vibe":      vibe,
-        "likes":     0,
-        "dislikes":  0,
+        "likes":     counts["likes"],
+        "dislikes":  counts["dislikes"],
     }
     await _say(bot, render_now_playing(track))
 
@@ -107,15 +110,18 @@ async def announce_request_live(
     REQUEST LIVE room announcement with separate Title/Artist lines.
     Fired when a queued request starts playing.
     Uses render_now_playing() — the single canonical renderer.
+    Reads real like/dislike counts from dj_ratings (same key as !like/!dislike).
     """
-    from modules.track_resolver import render_now_playing
+    from modules.track_resolver import render_now_playing, _get_ratings
+    song_key = title.lower()[:150] if title else ""
+    counts   = _get_ratings(song_key)
     track = {
         "source":    "request",
         "title":     title,
         "artist":    artist,
         "requester": requester,
-        "likes":     0,
-        "dislikes":  0,
+        "likes":     counts["likes"],
+        "dislikes":  counts["dislikes"],
     }
     await _say(bot, render_now_playing(track))
 

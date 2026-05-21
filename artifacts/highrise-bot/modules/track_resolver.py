@@ -278,55 +278,88 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
         }
 
 
+# ─── Renderer helpers ─────────────────────────────────────────────────────────
+
+def _fmt_secs(secs: int) -> str:
+    m, s = divmod(max(0, int(secs)), 60)
+    return f"{m}:{s:02d}"
+
+
+def _progress_bar(elapsed: int, total: int, cells: int = 10) -> str:
+    if total <= 0:
+        return "▱" * cells
+    filled = round(cells * min(elapsed, total) / total)
+    return "▰" * filled + "▱" * (cells - filled)
+
+
 # ─── Single renderer ──────────────────────────────────────────────────────────
 
-def render_now_playing(track: dict, *, station: str = "ChillTopia Radio") -> str:
+def render_now_playing(track: dict, *, station: str = "DJ DUDU RADIO") -> str:
     """
-    Canonical renderer for ALL now-playing displays.
+    Canonical renderer for ALL now-playing displays (room announcements + !np).
 
-    source == 'request':
-      ▶ REQUEST LIVE
-      Title: {title}
-      Artist: {artist}      ← omitted if empty
-      👤 @{requester}       ← '👤 Requested' if requester unknown
-      👍 {likes} 👎 {dislikes}
-      📻 {station}
+    Format:
+      🎧 DJ DUDU RADIO
+      ▶️ [Now Playing | Request Live]
 
-    source == 'autodj':
-      ▶ NOW PLAYING
-      Title: {title}
-      Artist: {artist}      ← omitted if empty
-      {vibe_line}           ← e.g. "🌙 AutoDJ • Chill", never hardcoded
-      👍 {likes} 👎 {dislikes}
-      📻 {station}
+      🎵 Title: <title>
+      🎤 Artist: <artist or 'Unknown Artist'>
+      [👤 @requester]          ← request source only
 
+      <elapsed> <progress_bar> <duration>
+
+      👍 <likes> | 👎 <dislikes>
+      💿 Request: !play <song or YouTube URL>
+
+    Falls back to "0:00 ▱▱▱▱▱▱▱▱▱▱ ?:??" when duration is unknown.
     Returns a UTF-8 string ≤249 chars.
     """
-    from modules.dj_announcer import _VIBE_LINE
-
-    title    = (track.get("title")  or "Unknown")[:42]
-    artist   = (track.get("artist") or "").strip()[:38]
+    title    = (track.get("title")  or "Unknown")[:32]
+    artist   = (track.get("artist") or "").strip()[:26]
     likes    = int(track.get("likes",    0))
     dislikes = int(track.get("dislikes", 0))
     source   = track.get("source", "autodj")
+    elapsed  = int(track.get("elapsed",  0) or 0)
+    duration = int(track.get("duration", 0) or 0)
+
+    # Progress bar line
+    if duration > 0:
+        bar_line = (f"{_fmt_secs(elapsed)} {_progress_bar(elapsed, duration)}"
+                    f" {_fmt_secs(duration)}")
+    else:
+        bar_line = f"0:00 {'▱' * 10} ?:??"
+
+    artist_line = (f"🎤 Artist: {artist}"
+                   if artist else "🎤 Artist: Unknown Artist")
 
     if source == "request":
         requester = (track.get("requester") or "")[:20]
-        lines = ["▶ REQUEST LIVE", f"Title: {title}"]
-        if artist:
-            lines.append(f"Artist: {artist}")
-        lines.append(f"👤 @\u200b{requester}" if requester else "👤 Requested")
-        lines += [f"👍 {likes} 👎 {dislikes}", f"📻 {station}"]
+        req_line  = f"👤 @\u200b{requester}" if requester else "👤 Requested"
+        lines = [
+            "🎧 DJ DUDU RADIO",
+            "▶️ Request Live",
+            "",
+            f"🎵 Title: {title}",
+            artist_line,
+            req_line,
+            "",
+            bar_line,
+            "",
+            f"👍 {likes} | 👎 {dislikes}",
+            "💿 Request: !play <song or YouTube URL>",
+        ]
     else:
-        vibe = (track.get("vibe") or "AutoDJ").strip()
-        if not vibe or vibe.lower() == "autodj":
-            vibe_line = "🌙 AutoDJ"
-        else:
-            # Never fall back to "Chill" — always use the actual vibe name
-            vibe_line = _VIBE_LINE.get(vibe, f"🌙 AutoDJ • {vibe.title()}")
-        lines = ["▶ NOW PLAYING", f"Title: {title}"]
-        if artist:
-            lines.append(f"Artist: {artist}")
-        lines += [vibe_line, f"👍 {likes} 👎 {dislikes}", f"📻 {station}"]
+        lines = [
+            "🎧 DJ DUDU RADIO",
+            "▶️ Now Playing",
+            "",
+            f"🎵 Title: {title}",
+            artist_line,
+            "",
+            bar_line,
+            "",
+            f"👍 {likes} | 👎 {dislikes}",
+            "💿 Request: !play <song or YouTube URL>",
+        ]
 
-    return "\n".join(lines)
+    return "\n".join(lines)[:249]

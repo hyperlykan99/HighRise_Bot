@@ -1447,7 +1447,7 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
     # ── Whisper 1: play + song-plays + favorites (everyone) ──────────────────
     await _w(
         bot, uid,
-        "🎧 DJ_DUDU Commands\n"
+        "🎧 DJ DUDU Commands\n"
         "🎵 !play song  !pick #  !q  !now\n"
         "💿 !musicshop  !buyplays coins 1\n"
         "   !buyplays luxe 1  !myrequests\n"
@@ -1494,7 +1494,7 @@ async def handle_radiotutorial(bot: "BaseBot", user: "User", _args: list) -> Non
     """!radiotutorial — step-by-step guide sent as whispers (≤249 chars each)."""
     print(f"[RADIO_CMD] stage=radio_tutorial user_id={user.id!r} username={user.username!r}")
     steps = [
-        "🎧 DJ_DUDU Tutorial (1/7)\n"
+        "🎧 DJ DUDU Tutorial (1/7)\n"
         "Step 1: Search for a song\n"
         "→ !play <song name>  e.g. !play blinding lights",
 
