@@ -1,0 +1,167 @@
+RADIO POINTS BACKFILL + LIVE SYNC
+
+Issue:
+!radiostats now correctly shows:
+- requests
+- likes/dislikes
+- favorites
+- playlists
+
+But radio_points are incorrect.
+
+Example:
+78 requests + likes/favorites/playlists
+only shows:
+🏆 1 radio pts
+
+This means:
+- fallback aggregation works
+- but points are not being backfilled or synced correctly
+
+Do not rewrite radio backend.
+Do not change playback/AzuraCast/SFTP logic.
+Do not touch emote system.
+
+Inspect:
+- modules/radio_rewards.py
+- radio_user_stats
+- radio_reward_log
+- reward hooks
+- leaderboard point calculations
+- !radiostats
+- !toplisteners
+
+==================================================
+1. FIX RADIO POINT BACKFILL
+==================================================
+
+If stored radio_points are too low or zero,
+derive a safe estimated total from real existing activity.
+
+Suggested formula:
+
+requests * 5
+likes * 1
+dislikes * 1
+favorites * 2
+playlists * 3
+playlist songs added * 1
+playlist plays * 2
+
+Example:
+78 requests
+18 likes
+1 dislike
+2 favorites
+1 playlist
+
+Expected:
+390 + 18 + 1 + 4 + 3
+= 416 pts
+
+If stored points < derived estimate:
+use derived estimate.
+
+Never show obviously incorrect totals like:
+78 requests → 1 pt
+
+==================================================
+2. LIVE POINT UPDATES
+==================================================
+
+Future successful actions must update radio_points immediately.
+
+!play successful queue:
++5 pts
+
+!like:
++1 pt first time only
+
+!dislike:
++1 pt first time only
+
+!fav:
++2 pts only when newly favorited
+
+!playlist create:
++3 pts only on new playlist
+
+!playlist add:
++1 pt only on non-duplicate song add
+
+!playlist play:
++2 pts only if at least one song queues successfully
+
+Do not reward:
+- failed requests
+- duplicate likes
+- like/dislike toggle farming
+- duplicate favorites
+- duplicate playlist songs
+- deleted/recreated playlist spam
+
+==================================================
+3. SAFE BACKFILL SYNC
+==================================================
+
+On !radiostats:
+if derived estimate > stored radio_points:
+optionally auto-update stored radio_points safely.
+
+Do NOT double-add rewards repeatedly.
+
+Only sync upward safely.
+
+==================================================
+4. FIX TOP LISTENERS
+==================================================
+
+!toplisteners should use:
+effective_points =
+max(stored_points, derived_points)
+
+So old active users rank properly.
+
+Expected:
+heavy radio users appear on leaderboard immediately,
+even before new live rewards accumulate.
+
+==================================================
+5. OUTPUT FORMAT
+==================================================
+
+Keep current compact format:
+
+🎧 Radio Stats
+Requests: <n>
+Likes: <n> | Dislikes: <n>
+Favorites: <n>
+Playlists: <n>
+🏆 <points> radio pts
+
+Under 249 chars.
+Whisper only.
+Only DJ_DUDU replies.
+
+==================================================
+6. CHECKLIST
+==================================================
+
+Test existing active user:
+- !radiostats shows realistic points
+- points scale with requests/activity
+- !toplisteners ranks correctly
+
+Test future activity:
+- !play increases points
+- !like increases once only
+- duplicate !like does not farm
+- !fav increases once only
+- duplicate !fav does not farm
+- playlist actions increase correctly
+
+Regression:
+- no duplicate reward farming
+- no crashes
+- no broken leaderboards
+- only DJ_DUDU replies

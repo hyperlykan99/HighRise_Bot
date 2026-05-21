@@ -340,41 +340,101 @@ def get_user_stats(user_id: str) -> dict:
         "points":    stored["points"],
     }
 
-    # ── derive a point estimate when stored points are still zero ─────────
-    if result["points"] == 0 and (
-        result["requests"] or result["likes"] or result["dislikes"]
-        or result["favorites"] or result["playlists"]
-    ):
-        result["points"] = (
-            result["requests"]  * _POINT_MAP["request"]
-            + result["likes"]     * _POINT_MAP["like"]
-            + result["dislikes"]  * _POINT_MAP["dislike"]
-            + result["favorites"] * _POINT_MAP["favorite"]
-            + result["playlists"] * _POINT_MAP["playlist_create"]
-        )
+    # ── always compute derived estimate; use max(stored, derived) ────────
+    derived = (
+        result["requests"]  * _POINT_MAP["request"]
+        + result["likes"]     * _POINT_MAP["like"]
+        + result["dislikes"]  * _POINT_MAP["dislike"]
+        + result["favorites"] * _POINT_MAP["favorite"]
+        + result["playlists"] * _POINT_MAP["playlist_create"]
+        + result["pl_songs"]  * _POINT_MAP["playlist_add"]
+        + result["pl_plays"]  * _POINT_MAP["playlist_play"]
+    )
+    if derived > result["points"]:
+        result["points"] = derived
+
+    # ── write back if any field improved (MAX-only, never decreases) ──────
+    needs_sync = (
+        derived > stored["points"]
+        or live_requests  > stored["requests"]
+        or live_likes     > stored["likes"]
+        or live_dislikes  > stored["dislikes"]
+        or live_favorites > stored["favorites"]
+        or live_playlists > stored["playlists"]
+        or live_pl_songs  > stored["pl_songs"]
+    )
+    if needs_sync:
+        _sync_user_stats_row(user_id, result)
 
     return result
 
 
+def _sync_user_stats_row(user_id: str, s: dict) -> None:
+    """
+    Write corrected stats back to radio_user_stats using MAX for every column
+    so this call can never lower any value — safe to call repeatedly.
+    """
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "INSERT INTO radio_user_stats "
+            "(user_id, username, requests_count, likes_count, dislikes_count, "
+            " favorites_count, playlists_created, playlist_songs_added, "
+            " playlist_plays, radio_points) "
+            "VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "  requests_count       = MAX(requests_count,       excluded.requests_count), "
+            "  likes_count          = MAX(likes_count,          excluded.likes_count), "
+            "  dislikes_count       = MAX(dislikes_count,       excluded.dislikes_count), "
+            "  favorites_count      = MAX(favorites_count,      excluded.favorites_count), "
+            "  playlists_created    = MAX(playlists_created,    excluded.playlists_created), "
+            "  playlist_songs_added = MAX(playlist_songs_added, excluded.playlist_songs_added), "
+            "  playlist_plays       = MAX(playlist_plays,       excluded.playlist_plays), "
+            "  radio_points         = MAX(radio_points,         excluded.radio_points), "
+            "  last_updated         = datetime('now')",
+            (user_id,
+             s["requests"], s["likes"],    s["dislikes"],
+             s["favorites"], s["playlists"], s["pl_songs"],
+             s["pl_plays"],  s["points"]),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"{_LOG} _sync_user_stats_row error: {exc!r}")
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def top_listeners(limit: int = 5) -> list:
     """
-    Users with highest activity points, descending.
-    Primary source: radio_user_stats.radio_points.
-    Fallback: derive estimated points from dj_ratings when stats table is empty.
+    Users with highest effective points, descending.
+    Uses MAX(stored_points, derived_from_counts) inline so stale stored values
+    never under-rank active users. Falls back to dj_ratings for users who have
+    no radio_user_stats row at all.
     """
     _bootstrap()
     try:
         conn = db.get_connection()
 
-        # Try stored stats first
+        # Primary: radio_user_stats with inline derived-points guard
         rows = conn.execute(
-            "SELECT username, radio_points FROM radio_user_stats "
-            "WHERE radio_points > 0 ORDER BY radio_points DESC LIMIT ?",
+            "SELECT username, "
+            "  MAX(radio_points, "
+            "      requests_count*5 + likes_count + dislikes_count "
+            "      + favorites_count*2 + playlists_created*3 "
+            "      + playlist_songs_added + playlist_plays*2"
+            "  ) AS eff_pts "
+            "FROM radio_user_stats "
+            "WHERE radio_points > 0 OR requests_count > 0 "
+            "   OR likes_count > 0 OR favorites_count > 0 "
+            "ORDER BY eff_pts DESC LIMIT ?",
             (limit,),
         ).fetchall()
 
         if not rows:
-            # Fallback: estimate points from dj_ratings per user
+            # Fallback: estimate from dj_ratings for users with no stats row
             rows = conn.execute(
                 "SELECT username, "
                 "  SUM(CASE WHEN rating='like'    THEN 1 ELSE 0 END)"
