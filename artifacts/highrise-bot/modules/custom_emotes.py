@@ -1,26 +1,41 @@
 """modules/custom_emotes.py
 ===========================
-Custom emote sequence loops and saved personal packs.
+Custom emote sequence loops and saved personal packs — with full persistence
+and restart recovery.
 
 Sections:
-  J1) !customemote  <e1> <e2> ...             — instant simple loop
-  J2) !customtimed  <e1> <s1> <e2> <s2> ...  — instant timed loop
-  J3) !stopcustom                              — stop custom loop
-  J4) !savecustom   <name> <e1> <e2> ...      — save simple pack
-  J5) !savecustomtimed <name> <e1> <s1> ...   — save timed pack
-  J6) !playcustom   <name>                    — play saved pack
-  J7) !custompacks                             — list saved packs
-  J8) !custominfo   <name>                    — show pack details
-  J9) !renamecustom <old> <new>               — rename pack
-  J10) !deletecustom <name>                   — delete pack
+  J1)  !customemote  <e1> <e2> ...             — instant simple loop
+  J2)  !customtimed  <e1> <s1> <e2> <s2> ...  — instant timed loop
+  J3)  !stopcustom                              — stop custom loop (permanent)
+  J4)  !savecustom   <name> <e1> <e2> ...      — save simple pack
+  J5)  !savecustomtimed <name> <e1> <s1> ...   — save timed pack
+  J6)  !playcustom   <name>                    — play saved pack
+  J7)  !custompacks                             — list saved packs
+  J8)  !custominfo   <name>                    — show pack details
+  J9)  !renamecustom <old> <new>               — rename pack
+  J10) !deletecustom <name>                    — delete pack
+  J11) !customdebug  [@user]                   — show loop state
 
-Engine rules (per spec):
-  - Cancel existing custom loop before starting new one.
-  - Cancel normal player emote loop before starting custom.
-  - Bare "Stop" in chat also stops custom loop (handled in main.py).
-  - !syncstop does NOT cancel custom (sync and custom are independent).
-  - !sync @leader cancels custom (call cancel_custom_for_sync from handle_sync).
-  - Dancefloor entry cancels custom loop (called from _dancefloor_loop).
+Lifecycle:
+  - Start        → save session to DB (is_active=1)
+  - Each step    → update current_step in DB
+  - User leaves  → cancel task only; keep DB active (non-permanent)
+  - User rejoins → resume from saved step automatically
+  - Bot restart  → startup_custom_loop_recovery() reloads all active sessions
+  - Stop*        → cancel task + set is_active=0 (permanent)
+
+Permanent stops:
+  stop_custom_permanent(uid, reason) must be called for:
+    - bare "Stop" in chat
+    - !stopcustom command
+    - !sync @leader (sync takes ownership)
+    - dancefloor entry (floor takes ownership)
+
+Engine rules:
+  - Bare "Stop" / !stopcustom → permanent stop
+  - Movement / position updates → NO effect on custom loop
+  - !syncstop → does NOT stop custom loop
+  - Sync followers mirror every step automatically
 """
 from __future__ import annotations
 
@@ -38,12 +53,12 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-_MAX_PACKS = 20
-_MAX_STEPS = 20
+_MAX_PACKS  = 20
+_MAX_STEPS  = 20
 
 
 # ---------------------------------------------------------------------------
-# DB bootstrap — lazy CREATE TABLE IF NOT EXISTS
+# DB bootstrap — lazy CREATE TABLE IF NOT EXISTS (both tables at once)
 # ---------------------------------------------------------------------------
 _DB_READY = False
 
@@ -65,6 +80,18 @@ def _ensure_custom_tables() -> None:
                 PRIMARY KEY (user_id, pack_name)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS custom_loop_sessions (
+                user_id       TEXT PRIMARY KEY,
+                username      TEXT NOT NULL DEFAULT '',
+                mode          TEXT NOT NULL DEFAULT 'simple',
+                sequence_json TEXT NOT NULL DEFAULT '[]',
+                current_step  INTEGER NOT NULL DEFAULT 0,
+                started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                is_active     INTEGER NOT NULL DEFAULT 1
+            )
+        """)
         conn.commit()
         conn.close()
         _DB_READY = True
@@ -83,25 +110,137 @@ async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Active loop state
+# Active loop state  (in-memory)
 # ---------------------------------------------------------------------------
 _custom_loops: dict[str, asyncio.Task] = {}
 
 
+def is_in_custom_loop(uid: str) -> bool:
+    """True if uid has an active custom emote loop task running in memory."""
+    t = _custom_loops.get(uid)
+    return t is not None and not t.done()
+
+
 def cancel_custom_loop(uid: str) -> bool:
-    """Cancel any running custom loop for uid. Returns True if one was cancelled."""
+    """Cancel the in-memory task only (non-permanent — DB stays active).
+    Use stop_custom_permanent() for user-initiated stops."""
     task = _custom_loops.pop(uid, None)
     if task and not task.done():
         task.cancel()
-        print(f"[CUSTOM_EMOTE_STOP] user={uid}")
         return True
+    _custom_loops.pop(uid, None)
     return False
 
 
-def is_in_custom_loop(uid: str) -> bool:
-    """True if uid has an active custom emote loop running."""
-    t = _custom_loops.get(uid)
-    return t is not None and not t.done()
+def stop_custom_permanent(uid: str, reason: str = "user") -> bool:
+    """Cancel task AND mark session inactive in DB.
+    Call this for Stop / !stopcustom / !sync / dancefloor-takeover."""
+    stopped = cancel_custom_loop(uid)
+    _deactivate_session(uid)
+    print(f"[CUSTOM_LOOP_CANCEL] user={uid} reason={reason}")
+    return stopped
+
+
+# ---------------------------------------------------------------------------
+# Session DB helpers
+# ---------------------------------------------------------------------------
+def _save_session(uid: str, username: str, mode: str,
+                  steps: list[tuple[str, str, float]],
+                  step_offset: int = 0) -> None:
+    _ensure_custom_tables()
+    seq = [{"alias": a, "eid": e, "seconds": s} for a, e, s in steps]
+    try:
+        conn = db.get_connection()
+        conn.execute("""
+            INSERT INTO custom_loop_sessions
+                (user_id, username, mode, sequence_json,
+                 current_step, started_at, updated_at, is_active)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), 1)
+            ON CONFLICT(user_id) DO UPDATE SET
+                username      = excluded.username,
+                mode          = excluded.mode,
+                sequence_json = excluded.sequence_json,
+                current_step  = excluded.current_step,
+                started_at    = datetime('now'),
+                updated_at    = datetime('now'),
+                is_active     = 1
+        """, (uid, username, mode, json.dumps(seq), step_offset))
+        conn.commit()
+        conn.close()
+        print(f"[CUSTOM_LOOP_SAVE] user={uid} mode={mode} step={step_offset}")
+    except Exception as exc:
+        print(f"[CUSTOM_LOOP_SAVE] err: {exc!r}")
+
+
+def _update_session_step(uid: str, step: int) -> None:
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "UPDATE custom_loop_sessions "
+            "SET current_step=?, updated_at=datetime('now') "
+            "WHERE user_id=? AND is_active=1",
+            (step, uid)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[CUSTOM_LOOP_STEP_DB] err: {exc!r}")
+
+
+def _deactivate_session(uid: str) -> None:
+    _ensure_custom_tables()
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "UPDATE custom_loop_sessions SET is_active=0, "
+            "updated_at=datetime('now') WHERE user_id=?",
+            (uid,)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[CUSTOM_LOOP_DEACTIVATE] err: {exc!r}")
+
+
+def _get_active_session(uid: str) -> dict | None:
+    _ensure_custom_tables()
+    try:
+        conn = db.get_connection()
+        row = conn.execute(
+            "SELECT username, mode, sequence_json, current_step "
+            "FROM custom_loop_sessions "
+            "WHERE user_id=? AND is_active=1",
+            (uid,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "username": row[0], "mode": row[1],
+            "sequence": json.loads(row[2]), "current_step": row[3],
+        }
+    except Exception as exc:
+        print(f"[CUSTOM_LOOP_GET] err: {exc!r}")
+        return None
+
+
+def _get_all_active_sessions() -> list[dict]:
+    _ensure_custom_tables()
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT user_id, username, mode, sequence_json, current_step "
+            "FROM custom_loop_sessions WHERE is_active=1"
+        ).fetchall()
+        conn.close()
+        return [
+            {"user_id": r[0], "username": r[1], "mode": r[2],
+             "sequence": json.loads(r[3]), "current_step": r[4]}
+            for r in rows
+        ]
+    except Exception as exc:
+        print(f"[CUSTOM_LOOP_GET_ALL] err: {exc!r}")
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -111,33 +250,69 @@ async def _run_custom_loop(
     bot: "BaseBot",
     uid: str,
     steps: list[tuple[str, str, float]],
+    step_offset: int = 0,
 ) -> None:
-    """Loop the given (alias, eid, seconds) steps forever until cancelled.
+    """Loop steps forever, starting at step_offset, until cancelled.
 
-    Each step is sent to the leader (uid) AND any sync followers who have
-    subscribed to uid as their group leader, so followers mirror the sequence.
+    - Updates DB current_step each iteration.
+    - Fans out to sync followers on every send.
+    - Survives individual send errors without dying.
+    - Logs [CUSTOM_LOOP_ALIVE] once per full cycle.
     """
     from modules.emote_system import _send_player
     from modules.emote_extras import _sync_followers, _sync_leader_of
+
+    n = len(steps)
+    cycle = 0
+    idx = step_offset % n if n else 0
+
     try:
         while True:
-            for alias, eid, duration in steps:
-                # Collect valid sync followers of uid
-                followers = [
-                    f for f in _sync_followers.get(uid, set())
-                    if _sync_leader_of.get(f) == uid
-                ]
-                targets = [uid] + followers
-                print(f"[CUSTOM_EMOTE_STEP] user={uid} alias={alias} "
-                      f"eid={eid} time={duration:.1f} "
-                      f"followers={len(followers)}")
+            alias, eid, duration = steps[idx]
+
+            # Collect valid sync followers
+            followers = [
+                f for f in _sync_followers.get(uid, set())
+                if _sync_leader_of.get(f) == uid
+            ]
+            targets = [uid] + followers
+
+            print(f"[CUSTOM_EMOTE_STEP] user={uid} alias={alias} "
+                  f"eid={eid} time={duration:.1f} followers={len(followers)}")
+
+            try:
                 await asyncio.gather(
                     *[_send_player(bot, eid, t) for t in targets],
                     return_exceptions=True,
                 )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[CUSTOM_EMOTE_STEP] send err: {exc!r}")
+
+            # Advance step; log alive once per full cycle
+            idx = (idx + 1) % n
+            if idx == 0:
+                cycle += 1
+                print(f"[CUSTOM_LOOP_ALIVE] user={uid} cycle={cycle} "
+                      f"step={idx}")
+
+            # Persist current step (fire-and-forget — don't let DB errors kill loop)
+            try:
+                _update_session_step(uid, idx)
+            except Exception:
+                pass
+
+            try:
                 await asyncio.sleep(max(0.5, duration))
+            except asyncio.CancelledError:
+                raise
+
     except asyncio.CancelledError:
         raise
+    except Exception as exc:
+        # Log but don't die — task should only stop when explicitly cancelled
+        print(f"[CUSTOM_LOOP_ERR] user={uid} {exc!r}")
 
 
 async def _start_custom_loop(
@@ -145,14 +320,87 @@ async def _start_custom_loop(
     uid: str,
     steps: list[tuple[str, str, float]],
     mode: str,
+    username: str = "",
+    step_offset: int = 0,
 ) -> None:
-    """Cancel existing loops and start a new custom emote loop."""
+    """Save to DB, cancel prior loops, and start the custom emote task."""
     from modules.emote_system import _cancel_player_loop
     _cancel_player_loop(uid)
     cancel_custom_loop(uid)
-    print(f"[CUSTOM_EMOTE_START] user={uid} mode={mode} count={len(steps)}")
-    task = asyncio.create_task(_run_custom_loop(bot, uid, steps))
+    _save_session(uid, username, mode, steps, step_offset)
+    print(f"[CUSTOM_EMOTE_START] user={uid} mode={mode} count={len(steps)} "
+          f"from_step={step_offset}")
+    task = asyncio.create_task(
+        _run_custom_loop(bot, uid, steps, step_offset))
     _custom_loops[uid] = task
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle hooks — called from main.py
+# ---------------------------------------------------------------------------
+def on_custom_user_leave(uid: str) -> None:
+    """User left room — pause in-memory task but keep DB active for resume."""
+    if cancel_custom_loop(uid):
+        print(f"[CUSTOM_LOOP_PAUSE_OFFLINE] user={uid}")
+
+
+async def on_custom_user_join(bot: "BaseBot", user: "User") -> None:
+    """User rejoined — resume their custom loop from saved step if active."""
+    if is_in_custom_loop(user.id):
+        return  # already running (same session)
+    sess = _get_active_session(user.id)
+    if not sess:
+        return
+    steps, bad = _steps_from_seq(sess["mode"], sess["sequence"])
+    if bad or not steps:
+        print(f"[CUSTOM_LOOP_RESUME_JOIN] user={user.id} "
+              f"skipped — invalid emotes: {bad}")
+        return
+    step = sess["current_step"]
+    print(f"[CUSTOM_LOOP_RESUME_JOIN] user={user.id} step={step}")
+    task = asyncio.create_task(
+        _run_custom_loop(bot, user.id, steps, step))
+    _custom_loops[user.id] = task
+
+
+async def startup_custom_loop_recovery(bot: "BaseBot") -> None:
+    """On bot restart: reload all active sessions; resume for users in room.
+
+    Users not currently in the room are left in DB (is_active=1) and will
+    resume automatically when they next join via on_custom_user_join().
+    """
+    await asyncio.sleep(6)  # let room stabilise after startup
+    sessions = _get_all_active_sessions()
+    if not sessions:
+        return
+    # Fetch current room occupants
+    try:
+        resp = await bot.highrise.get_room_users()
+        in_room: set[str] = {
+            u.id for u, _ in (resp.content if hasattr(resp, "content") else [])
+        }
+    except Exception as exc:
+        print(f"[CUSTOM_LOOP_RECOVER] get_room_users err: {exc!r}")
+        in_room = set()
+
+    for sess in sessions:
+        uid = sess["user_id"]
+        if is_in_custom_loop(uid):
+            continue  # already running
+        steps, bad = _steps_from_seq(sess["mode"], sess["sequence"])
+        if bad or not steps:
+            print(f"[CUSTOM_LOOP_RECOVER] user={uid} skipped — "
+                  f"invalid emotes: {bad}")
+            continue
+        step = sess["current_step"]
+        if uid in in_room:
+            print(f"[CUSTOM_LOOP_RECOVER] user={uid} step={step} (in room)")
+            task = asyncio.create_task(
+                _run_custom_loop(bot, uid, steps, step))
+            _custom_loops[uid] = task
+        else:
+            print(f"[CUSTOM_LOOP_RECOVER] user={uid} offline — "
+                  f"will resume on join")
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +416,26 @@ def _resolve_emote(alias: str) -> tuple[str, str] | None:
     if ent and ent.get("id") and ent.get("player"):
         return (alias, ent["id"])
     return None
+
+
+def _steps_from_seq(
+    mode: str,
+    sequence: list[dict],
+) -> tuple[list[tuple[str, str, float]], list[str]]:
+    """Convert a stored sequence list into (alias, eid, seconds) steps."""
+    from modules.emote_system import get_emote_time
+    steps: list[tuple[str, str, float]] = []
+    bad: list[str] = []
+    for entry in sequence:
+        alias = entry.get("alias", "")
+        r = _resolve_emote(alias)
+        if r is None:
+            bad.append(alias)
+            continue
+        secs = float(entry.get("seconds", 5.0)) if mode == "timed" \
+            else get_emote_time(r[1])
+        steps.append((r[0], r[1], secs))
+    return steps, bad
 
 
 def _parse_simple_args(
@@ -211,7 +479,7 @@ def _parse_timed_args(
 
 
 # ---------------------------------------------------------------------------
-# DB helpers
+# Pack DB helpers
 # ---------------------------------------------------------------------------
 def _save_pack_db(
     uid: str,
@@ -312,24 +580,9 @@ def _delete_pack_db(uid: str, name: str) -> bool:
     return cur.rowcount > 0
 
 
-# ---------------------------------------------------------------------------
-# Re-resolve a loaded pack's sequence into (alias, eid, seconds) steps
-# ---------------------------------------------------------------------------
 def _steps_from_pack(pack: dict) -> tuple[list[tuple[str, str, float]], list[str]]:
     """Convert loaded pack dict to steps list. Returns (steps, invalid_aliases)."""
-    from modules.emote_system import get_emote_time
-    mode = pack["mode"]
-    steps: list[tuple[str, str, float]] = []
-    bad: list[str] = []
-    for entry in pack["sequence"]:
-        alias = entry["alias"]
-        r = _resolve_emote(alias)
-        if r is None:
-            bad.append(alias)
-            continue
-        secs = float(entry["seconds"]) if mode == "timed" else get_emote_time(r[1])
-        steps.append((r[0], r[1], secs))
-    return steps, bad
+    return _steps_from_seq(pack["mode"], pack["sequence"])
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +590,7 @@ def _steps_from_pack(pack: dict) -> tuple[list[tuple[str, str, float]], list[str
 # ---------------------------------------------------------------------------
 
 async def handle_customemote(bot: "BaseBot", user: "User", args: list) -> None:
-    """!customemote <e1> <e2> ... — start an instant simple emote loop."""
+    """!customemote <e1> <e2> ... — start an instant simple loop."""
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !customemote <emote1> <emote2> ...")
         return
@@ -349,13 +602,14 @@ async def handle_customemote(bot: "BaseBot", user: "User", args: list) -> None:
     if err:
         await _w(bot, user.id, f"❌ {err}")
         return
-    await _start_custom_loop(bot, user.id, steps, "simple")
+    await _start_custom_loop(bot, user.id, steps, "simple",
+                              username=user.username)
     names = " → ".join(a for a, _, _ in steps)
     await _w(bot, user.id, f"🔄 Looping: {names}"[:249])
 
 
 async def handle_customtimed(bot: "BaseBot", user: "User", args: list) -> None:
-    """!customtimed <e1> <s1> <e2> <s2> ... — start an instant timed emote loop."""
+    """!customtimed <e1> <s1> <e2> <s2> ... — start an instant timed loop."""
     if len(args) < 3:
         await _w(bot, user.id,
                  "Usage: !customtimed <emote1> <secs1> <emote2> <secs2> ...")
@@ -368,15 +622,18 @@ async def handle_customtimed(bot: "BaseBot", user: "User", args: list) -> None:
     if err:
         await _w(bot, user.id, f"❌ {err}")
         return
-    await _start_custom_loop(bot, user.id, steps, "timed")
+    await _start_custom_loop(bot, user.id, steps, "timed",
+                              username=user.username)
     names = " → ".join(f"{a}({s:.0f}s)" for a, _, s in steps)
     await _w(bot, user.id, f"🔄 Timed loop: {names}"[:249])
 
 
 async def handle_stopcustom(bot: "BaseBot", user: "User",
                              _args: list | None = None) -> None:
-    """!stopcustom — stop the user's active custom emote loop."""
-    if cancel_custom_loop(user.id):
+    """!stopcustom — permanently stop the user's custom emote loop."""
+    had_session = _get_active_session(user.id) is not None
+    stopped = stop_custom_permanent(user.id, reason="stopcustom_cmd")
+    if stopped or had_session:
         await _w(bot, user.id, "⏹ Custom loop stopped.")
     else:
         await _w(bot, user.id, "No active custom loop.")
@@ -448,7 +705,8 @@ async def handle_playcustom(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, user.id, "Pack is empty.")
         return
     print(f"[CUSTOM_PACK_PLAY] user={user.id} pack={pack_name}")
-    await _start_custom_loop(bot, user.id, steps, pack["mode"])
+    await _start_custom_loop(bot, user.id, steps, pack["mode"],
+                              username=user.username)
     names = " → ".join(a for a, _, _ in steps)
     await _w(bot, user.id, f"▶ Playing '{pack_name}': {names}"[:249])
 
@@ -524,3 +782,40 @@ async def handle_deletecustom(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, user.id, f"🗑 Pack '{pack_name}' deleted.")
     else:
         await _w(bot, user.id, f"Pack '{pack_name}' not found.")
+
+
+async def handle_customdebug(bot: "BaseBot", user: "User",
+                              args: list) -> None:
+    """!customdebug [@user] — show custom loop state for self or a target (staff)."""
+    from modules.permissions import is_admin, is_manager
+    target_uid  = user.id
+    target_name = user.username
+
+    if len(args) >= 2 and args[1].startswith("@"):
+        if not (is_admin(user.username) or is_manager(user.username)):
+            await _w(bot, user.id, "Staff only for @user lookup.")
+            return
+        target_name = args[1].lstrip("@")
+        try:
+            from modules.room_utils import get_user_id_by_name
+            target_uid = get_user_id_by_name(target_name) or target_uid
+        except Exception:
+            pass
+
+    task_alive = is_in_custom_loop(target_uid)
+    sess = _get_active_session(target_uid)
+
+    if not sess and not task_alive:
+        await _w(bot, user.id,
+                 f"@{target_name}: no active custom loop.")
+        return
+
+    db_active  = bool(sess)
+    mode       = sess["mode"] if sess else "—"
+    step       = sess["current_step"] if sess else "—"
+    seq_count  = len(sess["sequence"]) if sess else "—"
+
+    msg = (f"🔁 @{target_name} custom loop\n"
+           f"db_active={db_active} task={task_alive}\n"
+           f"mode={mode} step={step}/{seq_count}")
+    await _w(bot, user.id, msg[:249])

@@ -580,8 +580,8 @@ async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
     except Exception:
         pass
     try:
-        from modules.custom_emotes import cancel_custom_loop
-        cancel_custom_loop(user.id)
+        from modules.custom_emotes import stop_custom_permanent
+        stop_custom_permanent(user.id, "sync_subscribe")
     except Exception:
         pass
     _df_inside.discard(user.id)
@@ -974,8 +974,8 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
                 if u.id not in _df_inside:
                     print(f"[DANCEFLOOR_ENTER] user={u.id}")
                     try:
-                        from modules.custom_emotes import cancel_custom_loop
-                        cancel_custom_loop(u.id)
+                        from modules.custom_emotes import stop_custom_permanent
+                        stop_custom_permanent(u.id, "dancefloor_entry")
                     except Exception:
                         pass
 

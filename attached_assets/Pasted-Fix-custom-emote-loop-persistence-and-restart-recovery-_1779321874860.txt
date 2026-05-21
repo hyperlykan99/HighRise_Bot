@@ -1,0 +1,98 @@
+Fix custom emote loop persistence and restart recovery.
+
+Do not touch startup tokens, bot staggering, casino, music, dancefloor, or normal sync logic.
+
+Current bug:
+!customemote / !customtimed / !playcustom works and sync followers follow it, but:
+- it only loops for a few cycles then stops
+- it stops when the leader moves
+- it does not resume after bot restart
+
+Required behavior:
+Custom emote loops must be permanent until manually stopped.
+
+They should keep looping through:
+- player movement
+- walking
+- position updates
+- reconnects
+- bot restart
+
+They should stop ONLY when:
+- user types Stop
+- user types !stopcustom
+- user starts !sync @leader
+- user enters dancefloor and dancefloor intentionally takes control
+- user leaves room AND does not return after recovery window
+
+Persistence requirements:
+1. When a user starts:
+   !customemote
+   !customtimed
+   !playcustom
+   save active custom loop state to DB.
+
+Save:
+- user_id
+- username
+- mode simple/timed
+- sequence_json
+- current_step_index
+- started_at
+- updated_at
+- is_active=true
+
+2. Each step updates current_step_index in DB.
+
+3. On bot restart, DJ_DUDU should recover active custom loops:
+   startup_custom_loop_recovery(bot)
+
+4. Recovery should:
+   - load active custom loops
+   - check if user is currently in room
+   - restart their loop from saved current_step_index
+   - if user is not in room, keep DB active but do not start task yet
+   - when user rejoins, resume their custom loop automatically
+
+5. On Stop / !stopcustom:
+   - cancel task
+   - set is_active=false in DB
+
+6. On user leave:
+   - cancel in-memory task only
+   - keep DB is_active=true
+   - do NOT permanently stop the custom loop
+
+7. On user join:
+   - if user has active custom loop in DB, restart it automatically
+
+8. Movement must NOT cancel custom loop.
+Find and remove any movement/position update cleanup that cancels custom loops.
+
+Sync integration:
+If leader has sync followers, every custom step must still send to followers too.
+Followers should keep following after custom loop recovery if sync group still exists in memory.
+After bot restart, sync groups do not need to persist unless already implemented.
+
+Add logs:
+[CUSTOM_LOOP_SAVE] user=<id> mode=<mode> step=<index>
+[CUSTOM_LOOP_RECOVER] user=<id> step=<index>
+[CUSTOM_LOOP_PAUSE_OFFLINE] user=<id>
+[CUSTOM_LOOP_RESUME_JOIN] user=<id>
+[CUSTOM_LOOP_CANCEL] user=<id> reason=<reason>
+[CUSTOM_LOOP_ALIVE] user=<id> cycle=<n> step=<index>
+
+Commands:
+!customdebug
+Shows the user’s active custom loop state:
+active=true/false
+mode
+step index
+sequence count
+task running true/false
+
+Staff:
+!customdebug @user
+
+Compile:
+python -m py_compile bot.py main.py modules/custom_emotes.py modules/emote_extras.py modules/emote_system.py

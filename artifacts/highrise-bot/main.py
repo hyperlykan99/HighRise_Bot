@@ -939,11 +939,14 @@ from modules.emote_extras import (
     handle_emotetestchecklist,
 )
 from modules.custom_emotes import (
-    cancel_custom_loop, is_in_custom_loop,
+    cancel_custom_loop, stop_custom_permanent, is_in_custom_loop,
+    on_custom_user_leave, on_custom_user_join,
+    startup_custom_loop_recovery,
     handle_customemote, handle_customtimed, handle_stopcustom,
     handle_savecustom, handle_savecustomtimed,
     handle_playcustom, handle_custompacks,
     handle_custominfo, handle_renamecustom, handle_deletecustom,
+    handle_customdebug,
 )
 from modules.emote_system import (   # re-open for remaining symbols
     handle_force_emote,
@@ -1754,6 +1757,7 @@ ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
     "savecustom", "savecustomtimed",
     "playcustom", "custompacks", "custominfo",
     "renamecustom", "deletecustom",
+    "customdebug",
 }
 STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS | {"syncdebug"}
 ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
@@ -3769,6 +3773,7 @@ class HangoutBot(BaseBot):
         # duplicate pollers fighting over per-user emote loops.
         if BOT_MODE in ("dj", "all"):
             _safe_task(startup_dancefloor_recovery(self), "startup_dancefloor_recovery")
+            _safe_task(startup_custom_loop_recovery(self), "startup_custom_loop_recovery")
         # Emote discovery — only runs on dj bot (emote test uses dj's Highrise account)
         if BOT_MODE == "dj":
             _safe_task(startup_emote_discovery(self), "startup_emote_discovery")
@@ -3847,13 +3852,13 @@ class HangoutBot(BaseBot):
                     return
             except Exception as _exc:
                 print(f"[SYNC_SHORTCUT] err: {_exc!r}")
-            # Bare "Stop" also halts any active custom emote loop
+            # Bare "Stop" also permanently halts any active custom emote loop
             if message.strip().lower() == "stop" and is_in_custom_loop(user.id):
                 try:
-                    if cancel_custom_loop(user.id):
-                        await self.highrise.send_whisper(
-                            user.id, "⏹ Custom loop stopped.")
-                        return
+                    stop_custom_permanent(user.id, "chat_stop")
+                    await self.highrise.send_whisper(
+                        user.id, "⏹ Custom loop stopped.")
+                    return
                 except Exception:
                     pass
 
@@ -7681,6 +7686,8 @@ class HangoutBot(BaseBot):
             await handle_renamecustom(self, user, args)
         elif cmd == "deletecustom":
             await handle_deletecustom(self, user, args)
+        elif cmd == "customdebug":
+            await handle_customdebug(self, user, args)
         elif cmd == "importemotes":
             await handle_importemotes(self, user, args)
         elif cmd == "reloademotes":
@@ -8451,6 +8458,8 @@ class HangoutBot(BaseBot):
         _sj(deliver_pending_subscriber_messages(self, user.username.lower()), "sub_notif")
         _sj(deliver_pending_notifications(self, user.username.lower()), "typed_notif")
         _sj(_autospawn_user_on_join(self, user), "autospawn")
+        if BOT_MODE in ("dj", "all"):
+            _sj(on_custom_user_join(self, user), "on_custom_user_join")
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """Crash-proof wrapper — no tip handler can disconnect the bot."""
@@ -8573,6 +8582,10 @@ class HangoutBot(BaseBot):
             clear_sync_on_leave(user.id)
         except Exception as _se:
             print(f"[ON_LEAVE SYNC] @{user.username}: {_se!r}")
+        try:
+            on_custom_user_leave(user.id)
+        except Exception:
+            pass
         try:
             await handle_poker_user_left(self, user)
         except Exception as _pe:

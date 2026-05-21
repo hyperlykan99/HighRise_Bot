@@ -289,6 +289,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "savecustom": "dj", "savecustomtimed": "dj",
     "playcustom": "dj", "custompacks": "dj", "custominfo": "dj",
     "renamecustom": "dj", "deletecustom": "dj",
+    "customdebug": "dj",
     # ── dj — emote registry (DJ_DUDU-only, single source of truth) ───────────
     "setemote": "dj", "addemote": "dj", "removeemote": "dj",
     "emotedebug": "dj", "exportemotes": "dj", "timingaudit": "dj",
