@@ -315,7 +315,7 @@ def render_now_playing(track: dict, *, station: str = "ChillTopia Radio") -> str
         lines = ["▶ REQUEST LIVE", f"Title: {title}"]
         if artist:
             lines.append(f"Artist: {artist}")
-        lines.append(f"👤 @{requester}" if requester else "👤 Requested")
+        lines.append(f"👤 @\u200b{requester}" if requester else "👤 Requested")
         lines += [f"👍 {likes} 👎 {dislikes}", f"📻 {station}"]
     else:
         vibe = (track.get("vibe") or "AutoDJ").strip()
@@ -329,4 +329,4 @@ def render_now_playing(track: dict, *, station: str = "ChillTopia Radio") -> str
             lines.append(f"Artist: {artist}")
         lines += [vibe_line, f"👍 {likes} 👎 {dislikes}", f"📻 {station}"]
 
-    return "\n".join(lines)[:249]
+    return "\n".join(lines)

@@ -778,10 +778,10 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         pu  = (pj.get("username") or "?").strip()[:12]
         pa  = (pj.get("artist")   or "").strip()[:18]
         if pa:
-            np_line = f"▶️ NOW: {pt} — {pa} (req. @{pu})"
+            np_line = f"▶️ NOW: {pt} — {pa} (req. @\u200b{pu})"
         else:
-            np_line = f"▶️ NOW: {pt} — req. by @{pu}"
-        await _w(bot, user.id, np_line[:_MAX])
+            np_line = f"▶️ NOW: {pt} — req. by @\u200b{pu}"
+        await _w(bot, user.id, np_line)
         await asyncio.sleep(0.15)
 
     # ── Whisper 2: UP NEXT (pending / staged / ready jobs) ───────────────────
@@ -802,9 +802,9 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         pfx = "⭐" if pri else ""
         icon = _status_icon(st)
         if a:
-            rows.append(f"{i}.{pfx} {t} — {a} @{u} {icon}")
+            rows.append(f"{i}.{pfx} {t} — {a} @\u200b{u} {icon}")
         else:
-            rows.append(f"{i}.{pfx} {t} — @{u} {icon}")
+            rows.append(f"{i}.{pfx} {t} — @\u200b{u} {icon}")
 
     total  = len(rows)
     header = "🎧 UP NEXT:"
@@ -827,7 +827,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         f" total={total} visible_count={shown}"
         f" playing={len(playing_jobs)}"
     )
-    await _w(bot, user.id, msg[:_MAX])
+    await _w(bot, user.id, msg)
 
 
 # ─── !nowplaying ──────────────────────────────────────────────────────────────
@@ -1048,18 +1048,29 @@ async def handle_clearqueue(bot: "BaseBot", user: "User", _args: list) -> None:
 # ─── !history ─────────────────────────────────────────────────────────────────
 
 async def handle_history(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!history — last 8 played requests."""
+    """!history — last 8 played requests, paginated 4-per-page."""
     history = rq.recent_history(8)
     if not history:
         await _w(bot, user.id, "📜 No request history yet. Be the first to request a song!")
         return
 
-    lines = ["📜 Recent requests:"]
-    for row in history:
-        t = (row.get("title") or "?")[:28]
-        u = (row.get("username") or "?")[:12]
-        lines.append(f"• {t} — @{u}")
-    await _w(bot, user.id, "\n".join(lines))
+    # Build numbered item lines; \u200b (zero-width space) after @ prevents
+    # Highrise from converting @username into a clickable <link=@user>@user mention.
+    items: list[str] = []
+    for i, row in enumerate(history, 1):
+        t = (row.get("title") or "?")[:32]
+        u = (row.get("username") or "?")[:14]
+        items.append(f"{i}. {t} — @\u200b{u}")
+
+    # 4 items per page keeps each whisper well under 240 chars
+    chunk_size   = 4
+    chunks       = [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+    total_pages  = len(chunks)
+    for pg, chunk in enumerate(chunks, 1):
+        header = f"📜 History {pg}/{total_pages}" if total_pages > 1 else "📜 Recent Requests"
+        await _w(bot, user.id, header + "\n" + "\n".join(chunk))
+        if pg < total_pages:
+            await asyncio.sleep(0.1)
 
 
 # ─── !voteskip ────────────────────────────────────────────────────────────────
