@@ -1,0 +1,130 @@
+FINAL EMOTE SYSTEM POLISH.
+
+Do not add new mechanics. Do not touch startup, tokens, casino, music, bot stability, or unrelated systems.
+
+Goal:
+Make emote system clean, understandable, and testable.
+
+1. Help pages
+
+Polish/create these DJ_DUDU-owned help pages:
+!emotehelp
+!customhelp
+!dancefloorhelp
+!synchelp
+!socialhelp
+!botemotehelp
+
+Rules:
+- Each help page must use 255-char-safe paged whispers.
+- Use short examples.
+- Group commands clearly.
+- No giant wall of text.
+- DJ_DUDU handles all emote-related help.
+- ChillTopiaMC main !help may only point users to these pages.
+
+2. Help content
+
+!emotehelp should include:
+- !emotes
+- !emoteinfo <name>
+- !setemote <name> time <seconds> staff/owner only
+- plain emote name usage
+- Stop
+
+!customhelp should include:
+- !customemote <emote1> <emote2>
+- !customtimed <emote1> <sec> <emote2> <sec>
+- !stopcustom
+- !savecustom <pack> <emotes>
+- !savecustomtimed <pack> <emote sec...>
+- !playcustom <pack>
+- !custompacks
+- !custominfo <pack>
+- !renamecustom <old> <new>
+- !deletecustom <pack>
+
+!dancefloorhelp should include:
+- !dancefloor setpoint 1
+- !dancefloor setpoint 2
+- !dancefloor save
+- !dancefloor emotes <a b c>
+- !dancefloor timed <a sec b sec>
+- !dancefloor random <N>
+- !dancefloor randomtimed <N|all> <sec>
+- !dancefloor randomtimed <N|all> <min> <max>
+- !dancefloor savepack/loadpack/packs/packinfo/renamepack/deletepack
+- !dancefloor start/stop/status/debug/clear
+
+!synchelp should include:
+- !sync @user
+- !syncstop
+- Stop
+- !syncstatus
+- !syncpersist on/off
+- note: sync follows bot-controlled emotes, custom loops, and dancefloor
+
+!socialhelp should include:
+- VIP+ socials: !kiss, !slap, !superpunch, !punch, !bonk, !yeet, !hypnotize, !duel
+- hearts:
+  !heart @user
+  !heart @user 100
+  !hearts @user 100
+  staff: !heart all, !hearts all 10
+
+!botemotehelp should include:
+- !botemote @bot <emote>
+- !botemote stop @bot
+- !botemotes
+- botemote persistence note
+
+3. Update !emotes socials
+
+Make !emotes socials compact alphabetical and include:
+!heart @user
+!hearts @user <amount>
+!heart all staff
+!hearts all <amount> staff
+
+4. Improve usage errors
+
+Every command should return clear usage if arguments are wrong.
+Examples:
+Usage: !dancefloor randomtimed <N|all> <sec>
+Usage: !customtimed <emote> <sec> [emote sec...]
+
+5. Final test checklist
+
+Update !emotetestchecklist grouped by category:
+Basic emotes
+Bot emotes
+Custom loops
+Sync
+Dancefloor
+Socials/hearts
+Persistence/restart
+
+Include:
+[ ] botemote persists after restart
+[ ] custom loop persists after restart
+[ ] sync persists after restart
+[ ] dancefloor resumes after restart
+[ ] dancefloor randomtimed all 3
+[ ] dancefloor savepack/loadpack
+[ ] !heart @user 100 sends visible burst
+[ ] !heart all staff only
+[ ] social emotes use correct IDs
+[ ] !kick still moderation kick, not social
+
+6. Routing
+
+Confirm these are DJ_DUDU-owned:
+emotehelp customhelp dancefloorhelp synchelp socialhelp botemotehelp
+customemote customtimed stopcustom savecustom savecustomtimed playcustom custompacks custominfo renamecustom deletecustom
+dancefloor sync syncstop syncstatus syncpersist
+heart hearts
+kiss slap punch superpunch bonk yeet hypnotize duel
+
+7. Compile
+
+python -m py_compile bot.py main.py modules/emote_extras.py modules/emote_system.py modules/custom_emotes.py

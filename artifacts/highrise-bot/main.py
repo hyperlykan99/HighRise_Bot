@@ -939,6 +939,7 @@ from modules.emote_extras import (
     handle_favemotes, handle_favemote,
     handle_dancefloor, startup_dancefloor_recovery, handle_dancefloorhelp,
     handle_emotetestchecklist,
+    handle_customhelp, handle_botemotehelp,
 )
 from modules.custom_emotes import (
     cancel_custom_loop, stop_custom_permanent, is_in_custom_loop,
@@ -1753,6 +1754,7 @@ ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
     "syncpersist", "synchelp",
     "favemotes", "favemote",
     "dancefloor", "dancefloorhelp", "emotetestchecklist",
+    "customhelp", "botemotehelp",
     "superpunch", "bonk", "yeet", "hypnotize", "duel", "kicksocial",
 }
 # custom emote sequence commands
@@ -7679,6 +7681,10 @@ class HangoutBot(BaseBot):
             await handle_dancefloorhelp(self, user, args)
         elif cmd == "emotetestchecklist":
             await handle_emotetestchecklist(self, user, args)
+        elif cmd == "customhelp":
+            await handle_customhelp(self, user, args)
+        elif cmd == "botemotehelp":
+            await handle_botemotehelp(self, user, args)
         elif cmd == "customemote":
             await handle_customemote(self, user, args)
         elif cmd == "customtimed":

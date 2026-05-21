@@ -126,6 +126,32 @@ async def _send_compact_pages(bot: "BaseBot", uid: str, header_label: str,
             await asyncio.sleep(0.4)
 
 
+async def _send_help_pages(bot: "BaseBot", uid: str,
+                           title: str, lines: list[str]) -> None:
+    """Whisper ordered help content, newline-separated, paged to ≤249 chars."""
+    pages: list[list[str]] = []
+    buf: list[str] = []
+    used = 0
+    avail = 249 - len(title) - 8   # reserve " 99/99\n"
+    for line in lines:
+        add = len(line) + (1 if buf else 0)
+        if buf and used + add > avail:
+            pages.append(buf)
+            buf = []
+            used = 0
+            add = len(line)
+        buf.append(line)
+        used += add
+    if buf:
+        pages.append(buf)
+    total = max(1, len(pages))
+    for i, chunk in enumerate(pages, 1):
+        msg = f"{title} {i}/{total}\n" + "\n".join(chunk)
+        await _w(bot, uid, msg[:249])
+        if i < total:
+            await asyncio.sleep(0.5)
+
+
 # ---------------------------------------------------------------------------
 # Registry adapters
 # ---------------------------------------------------------------------------
@@ -176,11 +202,14 @@ async def handle_botemotes_compact(bot: "BaseBot", user: "User",
 async def handle_emotes_socials(bot: "BaseBot", user: "User",
                                 _args: list | None = None) -> None:
     """!emotes socials — alphabetical compact list of social target commands."""
-    cmds = ["!bonk @user", "!duel @user",
-            "!heart @user", "!hearts @user <n>",
-            "!hypnotize @user", "!kick @user",
-            "!kicksocial @user", "!kiss @user",
-            "!slap @user", "!superpunch @user", "!yeet @user"]
+    cmds = [
+        "!bonk @user", "!duel @user",
+        "!heart @user", "!heart @user N (VIP+)",
+        "!heart all (staff)", "!hearts @user N (VIP+)",
+        "!hearts all N (staff)", "!hypnotize @user",
+        "!kicksocial @user (VIP+)", "!kiss @user",
+        "!slap @user", "!superpunch @user", "!yeet @user",
+    ]
     await _send_compact_pages(bot, user.id, "💞 Socials", cmds)
 
 
@@ -928,9 +957,15 @@ async def handle_syncpersist(bot: "BaseBot", user: "User", args: list) -> None:
 async def handle_synchelp(bot: "BaseBot", user: "User",
                            _args: list | None = None) -> None:
     """!synchelp — sync system reference."""
-    await _w(bot, user.id,
-             "🔄 Sync: !sync @user | !syncstop | !syncstatus | "
-             "!syncpersist on|off | !syncdebug @u (staff) | Stop=quit"[:249])
+    await _send_help_pages(bot, user.id, "🔄 Sync", [
+        "!sync @user — mirror their emotes exactly",
+        "!syncstop — stop following",
+        "Stop — also exits sync",
+        "!syncstatus — show who you're syncing to",
+        "!syncpersist on|off — resume after restart",
+        "!syncdebug @user — inspect state (staff)",
+        "Follows: bot emotes, custom loops, dancefloor",
+    ])
 
 
 # ===========================================================================
@@ -1887,46 +1922,89 @@ async def startup_dancefloor_recovery(bot: "BaseBot") -> None:
 async def handle_dancefloorhelp(bot: "BaseBot", user: "User",
                                  _args: list | None = None) -> None:
     """!dancefloorhelp — staff dancefloor reference."""
-    await _w(bot, user.id,
-             "💃 DF: setpoint 1|2 | emotes <a b c> | random [N] | "
-             "timed <a s…> | randomtimed <N|all> <s> | "
-             "randomtimed <N|all> <min> <max>"[:249])
-    await _w(bot, user.id,
-             "💃 DF: savepack|loadpack|packs|packinfo|renamepack|"
-             "deletepack | start|stop|status|debug"[:249])
+    await _send_help_pages(bot, user.id, "💃 Dancefloor", [
+        "!dancefloor setpoint 1|2 — mark corners",
+        "!dancefloor save — build box from points",
+        "!dancefloor emotes <a b c> — set sequence",
+        "!dancefloor timed <a sec b sec> — timed",
+        "!dancefloor random [N]",
+        "!dancefloor randomtimed <N|all> <sec>",
+        "!dancefloor randomtimed <N|all> <min> <max>",
+        "!dancefloor start | stop | status | debug",
+        "!dancefloor clear — reset all",
+        "!dancefloor savepack <pack>",
+        "!dancefloor loadpack <pack>",
+        "!dancefloor packs | packinfo <pack>",
+        "!dancefloor renamepack <old> <new>",
+        "!dancefloor deletepack <pack>",
+    ])
 
 
 # ===========================================================================
 # Section I — Test checklist
 # ===========================================================================
 _CHECKLIST = [
-    "[ ] !sync @user mirrors target",
-    "[ ] target changing emote updates sync user",
-    "[ ] !syncstop works",
-    "[ ] Stop breaks sync",
-    "[ ] !slap @user",
-    "[ ] !kiss @user",
-    "[ ] !superpunch @user",
-    "[ ] !bonk @user",
-    "[ ] !yeet @user",
-    "[ ] !hypnotize @user",
-    "[ ] !duel @user",
-    "[ ] !kick still moderation kick",
-    "[ ] !dancefloor emote random 20",
-    "[ ] !dancefloor emotes random 20",
-    "[ ] compact emote lists",
-    "[ ] persistence after restart",
+    # ── Basic emotes ──────────────────────────────────────────────────
+    "── Basic Emotes ──",
+    "[ ] plain emote name plays emote",
+    "[ ] !emotes lists all emotes",
+    "[ ] !emoteinfo <name> shows details",
+    "[ ] !loopemote <name> loops",
+    "[ ] !setemote <name> time <sec> (staff)",
+    # ── Bot emotes ────────────────────────────────────────────────────
+    "── Bot Emotes ──",
+    "[ ] !botemotes lists bot emotes",
+    "[ ] !botemote @bot <emote> plays",
+    "[ ] !botemote stop @bot stops",
+    "[ ] botemote persists after restart",
+    # ── Custom loops ──────────────────────────────────────────────────
+    "── Custom Loops ──",
     "[ ] !customemote justvibing sit aerobics",
     "[ ] !customtimed justvibing 6 hipshake 10 laidback 3",
     "[ ] !stopcustom",
     "[ ] !savecustom chillpack justvibing sit aerobics",
-    "[ ] !savecustomtimed vibeloop justvibing 6 hipshake 10 laidback 3",
+    "[ ] !savecustomtimed vibeloop justvibing 6 hipshake 10",
     "[ ] !playcustom chillpack",
     "[ ] !custompacks",
     "[ ] !custominfo chillpack",
     "[ ] !renamecustom chillpack chillvibes",
     "[ ] !deletecustom chillvibes",
-    "[ ] saved packs persist after restart",
+    "[ ] custom loop persists after restart",
+    # ── Sync ──────────────────────────────────────────────────────────
+    "── Sync ──",
+    "[ ] !sync @user mirrors target",
+    "[ ] target emote change updates sync user",
+    "[ ] !syncstop works",
+    "[ ] Stop breaks sync",
+    "[ ] !syncpersist on/off",
+    "[ ] sync persists after restart",
+    # ── Dancefloor ────────────────────────────────────────────────────
+    "── Dancefloor ──",
+    "[ ] !dancefloor setpoint 1|2",
+    "[ ] !dancefloor save builds box",
+    "[ ] !dancefloor emotes <a b c>",
+    "[ ] !dancefloor timed <a sec b sec>",
+    "[ ] !dancefloor random 20",
+    "[ ] !dancefloor randomtimed all 3",
+    "[ ] !dancefloor randomtimed 20 4 8",
+    "[ ] !dancefloor savepack/loadpack",
+    "[ ] !dancefloor start/stop/status",
+    "[ ] dancefloor resumes after restart",
+    # ── Socials / hearts ──────────────────────────────────────────────
+    "── Socials / Hearts ──",
+    "[ ] !heart @user sends 1 heart",
+    "[ ] !heart @user 100 sends visible burst",
+    "[ ] !hearts @user 100 sends visible burst",
+    "[ ] !heart all staff only",
+    "[ ] social emotes use correct IDs",
+    "[ ] !kick is moderation, not social",
+    "[ ] !kicksocial @user is VIP+ social",
+    # ── Persistence / restart ─────────────────────────────────────────
+    "── Persistence / Restart ──",
+    "[ ] botemote persists after restart",
+    "[ ] custom loop persists after restart",
+    "[ ] sync persists after restart",
+    "[ ] dancefloor resumes after restart",
 ]
 
 
@@ -1954,3 +2032,36 @@ async def handle_emotetestchecklist(bot: "BaseBot", user: "User",
                  f"✅ Test {i}/{total}\n" + "\n".join(chunk))
         if i < total:
             await asyncio.sleep(0.4)
+
+
+# ===========================================================================
+# Section J — Help pages (customhelp, botemotehelp)
+# ===========================================================================
+async def handle_customhelp(bot: "BaseBot", user: "User",
+                             _args: list | None = None) -> None:
+    """!customhelp — custom emote sequence reference."""
+    await _send_help_pages(bot, user.id, "🎭 Custom", [
+        "!customemote <e1> <e2>... — play sequence",
+        "!customtimed <e> <sec> <e> <sec>... — timed",
+        "!stopcustom — stop loop",
+        "!savecustom <pack> <e1> <e2>... — save seq",
+        "!savecustomtimed <pack> <e> <sec>... — save timed",
+        "!playcustom <pack> — play saved pack",
+        "!custompacks — list your packs",
+        "!custominfo <pack> — show contents",
+        "!renamecustom <old> <new>",
+        "!deletecustom <pack>",
+    ])
+
+
+async def handle_botemotehelp(bot: "BaseBot", user: "User",
+                               _args: list | None = None) -> None:
+    """!botemotehelp — bot emote system reference."""
+    await _send_help_pages(bot, user.id, "🤖 BotEmote", [
+        "!botemote @bot <emote> — send emote to bot",
+        "!botemote stop @bot — stop bot emote",
+        "!botemotes — list all bot emotes",
+        "!botemoteid <name> — get raw SDK ID",
+        "!stopbotemote @bot — force stop (staff)",
+        "Bot emotes persist after restart",
+    ])

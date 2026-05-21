@@ -2084,12 +2084,14 @@ async def handle_emoteinfo(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_emotehelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
-             "💃 Emotes\n"
-             "!emotes [page] — list\n"
-             "!emote [id] — use\n"
-             "!emoteinfo [id] — details\n"
-             "!loopemote [id] — loop\n"
-             "!forceemote [user] [id]")
+             "💃 Emote help\n"
+             "!emotes — list all\n"
+             "!emote <id> — use emote\n"
+             "!emoteinfo <id> — details\n"
+             "!loopemote <id> — loop\n"
+             "!customemote e1 e2 — sequence\n"
+             "!customhelp !synchelp !dancefloorhelp\n"
+             "!botemotehelp !socialhelp"[:249])
 
 
 async def handle_alerthelp(bot: BaseBot, user: User) -> None:
@@ -2114,12 +2116,13 @@ async def handle_welcomehelp(bot: BaseBot, user: User) -> None:
 
 async def handle_socialhelp(bot: BaseBot, user: User) -> None:
     await _w(bot, user.id,
-             "💬 Social\n"
-             "!hug  !kiss  !slap  !punch\n"
-             "!highfive  !boop  !waveat  !cheer\n"
-             "!heart [user]\n"
-             "!social off — disable\n"
-             "!blocksocial [user]")
+             "💞 Social help\n"
+             "!bonk !duel !kiss !slap !yeet\n"
+             "!superpunch !hypnotize\n"
+             "!heart @user [N] — send hearts\n"
+             "!heart all (staff) !hearts all N\n"
+             "!kicksocial @user (VIP+)\n"
+             "!emotes socials — full list"[:249])
 
 
 # ---------------------------------------------------------------------------
