@@ -1,0 +1,199 @@
+RADIO PLAYLIST/FAVORITES FIXES + PLAY SPECIFIC SONG
+
+Fix these issues shown in testing.
+
+Important:
+- Only DJ_DUDU / BOT_MODE=dj should reply to radio personalization commands.
+- Keep all messages under 249 characters.
+- Use safe pagination/chunking.
+- Do not rewrite the radio backend.
+- Do not change yt-dlp/SFTP/AzuraCast core logic.
+- Reuse existing queue/request pipeline.
+- Do not expose local/private file paths.
+
+==================================================
+1. FIX !PLAYLIST PLAY FOR LOCAL/NON-YOUTUBE SONGS
+==================================================
+
+Current bad behavior:
+⚠️ No YouTube songs in RnB. Add via !playlist add.
+
+Expected:
+Players should be able to play songs from playlists, including local AzuraCast/media songs when possible.
+
+Requirements:
+- If playlist song is YouTube:
+  queue it through the existing !play/request pipeline.
+- If playlist song is local/AzuraCast:
+  - Try to queue/request it through existing AzuraCast media/song ID support if available.
+  - If local replay is not supported yet:
+    ⚠️ Local replay not supported yet: <title>
+  - Do NOT fail the whole playlist if some songs are local.
+  - Queue all supported songs and report skipped unsupported songs.
+
+Success messages:
+✅ Queued <n>/<total> songs from <playlist>.
+⚠️ Skipped <m> local songs not supported yet.
+
+==================================================
+2. ADD PLAY SPECIFIC SONG FROM PLAYLIST
+==================================================
+
+New command:
+!playlist play <playlist> <#>
+
+Example:
+!playlist play RnB 2
+
+Behavior:
+- Queue/play only the selected playlist song.
+- Use existing queue/request pipeline.
+- If song is YouTube:
+  use normal !play/request flow.
+- If song is local/AzuraCast:
+  use local replay support if available.
+- If local replay unsupported:
+  ⚠️ Local replay not supported yet: <title>
+
+Validation:
+- playlist must exist
+- song number must exist
+- reject invalid numbers cleanly
+
+Responses:
+▶️ Queued from RnB:
+2. Folded — Kehlani
+
+❌ Song # not found in playlist.
+❌ Playlist not found.
+
+==================================================
+3. ADD ACTION LISTS AFTER PLAYLIST OUTPUTS
+==================================================
+
+When user runs:
+!playlist
+
+After showing playlists, include short actions:
+
+Actions:
+!playlist songs <name>
+!playlist play <name>
+!playlist create <name>
+
+When user runs:
+!playlist songs <name>
+
+After songs, include:
+
+Actions:
+!playlist play <name>
+!playlist play <name> <#>
+!playlist addcurrent <name>
+!playlist remove <name> <#>
+
+Keep messages under 249 chars.
+Split into multiple whispers if needed.
+
+==================================================
+4. FIX !FAVORITES CUTOFF
+==================================================
+
+Current:
+!favorites gets cut off.
+
+Expected:
+!favorites paginates safely.
+
+Format:
+⭐ Your Favorites 1/2
+1. Title — Artist
+2. Title — Artist
+
+Then next page if needed.
+
+Never send a favorites message over 249 chars.
+
+==================================================
+5. ADD ACTION LIST AFTER !FAVORITES
+==================================================
+
+After favorites list, include:
+
+Actions:
+!playfav <#>
+!unfav <#>
+!fav
+
+If !playfav does not exist yet, add it.
+
+==================================================
+6. ADD !PLAYFAV <#>
+==================================================
+
+Command:
+!playfav <#>
+
+Behavior:
+Queue/play a specific favorite by number.
+
+Example:
+!playfav 2
+
+Responses:
+▶️ Queued favorite:
+2. Folded — Kehlani
+
+Behavior:
+- YouTube favorite:
+  queue through existing !play/request pipeline.
+- Local/AzuraCast favorite:
+  queue through local media support if available.
+- If local replay unsupported:
+  ⚠️ Local replay not supported yet: <title>
+
+Validation:
+❌ Favorite # not found.
+
+==================================================
+7. APPLY ACTION LISTS TO OTHER RADIO PERSONAL COMMANDS
+==================================================
+
+Add short action hints to:
+- !favorites
+- !playlist
+- !playlist songs <name>
+- !ratings if useful
+
+Do not make outputs too long.
+Use separate whisper chunks if needed.
+
+==================================================
+8. ROUTING
+==================================================
+
+Only DJ_DUDU replies to:
+- !favorites
+- !playfav
+- !unfav
+- !playlist
+- !playlist songs
+- !playlist play
+
+ChillTopiaMC and other bots stay silent.
+
+==================================================
+9. CHECKLIST
+==================================================
+
+- !favorites does not cut off
+- !favorites shows actions
+- !playfav <#> works
+- !playlist shows actions
+- !playlist songs <name> shows actions
+- !playlist play <name> queues supported songs
+- !playlist play <name> <#> works
+- local songs do not break the whole playlist
+- unsupported local songs are skipped cleanly
+- messages stay under 249 chars
+- only DJ_DUDU replies

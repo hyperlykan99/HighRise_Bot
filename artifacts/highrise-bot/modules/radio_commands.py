@@ -1993,17 +1993,20 @@ async def handle_favorites(bot: "BaseBot", user: "User", _args: list) -> None:
         return
     items: list[str] = []
     for i, r in enumerate(rows, 1):
-        t = (r.get("title") or "?")[:34]
-        a = (r.get("artist") or "")[:16]
+        t = (r.get("title") or "?")[:28]
+        a = (r.get("artist") or "")[:14]
         items.append(f"{i}. {t}" + (f" — {a}" if a else ""))
     chunk_size  = 4
     chunks      = [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
     total_pages = len(chunks)
     for pg, chunk in enumerate(chunks, 1):
         hdr = f"⭐ Favorites {pg}/{total_pages}" if total_pages > 1 else "⭐ Your Favorites"
-        await _w(bot, user.id, hdr + "\n" + "\n".join(chunk))
+        msg = hdr + "\n" + "\n".join(chunk)
+        await _w(bot, user.id, msg[:249])
         if pg < total_pages:
             await asyncio.sleep(0.1)
+    await asyncio.sleep(0.05)
+    await _w(bot, user.id, "!playfav <#>  !unfav <#>  !fav")
 
 
 # ─── !removefavorite <number> ────────────────────────────────────────────────
@@ -2078,6 +2081,38 @@ async def handle_mysongs(bot: "BaseBot", user: "User", args: list) -> None:
 async def handle_removefav(bot: "BaseBot", user: "User", args: list) -> None:
     """!removefav <#> — alias for !removefavorite."""
     await handle_removefavorite(bot, user, args)
+
+
+# ─── !playfav ─────────────────────────────────────────────────────────────────
+
+async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
+    """!playfav <#> — queue a specific favorite by number."""
+    _rlog("playfav", "handle_playfav", user.username)
+    if len(args) < 2 or not args[1].isdigit():
+        await _w(bot, user.id, "Usage: !playfav <#>  (see !favs for your list)")
+        return
+    pos  = int(args[1])
+    rows = _fav_get(user.id, limit=20)
+    if not rows:
+        await _w(bot, user.id, "⭐ No favorites yet. Use !fav while a song plays.")
+        return
+    if pos < 1 or pos > len(rows):
+        await _w(bot, user.id,
+                 f"❌ Favorite #{pos} not found. You have {len(rows)}. Use !favs.")
+        return
+    fav = rows[pos - 1]
+    t   = (fav.get("title") or "?")[:34]
+    a   = (fav.get("artist") or "")[:18]
+    lb  = f"{pos}. {t}" + (f" — {a}" if a else "")
+    url = (fav.get("url") or "").strip()
+    if url:
+        await _w(bot, user.id, f"▶️ Queued favorite:\n{lb}"[:249])
+        await _submit_url(
+            bot, user, url,
+            metadata={"title": fav["title"], "artist": fav.get("artist", "")},
+        )
+    else:
+        await _w(bot, user.id, f"⚠️ Local replay not supported yet: {t}")
 
 
 # ─── !playmine ────────────────────────────────────────────────────────────────
@@ -2374,6 +2409,11 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             await _w(bot, uid, hdr + "\n" + "\n".join(chunk))
             if pg < len(chunks):
                 await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)
+        await _w(bot, uid,
+                 "!playlist songs <name>\n"
+                 "!playlist play <name>\n"
+                 "!playlist create <name>")
         return
 
     # ── VIP gate for all write operations ────────────────────────────────────
@@ -2428,6 +2468,13 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             await _w(bot, uid, hdr + "\n" + "\n".join(chunk))
             if pg < len(chunks):
                 await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)
+        pn = pl["name"][:14]
+        await _w(bot, uid,
+                 f"!playlist play {pn}\n"
+                 f"!playlist play {pn} <#>\n"
+                 f"!playlist addcurrent {pn}\n"
+                 f"!playlist remove {pn} <#>")
         return
 
     # ── !playlist add <name> <YouTube URL> ───────────────────────────────────
@@ -2532,24 +2579,65 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             await _w(bot, uid, f"❌ Playlist not found: {pl_name[:24]}")
         return
 
-    # ── !playlist play <name> ─────────────────────────────────────────────────
+    # ── !playlist play <name> [#] ─────────────────────────────────────────────
     if sub == "play":
-        pl = _pl_get(uid, " ".join(args[2:]))
+        # Detect optional song index as last arg: !playlist play <name> <#>
+        song_idx: "int | None" = None
+        if len(args) >= 4 and args[-1].isdigit():
+            candidate = _pl_get(uid, " ".join(args[2:-1]))
+            if candidate:
+                pl       = candidate
+                song_idx = int(args[-1])
+            else:
+                pl = _pl_get(uid, " ".join(args[2:]))
+        else:
+            pl = _pl_get(uid, " ".join(args[2:]))
+
         if not pl:
             await _w(bot, uid, f"❌ Playlist not found: {' '.join(args[2:])[:22]}")
             return
-        songs    = _pl_songs(pl["id"])
-        yt_songs = [s for s in songs if s.get("youtube_url")]
-        skipped  = len(songs) - len(yt_songs)
+
+        # ── Play specific song by index ───────────────────────────────────────
+        if song_idx is not None:
+            songs = _pl_songs(pl["id"])
+            if song_idx < 1 or song_idx > len(songs):
+                await _w(bot, uid, f"❌ Song #{song_idx} not found in playlist.")
+                return
+            s  = songs[song_idx - 1]
+            t  = (s.get("title") or "?")[:34]
+            a  = (s.get("artist") or "")[:18]
+            lb = f"{song_idx}. {t}" + (f" — {a}" if a else "")
+            if s.get("youtube_url"):
+                await _w(bot, uid, f"▶️ Queued from {pl['name'][:18]}:\n{lb}"[:249])
+                await _submit_url(
+                    bot, user, s["youtube_url"],
+                    metadata={"title": s["title"], "artist": s.get("artist", "")},
+                )
+            else:
+                await _w(bot, uid,
+                         f"⚠️ Local replay not supported yet: {t}")
+            return
+
+        # ── Play all songs in playlist ────────────────────────────────────────
+        songs      = _pl_songs(pl["id"])
+        if not songs:
+            await _w(bot, uid, f"📂 {pl['name'][:22]} is empty.")
+            return
+        yt_songs   = [s for s in songs if s.get("youtube_url")]
+        local_sngs = [s for s in songs if not s.get("youtube_url")]
+        skipped    = len(local_sngs)
         if not yt_songs:
             await _w(bot, uid,
-                     f"⚠️ No YouTube songs in {pl['name'][:20]}.\n"
-                     "Add via !playlist add <name> <YouTube URL>.")
+                     f"⚠️ {pl['name'][:20]} has no YouTube songs.\n"
+                     "Add via !playlist add <name> <URL>.")
+            for s in local_sngs[:3]:
+                t = (s.get("title") or "?")[:44]
+                await _w(bot, uid, f"⚠️ Local not supported yet: {t}")
             return
         skip_note = f"\n⚠️ Skipping {skipped} local song(s)." if skipped else ""
         await _w(bot, uid,
-                 f"📂 Queueing {len(yt_songs)} song(s) from {pl['name'][:18]}…"
-                 + skip_note)
+                 (f"📂 Queueing {len(yt_songs)}/{len(songs)} from "
+                  f"{pl['name'][:16]}…" + skip_note)[:249])
         queued = 0
         for s in yt_songs:
             try:
@@ -2562,8 +2650,10 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             except Exception as _exc:
                 print(f"{_LOG} playlist_play song_error: {_exc!r}")
                 break
-        await _w(bot, uid,
-                 f"✅ Queued {queued}/{len(yt_songs)} from {pl['name'][:20]}.")
+        parts = [f"✅ Queued {queued}/{len(yt_songs)} from {pl['name'][:20]}."]
+        if skipped:
+            parts.append(f"⚠️ Skipped {skipped} local songs not supported yet.")
+        await _w(bot, uid, "\n".join(parts)[:249])
         return
 
 

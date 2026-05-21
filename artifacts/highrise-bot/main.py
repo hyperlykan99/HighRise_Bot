@@ -500,6 +500,7 @@ from modules.radio_commands import (
     handle_priority        as rc_priority,
     handle_save            as rc_save,
     handle_mysongs         as rc_mysongs,
+    handle_playfav         as rc_playfav,
     handle_playlist        as rc_playlist,
     handle_ratings         as rc_ratings,
     handle_removefav       as rc_removefav,
@@ -1805,7 +1806,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     # Playlist / saved songs
     "save",
     "mysongs", "playlist", "myplaylist2",
-    "playmine",
+    "playmine", "playfav",
     "removefav", "delfav", "deletefav",
     "removefavorite",
     "fav", "addtoplaylist",
@@ -7934,6 +7935,8 @@ class HangoutBot(BaseBot):
             await rc_mysongs(self, user, args)
         elif cmd == "playmine":
             await rc_playmine(self, user, args)
+        elif cmd == "playfav":
+            await rc_playfav(self, user, args)
         elif cmd == "like":
             await rc_like(self, user, args)
         elif cmd == "dislike":

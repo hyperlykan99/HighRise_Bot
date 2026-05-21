@@ -403,7 +403,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "vibes": "dj",
     "save": "dj",
     "mysongs": "dj", "playlist": "dj", "pl": "dj", "myplaylist2": "dj",
-    "playmine": "dj",
+    "playmine": "dj", "playfav": "dj",
     "unfav": "dj",
     "removefav": "dj", "delfav": "dj", "deletefav": "dj",
     # ── dj — voting / ratings ────────────────────────────────────────────────
@@ -786,6 +786,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "fav": "dj", "favs": "dj", "unfav": "dj",
     "myplaylist": "dj", "addtoplaylist": "dj",
     "playlist": "dj", "pl": "dj",
+    "playfav": "dj",
     "removefavorite": "dj",
     "history": "dj", "radiohistory": "dj",
     "like": "dj", "dislike": "dj", "songrating": "dj", "ratings": "dj",
