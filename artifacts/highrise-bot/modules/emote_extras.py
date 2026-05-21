@@ -391,6 +391,125 @@ _sync_leader_name:  dict[str, str]          = {}
 # follower_uid -> follower_username (for leader's !syncstatus display)
 _sync_follower_name: dict[str, str]         = {}
 
+# ── Sync persistence DB helpers ───────────────────────────────────────────────
+_SYNC_DB_READY = False
+
+
+def _ensure_sync_tables() -> None:
+    global _SYNC_DB_READY
+    if _SYNC_DB_READY:
+        return
+    try:
+        conn = db.get_connection()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_relations (
+                follower_user_id  TEXT PRIMARY KEY,
+                follower_username TEXT NOT NULL DEFAULT '',
+                leader_user_id    TEXT NOT NULL,
+                leader_username   TEXT NOT NULL DEFAULT '',
+                is_active         INTEGER NOT NULL DEFAULT 1,
+                persist_enabled   INTEGER NOT NULL DEFAULT 1,
+                created_at        TEXT DEFAULT (datetime('now')),
+                updated_at        TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sr_leader "
+            "ON sync_relations(leader_user_id)"
+        )
+        conn.commit()
+        conn.close()
+        _SYNC_DB_READY = True
+    except Exception as exc:
+        print(f"[SYNC_DB] ensure_tables err: {exc!r}")
+
+
+def _sync_db_save(follower_id: str, follower_name: str,
+                  leader_id: str, leader_name: str) -> None:
+    _ensure_sync_tables()
+    try:
+        conn = db.get_connection()
+        conn.execute("""
+            INSERT INTO sync_relations
+              (follower_user_id, follower_username, leader_user_id, leader_username,
+               is_active, persist_enabled, updated_at)
+            VALUES (?, ?, ?, ?, 1, 1, datetime('now'))
+            ON CONFLICT(follower_user_id) DO UPDATE SET
+              follower_username=excluded.follower_username,
+              leader_user_id=excluded.leader_user_id,
+              leader_username=excluded.leader_username,
+              is_active=1,
+              updated_at=datetime('now')
+        """, (follower_id, follower_name.lower(), leader_id, leader_name.lower()))
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[SYNC_DB] save err: {exc!r}")
+
+
+def _sync_db_deactivate(follower_id: str) -> None:
+    _ensure_sync_tables()
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "UPDATE sync_relations SET is_active=0, updated_at=datetime('now') "
+            "WHERE follower_user_id=?", (follower_id,)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[SYNC_DB] deactivate err: {exc!r}")
+
+
+def _sync_db_set_persist(follower_id: str, enabled: bool) -> bool:
+    _ensure_sync_tables()
+    try:
+        conn = db.get_connection()
+        conn.execute(
+            "UPDATE sync_relations SET persist_enabled=?, updated_at=datetime('now') "
+            "WHERE follower_user_id=? AND is_active=1",
+            (1 if enabled else 0, follower_id),
+        )
+        changed = conn.total_changes > 0
+        conn.commit()
+        conn.close()
+        return changed
+    except Exception as exc:
+        print(f"[SYNC_DB] set_persist err: {exc!r}")
+        return False
+
+
+def _sync_db_followers_of_leader(leader_id: str) -> list[dict]:
+    _ensure_sync_tables()
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT follower_user_id, follower_username, leader_user_id, leader_username "
+            "FROM sync_relations "
+            "WHERE leader_user_id=? AND is_active=1 AND persist_enabled=1",
+            (leader_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        print(f"[SYNC_DB] followers_of_leader err: {exc!r}")
+        return []
+
+
+def _sync_db_active_sessions() -> list[dict]:
+    _ensure_sync_tables()
+    try:
+        conn = db.get_connection()
+        rows = conn.execute(
+            "SELECT follower_user_id, follower_username, leader_user_id, leader_username "
+            "FROM sync_relations WHERE is_active=1 AND persist_enabled=1"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        print(f"[SYNC_DB] active_sessions err: {exc!r}")
+        return []
+
 
 def get_sync_group(leader_id: str) -> list[str]:
     """[leader_id] + all current follower_ids."""
@@ -592,6 +711,7 @@ async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
     _sync_follower_name[user.id] = user.username
     _sync_followers.setdefault(leader_user.id, set()).add(user.id)
     print(f"[SYNC_SUBSCRIBE] follower={user.id} leader={leader_user.id}")
+    _sync_db_save(user.id, user.username, leader_user.id, leader_user.username)
 
     # Catch-up: leader already in a bot-controlled emote → send it now
     cur = get_current_controlled_emote(leader_user.id)
@@ -634,6 +754,7 @@ async def try_sync_shortcut(bot: "BaseBot", user: "User",
 async def handle_syncstop(bot: "BaseBot", user: "User",
                            _args: list | None = None) -> None:
     """!syncstop — leave sync group."""
+    _sync_db_deactivate(user.id)   # always mark inactive in DB
     prior = _unsubscribe_follower(user.id)
     if prior is None:
         await _w(bot, user.id, "You have no active sync.")
@@ -691,6 +812,103 @@ try:
     _set_cl_hook(_on_cancel_player_loop)
 except Exception as _hook_exc:
     print(f"[SYNC] hook registration failed: {_hook_exc!r}")
+
+
+# ── Sync persistence: startup recovery + leader-join resume ──────────────────
+
+async def startup_sync_recovery(bot: "BaseBot") -> None:
+    """On DJ bot startup: recover active sync relationships from DB."""
+    try:
+        await asyncio.sleep(6)
+        sessions = _sync_db_active_sessions()
+        if not sessions:
+            print("[SYNC_RECOVERY] no active sessions to recover")
+            return
+        try:
+            resp = await bot.highrise.get_room_users()
+            room_raw = list(resp.content) if hasattr(resp, "content") else []
+        except Exception:
+            room_raw = []
+        room_by_id: dict[str, object] = {u.id: u for u, _ in room_raw}
+        print(f"[SYNC_RECOVERY] {len(sessions)} sessions | {len(room_by_id)} in room")
+        for row in sessions:
+            fid   = row["follower_user_id"]
+            lid   = row["leader_user_id"]
+            lname = row["leader_username"]
+            if fid not in room_by_id:
+                continue
+            follower_obj = room_by_id[fid]
+            if lid in room_by_id:
+                leader_obj = room_by_id[lid]
+                _unsubscribe_follower(fid)
+                _sync_leader_of[fid]     = lid
+                _sync_leader_name[fid]   = leader_obj.username
+                _sync_follower_name[fid] = follower_obj.username
+                _sync_followers.setdefault(lid, set()).add(fid)
+                print(f"[SYNC_RECOVERY] restored {fid} -> {lid}")
+                await _w(bot, fid,
+                         f"🔄 Sync with @{leader_obj.username} restored.")
+            else:
+                print(f"[SYNC_RECOVERY] leader={lid} offline, follower={fid} waiting")
+                await _w(bot, fid,
+                         f"🔄 Synced to @{lname}. Waiting for them to return.")
+    except Exception as exc:
+        print(f"[SYNC_RECOVERY] err: {exc!r}")
+
+
+async def on_sync_leader_join(bot: "BaseBot", user: "User") -> None:
+    """Called from on_user_join — if the joining user is a persisted leader,
+    re-subscribe any in-room followers who are waiting for them."""
+    try:
+        rows = _sync_db_followers_of_leader(user.id)
+        if not rows:
+            return
+        try:
+            resp = await bot.highrise.get_room_users()
+            room_raw = list(resp.content) if hasattr(resp, "content") else []
+        except Exception:
+            room_raw = []
+        room_by_id: dict[str, object] = {u.id: u for u, _ in room_raw}
+        for row in rows:
+            fid = row["follower_user_id"]
+            if fid not in room_by_id:
+                continue
+            if _sync_leader_of.get(fid) == user.id:
+                continue   # already synced in memory
+            follower_obj = room_by_id[fid]
+            _unsubscribe_follower(fid)
+            _sync_leader_of[fid]     = user.id
+            _sync_leader_name[fid]   = user.username
+            _sync_follower_name[fid] = follower_obj.username
+            _sync_followers.setdefault(user.id, set()).add(fid)
+            print(f"[SYNC_LEADER_JOIN] leader={user.id} resumed follower={fid}")
+            await _w(bot, fid, f"🔄 @{user.username} is back — sync resumed!")
+    except Exception as exc:
+        print(f"[SYNC_LEADER_JOIN] err: {exc!r}")
+
+
+async def handle_syncpersist(bot: "BaseBot", user: "User", args: list) -> None:
+    """!syncpersist on|off — toggle sync recovery across bot restarts."""
+    if len(args) < 2 or args[1].lower() not in ("on", "off"):
+        await _w(bot, user.id, "Usage: !syncpersist on|off")
+        return
+    enabled = args[1].lower() == "on"
+    changed = _sync_db_set_persist(user.id, enabled)
+    if not changed:
+        await _w(bot, user.id, "No active sync to configure.")
+        return
+    state  = "ON" if enabled else "OFF"
+    suffix = ("Sync will resume after restart."
+              if enabled else "Will not resume after restart.")
+    await _w(bot, user.id, f"🔄 Sync persistence {state}. {suffix}"[:249])
+
+
+async def handle_synchelp(bot: "BaseBot", user: "User",
+                           _args: list | None = None) -> None:
+    """!synchelp — sync system reference."""
+    await _w(bot, user.id,
+             "🔄 Sync: !sync @user | !syncstop | !syncstatus | "
+             "!syncpersist on|off | !syncdebug @u (staff) | Stop=quit"[:249])
 
 
 # ===========================================================================
@@ -825,16 +1043,69 @@ _df_cycle_task:  dict[str, asyncio.Task] = {}  # {"_": shared emote-cycle task}
 _df_inside:      set[str]                = set()  # user_ids currently inside box
 _df_user_emote:  dict[str, str]          = {}     # uid -> last emote alias (compat)
 _df_current_eid: list[str]               = [""]   # [0] = eid currently being broadcast
+_df_current_step: list[int]              = [0]    # [0] = step index in active sequence
+
+# ── Dancefloor sequence & pack DB helpers ─────────────────────────────────────
+import json as _json  # used by sequence helpers
+
+_DF_DB_READY = False
+
+
+def _ensure_df_tables() -> None:
+    global _DF_DB_READY
+    if _DF_DB_READY:
+        return
+    try:
+        conn = db.get_connection()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dancefloor_packs (
+                pack_name     TEXT PRIMARY KEY,
+                mode          TEXT NOT NULL DEFAULT 'simple',
+                sequence_json TEXT NOT NULL DEFAULT '[]',
+                created_at    TEXT DEFAULT (datetime('now')),
+                updated_at    TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.commit()
+        conn.close()
+        _DF_DB_READY = True
+    except Exception as exc:
+        print(f"[DF_PACK_DB] ensure err: {exc!r}")
+
+
+def _df_get_sequence() -> list[dict]:
+    """Read active typed sequence from room_settings.
+    Falls back to legacy dancefloor_emotes comma list."""
+    raw = db.get_room_setting("dancefloor_sequence_json", "")
+    if raw:
+        try:
+            return _json.loads(raw)
+        except Exception:
+            pass
+    # Legacy fallback: convert plain alias list to typed steps
+    seq = []
+    for a in _df_get_emotes():
+        ent = _reg_get(a)
+        if ent and ent.get("id") and ent.get("player"):
+            seq.append({"alias": a, "eid": ent["id"], "seconds": None})
+    return seq
+
+
+def _df_set_sequence(seq: list[dict], mode: str = "simple") -> None:
+    db.set_room_setting("dancefloor_sequence_json", _json.dumps(seq))
+    db.set_room_setting("dancefloor_mode", mode)
+
+
+def _df_get_mode() -> str:
+    return db.get_room_setting("dancefloor_mode", "simple")
 
 
 async def _df_shared_cycle(bot: "BaseBot") -> None:
-    """Single shared cycle — broadcasts the same emote to ALL players inside.
+    """Shared emote cycle — broadcasts the same emote to ALL players inside.
 
-    Each lap:
-      - Re-reads the saved pool (picks up live config changes).
-      - Shuffles into random order; avoids starting on the prev lap's last emote.
-      - Sends each emote to everyone currently inside via asyncio.gather().
-      - Waits for its registry-timed duration before advancing.
+    - simple/random modes: re-reads pool each cycle and shuffles.
+    - timed mode: plays fixed sequence in order with per-step seconds.
+    - If a step's seconds is None, falls back to registry timing.
     """
     from modules.emote_system import _send_player, get_emote_time
     import random as _rnd
@@ -846,29 +1117,40 @@ async def _df_shared_cycle(bot: "BaseBot") -> None:
                 await asyncio.sleep(1.0)
                 continue
 
-            emotes = _df_get_emotes()
-            valid_pairs: list[tuple[str, str]] = []
-            for alias in emotes:
-                ent = _reg_get(alias)
-                if ent and ent.get("id") and ent.get("player"):
-                    valid_pairs.append((alias, ent["id"]))
+            seq  = _df_get_sequence()
+            mode = _df_get_mode()
 
-            if not valid_pairs:
+            # Build valid (alias, eid, seconds|None) triples
+            valid_steps: list[tuple[str, str, float | None]] = []
+            for step in seq:
+                alias   = step.get("alias", "")
+                eid     = step.get("eid",   "")
+                seconds = step.get("seconds")
+                if not eid:
+                    ent = _reg_get(alias)
+                    if ent and ent.get("id") and ent.get("player"):
+                        eid = ent["id"]
+                    else:
+                        continue
+                valid_steps.append((alias, eid, seconds))
+
+            if not valid_steps:
                 await asyncio.sleep(2.0)
                 continue
 
-            # Shuffle; move prev_alias to end to avoid immediate repeat
-            _rnd.shuffle(valid_pairs)
-            if len(valid_pairs) > 1 and valid_pairs[0][0] == prev_alias:
-                valid_pairs.append(valid_pairs.pop(0))
+            # Shuffle for non-timed modes; avoid repeating last emote
+            if mode in ("simple", "random"):
+                _rnd.shuffle(valid_steps)
+                if len(valid_steps) > 1 and valid_steps[0][0] == prev_alias:
+                    valid_steps.append(valid_steps.pop(0))
 
-            for alias, eid in valid_pairs:
+            for idx, (alias, eid, seconds) in enumerate(valid_steps):
                 players = list(_df_inside)
                 if not players:
                     break
-                # Track so get_current_controlled_emote() can report this
-                _df_current_eid[0] = eid
-                # Collect sync followers of inside players not already on the floor
+                _df_current_eid[0]  = eid
+                _df_current_step[0] = idx
+                # Fan out to sync followers of inside players not on the floor
                 extra: list[str] = []
                 for inside_uid in players:
                     fols = [
@@ -881,9 +1163,10 @@ async def _df_shared_cycle(bot: "BaseBot") -> None:
                               f"followers={len(fols)} alias={alias}")
                         extra.extend(fols)
                 all_targets = players + extra
-                duration = max(0.5, get_emote_time(eid))
-                print(f"[DANCEFLOOR_CYCLE] alias={alias} eid={eid} "
-                      f"time={duration:.1f} players={len(players)}")
+                duration = (float(seconds) if seconds is not None
+                            else max(0.5, get_emote_time(eid)))
+                print(f"[DANCEFLOOR_CYCLE] mode={mode} alias={alias} "
+                      f"t={duration:.1f}s players={len(players)}")
                 await asyncio.gather(
                     *[_send_player(bot, eid, uid) for uid in all_targets],
                     return_exceptions=True,
@@ -1034,8 +1317,8 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
         return
     if len(args) < 2:
         await _w(bot, uid,
-                 "Usage: !dancefloor setpoint 1|2 | save | "
-                 "emotes <a,b,c|random N> | start | stop | status | clear")
+                 "!dancefloor: setpoint 1|2 | save | emotes|random|timed | "
+                 "savepack|loadpack|packs | start|stop|status|debug|clear"[:249])
         return
     sub = args[1].lower()
 
@@ -1077,19 +1360,31 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
                           f"z[{min(z1,z2):.1f}..{max(z1,z2):.1f}].")
         return
 
-    # ----- emotes / emote (alias) ---------------------------------------
+    # ----- random (top-level shortcut: same as !dancefloor emotes random) ------
+    if sub == "random":
+        args = list(args)
+        if len(args) > 2:
+            args.insert(2, "random")
+        else:
+            args.append("random")
+        args[1] = "emotes"
+        sub = "emotes"
+
+    # ----- emotes / emote -----------------------------------------------
     if sub in ("emotes", "emote"):
         rest = args[2:]
         if not rest:
-            cur = _df_get_emotes()
-            await _w(bot, uid, f"🎵 Dancefloor emotes: {', '.join(cur) if cur else '(none)'}")
+            seq  = _df_get_sequence()
+            mode = _df_get_mode()
+            if seq:
+                names  = ", ".join(s["alias"] for s in seq[:5])
+                suffix = f"…+{len(seq)-5}" if len(seq) > 5 else ""
+                await _w(bot, uid,
+                         f"🎵 DF {mode}: {len(seq)} steps — {names}{suffix}"[:249])
+            else:
+                await _w(bot, uid, "🎵 Dancefloor: no sequence set yet.")
             return
-        if rest[0].lower() == "random" and len(rest) >= 2:
-            try:
-                n = max(1, min(50, int(rest[1])))
-            except Exception:
-                await _w(bot, uid, "Usage: !dancefloor emotes random <N>")
-                return
+        if rest[0].lower() == "random":
             # Build exclusion set of social-emote aliases (attacker + reaction)
             social_excl: set[str] = set()
             for a_cands, t_cands, _ in _SOCIAL_TARGETS.values():
@@ -1101,7 +1396,6 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
                         if nm:
                             social_excl.add(nm)
             raw_pool = _reg_player_aliases()
-            # Dedup case-insensitively + drop socials
             seen: set[str] = set()
             pool: list[str] = []
             for a in raw_pool:
@@ -1113,29 +1407,83 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
             if not pool:
                 await _w(bot, uid, "No player emotes available.")
                 return
+            # N is optional — bare "random" uses all available
+            n = len(pool)
+            if len(rest) >= 2:
+                try:
+                    n = max(1, int(rest[1]))
+                except Exception:
+                    await _w(bot, uid, "Usage: !dancefloor random [N]")
+                    return
             picks = random.sample(pool, min(n, len(pool)))
-            db.set_room_setting("dancefloor_emotes", ",".join(picks))
-            await _w(bot, uid, f"🎲 Random {len(picks)} emotes saved.")
+            seq = []
+            for a in picks:
+                ent = _reg_get(a)
+                if ent and ent.get("id"):
+                    seq.append({"alias": a, "eid": ent["id"], "seconds": None})
+            _df_set_sequence(seq, "random")
+            db.set_room_setting("dancefloor_emotes",
+                                ",".join(p["alias"] for p in seq))
+            await _w(bot, uid, f"🎲 Random {len(seq)} emotes saved.")
             return
-        # Explicit comma list (rejoin args, then split on commas)
+        # Explicit list — support both space-separated and comma-separated
         joined = " ".join(rest)
-        aliases = [s.strip() for s in joined.split(",") if s.strip()]
-        valid: list[str] = []
-        bad:   list[str] = []
+        aliases = ([s.strip() for s in joined.split(",") if s.strip()]
+                   if "," in joined
+                   else [s.strip() for s in rest if s.strip()])
+        valid_steps: list[dict] = []
+        bad: list[str] = []
         for a in aliases:
             ent = _reg_get(a)
             if ent and ent.get("player"):
-                valid.append(ent.get("name") or a)
+                valid_steps.append({"alias": ent.get("name") or a,
+                                    "eid": ent["id"], "seconds": None})
             else:
                 bad.append(a)
-        if not valid:
-            await _w(bot, uid, f"No valid player emotes. Rejected: {', '.join(bad)[:200]}")
+        if not valid_steps:
+            await _w(bot, uid,
+                     f"No valid player emotes. Rejected: {', '.join(bad)[:200]}")
             return
-        db.set_room_setting("dancefloor_emotes", ",".join(valid))
-        msg = f"🎵 Saved {len(valid)} emotes."
+        _df_set_sequence(valid_steps, "simple")
+        db.set_room_setting("dancefloor_emotes",
+                            ",".join(s["alias"] for s in valid_steps))
+        msg = f"🎵 Saved {len(valid_steps)} emotes."
         if bad:
-            msg += f" Rejected: {', '.join(bad)[:150]}"
-        await _w(bot, uid, msg)
+            msg += f" Rejected: {', '.join(bad)[:120]}"
+        await _w(bot, uid, msg[:249])
+        return
+
+    # ----- timed --------------------------------------------------------
+    if sub == "timed":
+        rest = args[2:]
+        if len(rest) < 2 or len(rest) % 2 != 0:
+            await _w(bot, uid,
+                     "Usage: !dancefloor timed <emote> <secs> [<emote> <secs>...]")
+            return
+        seq_t: list[dict] = []
+        bad_t: list[str] = []
+        for i in range(0, len(rest), 2):
+            a, s = rest[i], rest[i + 1]
+            try:
+                secs = max(0.5, float(s))
+            except ValueError:
+                bad_t.append(a)
+                continue
+            ent = _reg_get(a)
+            if ent and ent.get("player"):
+                seq_t.append({"alias": ent.get("name") or a,
+                               "eid": ent["id"], "seconds": secs})
+            else:
+                bad_t.append(a)
+        if not seq_t:
+            await _w(bot, uid,
+                     f"No valid emotes. Rejected: {', '.join(bad_t)[:200]}")
+            return
+        _df_set_sequence(seq_t, "timed")
+        msg = f"⏱ Timed {len(seq_t)} steps saved."
+        if bad_t:
+            msg += f" Rejected: {', '.join(bad_t)[:100]}"
+        await _w(bot, uid, msg[:249])
         return
 
     # ----- start --------------------------------------------------------
@@ -1184,26 +1532,195 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, "🗑 Dancefloor cleared.")
         return
 
+    # ----- savepack -----------------------------------------------------
+    if sub == "savepack":
+        if len(args) < 3:
+            await _w(bot, uid, "Usage: !dancefloor savepack <name>")
+            return
+        pack_name = " ".join(args[2:]).strip().lower()[:50]
+        seq  = _df_get_sequence()
+        mode = _df_get_mode()
+        if not seq:
+            await _w(bot, uid, "No sequence active. Set emotes/timed first.")
+            return
+        _ensure_df_tables()
+        try:
+            conn = db.get_connection()
+            conn.execute("""
+                INSERT INTO dancefloor_packs (pack_name, mode, sequence_json, updated_at)
+                VALUES (?, ?, ?, datetime('now'))
+                ON CONFLICT(pack_name) DO UPDATE SET
+                  mode=excluded.mode,
+                  sequence_json=excluded.sequence_json,
+                  updated_at=datetime('now')
+            """, (pack_name, mode, _json.dumps(seq)))
+            conn.commit()
+            conn.close()
+            await _w(bot, uid,
+                     f"💾 Pack '{pack_name}' saved ({mode}, {len(seq)} steps).")
+        except Exception as exc:
+            await _w(bot, uid, f"DB error: {exc!r}"[:200])
+        return
+
+    # ----- loadpack -----------------------------------------------------
+    if sub == "loadpack":
+        if len(args) < 3:
+            await _w(bot, uid, "Usage: !dancefloor loadpack <name>")
+            return
+        pack_name = " ".join(args[2:]).strip().lower()[:50]
+        _ensure_df_tables()
+        try:
+            conn = db.get_connection()
+            row = conn.execute(
+                "SELECT mode, sequence_json FROM dancefloor_packs WHERE pack_name=?",
+                (pack_name,)
+            ).fetchone()
+            conn.close()
+            if not row:
+                await _w(bot, uid, f"Pack '{pack_name}' not found.")
+                return
+            pmode, pjson = row[0], row[1]
+            pseq = _json.loads(pjson) if pjson else []
+            _df_set_sequence(pseq, pmode)
+            db.set_room_setting("dancefloor_emotes",
+                                ",".join(s["alias"] for s in pseq))
+            await _w(bot, uid,
+                     f"📂 Loaded '{pack_name}' ({pmode}, {len(pseq)} steps).")
+        except Exception as exc:
+            await _w(bot, uid, f"DB error: {exc!r}"[:200])
+        return
+
+    # ----- packs --------------------------------------------------------
+    if sub == "packs":
+        _ensure_df_tables()
+        try:
+            conn = db.get_connection()
+            rows = conn.execute(
+                "SELECT pack_name, mode, sequence_json FROM dancefloor_packs "
+                "ORDER BY pack_name"
+            ).fetchall()
+            conn.close()
+            if not rows:
+                await _w(bot, uid, "No dancefloor packs saved yet.")
+                return
+            lines = []
+            for r in rows[:12]:
+                try:
+                    cnt = len(_json.loads(r[2])) if r[2] else 0
+                except Exception:
+                    cnt = "?"
+                lines.append(f"{r[0]}({r[1]},{cnt})")
+            header = f"📦 {len(rows)} pack(s):"
+            await _w(bot, uid, (header + " " + "  ".join(lines[:6]))[:249])
+            if len(lines) > 6:
+                await _w(bot, uid, "  ".join(lines[6:12])[:249])
+        except Exception as exc:
+            await _w(bot, uid, f"DB error: {exc!r}"[:200])
+        return
+
+    # ----- packinfo -----------------------------------------------------
+    if sub == "packinfo":
+        if len(args) < 3:
+            await _w(bot, uid, "Usage: !dancefloor packinfo <name>")
+            return
+        pack_name = " ".join(args[2:]).strip().lower()[:50]
+        _ensure_df_tables()
+        try:
+            conn = db.get_connection()
+            row = conn.execute(
+                "SELECT pack_name, mode, sequence_json, updated_at "
+                "FROM dancefloor_packs WHERE pack_name=?", (pack_name,)
+            ).fetchone()
+            conn.close()
+            if not row:
+                await _w(bot, uid, f"Pack '{pack_name}' not found.")
+                return
+            pseq = _json.loads(row[2]) if row[2] else []
+            names  = ", ".join(s["alias"] for s in pseq[:5])
+            suffix = f"…+{len(pseq)-5}" if len(pseq) > 5 else ""
+            await _w(bot, uid,
+                     f"📦 '{row[0]}' mode={row[1]} steps={len(pseq)} "
+                     f"updated={row[3]}"[:249])
+            if pseq:
+                await _w(bot, uid, f"  {names}{suffix}"[:249])
+        except Exception as exc:
+            await _w(bot, uid, f"DB error: {exc!r}"[:200])
+        return
+
+    # ----- renamepack ---------------------------------------------------
+    if sub == "renamepack":
+        if len(args) < 4:
+            await _w(bot, uid, "Usage: !dancefloor renamepack <old> <new>")
+            return
+        old_name = args[2].strip().lower()[:50]
+        new_name = args[3].strip().lower()[:50]
+        _ensure_df_tables()
+        try:
+            conn = db.get_connection()
+            res = conn.execute(
+                "UPDATE dancefloor_packs SET pack_name=?, "
+                "updated_at=datetime('now') WHERE pack_name=?",
+                (new_name, old_name)
+            )
+            changed = res.rowcount > 0
+            conn.commit()
+            conn.close()
+            if changed:
+                await _w(bot, uid, f"✏️ Renamed '{old_name}' → '{new_name}'.")
+            else:
+                await _w(bot, uid, f"Pack '{old_name}' not found.")
+        except Exception as exc:
+            await _w(bot, uid, f"DB error: {exc!r}"[:200])
+        return
+
+    # ----- deletepack ---------------------------------------------------
+    if sub == "deletepack":
+        if len(args) < 3:
+            await _w(bot, uid, "Usage: !dancefloor deletepack <name>")
+            return
+        pack_name = " ".join(args[2:]).strip().lower()[:50]
+        _ensure_df_tables()
+        try:
+            conn = db.get_connection()
+            res = conn.execute(
+                "DELETE FROM dancefloor_packs WHERE pack_name=?", (pack_name,)
+            )
+            changed = res.rowcount > 0
+            conn.commit()
+            conn.close()
+            if changed:
+                await _w(bot, uid, f"🗑 Pack '{pack_name}' deleted.")
+            else:
+                await _w(bot, uid, f"Pack '{pack_name}' not found.")
+        except Exception as exc:
+            await _w(bot, uid, f"DB error: {exc!r}"[:200])
+        return
+
     # ----- debug --------------------------------------------------------
     if sub == "debug":
-        box = _df_get_box()
-        emotes = _df_get_emotes()
-        active = _df_is_active()
-        poll_task = _df_task.get("_")
-        cyc_task  = _df_cycle_task.get("_")
-        poll_run  = bool(poll_task and not poll_task.done())
-        cyc_run   = bool(cyc_task and not cyc_task.done())
+        box      = _df_get_box()
+        seq      = _df_get_sequence()
+        mode     = _df_get_mode()
+        active   = _df_is_active()
+        poll_run = bool(_df_task.get("_") and not _df_task["_"].done())
+        cyc_run  = bool(_df_cycle_task.get("_") and not _df_cycle_task["_"].done())
         inside_list = list(_df_inside)
         box_str = (f"x[{box[0]:.1f}..{box[2]:.1f}] z[{box[1]:.1f}..{box[3]:.1f}]"
                    if box else "unset")
+        cur_step  = _df_current_step[0]
+        cur_alias = (seq[cur_step]["alias"]
+                     if seq and 0 <= cur_step < len(seq) else "(none)")
         await _w(bot, uid,
-                 f"🔍 DF: active={active} poll={poll_run} cycle={cyc_run} "
-                 f"box={box_str} emotes={len(emotes)} inside={len(inside_list)}"[:249])
+                 f"🔍 DF: active={active} mode={mode} "
+                 f"poll={poll_run} cycle={cyc_run} inside={len(inside_list)}"[:249])
+        await _w(bot, uid,
+                 f"box={box_str} seq={len(seq)} "
+                 f"step={cur_step} emote={cur_alias}"[:249])
         if inside_list:
-            await _w(bot, uid, f"Inside IDs: {', '.join(inside_list[:5])}"[:249])
+            await _w(bot, uid, f"Inside: {', '.join(inside_list[:5])}"[:249])
         return
 
-    await _w(bot, uid, f"Unknown dancefloor subcommand: {sub}")
+    await _w(bot, uid, f"Unknown dancefloor subcommand: '{sub}'")
 
 
 async def handle_syncdebug(bot: "BaseBot", user: "User", args: list) -> None:
@@ -1241,7 +1758,8 @@ async def handle_syncdebug(bot: "BaseBot", user: "User", args: list) -> None:
 async def startup_dancefloor_recovery(bot: "BaseBot") -> None:
     """Called from main.on_start — if dancefloor_active=true, resume polling."""
     try:
-        if _df_is_active() and _df_get_box() and _df_get_emotes():
+        has_seq = bool(_df_get_sequence() or _df_get_emotes())
+        if _df_is_active() and _df_get_box() and has_seq:
             await asyncio.sleep(3)   # let positions settle
             _ensure_dancefloor_task(bot)
             print("[DANCEFLOOR] resumed after restart")
@@ -1249,6 +1767,15 @@ async def startup_dancefloor_recovery(bot: "BaseBot") -> None:
             print("[DANCEFLOOR] no active session to resume")
     except Exception as exc:
         print(f"[DANCEFLOOR] recovery err: {exc!r}")
+
+
+async def handle_dancefloorhelp(bot: "BaseBot", user: "User",
+                                 _args: list | None = None) -> None:
+    """!dancefloorhelp — staff dancefloor reference."""
+    await _w(bot, user.id,
+             "💃 DF (staff): setpoint 1|2 → save | emotes <a b c> | "
+             "random [N] | timed <a s b s> | savepack|loadpack|packs|"
+             "packinfo|renamepack|deletepack | start|stop|status|debug"[:249])
 
 
 # ===========================================================================

@@ -281,8 +281,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "superpunch": "dj", "bonk": "dj", "yeet": "dj",
     "hypnotize": "dj", "duel": "dj",
     "sync": "dj", "syncstop": "dj", "syncdebug": "dj", "syncstatus": "dj",
+    "syncpersist": "dj", "synchelp": "dj",
     "favemotes": "dj", "favemote": "dj",
-    "dancefloor": "dj",
+    "dancefloor": "dj", "dancefloorhelp": "dj",
     "emotetestchecklist": "dj",
     # ── dj — custom emote sequences (custom_emotes.py) ───────────────────────
     "customemote": "dj", "customtimed": "dj", "stopcustom": "dj",

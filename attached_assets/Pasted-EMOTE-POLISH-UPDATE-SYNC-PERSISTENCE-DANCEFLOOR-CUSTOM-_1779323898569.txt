@@ -1,0 +1,148 @@
+EMOTE POLISH UPDATE: SYNC PERSISTENCE + DANCEFLOOR CUSTOM SEQUENCES
+
+Do not touch startup tokens, bot staggering, casino, music, or unrelated systems.
+
+A) SYNC PERSISTENCE
+
+Current bug:
+!sync @leader works, but sync stops after bot restart.
+
+Required:
+1. Save sync relationships to DB:
+   follower_user_id
+   follower_username
+   leader_user_id
+   leader_username
+   is_active
+   persist_enabled
+   created_at
+   updated_at
+
+2. Default persist_enabled=true.
+
+3. On DJ_DUDU startup:
+   recover active sync relationships.
+
+4. If both users are in room:
+   restore follower -> leader sync.
+
+5. If follower is in room but leader is offline:
+   keep DB active and whisper:
+   Synced to @leader. Waiting for them to return.
+
+6. If leader returns later:
+   resume sync automatically.
+
+7. Stop and !syncstop:
+   set is_active=false.
+
+8. Add:
+   !syncpersist on
+   !syncpersist off
+   !syncstatus
+
+B) DANCEFLOOR CUSTOM SEQUENCES
+
+Make dancefloor work like custom emotes.
+
+Commands:
+
+!dancefloor emotes justvibing sit aerobics
+- uses registry timing
+
+!dancefloor timed justvibing 6 hipshake 10 laidback 3
+- uses custom timing only for dancefloor
+- does NOT update registry timing
+
+!dancefloor random <number>
+Examples:
+!dancefloor random 20
+!dancefloor random 75
+!dancefloor random 9999
+
+Rules:
+- REMOVE old hard cap min(50, int(N)).
+- No hard cap.
+- If requested number > available player emotes, use all available valid player emotes.
+- Exclude bot-only emotes.
+- Exclude social/combat/reaction emotes.
+- Shuffle order.
+- Save as dancefloor sequence.
+
+Also:
+!dancefloor random
+= use all valid player emotes.
+
+C) DANCEFLOOR SAVED PACKS
+
+Add:
+!dancefloor savepack <name>
+!dancefloor loadpack <name>
+!dancefloor packs
+!dancefloor packinfo <name>
+!dancefloor renamepack <old> <new>
+!dancefloor deletepack <name>
+
+Pack stores:
+- pack_name
+- mode: registry/timed/random
+- sequence_json with alias, eid, seconds/null
+- created_at
+- updated_at
+
+D) DANCEFLOOR LOOP RULES
+
+- Cycle through saved sequence forever.
+- If step has custom seconds, use that.
+- If seconds is null, use registry timing.
+- All players inside receive same emote at same time.
+- Sync followers outside dancefloor follow their leader’s dancefloor emote.
+- !dancefloor start persists active=true.
+- !dancefloor stop persists active=false.
+- Bot restart resumes active dancefloor.
+
+E) DEBUG / HELP
+
+Improve:
+!dancefloor debug
+
+Show:
+active
+box
+mode
+sequence count
+current index
+current emote
+task running
+inside count
+
+Add help placeholders:
+!dancefloorhelp
+!synchelp
+
+F) TESTS
+
+Test:
+!dancefloor random 9999
+!dancefloor debug
+
+Expected:
+sequence count = all valid player emotes, not 50.
+
+Test:
+!dancefloor timed justvibing 6 hipshake 10 laidback 3
+!dancefloor start
+
+Expected:
+cycles 6s, 10s, 3s forever.
+
+Test:
+!sync @leader
+restart bot
+
+Expected:
+sync relationship recovers.
+
+G) COMPILE
+
+python -m py_compile bot.py main.py modules/emote_extras.py modules/emote_system.py modules/custom_emotes.py

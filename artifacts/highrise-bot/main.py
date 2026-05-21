@@ -931,11 +931,13 @@ from modules.emote_extras import (
     handle_kiss_social, handle_slap_social,
     handle_superpunch, handle_bonk, handle_yeet, handle_hypnotize, handle_duel,
     handle_sync, handle_syncstop, handle_syncdebug, handle_syncstatus,
+    handle_syncpersist, handle_synchelp,
+    startup_sync_recovery, on_sync_leader_join,
     try_sync_shortcut, start_sync_group_emote,
     clear_sync_on_leave,
     handle_emote_all,
     handle_favemotes, handle_favemote,
-    handle_dancefloor, startup_dancefloor_recovery,
+    handle_dancefloor, startup_dancefloor_recovery, handle_dancefloorhelp,
     handle_emotetestchecklist,
 )
 from modules.custom_emotes import (
@@ -1747,8 +1749,10 @@ TIP_AUDIT_COMMANDS: frozenset[str] = frozenset({
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | TIP_AUDIT_COMMANDS | {"ep"}
 # emote_extras commands (sync/socials/favorites/dancefloor/checklist)
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
-    "sync", "syncstop", "syncdebug", "syncstatus", "favemotes", "favemote",
-    "dancefloor", "emotetestchecklist",
+    "sync", "syncstop", "syncdebug", "syncstatus",
+    "syncpersist", "synchelp",
+    "favemotes", "favemote",
+    "dancefloor", "dancefloorhelp", "emotetestchecklist",
     "superpunch", "bonk", "yeet", "hypnotize", "duel",
 }
 # custom emote sequence commands
@@ -3774,6 +3778,7 @@ class HangoutBot(BaseBot):
         if BOT_MODE in ("dj", "all"):
             _safe_task(startup_dancefloor_recovery(self), "startup_dancefloor_recovery")
             _safe_task(startup_custom_loop_recovery(self), "startup_custom_loop_recovery")
+            _safe_task(startup_sync_recovery(self), "startup_sync_recovery")
         # Emote discovery — only runs on dj bot (emote test uses dj's Highrise account)
         if BOT_MODE == "dj":
             _safe_task(startup_emote_discovery(self), "startup_emote_discovery")
@@ -7658,12 +7663,18 @@ class HangoutBot(BaseBot):
             await handle_syncdebug(self, user, args)
         elif cmd == "syncstatus":
             await handle_syncstatus(self, user, args)
+        elif cmd == "syncpersist":
+            await handle_syncpersist(self, user, args)
+        elif cmd == "synchelp":
+            await handle_synchelp(self, user, args)
         elif cmd == "favemotes":
             await handle_favemotes(self, user, args)
         elif cmd == "favemote":
             await handle_favemote(self, user, args)
         elif cmd == "dancefloor":
             await handle_dancefloor(self, user, args)
+        elif cmd == "dancefloorhelp":
+            await handle_dancefloorhelp(self, user, args)
         elif cmd == "emotetestchecklist":
             await handle_emotetestchecklist(self, user, args)
         elif cmd == "customemote":
@@ -8460,6 +8471,7 @@ class HangoutBot(BaseBot):
         _sj(_autospawn_user_on_join(self, user), "autospawn")
         if BOT_MODE in ("dj", "all"):
             _sj(on_custom_user_join(self, user), "on_custom_user_join")
+            _sj(on_sync_leader_join(self, user),  "on_sync_leader_join")
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """Crash-proof wrapper — no tip handler can disconnect the bot."""
