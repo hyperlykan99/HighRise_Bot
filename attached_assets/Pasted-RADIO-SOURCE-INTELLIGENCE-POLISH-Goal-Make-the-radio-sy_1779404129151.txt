@@ -1,0 +1,211 @@
+RADIO SOURCE INTELLIGENCE POLISH
+
+Goal:
+Make the radio system clearly explain the relationship between Auto DJ/vibe music and live user requests.
+
+Do not rewrite the radio backend.
+Do not change AzuraCast/SFTP logic.
+Do not change request upload/download logic.
+Do not touch emote system.
+Do not break DJ_DUDU internal routing or BOT_MODE=dj.
+
+Relevant files:
+- modules/radio_commands.py
+- modules/track_resolver.py
+- modules/dj_announcer.py
+- modules/playback_engine.py
+- modules/request_queue.py
+- modules/azuracast_controller.py
+- modules/help_cmds.py
+
+==================================================
+1. SOURCE DEFINITIONS
+==================================================
+
+Use these meanings everywhere:
+
+Auto DJ:
+- Background vibe music from AzuraCast playlists.
+- Plays when there are no active live requests.
+- Shows current vibe name.
+
+Live Request:
+- A player-requested song from !play.
+- Temporarily takes over the radio.
+- Auto DJ/vibe resumes after requests finish.
+
+User-facing labels:
+- Auto DJ
+- NOW PLAYING
+
+Do not call vibe music “request”.
+Do not call live requests “Auto DJ”.
+
+==================================================
+2. UPDATE !QUEUE
+==================================================
+
+Update !queue / !q so players understand what is happening.
+
+If Auto DJ/vibe is playing and no live requests are queued:
+
+🎧 Radio Status
+Auto DJ: ON
+📀 Vibe: <vibe_name>
+📜 Requests: none
+💿 !play to request a song
+
+If Auto DJ/vibe is playing and requests are queued:
+
+🎧 Radio Status
+Auto DJ: ON • Vibe: <vibe_name>
+📜 Requests: <n> pending
+Next: @user — <title>
+💿 !play to request a song
+
+If a live request is currently playing:
+
+🎧 Radio Status
+NOW PLAYING: Live Request
+📜 Requests: <n> pending
+Next: @user — <title>
+Auto DJ resumes after queue.
+💿 !play to request a song
+
+Keep output compact and under 249 chars.
+Use pagination/chunking if needed.
+Do not cut off.
+
+==================================================
+3. UPDATE !NP / !NOW / !NOWPLAYING
+==================================================
+
+Keep the current compact card format.
+
+Auto DJ/vibe song:
+
+DJ DUDU: Auto DJ
+📀 Vibe: <vibe_name>
+🎵 Title: <title>
+🎤 Artist: <artist>
+<elapsed> <progress_bar> <duration>
+👍 <likes> | 👎 <dislikes>
+💿 !play to request a song
+
+Live request:
+
+DJ DUDU: NOW PLAYING
+🎵 Title: <title>
+🎤 Artist: <artist>
+<elapsed> <progress_bar> <duration>
+👍 <likes> | 👎 <dislikes>
+💿 !play to request a song
+
+Make sure !np uses the same canonical renderer as announcements.
+
+==================================================
+4. UPDATE !RADIOHELP / !DJHELP
+==================================================
+
+Add a short explanation:
+
+🎧 How Radio Works
+Auto DJ plays vibe music when no requests are active.
+Use !play <song> to request a song.
+Requests play first, then Auto DJ resumes.
+
+Show public commands:
+
+💿 !play <song/URL> — Request a song
+📜 !queue — See request queue
+🎧 !np — Current song
+📀 !vibe status — Current vibe
+⭐ !fav — Save current song
+📂 !playlist — VIP playlists
+
+Keep !play as the advertised command.
+Do not advertise !request as the main command.
+
+==================================================
+5. UPDATE !HISTORY
+==================================================
+
+If possible, separate or label history entries by source.
+
+Requested songs should show:
+
+1. 🎧 <title> — @requester
+
+Auto DJ/vibe songs, only if they are recorded in history, should show:
+
+1. 📀 <title> — Auto DJ
+
+If Auto DJ history is not stored, do not add new heavy tracking.
+Just keep request history working and avoid misleading labels.
+
+Keep pagination safe.
+No message over 249 chars.
+
+==================================================
+6. UPDATE ANNOUNCEMENT CONSISTENCY
+==================================================
+
+All announcements should match the same source language:
+
+Auto DJ/vibe:
+DJ DUDU: Auto DJ
+📀 Vibe: <vibe_name>
+
+Live request:
+DJ DUDU: NOW PLAYING
+
+Do not let restart recovery, poller, !np, or request live announcement use different wording.
+
+==================================================
+7. ROUTING
+==================================================
+
+Only DJ_DUDU / BOT_MODE=dj handles:
+- !queue
+- !q
+- !np
+- !now
+- !nowplaying
+- !radiohelp
+- !djhelp
+- !history
+- !vibe status
+
+Other bots stay silent.
+
+==================================================
+8. CHECKLIST
+==================================================
+
+Test Auto DJ:
+- !np shows DJ DUDU: Auto DJ
+- !np shows Vibe name
+- !queue says Auto DJ ON
+- !queue says no requests if empty
+
+Test live request:
+- !play <song>
+- !pick <#> if needed
+- !np shows DJ DUDU: NOW PLAYING
+- !queue says Live Request
+- !queue says Auto DJ resumes after queue
+
+Test help:
+- !radiohelp explains Auto DJ vs requests
+- !djhelp explains Auto DJ vs requests
+- !play is advertised
+- !request is not advertised as main command
+
+Regression:
+- compact card unchanged
+- progress bar unchanged
+- duration still works
+- likes/dislikes still work
+- restart duplicate fix still works
+- messages stay under 249 chars
+- only DJ_DUDU replies

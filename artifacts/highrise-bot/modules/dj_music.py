@@ -3374,11 +3374,19 @@ async def handle_dj_testall(bot: "BaseBot", user: "User") -> None:
 
 async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
     """!djhelp  —  full DJ command reference, sent as 4 whispers by category."""
+    # Section 0 — How Radio Works
+    await _w(
+        bot, user.id,
+        "🎧 How Radio Works\n"
+        "Auto DJ plays vibe music when no requests are active.\n"
+        "Use !play <song> to request a song.\n"
+        "Requests play first, then Auto DJ resumes.",
+    )
     # Section 1 — Search & Queue (public)
     await _w(
         bot, user.id,
         "🎵 DJ Help 1/4 — Search & Queue:\n"
-        "!request <song> → !pick <1-5>\n"
+        "!play <song> → !pick <1-5>\n"
         "!np | !queue | !upnext | !skipvote\n"
         "!recent | !djhistory | !toprequests\n"
         "!songinfo <#> | !requeststatus\n"

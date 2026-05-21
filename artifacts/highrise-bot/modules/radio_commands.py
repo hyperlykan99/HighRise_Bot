@@ -789,73 +789,58 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         f" np_title={np_title!r}"
     )
 
-    _MAX   = 249
-    _TTMAX = 25
-
-    def _status_icon(st: str) -> str:
-        if st == "ready":                       return "✅"
-        if st == "staged":                      return "📦"
-        if st == "playing":                     return "▶️"
-        if st in ("error", "failed_download"):  return "❌"
-        return "⏳"
-
-    # ── Whisper 1: NOW PLAYING (if there is a request currently on air) ───────
-    if playing_jobs:
-        pj  = playing_jobs[0]
-        pt  = (pj.get("title")    or "…").strip()[:40]
-        pu  = (pj.get("username") or "?").strip()[:12]
-        pa  = (pj.get("artist")   or "").strip()[:18]
-        if pa:
-            np_line = f"▶️ NOW: {pt} — {pa} (req. @\u200b{pu})"
-        else:
-            np_line = f"▶️ NOW: {pt} — req. by @\u200b{pu}"
-        await _w(bot, user.id, np_line)
-        await asyncio.sleep(0.15)
-
-    # ── Whisper 2: UP NEXT (pending / staged / ready jobs) ───────────────────
-    if not waiting_jobs:
-        if not playing_jobs:
-            await _w(bot, user.id, "🎧 Queue empty")
-        else:
-            await _w(bot, user.id, "🎧 UP NEXT: nothing queued yet")
-        return
-
-    rows: list[str] = []
-    for i, j in enumerate(waiting_jobs, 1):
-        t   = (j.get("title")    or "…").strip()[:_TTMAX]
-        a   = (j.get("artist")   or "").strip()[:12]
-        u   = (j.get("username") or "?").strip()[:10]
-        st  = j.get("status", "")
-        pri = int(j.get("priority") or 0)
-        pfx = "⭐" if pri else ""
-        icon = _status_icon(st)
-        if a:
-            rows.append(f"{i}.{pfx} {t} — {a} @\u200b{u} {icon}")
-        else:
-            rows.append(f"{i}.{pfx} {t} — @\u200b{u} {icon}")
-
-    total  = len(rows)
-    header = "🎧 UP NEXT:"
-    shown  = total
-    msg    = ""
-    while shown > 0:
-        body = "\n".join(rows[:shown])
-        rest = total - shown
-        tail = f"\n+{rest} more" if rest > 0 else ""
-        candidate = header + "\n" + body + tail
-        if len(candidate) <= _MAX:
-            msg = candidate
-            break
-        shown -= 1
-    if not msg:
-        msg = f"{header}\n+{total} more"
+    # ── Source-aware status card ──────────────────────────────────────────────
+    from modules.dj_announcer import _VIBE_LABELS
+    vibe_raw   = (cs.vibe() or "").strip()
+    vibe_label = _VIBE_LABELS.get(vibe_raw.lower(), vibe_raw.title() if vibe_raw else "Auto DJ")
+    pending    = len(waiting_jobs)
 
     print(
         f"{_LOG} stage=queue_render"
-        f" total={total} visible_count={shown}"
-        f" playing={len(playing_jobs)}"
+        f" playing={len(playing_jobs)} pending={pending}"
+        f" vibe={vibe_raw!r}"
     )
-    await _w(bot, user.id, msg)
+
+    if playing_jobs:
+        # Live request currently on-air
+        lines = ["🎧 Radio Status", "NOW PLAYING: Live Request"]
+        if pending > 0:
+            nj = waiting_jobs[0]
+            nt = (nj.get("title")    or "…").strip()[:24]
+            nu = (nj.get("username") or "?").strip()[:12]
+            lines.append(f"📜 Requests: {pending} pending")
+            lines.append(f"Next: @\u200b{nu} — {nt}")
+        else:
+            lines.append("📜 Requests: none")
+        lines.append("Auto DJ resumes after queue.")
+        lines.append("💿 !play to request a song")
+        await _w(bot, user.id, "\n".join(lines)[:249])
+        return
+
+    if pending == 0:
+        # Pure Auto DJ, nothing queued
+        await _w(
+            bot, user.id,
+            f"🎧 Radio Status\n"
+            f"Auto DJ: ON\n"
+            f"📀 Vibe: {vibe_label}\n"
+            f"📜 Requests: none\n"
+            f"💿 !play to request a song",
+        )
+        return
+
+    # Auto DJ playing, requests are queued
+    nj = waiting_jobs[0]
+    nt = (nj.get("title")    or "…").strip()[:28]
+    nu = (nj.get("username") or "?").strip()[:12]
+    await _w(
+        bot, user.id,
+        f"🎧 Radio Status\n"
+        f"Auto DJ: ON • Vibe: {vibe_label}\n"
+        f"📜 Requests: {pending} pending\n"
+        f"Next: @\u200b{nu} — {nt}\n"
+        f"💿 !play to request a song",
+    )
 
 
 # ─── !nowplaying ──────────────────────────────────────────────────────────────
@@ -1088,7 +1073,7 @@ async def handle_history(bot: "BaseBot", user: "User", _args: list) -> None:
     for i, row in enumerate(history, 1):
         t = (row.get("title") or "?")[:32]
         u = (row.get("username") or "?")[:14]
-        items.append(f"{i}. {t} — @\u200b{u}")
+        items.append(f"{i}. 🎧 {t} — @\u200b{u}")
 
     # 4 items per page keeps each whisper well under 240 chars
     chunk_size   = 4
@@ -1444,22 +1429,35 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
     uname = user.username
     print(f"[RADIO_CMD] stage=radio_help user_id={uid!r} username={uname!r}")
 
-    # ── Whisper 1: play + song-plays + favorites (everyone) ──────────────────
+    # ── Whisper 1: How Radio Works ────────────────────────────────────────────
     await _w(
         bot, uid,
-        "🎧 DJ DUDU Commands\n"
-        "🎵 !play song  !pick #  !q  !now\n"
-        "💿 !musicshop  !buyplays coins 1\n"
-        "   !buyplays luxe 1  !myrequests\n"
-        "⭐ !save  !playlist  !playmine #",
+        "🎧 How Radio Works\n"
+        "Auto DJ plays vibe music when no requests are active.\n"
+        "Use !play <song> to request a song.\n"
+        "Requests play first, then Auto DJ resumes.",
     )
     await asyncio.sleep(0.2)
 
-    # ── Whisper 2: voting + vibes + priority (everyone) ──────────────────────
+    # ── Whisper 2: public commands ────────────────────────────────────────────
     await _w(
         bot, uid,
-        "👍 !like  !dislike\n"
-        "🎶 !vibes  !vibe status\n"
+        "💿 !play <song/URL> — Request a song\n"
+        "📜 !queue — See request queue\n"
+        "🎧 !np — Current song\n"
+        "📀 !vibe status — Current vibe\n"
+        "⭐ !save — Save current song\n"
+        "📂 !playlist — VIP playlists",
+    )
+    await asyncio.sleep(0.2)
+
+    # ── Whisper 3: more commands + rating (everyone) ──────────────────────────
+    await _w(
+        bot, uid,
+        "🎵 More Commands\n"
+        "!pick #  !myrequests  !cancel #\n"
+        "👍 !like  !dislike  !ratings\n"
+        "💿 !musicshop  !buyplays\n"
         "⚡ !priority song\n"
         "Need help? !radiotutorial",
     )
