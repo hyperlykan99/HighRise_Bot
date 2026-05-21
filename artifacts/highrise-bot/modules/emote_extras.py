@@ -1317,8 +1317,9 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
         return
     if len(args) < 2:
         await _w(bot, uid,
-                 "!dancefloor: setpoint 1|2 | save | emotes|random|timed | "
-                 "savepack|loadpack|packs | start|stop|status|debug|clear"[:249])
+                 "!dancefloor: setpoint 1|2 | save | emotes|random|"
+                 "randomtimed|timed | savepack|loadpack|packs | "
+                 "start|stop|status|debug|clear"[:249])
         return
     sub = args[1].lower()
 
@@ -1369,6 +1370,98 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
             args.append("random")
         args[1] = "emotes"
         sub = "emotes"
+
+    # ----- randomtimed --------------------------------------------------
+    if sub == "randomtimed":
+        rest = args[2:]
+        # Require at least: <N|all> <secs>  or  <N|all> <min> <max>
+        if len(rest) < 2 or len(rest) > 3:
+            await _w(bot, uid,
+                     "Usage: !dancefloor randomtimed <N|all> <secs> "
+                     "  OR  !dancefloor randomtimed <N|all> <min> <max>")
+            return
+        # Parse N / "all"
+        n_raw = rest[0].lower()
+        use_all = (n_raw == "all")
+        n_req: int | None = None
+        if not use_all:
+            try:
+                n_req = max(1, int(n_raw))
+            except ValueError:
+                await _w(bot, uid,
+                         "First arg must be a number or 'all'. "
+                         "E.g. !dancefloor randomtimed 50 8")
+                return
+        # Parse seconds
+        if len(rest) == 2:
+            try:
+                fixed_secs = float(rest[1])
+            except ValueError:
+                await _w(bot, uid, "Seconds must be a number (e.g. 8).")
+                return
+            if fixed_secs < 0.5:
+                await _w(bot, uid, "Seconds must be >= 0.5.")
+                return
+            min_secs = max_secs = fixed_secs
+        else:  # len == 3
+            try:
+                min_secs = float(rest[1])
+                max_secs = float(rest[2])
+            except ValueError:
+                await _w(bot, uid, "Min/max must be numbers (e.g. 4 8).")
+                return
+            if min_secs < 0.5:
+                await _w(bot, uid, "Min seconds must be >= 0.5.")
+                return
+            if max_secs < min_secs:
+                await _w(bot, uid, "Max seconds must be >= min seconds.")
+                return
+        # Build filtered pool (same exclusions as random)
+        social_excl: set[str] = set()
+        for a_cands, t_cands, _ in _SOCIAL_TARGETS.values():
+            for c in (*a_cands, *t_cands):
+                social_excl.add(c.lower())
+                ent = _reg_get(c)
+                if ent:
+                    nm = (ent.get("name") or "").lower()
+                    if nm:
+                        social_excl.add(nm)
+        raw_pool = _reg_player_aliases()
+        seen_rt: set[str] = set()
+        pool_rt: list[str] = []
+        for a in raw_pool:
+            low = a.lower()
+            if low in seen_rt or low in social_excl:
+                continue
+            seen_rt.add(low)
+            pool_rt.append(a)
+        if not pool_rt:
+            await _w(bot, uid, "No valid player emotes available.")
+            return
+        # Pick
+        n_pick = len(pool_rt) if use_all else min(n_req, len(pool_rt))
+        picks = random.sample(pool_rt, n_pick)
+        seq_rt: list[dict] = []
+        for a in picks:
+            ent = _reg_get(a)
+            if not (ent and ent.get("id")):
+                continue
+            if min_secs == max_secs:
+                secs_val = min_secs
+            else:
+                secs_val = round(random.uniform(min_secs, max_secs), 2)
+            seq_rt.append({"alias": a, "eid": ent["id"], "seconds": secs_val})
+        if not seq_rt:
+            await _w(bot, uid, "No valid player emotes found.")
+            return
+        _df_set_sequence(seq_rt, "randomtimed")
+        db.set_room_setting("dancefloor_emotes",
+                            ",".join(s["alias"] for s in seq_rt))
+        rng_str = (f"{min_secs}s" if min_secs == max_secs
+                   else f"{min_secs}-{max_secs}s")
+        await _w(bot, uid,
+                 f"🎲 Random-timed {len(seq_rt)} emotes, {rng_str}/step."[:249])
+        return
 
     # ----- emotes / emote -----------------------------------------------
     if sub in ("emotes", "emote"):
@@ -1773,9 +1866,12 @@ async def handle_dancefloorhelp(bot: "BaseBot", user: "User",
                                  _args: list | None = None) -> None:
     """!dancefloorhelp — staff dancefloor reference."""
     await _w(bot, user.id,
-             "💃 DF (staff): setpoint 1|2 → save | emotes <a b c> | "
-             "random [N] | timed <a s b s> | savepack|loadpack|packs|"
-             "packinfo|renamepack|deletepack | start|stop|status|debug"[:249])
+             "💃 DF: setpoint 1|2 | emotes <a b c> | random [N] | "
+             "timed <a s…> | randomtimed <N|all> <s> | "
+             "randomtimed <N|all> <min> <max>"[:249])
+    await _w(bot, user.id,
+             "💃 DF: savepack|loadpack|packs|packinfo|renamepack|"
+             "deletepack | start|stop|status|debug"[:249])
 
 
 # ===========================================================================
