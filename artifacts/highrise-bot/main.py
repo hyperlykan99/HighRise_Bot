@@ -928,7 +928,7 @@ from modules.emote_system import (
 )
 from modules.emote_extras import (
     handle_emotes_socials,
-    handle_kiss_social, handle_slap_social,
+    handle_kiss_social, handle_slap_social, handle_kick_social,
     handle_superpunch, handle_bonk, handle_yeet, handle_hypnotize, handle_duel,
     handle_sync, handle_syncstop, handle_syncdebug, handle_syncstatus,
     handle_syncpersist, handle_synchelp,
@@ -1753,7 +1753,7 @@ ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
     "syncpersist", "synchelp",
     "favemotes", "favemote",
     "dancefloor", "dancefloorhelp", "emotetestchecklist",
-    "superpunch", "bonk", "yeet", "hypnotize", "duel",
+    "superpunch", "bonk", "yeet", "hypnotize", "duel", "kicksocial",
 }
 # custom emote sequence commands
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
@@ -7654,6 +7654,8 @@ class HangoutBot(BaseBot):
             await handle_hypnotize(self, user, args)
         elif cmd == "duel":
             await handle_duel(self, user, args)
+        elif cmd == "kicksocial":
+            await handle_kick_social(self, user, args)
         # ── New emote_extras commands ────────────────────────────────────────
         elif cmd == "sync":
             await handle_sync(self, user, args)

@@ -178,7 +178,8 @@ async def handle_emotes_socials(bot: "BaseBot", user: "User",
     """!emotes socials — alphabetical compact list of social target commands."""
     cmds = ["!bonk @user", "!duel @user",
             "!heart @user", "!hearts @user <n>",
-            "!hypnotize @user", "!kiss @user",
+            "!hypnotize @user", "!kick @user",
+            "!kicksocial @user", "!kiss @user",
             "!slap @user", "!superpunch @user", "!yeet @user"]
     await _send_compact_pages(bot, user.id, "💞 Socials", cmds)
 
@@ -210,6 +211,9 @@ _SOCIAL_TARGETS: dict[str, tuple[list[str], list[str], str]] = {
     "hypnotize":  (["witchcraft", "creepycute", "emote-witchcraft"],
                    ["confused", "dizzy", "float", "emote-confused"],
                    "🌀 {a} hypnotized {b}!"),
+    "kick":       (["emote-flying-kick", "flyingkick", "emote-kick", "kick"],
+                   ["emote-death", "death", "deathdrop", "emote-deathdrop"],
+                   "🦵 {a} kicked {b}!"),
 }
 
 _TARGET_SOCIAL_CD: dict[str, float] = {}
@@ -327,6 +331,10 @@ async def handle_yeet(bot, user, args):
 
 async def handle_hypnotize(bot, user, args):
     await _do_target_social(bot, user, args, "hypnotize")
+
+
+async def handle_kick_social(bot, user, args):
+    await _do_target_social(bot, user, args, "kick")
 
 
 async def handle_duel(bot: "BaseBot", user: "User", args: list) -> None:
