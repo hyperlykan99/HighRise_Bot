@@ -874,7 +874,7 @@ async def _heart_do_all(bot: BaseBot, user: User,
     for t in targets:
         sent = await _heart_send_batch(bot, uid, t, amount)
         if sent:
-            db.give_heart(user.username, t.username)
+            db.give_hearts_bulk(user.username, t.username, sent)
             player_count += 1
         await asyncio.sleep(0.2)
     h = "heart" if amount == 1 else "hearts"
@@ -921,12 +921,11 @@ async def _heart_do_single(bot: BaseBot, user: User,
     if not is_staff:
         _heart_cd[uid] = time.monotonic()
 
-    result = db.give_heart(user.username, target_name)
+    db.give_hearts_bulk(user.username, target_name, sent)
     h = "heart" if sent == 1 else "hearts"
     await bot.highrise.chat(
         f"💖 @{user.username} sent {sent} {h} to "
-        f"@{target_user.username}. "
-        f"@{target_user.username} has {result['total']} hearts."[:249])
+        f"@{target_user.username}."[:249])
 
 
 async def handle_heart(bot: BaseBot, user: User, args: list[str]) -> None:

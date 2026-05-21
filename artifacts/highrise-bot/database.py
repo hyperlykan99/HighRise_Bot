@@ -11938,6 +11938,34 @@ def give_heart(giver: str, receiver: str) -> dict:
     return {"total": total["hearts_received"] if total else 1}
 
 
+def give_hearts_bulk(giver: str, receiver: str, count: int) -> None:
+    """Add `count` hearts in one DB round-trip (used for multi-heart sends)."""
+    if count < 1:
+        return
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO room_hearts (giver_username, receiver_username, count, last_given_at)
+           VALUES (lower(?), lower(?), ?, datetime('now'))
+           ON CONFLICT(giver_username, receiver_username)
+           DO UPDATE SET count=count+?, last_given_at=datetime('now')""",
+        (giver, receiver, count, count),
+    )
+    conn.execute(
+        """INSERT INTO room_heart_totals (username, hearts_received, hearts_given)
+           VALUES (lower(?), ?, 0)
+           ON CONFLICT(username) DO UPDATE SET hearts_received=hearts_received+?""",
+        (receiver, count, count),
+    )
+    conn.execute(
+        """INSERT INTO room_heart_totals (username, hearts_received, hearts_given)
+           VALUES (lower(?), 0, ?)
+           ON CONFLICT(username) DO UPDATE SET hearts_given=hearts_given+?""",
+        (giver, count, count),
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_heart_totals(username: str) -> dict:
     conn = get_connection()
     row  = conn.execute(
