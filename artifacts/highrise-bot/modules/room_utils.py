@@ -815,51 +815,80 @@ async def _heart_send_batch(bot: BaseBot, sender_id: str,
     return sent
 
 
-async def handle_heart(bot: BaseBot, user: User, args: list[str]) -> None:
-    """!heart @user | !heart all [include me]"""
+def _parse_heart_args(args: list[str]) -> tuple[bool, bool, str | None, int | None]:
+    """Parse flexible heart command arguments.
+
+    Handles any token order:
+        @user [N]  |  N @user  |  all [N] [include me]
+
+    Returns: (is_all, include_me, target_name, amount)
+    amount is None when not specified by caller.
+    """
+    _SKIP = {"include", "me", "heart", "hearts"}
+    rest        = args[1:]
+    joined_low  = " ".join(rest).lower()
+    include_me  = "include me" in joined_low
+    is_all      = False
+    target_name: str | None = None
+    amount:      int | None = None
+
+    for tok in rest:
+        low = tok.lower().lstrip("@")
+        if low in _SKIP:
+            continue
+        if low == "all":
+            is_all = True
+            continue
+        # integer token → amount
+        try:
+            n = int(tok)
+            amount = n
+            continue
+        except ValueError:
+            pass
+        # @user or bare username → target
+        if target_name is None:
+            target_name = tok.lstrip("@")
+
+    return is_all, include_me, target_name, amount
+
+
+async def _heart_do_all(bot: BaseBot, user: User,
+                         amount: int,
+                         include_me: bool,
+                         is_staff: bool) -> None:
+    """Shared 'heart all' execution path."""
+    uid = user.id
+    if not is_staff:
+        await _w(bot, uid, "Staff only.")
+        return
+    bot_names = await _heart_bot_names()
+    room_resp = await _get_all_room_users(bot)
+    targets = [u for u, _ in room_resp
+               if u.username.lower() not in bot_names
+               and (include_me or u.id != uid)]
+    if not targets:
+        await _w(bot, uid, "No players to heart.")
+        return
+    player_count = 0
+    for t in targets:
+        sent = await _heart_send_batch(bot, uid, t, amount)
+        if sent:
+            db.give_heart(user.username, t.username)
+            player_count += 1
+        await asyncio.sleep(0.2)
+    h = "heart" if amount == 1 else "hearts"
+    await bot.highrise.chat(
+        f"@{user.username} sent {amount} {h} to everyone 💖"[:249])
+    await _w(bot, uid, f"Sent {amount} {h} to {player_count} player(s).")
+
+
+async def _heart_do_single(bot: BaseBot, user: User,
+                            target_name: str, amount: int,
+                            is_staff: bool, is_vip: bool) -> None:
+    """Shared single-target heart execution path."""
     uid   = user.id
     uname = user.username.lower()
-    is_staff = can_moderate(uname)
-    is_vip   = db.owns_item(uid, "vip")
-
-    # No-arg → show own heart totals
-    if len(args) < 2:
-        totals = db.get_heart_totals(uname)
-        await _w(bot, uid,
-                 f"💖 @{user.username}: {totals['hearts_received']} hearts received.")
-        return
-
-    first = args[1].lower().lstrip("@")
-
-    # ── !heart all ──────────────────────────────────────────────────────────
-    if first == "all":
-        if not is_staff:
-            await _w(bot, uid, "Staff only.")
-            return
-        include_me = "include me" in " ".join(args[2:]).lower()
-        bot_names  = await _heart_bot_names()
-        room_resp  = await _get_all_room_users(bot)
-        targets = [u for u, _ in room_resp
-                   if u.username.lower() not in bot_names
-                   and (include_me or u.id != uid)]
-        if not targets:
-            await _w(bot, uid, "No players to heart.")
-            return
-        player_count = 0
-        for t in targets:
-            sent = await _heart_send_batch(bot, uid, t, 1)
-            if sent:
-                db.give_heart(user.username, t.username)
-                player_count += 1
-            await asyncio.sleep(0.2)
-        await bot.highrise.chat(
-            f"@{user.username} sent hearts to everyone 💖"[:249])
-        await _w(bot, uid,
-                 f"Sent 1 heart to {player_count} player(s).")
-        return
-
-    # ── !heart @user ────────────────────────────────────────────────────────
-    target_name = args[1].lstrip("@")
 
     if target_name.lower() == uname:
         await _w(bot, uid, "You can't heart yourself!")
@@ -884,103 +913,6 @@ async def handle_heart(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, uid, f"⏳ Heart cooldown: {int(remaining)+1}s remaining.")
             return
 
-    sent = await _heart_send_batch(bot, uid, target_user, 1)
-    if not sent:
-        await _w(bot, uid, "Heart API unavailable in this SDK.")
-        return
-
-    if not is_staff:
-        _heart_cd[uid] = time.monotonic()
-
-    result = db.give_heart(user.username, target_name)
-    await bot.highrise.chat(
-        f"💖 @{user.username} sent a heart to @{target_user.username}. "
-        f"@{target_user.username} has {result['total']} hearts."[:249])
-
-
-async def handle_hearts(bot: BaseBot, user: User, args: list[str]) -> None:
-    """!hearts @user <n> | !hearts all <n> [include me]  — VIP+/staff."""
-    uid   = user.id
-    uname = user.username.lower()
-    is_staff = can_moderate(uname)
-    is_vip   = db.owns_item(uid, "vip")
-
-    if not is_staff and not is_vip:
-        await _w(bot, uid, "💖 VIP+ required for !hearts. Use !heart @user instead.")
-        return
-
-    if len(args) < 3:
-        lim = _HEART_MAX_STAFF if is_staff else _HEART_MAX_VIP
-        await _w(bot, uid, f"Usage: !hearts @user <1-{lim}>  or  !hearts all <n>")
-        return
-
-    first = args[1].lower().lstrip("@")
-
-    # Parse amount (always args[2] for both @user and all)
-    try:
-        amount = int(args[2])
-    except ValueError:
-        await _w(bot, uid, "Amount must be a whole number.")
-        return
-    if amount < 1:
-        await _w(bot, uid, "Amount must be at least 1.")
-        return
-    max_hearts = _HEART_MAX_STAFF if is_staff else _HEART_MAX_VIP
-    amount = min(amount, max_hearts)
-
-    # ── !hearts all <n> ─────────────────────────────────────────────────────
-    if first == "all":
-        if not is_staff:
-            await _w(bot, uid, "Staff only.")
-            return
-        include_me = "include me" in " ".join(args[3:]).lower()
-        bot_names  = await _heart_bot_names()
-        room_resp  = await _get_all_room_users(bot)
-        targets = [u for u, _ in room_resp
-                   if u.username.lower() not in bot_names
-                   and (include_me or u.id != uid)]
-        if not targets:
-            await _w(bot, uid, "No players to heart.")
-            return
-        player_count = 0
-        for t in targets:
-            sent = await _heart_send_batch(bot, uid, t, amount)
-            if sent:
-                db.give_heart(user.username, t.username)
-                player_count += 1
-            await asyncio.sleep(0.2)
-        h = "heart" if amount == 1 else "hearts"
-        await bot.highrise.chat(
-            f"@{user.username} sent {amount} {h} to everyone 💖"[:249])
-        await _w(bot, uid,
-                 f"Sent {amount} {h} to {player_count} player(s).")
-        return
-
-    # ── !hearts @user <n> ───────────────────────────────────────────────────
-    target_name = args[1].lstrip("@")
-
-    if target_name.lower() == uname:
-        await _w(bot, uid, "You can't heart yourself!")
-        return
-
-    pair = await _resolve_user_in_room(bot, target_name)
-    if not pair:
-        await _w(bot, uid, f"@{target_name} is not in the room.")
-        return
-    target_user, _ = pair
-
-    bot_names = await _heart_bot_names()
-    if target_user.username.lower() in bot_names and not is_staff:
-        await _w(bot, uid, "You can't heart a bot.")
-        return
-
-    if not is_staff:
-        remaining = _HEART_CD_VIP - (time.monotonic() - _heart_cd.get(uid, 0.0))
-        if remaining > 0:
-            print(f"[HEART_COOLDOWN] sender={uid} remaining={remaining:.1f}s")
-            await _w(bot, uid, f"⏳ Heart cooldown: {int(remaining)+1}s remaining.")
-            return
-
     sent = await _heart_send_batch(bot, uid, target_user, amount)
     if not sent:
         await _w(bot, uid, "Heart API unavailable in this SDK.")
@@ -993,7 +925,96 @@ async def handle_hearts(bot: BaseBot, user: User, args: list[str]) -> None:
     h = "heart" if sent == 1 else "hearts"
     await bot.highrise.chat(
         f"💖 @{user.username} sent {sent} {h} to "
-        f"@{target_user.username}! Total: {result['total']}."[:249])
+        f"@{target_user.username}. "
+        f"@{target_user.username} has {result['total']} hearts."[:249])
+
+
+async def handle_heart(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!heart [@user|all] [N] [include me]
+
+    Everyone:     !heart @user          → 1 heart
+    VIP+:         !heart @user 20       → up to 20
+    Staff:        !heart @user 100      → up to 100, no cooldown
+    Staff:        !heart all            → 1 heart to every player
+    Staff:        !heart all include me → includes sender
+    """
+    uid      = user.id
+    uname    = user.username.lower()
+    is_staff = can_moderate(uname)
+    is_vip   = db.owns_item(uid, "vip")
+
+    # No-arg → show own heart totals
+    if len(args) < 2:
+        totals = db.get_heart_totals(uname)
+        await _w(bot, uid,
+                 f"💖 @{user.username}: {totals['hearts_received']} hearts received.")
+        return
+
+    is_all, include_me, target_name, parsed_n = _parse_heart_args(args)
+
+    # Resolve amount: default 1; cap by tier if > 1 requested
+    amount = parsed_n if parsed_n is not None else 1
+    if amount < 1:
+        await _w(bot, uid, "Amount must be at least 1.")
+        return
+    if amount > 1:
+        # Multi-heart permission check
+        if not is_staff and not is_vip:
+            await _w(bot, uid,
+                     "VIP+ required to send multiple hearts. Use !heart @user.")
+            return
+        max_h = _HEART_MAX_STAFF if is_staff else _HEART_MAX_VIP
+        amount = min(amount, max_h)
+
+    if is_all:
+        await _heart_do_all(bot, user, amount, include_me, is_staff)
+        return
+
+    if not target_name:
+        await _w(bot, uid, "Usage: !heart @user [amount]")
+        return
+
+    await _heart_do_single(bot, user, target_name, amount, is_staff, is_vip)
+
+
+async def handle_hearts(bot: BaseBot, user: User, args: list[str]) -> None:
+    """!hearts [@user|all] <N> [include me]  — VIP+/staff only.
+
+    Accepts any token order:
+        !hearts @user 100  |  !hearts 100 @user
+        !hearts all 10     |  !hearts all 10 include me
+    """
+    uid      = user.id
+    uname    = user.username.lower()
+    is_staff = can_moderate(uname)
+    is_vip   = db.owns_item(uid, "vip")
+
+    if not is_staff and not is_vip:
+        await _w(bot, uid, "💖 VIP+ required for !hearts. Use !heart @user instead.")
+        return
+
+    is_all, include_me, target_name, parsed_n = _parse_heart_args(args)
+
+    if parsed_n is None:
+        lim = _HEART_MAX_STAFF if is_staff else _HEART_MAX_VIP
+        await _w(bot, uid,
+                 f"Usage: !hearts @user <1-{lim}>  or  !hearts all <n>")
+        return
+    if parsed_n < 1:
+        await _w(bot, uid, "Amount must be at least 1.")
+        return
+    max_h  = _HEART_MAX_STAFF if is_staff else _HEART_MAX_VIP
+    amount = min(parsed_n, max_h)
+
+    if is_all:
+        await _heart_do_all(bot, user, amount, include_me, is_staff)
+        return
+
+    if not target_name:
+        await _w(bot, uid, "Usage: !hearts @user <amount>")
+        return
+
+    await _heart_do_single(bot, user, target_name, amount, is_staff, is_vip)
 
 
 async def handle_heartlb(bot: BaseBot, user: User) -> None:
