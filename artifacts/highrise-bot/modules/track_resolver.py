@@ -298,68 +298,61 @@ def render_now_playing(track: dict, *, station: str = "DJ DUDU RADIO") -> str:
     """
     Canonical renderer for ALL now-playing displays (room announcements + !np).
 
-    Format:
-      🎧 DJ DUDU RADIO
-      ▶️ [Now Playing | Request Live]
+    Compact format — no blank lines, ≤249 chars.
 
-      🎵 Title: <title>
-      🎤 Artist: <artist or 'Unknown Artist'>
-      [👤 @requester]          ← request source only
+    AutoDJ:
+      🎧 DJ RADIO • Now Playing
+      🎵 <title> — <artist>
+      0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
+      👍 12 | 👎 2
+      💿 !play to request a song
 
-      <elapsed> <progress_bar> <duration>
-
-      👍 <likes> | 👎 <dislikes>
-      💿 Request: !play <song or YouTube URL>
+    Request Live:
+      🎧 DJ RADIO • Request Live
+      🎵 <title> — <artist>
+      👤 @requester
+      0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
+      👍 12 | 👎 2
+      💿 !play to request a song
 
     Falls back to "0:00 ▱▱▱▱▱▱▱▱▱▱ ?:??" when duration is unknown.
     Returns a UTF-8 string ≤249 chars.
     """
     title    = (track.get("title")  or "Unknown")[:32]
-    artist   = (track.get("artist") or "").strip()[:26]
+    artist   = (track.get("artist") or "").strip()[:22]
     likes    = int(track.get("likes",    0))
     dislikes = int(track.get("dislikes", 0))
     source   = track.get("source", "autodj")
     elapsed  = int(track.get("elapsed",  0) or 0)
     duration = int(track.get("duration", 0) or 0)
 
-    # Progress bar line
+    artist_part = artist if artist else "Unknown Artist"
+    song_line   = f"🎵 {title} — {artist_part}"
+
     if duration > 0:
         bar_line = (f"{_fmt_secs(elapsed)} {_progress_bar(elapsed, duration)}"
                     f" {_fmt_secs(duration)}")
     else:
         bar_line = f"0:00 {'▱' * 10} ?:??"
 
-    artist_line = (f"🎤 Artist: {artist}"
-                   if artist else "🎤 Artist: Unknown Artist")
-
     if source == "request":
         requester = (track.get("requester") or "")[:20]
         req_line  = f"👤 @\u200b{requester}" if requester else "👤 Requested"
         lines = [
-            "🎧 DJ DUDU RADIO",
-            "▶️ Request Live",
-            "",
-            f"🎵 Title: {title}",
-            artist_line,
+            "🎧 DJ RADIO • Request Live",
+            song_line,
             req_line,
-            "",
             bar_line,
-            "",
             f"👍 {likes} | 👎 {dislikes}",
-            "💿 Request: !play <song or YouTube URL>",
+            "💿 !play to request a song",
         ]
     else:
         lines = [
-            "🎧 DJ DUDU RADIO",
-            "▶️ Now Playing",
-            "",
-            f"🎵 Title: {title}",
-            artist_line,
-            "",
+            "🎧 DJ RADIO • Now Playing",
+            song_line,
             bar_line,
-            "",
             f"👍 {likes} | 👎 {dislikes}",
-            "💿 Request: !play <song or YouTube URL>",
+            "💿 !play to request a song",
         ]
 
     return "\n".join(lines)[:249]

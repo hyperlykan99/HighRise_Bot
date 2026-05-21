@@ -1,0 +1,200 @@
+RADIO NOWPLAYING / DJ ANNOUNCEMENT COMPACT UI FIX
+
+Goal:
+Fix the radio now-playing / DJ announcement bot message so it is compact, aligned, not cut off, and still keeps the virtual media player design.
+
+Do not rewrite the radio system.
+Do not change request/queue/playback logic.
+Do not change AzuraCast/SFTP logic.
+Do not touch emote system.
+Do not break DJ_DUDU internal routing or BOT_MODE=dj.
+
+Relevant files to inspect:
+- modules/track_resolver.py
+- modules/dj_announcer.py
+- modules/radio_commands.py
+- modules/playback_engine.py
+- modules/azuracast_controller.py
+- modules/request_queue.py
+
+==================================================
+1. FIX HEADER CUTOFF
+==================================================
+
+Issue:
+The current header “DJ DUDU RADIO” is too long and gets cut/wrapped in HighRise chat.
+
+Fix:
+Use a shorter compact header in user-facing now-playing cards and DJ announcements:
+
+🎧 DJ RADIO • Now Playing
+
+For request live:
+
+🎧 DJ RADIO • Request Live
+
+Do not use the long “DJ DUDU RADIO” header in the compact card if it causes cutoff/wrapping.
+
+Internal bot/account name can stay DJ_DUDU for routing.
+Only change display text.
+
+==================================================
+2. REMOVE GAPS / BLANK LINES
+==================================================
+
+Issue:
+The card is too big because it has too many blank lines and vertical gaps.
+
+Fix:
+Remove unnecessary blank lines.
+
+Use compact layout with no spacer gaps:
+
+🎧 DJ RADIO • Now Playing
+🎵 <title> — <artist>
+0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
+👍 12 | 👎 2
+💿 !play to request a song
+
+For request live:
+
+🎧 DJ RADIO • Request Live
+🎵 <title> — <artist>
+👤 @requester
+0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
+👍 12 | 👎 2
+💿 !play to request a song
+
+==================================================
+3. KEEP VIRTUAL MEDIA PLAYER DESIGN
+==================================================
+
+Never remove the virtual media player design.
+
+Must keep:
+- elapsed time
+- progress bar
+- total duration
+
+Required format:
+<elapsed> <progress_bar> <duration>
+
+Example:
+0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
+
+If duration is missing:
+0:00 ▱▱▱▱▱▱▱▱▱▱ ?:??
+
+Do not remove the progress bar.
+Do not remove elapsed/duration.
+
+==================================================
+4. TITLE / ARTIST FORMAT
+==================================================
+
+Use compact one-line song info:
+
+🎵 <title> — <artist>
+
+Examples:
+🎵 POP DAT THANG — DaBaby
+🎵 MOLIY — Silent Addy
+
+If artist is missing:
+🎵 <title> — Unknown Artist
+
+Trim safely if too long:
+- title max around 32 chars
+- artist max around 22 chars
+- never cut the whole message off
+
+Do not use separate big spaced blocks like:
+🎵 Title:
+<title>
+
+🎤 Artist:
+<artist>
+
+That takes too much vertical space.
+
+==================================================
+5. REAL LIKES / DISLIKES
+==================================================
+
+Keep the likes/dislikes line compact:
+
+👍 <likes> | 👎 <dislikes>
+
+Must read real counts from the same rating source used by:
+- !like
+- !dislike
+- !ratings
+
+Do not show 0 if ratings exist.
+
+Use stable song key:
+- YouTube URL or video ID if available
+- else AzuraCast song unique_id if available
+- else normalized title + artist
+
+==================================================
+6. BOTTOM ACTION LINE
+==================================================
+
+At the bottom of the compact media card, show exactly:
+
+💿 !play to request a song
+
+Do not use:
+💿 Request: !play <song or YouTube URL>
+
+The bottom line should be short and clean.
+
+==================================================
+7. 249 CHARACTER SAFE
+==================================================
+
+Never send a now-playing / DJ announcement message over 249 characters.
+
+If too long:
+1. shorten title
+2. shorten artist
+3. keep header
+4. keep progress bar
+5. keep likes/dislikes
+6. keep bottom line
+
+Do not cut off mid-line.
+Do not wrap the header.
+Do not add extra blank lines.
+
+==================================================
+8. APPLY TO ALL NOWPLAYING OUTPUTS
+==================================================
+
+Apply compact renderer to:
+- DJ announcement when vibe/local song starts
+- DJ announcement when request starts
+- !np
+- !now
+- !nowplaying
+- any shared render_now_playing() output
+
+If render_now_playing() in modules/track_resolver.py is the canonical renderer, update it there so all outputs become consistent.
+
+==================================================
+9. CHECKLIST
+==================================================
+
+Test:
+- !np shows compact card
+- !nowplaying shows compact card
+- DJ announcement shows compact card
+- Header does not cut off
+- No blank gaps
+- Progress bar still exists
+- Elapsed and duration still show
+- Likes/dislikes show real counts
+- Bottom line says: 💿 !play to request a song
+- Message stays under 249 chars
+- Only DJ_DUDU/DJ bot replies
