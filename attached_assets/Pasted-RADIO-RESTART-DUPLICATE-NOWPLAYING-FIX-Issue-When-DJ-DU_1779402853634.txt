@@ -1,0 +1,146 @@
+RADIO RESTART DUPLICATE NOWPLAYING FIX
+
+Issue:
+When DJ_DUDU restarts/reconnects, it announces the currently playing song twice.
+
+Observed:
+- First announcement shows the song at 0:00
+- Second announcement shows the correct elapsed time, like 2:12
+- This creates duplicate now-playing cards after restart
+
+Expected:
+After restart, DJ_DUDU should send only one clean now-playing card, with correct elapsed time.
+
+Do not rewrite the radio system.
+Do not change request/queue/playback logic.
+Do not touch emote system.
+Do not remove the compact now-playing card design.
+
+Inspect:
+- modules/radio_commands.py
+- modules/playback_engine.py
+- modules/dj_announcer.py
+- modules/track_resolver.py
+- modules/azuracast_controller.py
+- startup_radio(bot)
+- any on_start / reconnect radio startup logic
+
+==================================================
+1. PREVENT DUPLICATE STARTUP ANNOUNCEMENTS
+==================================================
+
+Find all paths that announce now-playing on startup/reconnect.
+
+Likely paths:
+- startup_radio(bot)
+- playback engine poll loop
+- AzuraCast nowplaying sync
+- request recovery task
+- announce_now_playing()
+- render_now_playing()
+
+Fix:
+Only one startup/reconnect now-playing announcement should be sent.
+
+Add a guard/debounce:
+- Track last announced song key
+- Track last announced timestamp
+- If same song is announced again within 10–15 seconds, skip duplicate
+
+Song key priority:
+- AzuraCast song unique_id if available
+- YouTube video ID if available
+- title + artist normalized fallback
+
+Example:
+if same song key and last_announce_age < 15 seconds:
+    skip announcement
+
+==================================================
+2. STARTUP ANNOUNCEMENT MUST USE REAL ELAPSED TIME
+==================================================
+
+The startup/reconnect announcement must not default to 0:00 if AzuraCast has elapsed time.
+
+Use duration/elapsed priority:
+1. AzuraCast now_playing.elapsed
+2. AzuraCast now_playing.duration
+3. request_queue currently playing metadata
+4. fallback 0:00 / ?:??
+
+When bot restarts while song is already playing:
+Expected:
+2:12 ▰▰▰▰▰▱▱▱▱▱ 4:19
+
+Not:
+0:00 ▱▱▱▱▱▱▱▱▱▱ 4:19
+
+==================================================
+3. USE ONE CANONICAL NOWPLAYING RENDERER
+==================================================
+
+Make sure all now-playing paths use the same renderer:
+render_now_playing()
+
+Do not have separate formatting for:
+- startup announcement
+- live request announcement
+- !np
+- AutoDJ/vibe announcement
+
+Everything should use the same compact card style.
+
+Keep format:
+
+DJ DUDU: Auto DJ
+📀 Vibe: <vibe_name>
+🎵 Title: <title>
+🎤 Artist: <artist>
+<elapsed> <progress_bar> <duration>
+👍 <likes> | 👎 <dislikes>
+💿 !play to request a song
+
+For live request:
+
+DJ DUDU: NOW PLAYING
+🎵 Title: <title>
+🎤 Artist: <artist>
+<elapsed> <progress_bar> <duration>
+👍 <likes> | 👎 <dislikes>
+💿 !play to request a song
+
+==================================================
+4. DO NOT ANNOUNCE TWICE FROM STARTUP + POLLER
+==================================================
+
+If startup_radio sends a now-playing card, the playback poller should not immediately send the same card.
+
+Options:
+- startup_radio updates last_announced_song_key before poller starts
+- poller checks last_announced_song_key before announcing
+- startup_radio does not announce, and poller handles the first announcement after fetching real elapsed time
+
+Choose the safest option.
+
+==================================================
+5. ROUTING
+==================================================
+
+Only DJ_DUDU / BOT_MODE=dj should announce radio now-playing.
+
+Other bots must not announce radio now-playing on restart.
+
+==================================================
+6. CHECKLIST
+==================================================
+
+Test:
+- Restart DJ_DUDU while AutoDJ/vibe song is playing
+- Only one now-playing card appears
+- The card shows correct elapsed time, not 0:00
+- Restart DJ_DUDU while live request is playing
+- Only one now-playing card appears
+- !np still works
+- !np uses same compact renderer
+- No duplicate announcement appears within 15 seconds
+- Only DJ_DUDU announces

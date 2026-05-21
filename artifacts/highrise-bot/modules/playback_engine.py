@@ -1171,6 +1171,14 @@ def get_cur_duration() -> int:
         return _cur_duration
 
 
+def get_cur_elapsed() -> int:
+    """Return the AzuraCast-reported elapsed seconds for the current song.
+    Updated each poll cycle BEFORE _on_new_track fires, so the value is
+    accurate when startup/reconnect announcements are built."""
+    with _lock:
+        return _cur_elapsed
+
+
 def get_current_request() -> "dict | None":
     """Return the DB record of the request currently playing, or None."""
     return _db_find_playing()

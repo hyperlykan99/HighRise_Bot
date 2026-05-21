@@ -6,12 +6,21 @@ Room-wide announcement helpers for the radio system.
 All async functions are non-fatal (never raise) and respect the 249-char limit.
 """
 from __future__ import annotations
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from highrise import BaseBot
 
 _LOG     = "[DJ_ANN]"
+
+# ── Startup/reconnect duplicate-announce guard ────────────────────────────────
+# Tracks the last announced song key + timestamp so that a second announce for
+# the same song within _ANN_DEBOUNCE_SECS is silently dropped.  Prevents the
+# double card (0:00 + correct elapsed) observed on DJ bot restart.
+_ANN_DEBOUNCE_SECS: float = 15.0
+_last_ann_song_key:  str   = ""
+_last_ann_ts:        float = 0.0
 _STATION = "ChillTopia Radio"
 _DIV     = "━━━━━━━━━━━━━"   # 13-char divider line
 
@@ -79,21 +88,32 @@ async def announce_now_playing(
     If `requester` is provided the REQUEST LIVE format is used instead.
     Uses render_now_playing() — the single canonical renderer.
     Reads real like/dislike counts from dj_ratings (same key as !like/!dislike).
+    Uses real AzuraCast elapsed time so restart announcements show correct progress.
+    Deduplicates: same song within _ANN_DEBOUNCE_SECS is silently dropped.
     """
+    global _last_ann_song_key, _last_ann_ts
+
     if requester:
         await announce_request_live(bot, title, artist, requester)
         return
 
+    song_key = (title.lower().strip() + "|" + artist.lower().strip())[:150]
+    now = time.monotonic()
+    if song_key and song_key == _last_ann_song_key and (now - _last_ann_ts) < _ANN_DEBOUNCE_SECS:
+        print(f"{_LOG} announce_now_playing dedup skip — same song within {_ANN_DEBOUNCE_SECS}s")
+        return
+    _last_ann_song_key = song_key
+    _last_ann_ts       = now
+
     from modules.track_resolver  import render_now_playing, _get_ratings
-    from modules.playback_engine import get_cur_duration
-    song_key = title.lower()[:150] if title and title.lower() != "unknown" else ""
+    from modules.playback_engine import get_cur_duration, get_cur_elapsed
     counts   = _get_ratings(song_key)
     track = {
         "source":    "autodj",
         "title":     title,
         "artist":    artist,
         "vibe":      vibe,
-        "elapsed":   0,
+        "elapsed":   get_cur_elapsed(),
         "duration":  get_cur_duration(),
         "likes":     counts["likes"],
         "dislikes":  counts["dislikes"],
@@ -114,17 +134,28 @@ async def announce_request_live(
     Fired when a queued request starts playing.
     Uses render_now_playing() — the single canonical renderer.
     Reads real like/dislike counts from dj_ratings (same key as !like/!dislike).
+    Uses real AzuraCast elapsed time so restart announcements show correct progress.
+    Deduplicates: same song within _ANN_DEBOUNCE_SECS is silently dropped.
     """
+    global _last_ann_song_key, _last_ann_ts
+
+    song_key = (title.lower().strip() + "|" + artist.lower().strip())[:150]
+    now = time.monotonic()
+    if song_key and song_key == _last_ann_song_key and (now - _last_ann_ts) < _ANN_DEBOUNCE_SECS:
+        print(f"{_LOG} announce_request_live dedup skip — same song within {_ANN_DEBOUNCE_SECS}s")
+        return
+    _last_ann_song_key = song_key
+    _last_ann_ts       = now
+
     from modules.track_resolver  import render_now_playing, _get_ratings
-    from modules.playback_engine import get_cur_duration
-    song_key = title.lower()[:150] if title else ""
+    from modules.playback_engine import get_cur_duration, get_cur_elapsed
     counts   = _get_ratings(song_key)
     track = {
         "source":    "request",
         "title":     title,
         "artist":    artist,
         "requester": requester,
-        "elapsed":   0,
+        "elapsed":   get_cur_elapsed(),
         "duration":  get_cur_duration(),
         "likes":     counts["likes"],
         "dislikes":  counts["dislikes"],
