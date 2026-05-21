@@ -1,0 +1,475 @@
+EMOTE HELP POLISH UPDATE
+
+Project:
+HighRise Multi-Bot System
+
+Goal:
+Polish the emote help/command visibility system without adding big new mechanics.
+
+Do not touch unrelated systems:
+- economy
+- casino
+- mining
+- fishing
+- radio/music
+- moderation
+- AI
+- games
+- shop
+- profile
+- dashboard
+
+Focus only on:
+- emote help
+- role-aware command visibility
+- social emote role access
+- emote command details
+- emote search help
+- emote info/debug display if already supported or safe to add
+
+Important existing architecture:
+- Global help system is in modules/help_cmds.py.
+- Emote logic is in modules/emote_system.py, modules/emote_extras.py, and modules/custom_emotes.py.
+- Role/permission logic is in modules/permissions.py, modules/admin_cmds.py, and modules/vip.py.
+- Multi-bot routing is already important. Do not break it.
+- DJ_DUDU should remain the centralized emote controller.
+- Central emote registry remains the source of truth.
+- Do not create duplicate emote timing systems.
+- Do not create duplicate permission systems.
+- Reuse existing whisper/pagination helpers.
+- Keep all output whisper-only where the current help system uses whispers.
+- Keep messages 249/255-character safe.
+
+==================================================
+PART 1 — ADD !commands emotes CATEGORY
+==================================================
+
+Add an emote category to the existing global command browser.
+
+Command:
+
+!commands emotes
+
+Also allow:
+
+!commands emote
+
+Expected:
+Show a clean role-aware emote command menu.
+
+For everyone, show:
+
+🎭 Emotes
+!emotehelp — Normal emotes and emote list
+!customhelp — Custom loops and saved packs
+!synchelp — Sync dancing commands
+!hearthelp — Heart commands, if heart help exists
+!socialhelp — Social emotes, VIP+
+
+If user is staff/admin/owner, additionally show:
+
+🛡️ Staff Emotes
+!dancefloorhelp — Dancefloor controls
+!botemotehelp — Bot emote controls
+!setemote <emote> time <sec> — Edit emote time
+!syncpersist on/off — Toggle sync persistence
+
+If !hearthelp does not exist, either add a simple help page for hearts or list heart commands inside !emotehelp.
+
+Do not show staff-only commands to normal users or VIP users.
+
+==================================================
+PART 2 — ROLE-SEPARATED EMOTE HELP
+==================================================
+
+Update emote-related help pages so commands are separated by role.
+
+Use emoji section headers.
+
+👤 Everyone
+Show commands normal users can use:
+- plain emote name usage
+- !customemote <emotes>
+- !customtimed <emote sec...>
+- !stopcustom
+- !savecustom <pack>
+- !savecustomtimed <pack>
+- !playcustom <pack>
+- !custompacks
+- !custominfo <pack>
+- !renamecustom <old> <new>
+- !deletecustom <pack>
+- !sync @user
+- !syncstop
+- !syncstatus
+- !heart @user
+
+⭐ VIP
+Show commands VIP users can use:
+- all social emotes
+- bigger heart burst if already implemented
+
+🛡️ Staff/Admin/Owner
+Show commands staff/admin/owner can use:
+- !setemote <emote> time <sec>
+- !dancefloor ...
+- !botemote ...
+- !sync all
+- !sync all @user
+- !syncstop all
+- !syncpersist on/off
+- !heart all
+- !hearts all <amount>
+
+Do not show VIP-only or staff-only commands to roles that cannot use them.
+
+==================================================
+PART 3 — ADD EMOJIS AND COMMAND DESCRIPTIONS
+==================================================
+
+Add short useful descriptions to emote help pages.
+
+Keep them compact.
+
+Examples:
+
+🎭 Normal Emotes
+plain emote name — Start looping that emote
+!emotehelp — View emote help/list
+
+💾 Custom Loops
+!customemote <a b c> — Loop emotes in order
+!customtimed <a sec b sec> — Loop with custom times
+!stopcustom — Stop your custom loop
+!savecustom <pack> — Save your current loop
+!playcustom <pack> — Play a saved loop
+
+🔁 Sync
+!sync @user — Follow another player’s emotes
+!syncstop — Stop your own sync
+!syncstatus — Check sync state
+
+💖 Hearts
+!heart @user — Send hearts to a player
+!heart @user 20 — VIP burst limit, if already implemented
+!heart all — Staff/admin/owner only
+
+⭐ VIP Socials
+!kiss @user — Kiss a player
+!slap @user — Slap a player
+!superpunch @user — Big punch effect
+!punch @user — Punch a player
+!bonk @user — Bonk a player
+!yeet @user — Yeet a player
+!hypnotize @user — Hypnotize a player
+!duel @user — Duel a player
+!swordfight @user — Sword fight a player
+
+🪩 Dancefloor
+!dancefloor start — Start dancefloor
+!dancefloor stop — Stop dancefloor
+!dancefloor randomtimed all 12 — All player emotes, 12s each
+!dancefloor packs — List dancefloor packs
+
+🤖 Bot Emotes
+!botemote @bot <emote> — Make a bot loop an emote
+!botemote stop @bot — Stop a bot emote
+!botemotes — List bot emotes
+
+⏱️ Emote Timing
+!setemote <emote> time <sec> — Permanently update emote time
+
+==================================================
+PART 4 — VIP CAN USE ALL SOCIAL EMOTES
+==================================================
+
+Update social emote permissions.
+
+VIP users should be able to use ALL social emotes:
+
+- !kiss @user
+- !slap @user
+- !superpunch @user
+- !punch @user
+- !bonk @user
+- !yeet @user
+- !hypnotize @user
+- !duel @user
+- !swordfight @user
+
+Staff/admin/owner should also be able to use all social emotes.
+
+Normal users should not be able to use social emotes unless the project already explicitly allows a specific one.
+
+Normal blocked message:
+
+🔒 Social emotes are VIP+ only.
+
+VIP+ social help should show the full social list.
+
+Normal social help should NOT show the full social list. It should show:
+
+🔒 Social emotes are VIP+ only.
+
+==================================================
+PART 5 — GUARD STAFF-ONLY DIRECT HELP PAGES
+==================================================
+
+Fix staff-only direct help leaks.
+
+These direct help pages must be guarded:
+- !dancefloorhelp
+- !botemotehelp
+
+If normal user or VIP user runs:
+
+!dancefloorhelp
+
+Reply only:
+
+🔒 Dancefloor commands are staff/admin/owner only.
+
+Do not show the dancefloor command list.
+
+If normal user or VIP user runs:
+
+!botemotehelp
+
+Reply only:
+
+🔒 Bot emote commands are staff/admin/owner only.
+
+Do not show the botemote command list.
+
+Staff/admin/owner should still see the full help pages.
+
+Also check equivalent commands:
+- !dancefloor help
+- !botemote help
+- any staff-only syncpersist help, if it exists
+
+All direct and shortcut help commands must follow the same permission guard.
+
+==================================================
+PART 6 — ADD/UPDATE !command DETAILS
+==================================================
+
+The global help system already supports:
+
+!command [cmd]
+
+Add or update detail entries for these emote commands:
+
+!command emote
+!command customemote
+!command customtimed
+!command sync
+!command heart
+!command social
+!command dancefloor
+!command botemote
+!command setemote
+
+Each should include:
+- what it does
+- example usage
+- role required
+- short warning if staff-only or VIP-only
+
+Examples:
+
+!command setemote:
+⏱️ !setemote <emote> time <sec>
+Role: staff/admin/owner
+Permanently updates the emote timing in the central registry.
+Example: !setemote justvibing time 12
+
+!command sync:
+🔁 !sync @user
+Role: everyone
+Sync yourself to another player's emotes.
+Owner/admin also has: !sync all, !sync all @user, !syncstop all
+
+!command social:
+⭐ Social Emotes
+Role: VIP+
+Use VIP social emotes on another player.
+Examples: !kiss @user, !duel @user
+
+==================================================
+PART 7 — UPDATE SEARCH SUPPORT
+==================================================
+
+Make sure global help search can find emote commands.
+
+These should return useful emote help results:
+
+!commands search emote
+!commands search sync
+!commands search dancefloor
+!commands search heart
+!commands search social
+!commands search botemote
+!commands search custom
+!commands find emote
+!commands find sync
+
+Do not break existing search categories.
+
+==================================================
+PART 8 — ADD OR IMPROVE !emoteinfo <name>
+==================================================
+
+Add or improve:
+
+!emoteinfo <name>
+
+Example:
+
+!emoteinfo justvibing
+
+Expected output:
+
+🎭 Emote: justvibing
+🆔 ID: <emote_id>
+⏱️ Time: 12.0s
+📌 Type: player/bot/both
+💾 Source: central registry
+✅ Exists: yes
+
+If emote does not exist:
+
+❌ Emote not found: <name>
+
+Use the central emote registry.
+Do not use duplicate timing sources.
+
+If !emoteinfo already exists, improve it.
+If adding !emoteinfo risks breaking routing, skip adding the command and only update existing debug/info command text.
+
+==================================================
+PART 9 — DO NOT CHANGE SETEMOTE ARCHITECTURE
+==================================================
+
+Do not create duplicate timing dictionaries.
+
+The project already uses central registry timing.
+Keep it that way.
+
+For !setemote, the command keyword must remain:
+
+time
+
+Correct syntax:
+
+!setemote <emote> time <seconds>
+
+Do NOT add "timing" as a new keyword.
+
+Do NOT add:
+- EMOTE_TIMING_OVERRIDES
+- CUSTOM_TIMINGS
+- LOOP_TIMINGS
+- separate duplicate timing maps
+
+All emote timing help text should say:
+
+!setemote <emote> time <sec>
+
+==================================================
+PART 10 — KEEP CUSTOM EMOTES PUBLIC
+==================================================
+
+Custom emotes are public for everyone.
+
+Normal users should be able to see and use:
+
+- !customemote
+- !customtimed
+- !stopcustom
+- !savecustom
+- !savecustomtimed
+- !playcustom
+- !custompacks
+- !custominfo
+- !renamecustom
+- !deletecustom
+
+Do not make custom commands VIP-only.
+
+==================================================
+PART 11 — UPDATE CHECKLIST
+==================================================
+
+Update emote_permission_checklist.md or create one if missing.
+
+Add tests:
+
+Normal user:
+- !commands emotes shows only public emote commands
+- !customhelp shows custom commands
+- !socialhelp says VIP+ only
+- !dancefloorhelp is blocked
+- !botemotehelp is blocked
+- !sync all is not shown
+- !syncstop all is not shown
+- !setemote is not shown
+- !customemote works
+- !customtimed works
+- !savecustom works
+- !playcustom works
+- !heart @user works
+
+VIP:
+- !commands emotes shows public + VIP social commands
+- !socialhelp shows all social emotes
+- all social commands work:
+  !kiss, !slap, !superpunch, !punch, !bonk, !yeet, !hypnotize, !duel, !swordfight
+- !dancefloorhelp is blocked
+- !botemotehelp is blocked
+- !setemote is not shown
+- !sync all is not shown
+- custom commands still work
+
+Staff/admin/owner:
+- !commands emotes shows all public, VIP, and staff emote commands
+- !dancefloorhelp shows full help
+- !botemotehelp shows full help
+- !socialhelp shows all social emotes
+- !setemote help shows correct syntax with "time"
+- !command setemote works
+- !command dancefloor works
+- !command botemote works
+- !emoteinfo justvibing works
+
+Search:
+- !commands search emote works
+- !commands search sync works
+- !commands search dancefloor works
+- !commands search social works
+- !commands search custom works
+
+Regression:
+- existing emote loops still work
+- custom loops still work
+- saved custom packs still work
+- sync still works
+- dancefloor still works
+- botemote still works
+- heart burst still works
+- central registry timing remains source of truth
+- no duplicate timing system added
+
+==================================================
+FINAL INSTRUCTIONS
+==================================================
+
+Keep this as a polish update only.
+
+Do not add big new gameplay mechanics.
+Do not refactor unrelated systems.
+Do not change bot startup behavior unless needed for help registration.
+Do not break multi-bot routing.
+Do not make normal users see staff commands.
+Do not make custom commands VIP-only.
+Do not create duplicate timing systems.

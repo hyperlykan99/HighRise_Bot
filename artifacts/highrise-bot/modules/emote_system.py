@@ -1529,17 +1529,30 @@ async def handle_emoteinfo(bot: "BaseBot", user: "User", args: list) -> None:
     query = args[1]
     entry = _reg.get_emote(query)
     if not entry:
-        await _w(bot, uid, f"❌ '{query}' not found in registry.")
+        await _w(bot, uid, f"❌ Emote not found: {query}")
         return
     rid     = entry["id"]
     aliases = _reg.aliases_for_id(rid)
-    cat     = entry.get("category") or "uncategorized"
-    t_disp  = int(entry["time"]) if entry["time"] == int(entry["time"]) else entry["time"]
+    is_bot  = bool(entry.get("bot"))
+    is_plyr = bool(entry.get("player"))
+    if is_bot and is_plyr:
+        etype = "both"
+    elif is_bot:
+        etype = "bot"
+    elif is_plyr:
+        etype = "player"
+    else:
+        etype = "none"
+    cat       = entry.get("category") or "uncategorized"
+    t_val     = entry["time"]
+    t_disp    = int(t_val) if t_val == int(t_val) else t_val
+    alias_str = ", ".join(aliases[:3]) + ("…" if len(aliases) > 3 else "")
     await _w(bot, uid,
-             f"Registry match: alias={','.join(aliases)} "
-             f"id={rid} time={t_disp} "
-             f"player={_fmt_bool(entry.get('player'))} bot={_fmt_bool(entry.get('bot'))} "
-             f"name={entry.get('name','?')} cat={cat}")
+             f"🎭 Emote: {alias_str}\n"
+             f"🆔 ID: {rid}\n"
+             f"⏱️ Time: {t_disp}s\n"
+             f"📌 Type: {etype}  💾 Source: registry\n"
+             f"🗂️ Cat: {cat}  ✅ Exists: yes")
 
 
 async def handle_emotetime(bot: "BaseBot", user: "User", args: list) -> None:

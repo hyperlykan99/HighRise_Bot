@@ -2083,15 +2083,45 @@ async def handle_emoteinfo(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 async def handle_emotehelp(bot: BaseBot, user: User) -> None:
-    await _w(bot, user.id,
-             "💃 Emote help\n"
-             "!emotes — list all\n"
-             "!emote <id> — use emote\n"
-             "!emoteinfo <id> — details\n"
-             "!loopemote <id> — loop\n"
-             "!customemote e1 e2 — sequence\n"
-             "!customhelp !synchelp !dancefloorhelp\n"
-             "!botemotehelp !socialhelp"[:249])
+    uid   = user.id
+    uname = user.username
+    staff = can_moderate(uname)
+    vip   = bool(db.owns_item(uid, "vip"))
+    await _w(bot, uid,
+             "🎭 Emotes\n"
+             "Say emote name to loop it\n"
+             "!emotes — browse list\n"
+             "!emoteinfo <name> — emote details\n"
+             "!customhelp  !synchelp  !socialhelp")
+    await _w(bot, uid,
+             "💾 Custom Loops (everyone)\n"
+             "!customemote <e1 e2...> — sequence\n"
+             "!customtimed <e sec e sec> — timed\n"
+             "!stopcustom  !savecustom <pack>\n"
+             "!playcustom <pack>  !custompacks")
+    await _w(bot, uid,
+             "🔁 Sync  💖 Hearts\n"
+             "!sync @user — mirror emotes\n"
+             "!syncstop  !syncstatus\n"
+             "!heart @user — send hearts")
+    if vip or staff:
+        await _w(bot, uid,
+                 "⭐ VIP Socials\n"
+                 "!kiss  !slap  !bonk  !yeet\n"
+                 "!superpunch  !hypnotize\n"
+                 "!duel  !kicksocial  (all: @user)")
+    else:
+        await _w(bot, uid,
+                 "⭐ VIP Social Emotes\n"
+                 "🔒 VIP+ required\n"
+                 "!socialhelp — more info")
+    if staff:
+        await _w(bot, uid,
+                 "🛡️ Staff Emotes\n"
+                 "!dancefloorhelp  !botemotehelp\n"
+                 "!setemote <emote> time <sec>\n"
+                 "!sync all  !syncstop all\n"
+                 "!syncpersist on|off")
 
 
 async def handle_alerthelp(bot: BaseBot, user: User) -> None:
@@ -2115,14 +2145,32 @@ async def handle_welcomehelp(bot: BaseBot, user: User) -> None:
 
 
 async def handle_socialhelp(bot: BaseBot, user: User) -> None:
-    await _w(bot, user.id,
-             "💞 Social help\n"
-             "!bonk !duel !kiss !slap !yeet\n"
-             "!superpunch !hypnotize\n"
-             "!heart @user [N] — send hearts\n"
-             "!heart all (staff) !hearts all N\n"
-             "!kicksocial @user (VIP+)\n"
-             "!emotes socials — full list"[:249])
+    uid   = user.id
+    uname = user.username
+    staff = can_moderate(uname)
+    vip   = bool(db.owns_item(uid, "vip"))
+    if not vip and not staff:
+        await _w(bot, uid,
+                 "💞 Social Emotes\n"
+                 "🔒 Social emotes are VIP+ only.\n"
+                 "!vip — learn about VIP")
+        return
+    await _w(bot, uid,
+             "💞 VIP+ Socials\n"
+             "!bonk @user  !duel @user\n"
+             "!hypnotize @user  !kiss @user\n"
+             "!kicksocial @user  !slap @user\n"
+             "!superpunch @user  !yeet @user")
+    await _w(bot, uid,
+             "💖 Hearts\n"
+             "!heart @user — send hearts\n"
+             "!heart @user N — burst (VIP+)\n"
+             "!hearts @user N — burst (VIP+)")
+    if staff:
+        await _w(bot, uid,
+                 "🛡️ Staff Hearts\n"
+                 "!heart all — hearts to all\n"
+                 "!hearts all N — burst to all")
 
 
 # ---------------------------------------------------------------------------

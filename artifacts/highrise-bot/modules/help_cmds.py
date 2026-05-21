@@ -252,6 +252,7 @@ _MENU_1 = (
 
 _MENU_2 = (
     "More:\n"
+    "!commands emotes\n"
     "!commands mining\n"
     "!commands fishing\n"
     "!commands casino\n"
@@ -356,6 +357,24 @@ _SEARCHABLE: list[tuple[list[str], str, str]] = [
     (["audit"],                          "!audit [user] — player audit",    "owner"),
     (["commandissues"],                  "!commandissues — command check",  "owner"),
     (["launchcheck"],                    "!launchcheck — launch health",    "owner"),
+    # ── Emote commands ───────────────────────────────────────────────────────
+    (["emote", "emotes", "emotehelp"],  "!emotehelp — emote list & loops", "player"),
+    (["emoteinfo", "emote info"],       "!emoteinfo <name> — emote details","player"),
+    (["customemote", "custom emote"],   "!customemote e1 e2 — sequence",   "player"),
+    (["customtimed", "custom timed"],   "!customtimed e sec — timed loop", "player"),
+    (["stopcustom", "stop custom"],     "!stopcustom — stop custom loop",  "player"),
+    (["savecustom", "save custom"],     "!savecustom <pack> — save loop",  "player"),
+    (["playcustom", "play custom"],     "!playcustom <pack> — play saved", "player"),
+    (["custompacks", "custom packs"],   "!custompacks — list your packs",  "player"),
+    (["customhelp", "custom help"],     "!customhelp — custom loop help",  "player"),
+    (["sync", "syncstop", "syncing"],   "!sync @user — mirror emotes",     "player"),
+    (["synchelp", "sync help"],         "!synchelp — sync system help",    "player"),
+    (["heart", "hearts"],               "!heart @user — send hearts",      "player"),
+    (["social", "socialhelp", "socials"],"!socialhelp — social emotes (VIP+)","player"),
+    (["kiss", "slap", "bonk", "yeet"],  "!kiss !slap !bonk @user (VIP+)", "player"),
+    (["dancefloor", "dancefloorhelp"],  "!dancefloor — dancefloor system", "staff"),
+    (["botemote", "botemotehelp"],      "!botemotes — bot emote system",   "staff"),
+    (["setemote", "emote time"],        "!setemote <e> time <sec>",        "staff"),
 ]
 
 
@@ -403,6 +422,55 @@ _CMD_DETAIL: dict[str, tuple[str, str]] = {
     "collection": ("📚 !collection", "Usage: !collection\nView your full ore and fish collection book."),
     "streak":   ("🔥 !streak",   "Usage: !streak\nCheck your daily claim streak status."),
     "myitems":  ("🎒 !myitems",  "Usage: !myitems\nView your owned shop items."),
+    # ── Emote commands ───────────────────────────────────────────────────────
+    "emotehelp":   ("🎭 !emotehelp",
+                    "Usage: !emotehelp\n"
+                    "Role-aware emote menu.\n"
+                    "VIP+ see socials. Staff see all."),
+    "emoteinfo":   ("🎭 !emoteinfo",
+                    "Usage: !emoteinfo <name>\n"
+                    "Emote registry details: ID, timing, type."),
+    "customemote": ("💾 !customemote",
+                    "Usage: !customemote <e1 e2...>\n"
+                    "Loop emotes in sequence. Open to all."),
+    "customtimed": ("⏱️ !customtimed",
+                    "Usage: !customtimed <e sec e sec>\n"
+                    "Loop with custom per-emote timings."),
+    "customhelp":  ("💾 !customhelp",
+                    "Usage: !customhelp\n"
+                    "Custom emote loop reference. Open to all."),
+    "sync":        ("🔁 !sync",
+                    "Usage: !sync @user\n"
+                    "Mirror a player's emotes.\n"
+                    "Admin: !sync all / !sync all @user"),
+    "synchelp":    ("🔁 !synchelp",
+                    "Usage: !synchelp\n"
+                    "Sync system reference. Role-aware."),
+    "heart":       ("💖 !heart",
+                    "Usage: !heart @user | !heart @user N (VIP+)\n"
+                    "         | !heart all (staff)\n"
+                    "Send hearts to a player."),
+    "social":      ("⭐ !social",
+                    "Usage: !socialhelp for list\n"
+                    "Role: VIP+\n"
+                    "Social emotes: !kiss !slap !bonk @user etc."),
+    "socialhelp":  ("⭐ !socialhelp",
+                    "Usage: !socialhelp\n"
+                    "VIP+ see full social list.\n"
+                    "Non-VIP see: 🔒 VIP+ required."),
+    "dancefloor":  ("🪩 !dancefloor",
+                    "Usage: !dancefloorhelp for full guide\n"
+                    "Role: staff/admin/owner\n"
+                    "Dancefloor emote system."),
+    "botemote":    ("🤖 !botemote",
+                    "Usage: !botemote @bot <emote> | stop @bot\n"
+                    "Role: staff/admin/owner\n"
+                    "Control a bot's looping emote."),
+    "setemote":    ("⏱️ !setemote",
+                    "Usage: !setemote <emote> time <sec>\n"
+                    "Role: staff/admin/owner\n"
+                    "Permanently update emote timing.\n"
+                    "Ex: !setemote justvibing time 12"),
 }
 
 
@@ -468,6 +536,23 @@ async def handle_commands(bot: BaseBot, user: User, args: list[str]) -> None:
             await _w(bot, user.id, "🔒 Owner only.")
             return
         await _w(bot, user.id, _CAT["owner"])
+        return
+
+    if sub in ("emotes", "emote"):
+        await _w(bot, user.id,
+                 "🎭 Emotes\n"
+                 "!emotehelp — emote list & loops\n"
+                 "!customhelp — custom loops\n"
+                 "!synchelp — sync dancing\n"
+                 "!socialhelp — social emotes (VIP+)\n"
+                 "!heart @user — send hearts")
+        if can_moderate(user.username):
+            await _w(bot, user.id,
+                     "🛡️ Staff Emotes\n"
+                     "!dancefloorhelp  !botemotehelp\n"
+                     "!setemote <emote> time <sec>\n"
+                     "!sync all  !syncstop all\n"
+                     "!syncpersist on|off")
         return
 
     # Player categories
