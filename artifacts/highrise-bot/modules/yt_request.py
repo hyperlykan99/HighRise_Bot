@@ -49,6 +49,7 @@ from typing import TYPE_CHECKING, Callable
 import config as _config
 import database as db
 from modules.permissions import is_admin, is_owner, is_manager
+from modules.msg_utils import safe_send as _safe_send_mu
 
 # DB file path — config.DB_PATH reads SHARED_DB_PATH env var (default highrise_hangout.db)
 _DB_PATH: str = _config.DB_PATH
@@ -72,7 +73,7 @@ if TYPE_CHECKING:
 
 async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
     try:
-        await bot.highrise.send_whisper(uid, msg[:249])
+        await _safe_send_mu(bot, msg, whisper_target=uid, max_chars=240)
     except Exception:
         pass
 
@@ -1959,12 +1960,14 @@ async def handle_play(bot: "BaseBot", user: "User", args: list[str]) -> None:
         _yt_pending_ts[user.id] = time.time()
 
     max_min = _MAX_DURATION_SECS // 60
-    lines = ["🎵 Top results — reply !pick <1-5>:"]
+    await _w(
+        bot, user.id,
+        f"🔎 {query[:55]}\n!pick 1-{len(results)} to select | max {max_min}m",
+    )
     for i, r in enumerate(results, 1):
         flag = " ⚠️" if r["duration_secs"] > _MAX_DURATION_SECS else ""
-        lines.append(f"{i}. {r['title'][:44]} [{r['duration']}]{flag}")
-    lines.append(f"(Max {max_min}m per track)")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+        await _w(bot, user.id, f"{i}. {r['title'][:60]}\n⏱ {r['duration']}{flag}")
+        await asyncio.sleep(0.1)
 
 
 async def handle_now(bot: "BaseBot", user: "User", _args: list[str]) -> None:
@@ -2173,7 +2176,7 @@ async def handle_ytqueue(bot: "BaseBot", user: "User", _args: list[str]) -> None
         err   = f" [{j['error'][:18]}]" if j["status"] == "error" and j["error"] else ""
         lines.append(f"{icon} #{j['id']} @{j['username']}{title}{err}")
 
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    await _w(bot, user.id, "\n".join(lines))
 
 
 async def handle_ytstatus(bot: "BaseBot", user: "User", _args: list[str]) -> None:
@@ -2196,10 +2199,10 @@ async def handle_ytstatus(bot: "BaseBot", user: "User", _args: list[str]) -> Non
 
     await _w(
         bot, user.id,
-        (f"📻 YT Request Status\n"
-         f"SFTP: {sftp_ok} {host_d}:{cfg['port']}\n"
-         f"path: {folder}  API: {api_ok}\n"
-         f"station: {station}  playlist: {plist}  CD: {cd}s")[:249],
+        f"📻 YT Request Status\n"
+        f"SFTP: {sftp_ok} {host_d}:{cfg['port']}\n"
+        f"path: {folder}  API: {api_ok}\n"
+        f"station: {station}  playlist: {plist}  CD: {cd}s",
     )
 
     # ── Per-status counts from DB ──────────────────────────────────────────────
@@ -2223,7 +2226,7 @@ async def handle_ytstatus(bot: "BaseBot", user: "User", _args: list[str]) -> Non
     _order = ("pending", "downloading", "uploading", "staged", "ready", "playing", "error")
     _parts = [f"{s}: {_counts.get(s, 0)}" for s in _order]
     _parts.append(f"played today: {_played_today}")
-    await _w(bot, user.id, ("📋 Status counts\n" + "\n".join(_parts))[:249])
+    await _w(bot, user.id, "📋 Status counts\n" + "\n".join(_parts))
 
 
 async def handle_ytnow(bot: "BaseBot", user: "User", _args: list[str]) -> None:
@@ -2323,13 +2326,14 @@ async def handle_request(bot: "BaseBot", user: "User", args: list[str]) -> None:
         _yt_pending_ts[user.id] = time.time()
 
     max_min = _MAX_DURATION_SECS // 60
-    lines   = [f"🎵 Results — reply !pick <1-5>:"]
+    await _w(
+        bot, user.id,
+        f"🔎 {query[:55]}\n!pick 1-{len(results)} to select | max {max_min}m",
+    )
     for i, r in enumerate(results, 1):
-        flag = " ⚠️long" if r["duration_secs"] > _MAX_DURATION_SECS else ""
-        lines.append(f"{i}. {r['title'][:44]} [{r['duration']}]{flag}")
-    lines.append(f"(Max {max_min}m per track)")
-
-    await _w(bot, user.id, "\n".join(lines)[:249])
+        flag = " ⚠️" if r["duration_secs"] > _MAX_DURATION_SECS else ""
+        await _w(bot, user.id, f"{i}. {r['title'][:60]}\n⏱ {r['duration']}{flag}")
+        await asyncio.sleep(0.1)
 
 
 async def handle_ytpick(bot: "BaseBot", user: "User", args: list[str]) -> None:
@@ -3579,11 +3583,11 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list[str]) -> No
     thresh   = _radio_voteskip_threshold()
     await _w(
         bot, user.id,
-        (f"📻 Radio Commands:\n"
-         f"🎵 !play <song/URL> ({cost_str}) | !queue (!q) | !nowplaying\n"
-         f"👎 !voteskip ({thresh} votes needed) | !history\n"
-         f"🎛️ !vibe chill|party|status\n"
-         f"🔒 Staff: !skip | !remove <#> | !clearqueue | !vibe <mode>")[:249],
+        f"📻 Radio Commands:\n"
+        f"🎵 !play <song/URL> ({cost_str}) | !queue (!q) | !nowplaying\n"
+        f"👎 !voteskip ({thresh} votes needed) | !history\n"
+        f"🎛️ !vibe chill|party|status\n"
+        f"🔒 Staff: !skip | !remove <#> | !clearqueue | !vibe <mode>",
     )
 
 

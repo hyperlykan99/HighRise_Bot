@@ -45,6 +45,7 @@ import modules.request_queue        as rq
 import modules.playback_engine      as engine
 from modules.permissions import is_admin, is_owner, can_moderate
 from modules.luxe import get_luxe_balance, deduct_luxe_balance, log_luxe_transaction
+from modules.msg_utils import safe_send as _safe_send_mu
 
 if TYPE_CHECKING:
     from highrise import BaseBot, User
@@ -284,7 +285,7 @@ def _clean_title(title: str) -> str:
 
 async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
     try:
-        await bot.highrise.send_whisper(uid, msg[:249])
+        await _safe_send_mu(bot, msg, whisper_target=uid, max_chars=240)
     except Exception:
         pass
 
@@ -1058,7 +1059,7 @@ async def handle_history(bot: "BaseBot", user: "User", _args: list) -> None:
         t = (row.get("title") or "?")[:28]
         u = (row.get("username") or "?")[:12]
         lines.append(f"• {t} — @{u}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    await _w(bot, user.id, "\n".join(lines))
 
 
 # ─── !voteskip ────────────────────────────────────────────────────────────────
@@ -1133,7 +1134,7 @@ async def handle_vibes(bot: "BaseBot", user: "User", _args: list) -> None:
         marker  = " ◀" if key == current else ""
         names.append(f"{display}{marker}")
 
-    msg = ("🎶 Vibes: " + ", ".join(names) + " | !vibe <name>")[:249]
+    msg = "🎶 Vibes: " + ", ".join(names) + " | !vibe <name>"
     await _w(bot, user.id, msg)
 
 

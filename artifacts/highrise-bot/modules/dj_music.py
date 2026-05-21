@@ -65,6 +65,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import database as db
 from modules.permissions import can_manage_games, is_admin, is_owner
+from modules.msg_utils import safe_send as _safe_send_mu
 
 if TYPE_CHECKING:
     from highrise import BaseBot, User
@@ -782,7 +783,7 @@ def _peek_search(user_id: str) -> list[dict] | None:
 
 async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
     try:
-        await bot.highrise.send_whisper(uid, msg[:249])
+        await _safe_send_mu(bot, msg, whisper_target=uid, max_chars=240)
     except Exception:
         pass
 
@@ -3376,44 +3377,44 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
     # Section 1 — Search & Queue (public)
     await _w(
         bot, user.id,
-        ("🎵 DJ Help 1/4 — Search & Queue:\n"
-         "!request <song> → !pick <1-5>\n"
-         "!np | !queue | !upnext | !skipvote\n"
-         "!recent | !djhistory | !toprequests\n"
-         "!songinfo <#> | !requeststatus\n"
-         "!myrequests | !cancelrequest <#> | !djlimits")[:249],
+        "🎵 DJ Help 1/4 — Search & Queue:\n"
+        "!request <song> → !pick <1-5>\n"
+        "!np | !queue | !upnext | !skipvote\n"
+        "!recent | !djhistory | !toprequests\n"
+        "!songinfo <#> | !requeststatus\n"
+        "!myrequests | !cancelrequest <#> | !djlimits",
     )
     # Section 2 — Priority & Social (public)
     await _w(
         bot, user.id,
-        ("🎵 DJ Help 2/4 — Priority & Social:\n"
-         "💰 !priorityrequest | !djprice | !setdjprice\n"
-         "⭐ !viprequest (subscribers free)\n"
-         "!tipdj <amt> | !djleaderboard | !djstats\n"
-         "!priorityqueue | !djvibes | !djreport <#>\n"
-         "!dedicate <msg> | !favorite | !unfavorite\n"
-         "!favorites | !like | !dislike | !songrating")[:249],
+        "🎵 DJ Help 2/4 — Priority & Social:\n"
+        "💰 !priorityrequest | !djprice | !setdjprice\n"
+        "⭐ !viprequest (subscribers free)\n"
+        "!tipdj <amt> | !djleaderboard | !djstats\n"
+        "!priorityqueue | !djvibes | !djreport <#>\n"
+        "!dedicate <msg> | !favorite | !unfavorite\n"
+        "!favorites | !like | !dislike | !songrating",
     )
     # Section 3 — Radio & Controls (public/admin mix)
     await _w(
         bot, user.id,
-        ("🎵 DJ Help 3/4 — Radio & Controls:\n"
-         "📻 !radio | !setradio <url> | !radioconfig\n"
-         "⚙️ !setradiotype | !setradiomount | !setradiometadata\n"
-         "🌐 !webplayer | !setwebplayer | !radiostatus\n"
-         "📄 !nowpage | !setnowpage\n"
-         "!djstatus | !repeat | !shuffle | !autoplay\n"
-         "!djlock | !stopmusic | !djannounce")[:249],
+        "🎵 DJ Help 3/4 — Radio & Controls:\n"
+        "📻 !radio | !setradio <url> | !radioconfig\n"
+        "⚙️ !setradiotype | !setradiomount | !setradiometadata\n"
+        "🌐 !webplayer | !setwebplayer | !radiostatus\n"
+        "📄 !nowpage | !setnowpage\n"
+        "!djstatus | !repeat | !shuffle | !autoplay\n"
+        "!djlock | !stopmusic | !djannounce",
     )
     # Section 4 — Admin & Diagnostics (admin+)
     await _w(
         bot, user.id,
-        ("🎵 DJ Help 4/4 — Admin & Diagnostics:\n"
-         "!djclear | !djremove <#> | !djconfig\n"
-         "!djcheck | !djhealth | !djresetstate\n"
-         "!djbackup | !djtestall\n"
-         "!djban | !djunban | !djbanlist\n"
-         "!songban | !songunban | !songbanlist\n"
-         "!setrequestcooldown | !setmaxqueue | !setmaxuserqueue\n"
-         "🎵 !ytrequest <url> | !ytqueue | !ytstatus")[:249],
+        "🎵 DJ Help 4/4 — Admin & Diagnostics:\n"
+        "!djclear | !djremove <#> | !djconfig\n"
+        "!djcheck | !djhealth | !djresetstate\n"
+        "!djbackup | !djtestall\n"
+        "!djban | !djunban | !djbanlist\n"
+        "!songban | !songunban | !songbanlist\n"
+        "!setrequestcooldown | !setmaxqueue | !setmaxuserqueue\n"
+        "🎵 !ytrequest <url> | !ytqueue | !ytstatus",
     )
