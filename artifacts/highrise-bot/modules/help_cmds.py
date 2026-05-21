@@ -564,11 +564,22 @@ async def handle_commands(bot: BaseBot, user: User, args: list[str]) -> None:
             return
         await _w(bot, user.id,
                  "📻 Radio\n"
-                 "!radio — stream URL\n"
-                 "!np / !queue — now playing / queue\n"
-                 "!request <song> → !pick 1-5\n"
-                 "!ytrequest <URL> — direct upload\n"
-                 "!skipvote  !vibe status  !radiohelp")
+                 "!np / !queue (!q) — now playing / queue\n"
+                 "!play <song/URL> | !pick 1-5\n"
+                 "!voteskip  !history  !vibe status\n"
+                 "!radiohelp — full radio guide")
+        await _w(bot, user.id,
+                 "⭐ Favorites & Ratings\n"
+                 "!fav — save now-playing song\n"
+                 "!favs — view favorites\n"
+                 "!unfav <#> — remove by number\n"
+                 "!like / !dislike / !ratings")
+        await _w(bot, user.id,
+                 "📂 VIP Playlists\n"
+                 "!playlist create <name>\n"
+                 "!playlist songs/add/addcurrent <name>\n"
+                 "!playlist remove/delete/play <name>\n"
+                 "!buyvip — unlock VIP")
         if can_moderate(user.username):
             await _w(bot, user.id,
                      "🛠️ Staff Radio\n"

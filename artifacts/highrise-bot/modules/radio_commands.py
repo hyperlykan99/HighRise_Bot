@@ -105,6 +105,34 @@ def _azura_track() -> "dict | None":
     }
 
 
+def _current_track_full() -> "dict | None":
+    """Return full current-track metadata for playlist/favorites ops, including AzuraCast IDs."""
+    np = azura.fetch_nowplaying()
+    if not np:
+        return None
+    song  = ((np.get("now_playing") or {}).get("song")  or {})
+    media = ((np.get("now_playing") or {}).get("media") or {})
+    title = (song.get("title") or "").strip()
+    if not title:
+        return None
+    artist      = (song.get("artist") or "").strip()
+    azura_sid   = (song.get("unique_id") or "").strip()
+    azura_fid   = str(media.get("id") or "").strip()
+    cp          = rq.currently_playing()
+    youtube_url = (cp.get("url") or "") if cp else ""
+    video_id    = (cp.get("video_id") or "") if cp else ""
+    return {
+        "title":         title,
+        "artist":        artist,
+        "key":           title.lower()[:150],
+        "youtube_url":   youtube_url,
+        "video_id":      video_id,
+        "azura_song_id": azura_sid,
+        "azura_file_id": azura_fid,
+        "source_type":   "youtube" if youtube_url else "local",
+    }
+
+
 def _fav_get(user_id: str, limit: int = 10) -> list:
     try:
         with db.db_conn() as conn:
@@ -1803,7 +1831,7 @@ async def handle_topsongs(bot: "BaseBot", user: "User", _args: list) -> None:
     for i, r in enumerate(rows, 1):
         name = r["key"][:35].title()
         lines.append(f"{i}. {name} — 👍 {r['count']}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    await _w(bot, user.id, "\n".join(lines))
 
 
 # ─── !toprequesters ───────────────────────────────────────────────────────────
@@ -1816,12 +1844,12 @@ async def handle_toprequesters(bot: "BaseBot", user: "User", _args: list) -> Non
         return
     lines = ["🏆 Top Requesters"]
     for i, r in enumerate(rows, 1):
-        lines.append(f"{i}. @{r['username']} — 👍 {r['count']}")
+        lines.append(f"{i}. @\u200b{r['username']} — 👍 {r['count']}")
     print(
         f"{_LOG} stage=top_requester_update"
         f" user={user.username!r} results={len(rows)}"
     )
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    await _w(bot, user.id, "\n".join(lines))
 
 
 # ─── !voters ──────────────────────────────────────────────────────────────────
@@ -1852,10 +1880,10 @@ async def handle_voters(bot: "BaseBot", user: "User", _args: list) -> None:
     lines = [f"🗳 Votes ({track['title'][:35]}):"]
     for r in rows[:12]:
         icon = "👍" if r[1] == "like" else "👎"
-        lines.append(f"{icon} @{r[0][:15]}")
+        lines.append(f"{icon} @\u200b{r[0][:15]}")
     if len(rows) > 12:
         lines.append(f"…+{len(rows)-12} more")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    await _w(bot, user.id, "\n".join(lines))
 
 
 # ─── !likeslist ───────────────────────────────────────────────────────────────
@@ -1883,9 +1911,9 @@ async def handle_likeslist(bot: "BaseBot", user: "User", _args: list) -> None:
     if not rows:
         await _w(bot, user.id, f"👍 No likes yet for: {track['title'][:50]}")
         return
-    names = ", ".join(f"@{r[0]}" for r in rows[:15])
+    names = ", ".join(f"@\u200b{r[0]}" for r in rows[:15])
     suffix = f" (+{len(rows)-15} more)" if len(rows) > 15 else ""
-    await _w(bot, user.id, f"👍 Liked by: {names}{suffix}"[:249])
+    await _w(bot, user.id, f"👍 Liked by: {names}{suffix}")
 
 
 # ─── !dislikeslist ────────────────────────────────────────────────────────────
@@ -1913,9 +1941,9 @@ async def handle_dislikeslist(bot: "BaseBot", user: "User", _args: list) -> None
     if not rows:
         await _w(bot, user.id, f"👎 No dislikes yet for: {track['title'][:50]}")
         return
-    names = ", ".join(f"@{r[0]}" for r in rows[:15])
+    names = ", ".join(f"@\u200b{r[0]}" for r in rows[:15])
     suffix = f" (+{len(rows)-15} more)" if len(rows) > 15 else ""
-    await _w(bot, user.id, f"👎 Disliked by: {names}{suffix}"[:249])
+    await _w(bot, user.id, f"👎 Disliked by: {names}{suffix}")
 
 
 # ─── !favorite / !fav / !addtoplaylist ───────────────────────────────────────
@@ -1957,32 +1985,48 @@ async def handle_unfavorite(bot: "BaseBot", user: "User", _args: list) -> None:
 # ─── !favorites / !favs / !myplaylist ────────────────────────────────────────
 
 async def handle_favorites(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!favorites / !favs / !myplaylist — list your saved songs (newest first)."""
+    """!favorites / !favs — list your saved songs, 4 per page (newest first)."""
     _rlog("favorites", "handle_favorites", user.username)
-    rows = _fav_get(user.id, limit=8)
+    rows = _fav_get(user.id, limit=20)
     if not rows:
-        await _w(bot, user.id, "⭐ No favorites yet! Use !favorite while a song plays.")
+        await _w(bot, user.id, "⭐ No favorites yet! Use !fav while a song plays.")
         return
-    lines = [f"⭐ Your favorites ({len(rows)}):"]
+    items: list[str] = []
     for i, r in enumerate(rows, 1):
-        lines.append(f"{i}. {r['title'][:52]}")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+        t = (r.get("title") or "?")[:34]
+        a = (r.get("artist") or "")[:16]
+        items.append(f"{i}. {t}" + (f" — {a}" if a else ""))
+    chunk_size  = 4
+    chunks      = [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+    total_pages = len(chunks)
+    for pg, chunk in enumerate(chunks, 1):
+        hdr = f"⭐ Favorites {pg}/{total_pages}" if total_pages > 1 else "⭐ Your Favorites"
+        await _w(bot, user.id, hdr + "\n" + "\n".join(chunk))
+        if pg < total_pages:
+            await asyncio.sleep(0.1)
 
 
 # ─── !removefavorite <number> ────────────────────────────────────────────────
 
 async def handle_removefavorite(bot: "BaseBot", user: "User", args: list) -> None:
-    """!removefavorite <number> — remove a saved favorite by list position."""
+    """!removefavorite / !unfav <#> — remove a saved favorite by list position."""
     _rlog("removefavorite", "handle_removefavorite", user.username)
     if len(args) < 2 or not args[1].isdigit():
-        rows = _fav_get(user.id, limit=8)
+        rows = _fav_get(user.id, limit=20)
         if not rows:
             await _w(bot, user.id, "⭐ No favorites yet.")
             return
-        lines = ["⭐ Your favorites (use !removefavorite <#>):"]
+        items: list[str] = []
         for i, r in enumerate(rows, 1):
-            lines.append(f"{i}. {r['title'][:52]}")
-        await _w(bot, user.id, "\n".join(lines)[:249])
+            items.append(f"{i}. {(r.get('title') or '?')[:34]}")
+        chunk_size  = 4
+        chunks      = [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+        total_pages = len(chunks)
+        for pg, chunk in enumerate(chunks, 1):
+            hdr = f"⭐ Favs {pg}/{total_pages}" if total_pages > 1 else "⭐ Your Favorites"
+            await _w(bot, user.id, hdr + " (!unfav <#>)\n" + "\n".join(chunk))
+            if pg < total_pages:
+                await asyncio.sleep(0.1)
         return
     pos   = int(args[1])
     title = _fav_remove_by_pos(user.id, pos)
@@ -2088,6 +2132,448 @@ async def handle_myrequests(bot: "BaseBot", user: "User", _args: list) -> None:
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# VIP PERSONAL RADIO PLAYLISTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_PL_MAX      = 5    # max playlists per VIP user
+_PL_SONG_MAX = 25   # max songs per playlist
+_PL_NAME_LEN = 24   # max playlist name length
+_PL_NAME_RE  = re.compile(r"^[\w][\w\s\-]*$")
+
+
+def _pl_name_ok(name: str) -> bool:
+    name = name.strip()
+    return bool(_PL_NAME_RE.match(name)) and 1 <= len(name) <= _PL_NAME_LEN
+
+
+def _pl_is_vip(user_id: str, username: str) -> bool:
+    """True for VIP, manager, admin, or owner."""
+    return _is_staff(username) or db.owns_item(user_id, "vip")
+
+
+def _pl_list(user_id: str) -> list:
+    """Return [{id, name, count}, …] for user's playlists."""
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT p.id, p.name, COUNT(s.id) AS cnt "
+                "FROM radio_playlists p "
+                "LEFT JOIN radio_playlist_songs s ON s.playlist_id = p.id "
+                "WHERE p.user_id=? GROUP BY p.id ORDER BY p.created_at ASC",
+                (user_id,),
+            ).fetchall()
+            return [{"id": r[0], "name": r[1], "count": r[2]} for r in rows]
+    except Exception:
+        return []
+
+
+def _pl_get(user_id: str, name: str) -> "dict | None":
+    """Get playlist by name (case-insensitive). Returns {id, name} or None."""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT id, name FROM radio_playlists "
+                "WHERE user_id=? AND LOWER(name)=LOWER(?)",
+                (user_id, name.strip()),
+            ).fetchone()
+            return {"id": row[0], "name": row[1]} if row else None
+    except Exception:
+        return None
+
+
+def _pl_create(user_id: str, username: str, name: str) -> str:
+    """Returns 'created'|'limit'|'duplicate'|'invalid'|'error'."""
+    name = name.strip()
+    if not _pl_name_ok(name):
+        return "invalid"
+    if len(_pl_list(user_id)) >= _PL_MAX:
+        return "limit"
+    if _pl_get(user_id, name):
+        return "duplicate"
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "INSERT INTO radio_playlists (user_id, username, name) VALUES (?,?,?)",
+                (user_id, username.lower(), name),
+            )
+        return "created"
+    except Exception:
+        return "error"
+
+
+def _pl_delete(user_id: str, name: str) -> bool:
+    pl = _pl_get(user_id, name)
+    if not pl:
+        return False
+    try:
+        with db.db_conn() as conn:
+            conn.execute("DELETE FROM radio_playlists WHERE id=?", (pl["id"],))
+        return True
+    except Exception:
+        return False
+
+
+def _pl_rename(user_id: str, old: str, new: str) -> str:
+    """Returns 'renamed'|'not_found'|'duplicate'|'invalid'|'error'."""
+    new = new.strip()
+    if not _pl_name_ok(new):
+        return "invalid"
+    pl = _pl_get(user_id, old)
+    if not pl:
+        return "not_found"
+    if _pl_get(user_id, new):
+        return "duplicate"
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "UPDATE radio_playlists SET name=?, updated_at=datetime('now') WHERE id=?",
+                (new, pl["id"]),
+            )
+        return "renamed"
+    except Exception:
+        return "error"
+
+
+def _pl_songs(playlist_id: int, limit: int = 25) -> list:
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, source_type, title, artist, youtube_url "
+                "FROM radio_playlist_songs WHERE playlist_id=? "
+                "ORDER BY position ASC, added_at ASC LIMIT ?",
+                (playlist_id, limit),
+            ).fetchall()
+            return [
+                {"id": r[0], "source_type": r[1], "title": r[2],
+                 "artist": r[3], "youtube_url": r[4]}
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
+def _pl_song_count(playlist_id: int) -> int:
+    try:
+        with db.db_conn() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM radio_playlist_songs WHERE playlist_id=?",
+                (playlist_id,),
+            ).fetchone()[0]
+    except Exception:
+        return 0
+
+
+def _pl_song_add(
+    playlist_id: int,
+    user_id: str,
+    source_type: str,
+    title: str,
+    artist: str,
+    youtube_url: str,
+    video_id: str,
+    azura_song_id: str,
+    azura_file_id: str,
+) -> str:
+    """Returns 'added'|'duplicate'|'limit'|'error'."""
+    if _pl_song_count(playlist_id) >= _PL_SONG_MAX:
+        return "limit"
+    try:
+        with db.db_conn() as conn:
+            if youtube_url:
+                dup = conn.execute(
+                    "SELECT id FROM radio_playlist_songs "
+                    "WHERE playlist_id=? AND youtube_url=?",
+                    (playlist_id, youtube_url),
+                ).fetchone()
+            elif azura_song_id:
+                dup = conn.execute(
+                    "SELECT id FROM radio_playlist_songs "
+                    "WHERE playlist_id=? AND azura_song_id=? AND azura_song_id!=''",
+                    (playlist_id, azura_song_id),
+                ).fetchone()
+            else:
+                dup = conn.execute(
+                    "SELECT id FROM radio_playlist_songs "
+                    "WHERE playlist_id=? AND LOWER(title)=LOWER(?)"
+                    " AND LOWER(artist)=LOWER(?)",
+                    (playlist_id, title, artist),
+                ).fetchone()
+            if dup:
+                return "duplicate"
+            pos = _pl_song_count(playlist_id)
+            conn.execute(
+                "INSERT INTO radio_playlist_songs "
+                "(playlist_id, user_id, source_type, title, artist, youtube_url, "
+                " video_id, azura_song_id, azura_file_id, position) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (playlist_id, user_id, source_type, title[:120], artist[:80],
+                 youtube_url, video_id, azura_song_id, azura_file_id, pos),
+            )
+        return "added"
+    except Exception:
+        return "error"
+
+
+def _pl_song_remove(playlist_id: int, pos: int) -> "str | None":
+    """Remove nth (1-indexed) song. Returns title or None."""
+    songs = _pl_songs(playlist_id)
+    if pos < 1 or pos > len(songs):
+        return None
+    song = songs[pos - 1]
+    try:
+        with db.db_conn() as conn:
+            conn.execute("DELETE FROM radio_playlist_songs WHERE id=?", (song["id"],))
+        return song["title"]
+    except Exception:
+        return None
+
+
+_YT_RE_PL = re.compile(
+    r"^https?://(?:www\.)?"
+    r"(?:youtube\.com/watch\?(?:.*&)?v=[\w\-]{11}"
+    r"|youtu\.be/[\w\-]{11}"
+    r"|youtube\.com/shorts/[\w\-]{11})"
+)
+
+
+def _is_yt_url_pl(url: str) -> bool:
+    return bool(_YT_RE_PL.match(url.strip()))
+
+
+# ─── !playlist / !pl ──────────────────────────────────────────────────────────
+
+async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
+    """!playlist / !pl — VIP personal radio playlists.
+    Subcommands: create, songs, add, addcurrent, rename, remove, delete, play.
+    No subcommand: list your playlists.
+    """
+    sub   = args[1].lower() if len(args) > 1 else ""
+    uid   = user.id
+    uname = user.username
+
+    _WRITE_SUBS = frozenset(("create", "add", "addcurrent", "rename",
+                              "remove", "delete", "del", "play"))
+    _ALL_SUBS   = _WRITE_SUBS | {"songs"}
+
+    # ── No sub / unrecognised → list playlists ───────────────────────────────
+    if sub not in _ALL_SUBS:
+        playlists = _pl_list(uid)
+        if not playlists:
+            await _w(bot, uid,
+                     "📂 No playlists yet.\n"
+                     "VIP: !playlist create <name>\n"
+                     "!buyvip to unlock VIP.")
+            return
+        items = [f"{i}. {p['name'][:22]} ({p['count']} songs)"
+                 for i, p in enumerate(playlists, 1)]
+        chunks = [items[i : i + 4] for i in range(0, len(items), 4)]
+        for pg, chunk in enumerate(chunks, 1):
+            hdr = (f"📂 Playlists {pg}/{len(chunks)}"
+                   if len(chunks) > 1 else "📂 Your Playlists")
+            await _w(bot, uid, hdr + "\n" + "\n".join(chunk))
+            if pg < len(chunks):
+                await asyncio.sleep(0.1)
+        return
+
+    # ── VIP gate for all write operations ────────────────────────────────────
+    if sub in _WRITE_SUBS and not _pl_is_vip(uid, uname):
+        await _w(bot, uid,
+                 "🔒 VIP only. !buyvip to create & manage radio playlists.")
+        return
+
+    # ── !playlist create <name> ──────────────────────────────────────────────
+    if sub == "create":
+        if len(args) < 3:
+            await _w(bot, uid, "Usage: !playlist create <name>  (max 24 chars)")
+            return
+        name   = " ".join(args[2:])
+        result = _pl_create(uid, uname, name)
+        msgs = {
+            "created":   f"✅ Created playlist: {name[:24]}",
+            "duplicate": f"⭐ Playlist '{name[:24]}' already exists.",
+            "limit":     f"❌ Max {_PL_MAX} playlists reached.",
+            "invalid":   "⚠️ Name: 1-24 chars, letters/numbers/spaces/-/_",
+            "error":     "❌ Could not create playlist. Try again.",
+        }
+        await _w(bot, uid, msgs.get(result, "❌ Error."))
+        return
+
+    # ── Remaining subs need playlist name ────────────────────────────────────
+    if len(args) < 3:
+        await _w(bot, uid, f"Usage: !playlist {sub} <playlist name>")
+        return
+
+    # ── !playlist songs <name> ───────────────────────────────────────────────
+    if sub == "songs":
+        pl = _pl_get(uid, " ".join(args[2:]))
+        if not pl:
+            await _w(bot, uid, f"❌ Playlist not found: {' '.join(args[2:])[:22]}")
+            return
+        songs = _pl_songs(pl["id"])
+        if not songs:
+            await _w(bot, uid,
+                     f"📂 {pl['name'][:22]} is empty.\n"
+                     "!playlist add <name> <YouTube URL>")
+            return
+        items = []
+        for i, s in enumerate(songs, 1):
+            t   = (s.get("title") or "?")[:28]
+            src = "📺" if s.get("source_type") == "youtube" else "📻"
+            items.append(f"{i}. {src} {t}")
+        chunks = [items[i : i + 4] for i in range(0, len(items), 4)]
+        for pg, chunk in enumerate(chunks, 1):
+            hdr = (f"📂 {pl['name'][:17]} {pg}/{len(chunks)}"
+                   if len(chunks) > 1 else f"📂 {pl['name'][:24]}")
+            await _w(bot, uid, hdr + "\n" + "\n".join(chunk))
+            if pg < len(chunks):
+                await asyncio.sleep(0.1)
+        return
+
+    # ── !playlist add <name> <YouTube URL> ───────────────────────────────────
+    if sub == "add":
+        if len(args) < 4:
+            await _w(bot, uid,
+                     "Usage: !playlist add <name> <YouTube URL>\n"
+                     "Tip: !playlist addcurrent <name> saves now-playing song.")
+            return
+        url     = args[-1].strip()
+        pl_name = " ".join(args[2:-1])
+        if not _is_yt_url_pl(url):
+            await _w(bot, uid,
+                     "⚠️ Please provide a valid YouTube URL.\n"
+                     "Tip: !play <song> first, then !playlist addcurrent <name>.")
+            return
+        pl = _pl_get(uid, pl_name)
+        if not pl:
+            await _w(bot, uid, f"❌ Playlist not found: {pl_name[:24]}")
+            return
+        result = _pl_song_add(pl["id"], uid, "youtube", "(YouTube)", "",
+                               url, "", "", "")
+        msgs = {
+            "added":     f"✅ Added to {pl['name'][:22]}.",
+            "duplicate": f"⭐ Already in {pl['name'][:22]}.",
+            "limit":     f"❌ Max {_PL_SONG_MAX} songs per playlist.",
+            "error":     "❌ Could not add song. Try again.",
+        }
+        await _w(bot, uid, msgs.get(result, "❌ Error."))
+        return
+
+    # ── !playlist addcurrent <name> ───────────────────────────────────────────
+    if sub == "addcurrent":
+        pl = _pl_get(uid, " ".join(args[2:]))
+        if not pl:
+            await _w(bot, uid, f"❌ Playlist not found: {' '.join(args[2:])[:22]}")
+            return
+        loop  = asyncio.get_running_loop()
+        track = await loop.run_in_executor(None, _current_track_full)
+        if not track:
+            await _w(bot, uid, "❌ Nothing is currently playing.")
+            return
+        result = _pl_song_add(
+            pl["id"], uid,
+            track["source_type"], track["title"], track["artist"],
+            track["youtube_url"], track["video_id"],
+            track["azura_song_id"], track["azura_file_id"],
+        )
+        t = track["title"][:36]
+        msgs = {
+            "added":     f"✅ Added to {pl['name'][:20]}: {t}",
+            "duplicate": f"⭐ Already in {pl['name'][:20]}: {t}",
+            "limit":     f"❌ Max {_PL_SONG_MAX} songs per playlist.",
+            "error":     "❌ Could not add song. Try again.",
+        }
+        await _w(bot, uid, msgs.get(result, "❌ Error."))
+        return
+
+    # ── !playlist rename <old> <new> ──────────────────────────────────────────
+    if sub == "rename":
+        if len(args) < 4:
+            await _w(bot, uid, "Usage: !playlist rename <old name> <new name>")
+            return
+        old_name = args[2]
+        new_name = " ".join(args[3:])
+        result   = _pl_rename(uid, old_name, new_name)
+        msgs = {
+            "renamed":   f"✅ Renamed: {old_name[:16]} → {new_name[:16]}",
+            "not_found": f"❌ Playlist not found: {old_name[:22]}",
+            "duplicate": f"⭐ Name '{new_name[:20]}' already exists.",
+            "invalid":   "⚠️ Name: 1-24 chars, letters/numbers/spaces/-/_",
+            "error":     "❌ Could not rename. Try again.",
+        }
+        await _w(bot, uid, msgs.get(result, "❌ Error."))
+        return
+
+    # ── !playlist remove <name> <#> ───────────────────────────────────────────
+    if sub == "remove":
+        if len(args) < 4 or not args[-1].isdigit():
+            await _w(bot, uid, "Usage: !playlist remove <name> <#>")
+            return
+        pos     = int(args[-1])
+        pl_name = " ".join(args[2:-1])
+        pl      = _pl_get(uid, pl_name)
+        if not pl:
+            await _w(bot, uid, f"❌ Playlist not found: {pl_name[:22]}")
+            return
+        title = _pl_song_remove(pl["id"], pos)
+        if title:
+            await _w(bot, uid,
+                     f"✅ Removed #{pos} from {pl['name'][:17]}: {title[:30]}")
+        else:
+            await _w(bot, uid, f"❌ No song #{pos} in {pl['name'][:22]}.")
+        return
+
+    # ── !playlist delete <name> ───────────────────────────────────────────────
+    if sub in ("delete", "del"):
+        pl_name = " ".join(args[2:])
+        if _pl_delete(uid, pl_name):
+            await _w(bot, uid, f"✅ Deleted playlist: {pl_name[:24]}")
+        else:
+            await _w(bot, uid, f"❌ Playlist not found: {pl_name[:24]}")
+        return
+
+    # ── !playlist play <name> ─────────────────────────────────────────────────
+    if sub == "play":
+        pl = _pl_get(uid, " ".join(args[2:]))
+        if not pl:
+            await _w(bot, uid, f"❌ Playlist not found: {' '.join(args[2:])[:22]}")
+            return
+        songs    = _pl_songs(pl["id"])
+        yt_songs = [s for s in songs if s.get("youtube_url")]
+        skipped  = len(songs) - len(yt_songs)
+        if not yt_songs:
+            await _w(bot, uid,
+                     f"⚠️ No YouTube songs in {pl['name'][:20]}.\n"
+                     "Add via !playlist add <name> <YouTube URL>.")
+            return
+        skip_note = f"\n⚠️ Skipping {skipped} local song(s)." if skipped else ""
+        await _w(bot, uid,
+                 f"📂 Queueing {len(yt_songs)} song(s) from {pl['name'][:18]}…"
+                 + skip_note)
+        queued = 0
+        for s in yt_songs:
+            try:
+                await _submit_url(
+                    bot, user, s["youtube_url"],
+                    metadata={"title": s["title"], "artist": s.get("artist", "")},
+                )
+                queued += 1
+                await asyncio.sleep(1.5)
+            except Exception as _exc:
+                print(f"{_LOG} playlist_play song_error: {_exc!r}")
+                break
+        await _w(bot, uid,
+                 f"✅ Queued {queued}/{len(yt_songs)} from {pl['name'][:20]}.")
+        return
+
+
+# ─── !ratings ─────────────────────────────────────────────────────────────────
+
+async def handle_ratings(bot: "BaseBot", user: "User", args: list) -> None:
+    """!ratings — show current song like/dislike counts (alias for !likes)."""
+    await handle_likes(bot, user, args)
+
+
 # ─── Startup ──────────────────────────────────────────────────────────────────
 
 async def _cleanup_poll_task() -> None:
@@ -2172,6 +2658,8 @@ handle_save            = _safe(handle_save)
 handle_mysongs         = _safe(handle_mysongs)
 handle_removefav       = _safe(handle_removefav)
 handle_playmine        = _safe(handle_playmine)
+handle_playlist        = _safe(handle_playlist)
+handle_ratings         = _safe(handle_ratings)
 handle_likes           = _safe(handle_likes)
 handle_voters          = _safe(handle_voters)
 handle_likeslist       = _safe(handle_likeslist)

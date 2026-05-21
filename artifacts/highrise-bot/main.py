@@ -500,6 +500,8 @@ from modules.radio_commands import (
     handle_priority        as rc_priority,
     handle_save            as rc_save,
     handle_mysongs         as rc_mysongs,
+    handle_playlist        as rc_playlist,
+    handle_ratings         as rc_ratings,
     handle_removefav       as rc_removefav,
     handle_playmine        as rc_playmine,
     handle_likes           as rc_likes,
@@ -936,6 +938,7 @@ from modules.emote_extras import (
     try_sync_shortcut, start_sync_group_emote,
     clear_sync_on_leave,
     handle_emote_all,
+    handle_emote_list_compact, handle_botemotes_compact,
     handle_favemotes, handle_favemote,
     handle_dancefloor, startup_dancefloor_recovery, handle_dancefloorhelp,
     handle_emotetestchecklist,
@@ -1411,8 +1414,8 @@ ALL_KNOWN_COMMANDS = (
         "miningroomrequired",
         # ── Room utility — public ─────────────────────────────────────────────
         "players", "roomlist", "online", "staffonline", "vipsinroom", "rolelist",
-        "emotes", "emote", "stopemote", "dance", "wave", "sit", "clap",
-        "botemotes", "playeremotes",
+        "emotes", "emote", "emotelist", "stopemote", "dance", "wave", "sit", "clap",
+        "botemotes", "botemoteslist", "playeremotes",
         "missingtimings", "addbotemote", "addplayeremote",
         "removebotemote", "removeplayeremote", "customemotes",
         "setemotetime", "emotetime",
@@ -7557,6 +7560,8 @@ class HangoutBot(BaseBot):
                     await handle_emotes_socials(self, user, args)
                 else:
                     await handle_emotes_auto(self, user, args)
+            elif cmd == "emotelist":
+                await handle_emote_list_compact(self, user, args)
             elif cmd == "emoteinfo":
                 await handle_emoteinfo(self, user, args)
             elif cmd == "findemote":
@@ -7578,6 +7583,8 @@ class HangoutBot(BaseBot):
             await handle_setemotetime(self, user, args)
         elif cmd == "botemotes":
             await handle_botemotes(self, user, args)
+        elif cmd == "botemoteslist":
+            await handle_botemotes_compact(self, user, args)
         elif cmd == "testplayeremote":
             await handle_testplayeremote(self, user, args)
         elif cmd == "playeremotes":
@@ -7923,7 +7930,7 @@ class HangoutBot(BaseBot):
             await rc_removefavorite(self, user, args)
         elif cmd in ("removefav", "delfav", "deletefav"):
             await rc_removefav(self, user, args)
-        elif cmd in ("mysongs", "playlist", "myplaylist2"):
+        elif cmd in ("mysongs", "myplaylist2"):
             await rc_mysongs(self, user, args)
         elif cmd == "playmine":
             await rc_playmine(self, user, args)
@@ -7943,6 +7950,12 @@ class HangoutBot(BaseBot):
             await rc_likeslist(self, user, args)
         elif cmd == "dislikeslist":
             await rc_dislikeslist(self, user, args)
+        elif cmd in ("playlist", "pl"):
+            await rc_playlist(self, user, args)
+        elif cmd == "ratings":
+            await rc_ratings(self, user, args)
+        elif cmd == "unfav":
+            await rc_removefavorite(self, user, args)
         elif cmd == "songrating":
             await handle_dj_songrating(self, user)
         elif cmd == "repeat":

@@ -268,7 +268,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "automod": "security", "setrules": "host",
     # ── dj ──────────────────────────────────────────────────────────────────
     # ── dj — emotes (player) ─────────────────────────────────────────────────
-    "emote": "dj", "emotes": "dj",
+    "emote": "dj", "emotes": "dj", "emotelist": "dj",
     "stopemote": "dj", "dance": "dj", "wave": "dj",
     "sit": "dj", "clap": "dj",
     "loopemote": "dj", "stoploop": "dj", "stopallloops": "dj",
@@ -287,7 +287,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     # ── dj — emote help pages (owned by dj so only DJ_DUDU replies) ──────────
     "emotehelp": "dj", "socialhelp": "dj",
     "customhelp": "dj", "botemotehelp": "dj",
-    "botemotes": "dj", "kicksocial": "dj",
+    "botemotes": "dj", "botemoteslist": "dj", "kicksocial": "dj",
     "emotetestchecklist": "dj",
     # ── dj — custom emote sequences (custom_emotes.py) ───────────────────────
     "customemote": "dj", "customtimed": "dj", "stopcustom": "dj",
@@ -402,11 +402,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "priority": "dj",
     "vibes": "dj",
     "save": "dj",
-    "mysongs": "dj", "playlist": "dj", "myplaylist2": "dj",
+    "mysongs": "dj", "playlist": "dj", "pl": "dj", "myplaylist2": "dj",
     "playmine": "dj",
+    "unfav": "dj",
     "removefav": "dj", "delfav": "dj", "deletefav": "dj",
     # ── dj — voting / ratings ────────────────────────────────────────────────
-    "likes": "dj", "votes": "dj",
+    "likes": "dj", "votes": "dj", "ratings": "dj",
     "voters": "dj",
     "likeslist": "dj", "dislikeslist": "dj",
     # ── dj — history / discovery ─────────────────────────────────────────────
@@ -782,11 +783,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "myrequests": "dj", "cancelrequest": "dj", "requeststatus": "dj",
     "djstats": "dj",
     "favorite": "dj", "unfavorite": "dj", "favorites": "dj",
-    "fav": "dj", "favs": "dj",
+    "fav": "dj", "favs": "dj", "unfav": "dj",
     "myplaylist": "dj", "addtoplaylist": "dj",
+    "playlist": "dj", "pl": "dj",
     "removefavorite": "dj",
     "history": "dj", "radiohistory": "dj",
-    "like": "dj", "dislike": "dj", "songrating": "dj",
+    "like": "dj", "dislike": "dj", "songrating": "dj", "ratings": "dj",
     "topsongs": "dj", "toprequesters": "dj",
     "repeat": "dj",
     "shuffle": "dj",

@@ -3584,10 +3584,17 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list[str]) -> No
     await _w(
         bot, user.id,
         f"📻 Radio Commands:\n"
-        f"🎵 !play <song/URL> ({cost_str}) | !queue (!q) | !nowplaying\n"
-        f"👎 !voteskip ({thresh} votes needed) | !history\n"
-        f"🎛️ !vibe chill|party|status\n"
-        f"🔒 Staff: !skip | !remove <#> | !clearqueue | !vibe <mode>",
+        f"🎵 !play <song/URL> ({cost_str}) | !queue (!q) | !np\n"
+        f"👎 !voteskip ({thresh} votes) | !history\n"
+        f"⭐ !fav | !favs | !unfav <#> | !ratings\n"
+        f"🔒 Staff: !skip | !remove <#> | !clearqueue",
+    )
+    await _w(
+        bot, user.id,
+        "📂 VIP Playlists: !playlist create <name>\n"
+        "  !playlist songs <name> | add <name> <URL>\n"
+        "  !playlist addcurrent|remove|delete|play <name>\n"
+        "🎛️ !vibe chill|party|status | !radiotutorial",
     )
 
 

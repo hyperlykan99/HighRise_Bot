@@ -1,0 +1,552 @@
+RADIO PERSONALIZATION UPDATE — FAVORITES, RATINGS, VIP PLAYLISTS, LOCAL MEDIA SUPPORT
+
+Project:
+HighRise Multi-Bot System
+
+Goal:
+Improve DJ_DUDU radio personalization by adding/cleaning:
+- favorites
+- ratings
+- VIP personal playlists
+- local AzuraCast/media song support
+- safe pagination
+- DJ_DUDU-only routing
+
+Important:
+Do not rewrite the radio backend.
+Do not merge modules.
+Do not rename files.
+Do not change yt-dlp download logic.
+Do not change SFTP upload logic.
+Do not change AzuraCast playback/request logic unless needed to support local media metadata safely.
+Do not touch emote system.
+Do not expose secrets or local private file paths.
+
+Relevant files to inspect first:
+- modules/radio_commands.py
+- modules/request_queue.py
+- modules/playback_engine.py
+- modules/azuracast_controller.py
+- modules/music_credits.py
+- modules/payment_service.py
+- modules/config_store.py
+- modules/permissions.py
+- modules/vip.py
+- database.py
+- modules/help_cmds.py
+
+Important:
+radio_commands.py already appears to have helpers for dj_favorites and dj_ratings.
+Before creating anything new, search the project for existing favorites, ratings, playlist, and DJ DB helpers.
+Reuse existing tables/helpers if present.
+Do not duplicate favorites or rating systems.
+
+==================================================
+PART 1 — DJ_DUDU ONLY ROUTING
+==================================================
+
+All new and existing radio personalization commands must be handled only by DJ_DUDU / BOT_MODE=dj.
+
+Other bots must silently ignore:
+- !favorite
+- !fav
+- !favorites
+- !favs
+- !unfav
+- !like
+- !dislike
+- !ratings
+- !playlist
+- all !playlist subcommands
+
+Expected:
+Only DJ_DUDU replies.
+ChillTopiaMC and other bots stay silent.
+
+==================================================
+PART 2 — FAVORITES
+==================================================
+
+Add or clean these commands:
+
+!favorite
+!fav
+
+Behavior:
+Save the current playing song to the user's favorites.
+
+Also support:
+
+!favorites
+!favs
+
+Behavior:
+Show the user's saved favorites.
+
+Also support:
+
+!unfav <#>
+
+Behavior:
+Remove a favorite by number from the user's favorites list.
+
+Optional if already supported safely:
+
+!playfav <#>
+
+Behavior:
+Request/play a saved favorite by number.
+
+Important:
+Use safe pagination for favorites list.
+Never send a message over 249 characters.
+
+Favorites must support both:
+1. YouTube/requested songs
+2. Local AzuraCast/media library songs
+
+Do not require youtube_url to save a favorite.
+
+If the current song is local radio/media and has no YouTube URL:
+Save stable metadata instead:
+- title
+- artist if available
+- AzuraCast song unique_id if available
+- AzuraCast media/file ID if available
+- source_type = local or azuracast
+- youtube_url = NULL/empty
+
+Display local favorites as:
+🎵 Title — Artist
+Source: Local Radio
+
+Do not expose private server paths.
+
+Duplicate rule:
+Do not allow the same user to favorite the same song twice.
+Match by:
+- YouTube URL if available
+- else AzuraCast song ID if available
+- else normalized title + artist
+
+Responses:
+✅ Added to favorites: <title>
+⭐ Already in your favorites.
+❌ Nothing is currently playing.
+✅ Removed favorite #<n>: <title>
+❌ Favorite not found.
+
+==================================================
+PART 3 — RATINGS
+==================================================
+
+Add or clean these commands:
+
+!like
+!dislike
+!ratings
+
+Behavior:
+!like likes the current playing song.
+!dislike dislikes the current playing song.
+!ratings shows likes/dislikes for the current playing song.
+
+Use existing dj_ratings table/helpers if present.
+
+Rules:
+- One rating per user per song.
+- If user changes from like to dislike, update their rating.
+- If user repeats same rating, say it is already counted.
+- Apply existing cooldown if present.
+- Support local media songs using stable key:
+  YouTube URL if available
+  else AzuraCast song ID if available
+  else normalized title + artist
+
+Responses:
+👍 Liked: <title>
+👎 Disliked: <title>
+⭐ You already liked this song.
+🔁 Changed your rating to dislike.
+📊 Ratings for <title>: 👍 <n> | 👎 <n>
+❌ Nothing is currently playing.
+
+Do not spam room chat.
+Whisper replies unless existing design uses public chat for ratings.
+
+==================================================
+PART 4 — VIP PERSONAL PLAYLISTS
+==================================================
+
+Add VIP-only personal playlists.
+
+Permissions:
+Normal users:
+- cannot create/manage playlists
+- can still use normal radio commands
+
+VIP:
+- can create/manage/play their own playlists
+
+Admin/owner:
+- can use playlists too
+
+Use existing VIP detection logic.
+Do not create a duplicate VIP system.
+Reuse modules.vip, database owns_item("vip"), or existing project helper.
+
+Commands:
+
+!playlist
+
+Behavior:
+Show the user's playlists.
+This is the ONLY advertised command for showing playlist list.
+
+Do NOT advertise:
+!playlist list
+!pl list
+
+Main playlist commands:
+
+!playlist create <name>
+Create a playlist.
+
+!playlist songs <name>
+Show songs inside a playlist.
+
+!playlist add <name> <song or YouTube URL>
+Add a song or YouTube URL to a playlist.
+
+!playlist addcurrent <name>
+Add the current playing song to a playlist.
+
+!playlist rename <old> <new>
+Rename a playlist.
+
+!playlist remove <name> <#>
+Remove a song from a playlist by number.
+
+!playlist delete <name>
+Delete a playlist.
+
+!playlist play <name>
+Queue songs from a playlist.
+
+Optional short alias:
+!pl may work as an alias for !playlist if safe.
+But help should advertise !playlist as the main command.
+
+Limits:
+- Max playlists per VIP: 5
+- Max songs per playlist: 25
+- Max playlist name length: 24 characters
+- No duplicate songs inside the same playlist
+- Playlist names should be sanitized: letters, numbers, spaces, dash, underscore only
+- Do not allow empty playlist names
+- Do not allow abusive giant input
+
+Normal blocked message:
+🔒 VIP only. Upgrade to VIP to create radio playlists.
+
+Responses:
+✅ Created playlist: <name>
+📂 Your playlists:
+1. Chill Mix — 12 songs
+2. Party — 8 songs
+
+✅ Added to <playlist>: <title>
+⭐ Already in that playlist.
+✅ Removed #<n> from <playlist>: <title>
+✅ Renamed playlist <old> → <new>
+✅ Deleted playlist: <name>
+❌ Playlist not found.
+❌ Playlist limit reached. Max 5 playlists.
+❌ Song limit reached. Max 25 songs per playlist.
+
+==================================================
+PART 5 — PLAYLIST SONG SUPPORT FOR YOUTUBE AND LOCAL MEDIA
+==================================================
+
+Playlist songs must support both:
+1. YouTube/requested songs
+2. Local AzuraCast/media library songs
+
+For YouTube songs, store:
+- source_type = youtube
+- title
+- artist if available
+- youtube_url
+- video_id if available
+
+For local/AzuraCast songs, store:
+- source_type = local or azuracast
+- title
+- artist
+- azura_song_id if available
+- azura_file_id if available
+- media_id if available
+- youtube_url = NULL/empty
+
+Do not require youtube_url.
+
+Do not expose local file paths or private media paths.
+
+When showing playlist songs:
+YouTube:
+1. 🎵 Title — Artist
+   Source: YouTube
+
+Local:
+1. 🎵 Title — Artist
+   Source: Local Radio
+
+When using:
+!playlist addcurrent <name>
+
+If current song is local media, it should still save.
+
+When using:
+!playlist play <name>
+
+Behavior:
+- For YouTube songs: use existing request/queue pipeline.
+- For local/AzuraCast songs:
+  - If existing project supports requesting/queueing local AzuraCast media by song/file ID, use that.
+  - If replaying local media is not supported yet, do not fail the whole playlist.
+  - Show:
+    ⚠️ Skipped local song: <title> — local replay not supported yet.
+  - Continue queueing supported YouTube songs.
+
+Do not instantly upload/play 25 songs at once in an unsafe way.
+Queue safely using existing queue/request limits.
+
+If queue is full:
+⚠️ Queue is full. Added <n>/<total> songs.
+
+==================================================
+PART 6 — PLAYLIST ADD BEHAVIOR
+==================================================
+
+For:
+!playlist add <playlist> <song or YouTube URL>
+
+If input is a YouTube URL:
+- validate and store it as YouTube source
+- fetch metadata if existing helpers support it
+- do not download immediately unless the existing queue system requires it
+- playlist storage should be lightweight
+
+If input is a song name/search term:
+Preferred safe behavior:
+- Search and show top results
+- Let user pick which result to add
+OR
+- Use the first safe result only if project already does that pattern
+
+Do not create confusing behavior.
+If adding search-to-playlist is too risky, implement only:
+!playlist add <playlist> <YouTube URL>
+and show:
+⚠️ For song names, use !play first, then !playlist addcurrent <playlist>.
+
+But if search result selection already exists and is easy to reuse, support it.
+
+==================================================
+PART 7 — SAFE PAGINATION / MESSAGE LIMIT
+==================================================
+
+All new outputs must be 249/255 character safe.
+
+Apply safe chunking/pagination to:
+- !favorites / !favs
+- !playlist
+- !playlist songs <name>
+- !playlist play <name> results
+- !ratings if long
+- any playlist/favorite error list
+
+Use existing shared pagination helper if available.
+Do not create duplicate message helpers if modules/msg_utils.py or radio chunk helper already exists.
+
+Never send raw text longer than 249 characters.
+
+==================================================
+PART 8 — HELP UPDATES
+==================================================
+
+Update:
+- !radiohelp
+- !djhelp
+- !commands radio
+- !commands music
+- !command favorite
+- !command playlist
+- !command like
+- !command ratings
+
+Public help should show:
+
+⭐ Favorites
+!fav — Save current song
+!favorites — Show your saved songs
+!unfav <#> — Remove a favorite
+!like — Like current song
+!dislike — Dislike current song
+!ratings — Show song ratings
+
+VIP help should show:
+
+📂 VIP Playlists
+!playlist — Show your playlists
+!playlist create <name> — Create playlist
+!playlist songs <name> — Show songs
+!playlist addcurrent <name> — Save current song
+!playlist add <name> <YouTube URL> — Add song
+!playlist play <name> — Queue playlist
+!playlist rename <old> <new> — Rename playlist
+!playlist remove <name> <#> — Remove song
+!playlist delete <name> — Delete playlist
+
+Do not advertise:
+!playlist list
+!pl list
+
+Make clear:
+!playlist alone shows playlist list.
+
+==================================================
+PART 9 — DATABASE / MIGRATION
+==================================================
+
+Before adding tables, inspect database.py for existing tables:
+- dj_favorites
+- dj_ratings
+- radio_playlists
+- radio_playlist_songs
+- any playlist tables
+
+Reuse existing tables if present.
+
+If playlist tables do not exist, add safe migrations:
+radio_playlists:
+- id
+- user_id
+- username
+- name
+- created_at
+- updated_at
+
+radio_playlist_songs:
+- id
+- playlist_id
+- user_id
+- source_type
+- title
+- artist
+- youtube_url nullable
+- video_id nullable
+- azura_song_id nullable
+- azura_file_id nullable
+- media_id nullable
+- added_at
+- position
+
+Add unique constraints where safe:
+- one playlist name per user
+- no exact duplicate song per playlist if possible
+
+Do not break existing DB migrations.
+Use existing DB connection helpers.
+
+==================================================
+PART 10 — LOCAL MEDIA CURRENT TRACK DETECTION
+==================================================
+
+Improve current track extraction for favorites/playlists/ratings.
+
+Use AzuraCast nowplaying if available:
+- title
+- artist
+- song unique_id
+- media/file ID if present
+- streamer/source if available
+
+If currently playing request has local DB metadata, use that.
+
+Fallback:
+- title from nowplaying
+- artist if available
+- source_type = local
+- stable key = normalized title + artist
+
+Do not expose:
+- private file paths
+- server directories
+- API keys
+- SFTP info
+
+==================================================
+PART 11 — CHECKLIST
+==================================================
+
+Create or update:
+radio_personalization_checklist.md
+
+Tests:
+
+Routing:
+- !fav → only DJ_DUDU replies
+- !favorites → only DJ_DUDU replies
+- !playlist → only DJ_DUDU replies
+- !like → only DJ_DUDU replies
+
+Favorites:
+- !fav saves YouTube current song
+- !fav saves local AzuraCast current song
+- duplicate !fav is blocked cleanly
+- !favorites paginates safely
+- !unfav <#> removes favorite
+- no raw local file path shown
+
+Ratings:
+- !like works on YouTube song
+- !like works on local song
+- !dislike updates previous like
+- !ratings shows counts
+- duplicate rating handled cleanly
+
+VIP playlists:
+- normal user !playlist create is blocked
+- VIP !playlist create works
+- !playlist shows playlist list
+- !playlist songs <name> shows songs
+- !playlist addcurrent works for YouTube song
+- !playlist addcurrent works for local song
+- !playlist add <name> <YouTube URL> works
+- !playlist rename works
+- !playlist remove <name> <#> works
+- !playlist delete works
+- !playlist play <name> queues supported songs
+- local songs are skipped with clean warning if local replay unsupported
+- max 5 playlists enforced
+- max 25 songs enforced
+- messages are never cut off
+
+Help:
+- !radiohelp shows favorites
+- !radiohelp shows VIP playlists only for VIP/staff/admin/owner
+- !commands radio shows favorites/playlists
+- !command playlist works
+- !command favorite works
+- !playlist list is not advertised
+- !pl list is not advertised
+
+Regression:
+- !play still works
+- !pick still works
+- !queue still works
+- !np still works
+- !history still paginates safely
+- !vibe status still works
+- only DJ_DUDU replies

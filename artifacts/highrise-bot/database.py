@@ -3349,6 +3349,44 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.3A — VIP personal radio playlists
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS radio_playlists (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    TEXT    NOT NULL,
+                username   TEXT    NOT NULL DEFAULT '' COLLATE NOCASE,
+                name       TEXT    NOT NULL,
+                created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(user_id, name)
+            )
+        """)
+    except Exception:
+        pass
+
+    # 3.3B — Songs inside radio playlists
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS radio_playlist_songs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                playlist_id   INTEGER NOT NULL,
+                user_id       TEXT    NOT NULL,
+                source_type   TEXT    NOT NULL DEFAULT 'youtube',
+                title         TEXT    NOT NULL DEFAULT '',
+                artist        TEXT    NOT NULL DEFAULT '',
+                youtube_url   TEXT    NOT NULL DEFAULT '',
+                video_id      TEXT    NOT NULL DEFAULT '',
+                azura_song_id TEXT    NOT NULL DEFAULT '',
+                azura_file_id TEXT    NOT NULL DEFAULT '',
+                position      INTEGER NOT NULL DEFAULT 0,
+                added_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (playlist_id) REFERENCES radio_playlists(id) ON DELETE CASCADE
+            )
+        """)
+    except Exception:
+        pass
+
     # Music request credit system — per-player credit wallet
     try:
         conn.execute("""
