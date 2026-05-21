@@ -1,0 +1,223 @@
+RADIO NOWPLAYING CARD SOURCE FORMAT UPDATE
+
+Goal:
+Update the DJ DUDU radio now-playing card so players clearly know whether the song is from Auto DJ/vibe or a live request.
+
+Do not rewrite the radio system.
+Do not change queue/request/playback logic.
+Do not change AzuraCast/SFTP logic.
+Do not touch emote system.
+Do not break DJ_DUDU internal routing or BOT_MODE=dj.
+
+Relevant files to inspect:
+- modules/track_resolver.py
+- modules/dj_announcer.py
+- modules/radio_commands.py
+- modules/playback_engine.py
+- modules/azuracast_controller.py
+- modules/request_queue.py
+
+==================================================
+1. AUTODJ / VIBE FORMAT
+==================================================
+
+For AutoDJ/vibe playlist songs, use this compact format:
+
+DJ DUDU: Auto DJ
+📀 Vibe: <vibe_name>
+🎵 Title: <title>
+🎤 Artist: <artist>
+<elapsed> <progress_bar> <duration>
+👍 <likes> | 👎 <dislikes>
+💿 !play to request a song
+
+Example:
+
+DJ DUDU: Auto DJ
+📀 Vibe: RnB
+🎵 Title: Plain Jane
+🎤 Artist: A$AP Ferg
+0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
+👍 0 | 👎 0
+💿 !play to request a song
+
+Rules:
+- AutoDJ card must show the current vibe name.
+- Vibe examples: Chill, Party, RnB, EDM, OPM, HipHop, LoFi.
+- If vibe name is unknown, show:
+📀 Vibe: Auto DJ
+
+==================================================
+2. LIVE REQUEST FORMAT
+==================================================
+
+For live user requests, use this compact format:
+
+DJ DUDU: NOW PLAYING
+🎵 Title: <title>
+🎤 Artist: <artist>
+<elapsed> <progress_bar> <duration>
+👍 <likes> | 👎 <dislikes>
+💿 !play to request a song
+
+Example:
+
+DJ DUDU: NOW PLAYING
+🎵 Title: MOLIY
+🎤 Artist: Silent Addy
+0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
+👍 0 | 👎 0
+💿 !play to request a song
+
+Rules:
+- Live request card should NOT show vibe line unless it is already needed elsewhere.
+- Use NOW PLAYING exactly for live requests.
+- Keep it compact.
+
+==================================================
+3. MEDIA PLAYER DESIGN
+==================================================
+
+Keep the virtual media player design.
+
+Must include:
+- elapsed time
+- progress bar
+- total duration
+
+Required line:
+<elapsed> <progress_bar> <duration>
+
+Example:
+0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
+
+If duration is missing:
+0:00 ▱▱▱▱▱▱▱▱▱▱ ?:??
+
+Do not remove the media player line.
+
+==================================================
+4. TITLE / ARTIST
+==================================================
+
+Use separated title and artist lines:
+
+🎵 Title: <title>
+🎤 Artist: <artist>
+
+If artist is missing:
+🎤 Artist: Unknown Artist
+
+Trim safely if needed:
+- title max around 34 characters
+- artist max around 24 characters
+
+Do not let the message exceed 249 characters.
+
+==================================================
+5. LIKES / DISLIKES
+==================================================
+
+Keep compact rating line:
+
+👍 <likes> | 👎 <dislikes>
+
+Must read real counts from the same source used by:
+- !like
+- !dislike
+- !ratings
+
+Do not show 0 if ratings exist.
+
+Use stable song key:
+- YouTube URL or video ID if available
+- else AzuraCast song unique_id if available
+- else normalized title + artist
+
+==================================================
+6. FOOTER
+==================================================
+
+Bottom line must say exactly:
+
+💿 !play to request a song
+
+Do not use:
+💿 Request: !play
+💿 Request: !play <song or YouTube URL>
+
+==================================================
+7. COMPACT / NO GAPS
+==================================================
+
+Remove unnecessary blank lines.
+
+Do not add spacer gaps between:
+- header
+- vibe/title/artist
+- media player
+- likes/dislikes
+- footer
+
+The message should look compact and clean.
+
+==================================================
+8. APPLY EVERYWHERE
+==================================================
+
+Apply this source-aware compact renderer to:
+- DJ announcement when AutoDJ/vibe song starts
+- DJ announcement when live request starts
+- !np
+- !now
+- !nowplaying
+- any shared render_now_playing() output
+
+If render_now_playing() in modules/track_resolver.py is the canonical renderer, update it there so all outputs stay consistent.
+
+==================================================
+9. 249 CHARACTER SAFE
+==================================================
+
+Never send a now-playing/DJ announcement over 249 characters.
+
+If too long:
+1. shorten title
+2. shorten artist
+3. keep header
+4. keep vibe line for AutoDJ
+5. keep media player
+6. keep likes/dislikes
+7. keep footer
+
+Do not cut off mid-line.
+
+==================================================
+10. CHECKLIST
+==================================================
+
+Test AutoDJ/vibe song:
+- Card starts with: DJ DUDU: Auto DJ
+- Shows: 📀 Vibe: <vibe_name>
+- Shows Title and Artist
+- Shows elapsed/progress/duration
+- Shows real likes/dislikes
+- Shows: 💿 !play to request a song
+- No big gaps
+
+Test live request:
+- Card starts with: DJ DUDU: NOW PLAYING
+- Does NOT show vibe line
+- Shows Title and Artist
+- Shows elapsed/progress/duration
+- Shows real likes/dislikes
+- Shows: 💿 !play to request a song
+- No big gaps
+
+Regression:
+- !np works
+- !now works
+- !nowplaying works
+- DJ announcements work
+- only DJ_DUDU/DJ bot replies
+- message stays under 249 characters

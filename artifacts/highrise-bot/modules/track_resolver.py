@@ -320,19 +320,21 @@ def render_now_playing(track: dict, *, station: str = "DJ DUDU RADIO") -> str:
     """
     Canonical renderer for ALL now-playing displays (room announcements + !np).
 
-    Compact format — no blank lines, ≤249 chars.
+    Source-aware compact format — no blank lines, ≤249 chars.
 
-    AutoDJ:
-      🎧 DJ RADIO • Now Playing
-      🎵 <title> — <artist>
+    AutoDJ/vibe:
+      DJ DUDU: Auto DJ
+      📀 Vibe: <vibe_label>
+      🎵 Title: <title>
+      🎤 Artist: <artist or 'Unknown Artist'>
       0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
       👍 12 | 👎 2
       💿 !play to request a song
 
-    Request Live:
-      🎧 DJ RADIO • Request Live
-      🎵 <title> — <artist>
-      👤 @requester
+    Live request:
+      DJ DUDU: NOW PLAYING
+      🎵 Title: <title>
+      🎤 Artist: <artist or 'Unknown Artist'>
       0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
       👍 12 | 👎 2
       💿 !play to request a song
@@ -340,16 +342,17 @@ def render_now_playing(track: dict, *, station: str = "DJ DUDU RADIO") -> str:
     Falls back to "0:00 ▱▱▱▱▱▱▱▱▱▱ ?:??" when duration is unknown.
     Returns a UTF-8 string ≤249 chars.
     """
-    title    = (track.get("title")  or "Unknown")[:32]
-    artist   = (track.get("artist") or "").strip()[:22]
+    from modules.dj_announcer import _VIBE_LABELS
+
+    title    = (track.get("title")  or "Unknown")[:34]
+    artist   = (track.get("artist") or "").strip()[:24]
     likes    = int(track.get("likes",    0))
     dislikes = int(track.get("dislikes", 0))
     source   = track.get("source", "autodj")
     elapsed  = int(track.get("elapsed",  0) or 0)
     duration = int(track.get("duration", 0) or 0)
 
-    artist_part = artist if artist else "Unknown Artist"
-    song_line   = f"🎵 {title} — {artist_part}"
+    artist_line = f"🎤 Artist: {artist}" if artist else "🎤 Artist: Unknown Artist"
 
     if duration > 0:
         bar_line = (f"{_fmt_secs(elapsed)} {_progress_bar(elapsed, duration)}"
@@ -358,20 +361,22 @@ def render_now_playing(track: dict, *, station: str = "DJ DUDU RADIO") -> str:
         bar_line = f"0:00 {'▱' * 10} ?:??"
 
     if source == "request":
-        requester = (track.get("requester") or "")[:20]
-        req_line  = f"👤 @\u200b{requester}" if requester else "👤 Requested"
         lines = [
-            "🎧 DJ RADIO • Request Live",
-            song_line,
-            req_line,
+            "DJ DUDU: NOW PLAYING",
+            f"🎵 Title: {title}",
+            artist_line,
             bar_line,
             f"👍 {likes} | 👎 {dislikes}",
             "💿 !play to request a song",
         ]
     else:
+        vibe_raw   = (track.get("vibe") or "").strip()
+        vibe_label = _VIBE_LABELS.get(vibe_raw.lower(), vibe_raw.title() if vibe_raw else "Auto DJ")
         lines = [
-            "🎧 DJ RADIO • Now Playing",
-            song_line,
+            "DJ DUDU: Auto DJ",
+            f"📀 Vibe: {vibe_label}",
+            f"🎵 Title: {title}",
+            artist_line,
             bar_line,
             f"👍 {likes} | 👎 {dislikes}",
             "💿 !play to request a song",
