@@ -383,3 +383,98 @@ async def handle_toprequests(bot: "BaseBot", user: "User", _args: list) -> None:
     for i, r in enumerate(rows, 1):
         lines.append(f"{i}. @{r['username'][:18]} — {r['count']} requests")
     await _w(bot, user.id, "\n".join(lines)[:249])
+
+
+# ─── Top liked / top disliked helpers ────────────────────────────────────────
+
+def top_liked_songs(limit: int = 5) -> list:
+    """Songs with the most likes, sourced from dj_ratings + radio_song_stats title."""
+    _bootstrap()
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT dr.song_key, "
+                "COALESCE(NULLIF(rss.title,''), dr.song_key) AS disp_title, "
+                "COALESCE(rss.artist,'') AS disp_artist, "
+                "COUNT(*) AS cnt "
+                "FROM dj_ratings dr "
+                "LEFT JOIN radio_song_stats rss ON dr.song_key = rss.song_key "
+                "WHERE dr.rating='like' "
+                "GROUP BY dr.song_key ORDER BY cnt DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{"song_key": r[0], "title": r[1], "artist": r[2], "count": r[3]}
+                for r in rows]
+    except Exception:
+        return []
+
+
+def top_disliked_songs(limit: int = 5) -> list:
+    """Songs with the most dislikes, sourced from dj_ratings + radio_song_stats title."""
+    _bootstrap()
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT dr.song_key, "
+                "COALESCE(NULLIF(rss.title,''), dr.song_key) AS disp_title, "
+                "COALESCE(rss.artist,'') AS disp_artist, "
+                "COUNT(*) AS cnt "
+                "FROM dj_ratings dr "
+                "LEFT JOIN radio_song_stats rss ON dr.song_key = rss.song_key "
+                "WHERE dr.rating='dislike' "
+                "GROUP BY dr.song_key ORDER BY cnt DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{"song_key": r[0], "title": r[1], "artist": r[2], "count": r[3]}
+                for r in rows]
+    except Exception:
+        return []
+
+
+def _fmt_song_line(i: int, row: dict, label: str) -> str:
+    """Format one leaderboard song line. Title prettified; no raw file paths exposed."""
+    raw   = row.get("title") or row.get("song_key") or "Unknown"
+    # Prettify a lowercased song_key (replace hyphens, apply title-case)
+    title  = raw.replace("-", " ").replace("_", " ").strip()
+    title  = title[:1].upper() + title[1:] if title else "Unknown"
+    title  = title[:26]
+    artist = (row.get("artist") or "")[:14].strip()
+    n      = row["count"]
+    core   = f"{i}. {title}"
+    if artist:
+        core += f" — {artist}"
+    return f"{core} • {n} {label}"
+
+
+async def handle_topliked(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!topliked — top 5 songs by most likes."""
+    rows = top_liked_songs(limit=5)
+    if not rows:
+        await _w(bot, user.id, "👍 No song ratings yet. React with !like while a song plays!")
+        return
+    items      = [_fmt_song_line(i, r, "likes") for i, r in enumerate(rows, 1)]
+    header     = "👍 Top Liked Songs"
+    chunks     = [items[i:i + 3] for i in range(0, len(items), 3)]
+    total_pgs  = len(chunks)
+    for pg, chunk in enumerate(chunks, 1):
+        hdr = f"{header} {pg}/{total_pgs}" if total_pgs > 1 else header
+        await _w(bot, user.id, (hdr + "\n" + "\n".join(chunk))[:249])
+        if pg < total_pgs:
+            await asyncio.sleep(0.1)
+
+
+async def handle_topdisliked(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!topdisliked — top 5 songs by most dislikes."""
+    rows = top_disliked_songs(limit=5)
+    if not rows:
+        await _w(bot, user.id, "👎 No dislike ratings yet.")
+        return
+    items      = [_fmt_song_line(i, r, "dislikes") for i, r in enumerate(rows, 1)]
+    header     = "👎 Top Disliked Songs"
+    chunks     = [items[i:i + 3] for i in range(0, len(items), 3)]
+    total_pgs  = len(chunks)
+    for pg, chunk in enumerate(chunks, 1):
+        hdr = f"{header} {pg}/{total_pgs}" if total_pgs > 1 else header
+        await _w(bot, user.id, (hdr + "\n" + "\n".join(chunk))[:249])
+        if pg < total_pgs:
+            await asyncio.sleep(0.1)

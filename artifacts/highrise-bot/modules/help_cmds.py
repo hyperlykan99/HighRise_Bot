@@ -580,6 +580,12 @@ async def handle_commands(bot: BaseBot, user: User, args: list[str]) -> None:
                  "!playlist songs/add/addcurrent <name>\n"
                  "!playlist remove/delete/play <name>\n"
                  "!buyvip — unlock VIP")
+        await _w(bot, user.id,
+                 "🏆 Leaderboards\n"
+                 "!topliked — most liked songs\n"
+                 "!topdisliked — most disliked songs\n"
+                 "!topsongs  !toplisteners  !toprequests\n"
+                 "!radiostats — your radio stats")
         if can_moderate(user.username):
             await _w(bot, user.id,
                      "🛠️ Staff Radio\n"

@@ -1476,7 +1476,8 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
         bot, uid,
         "🏆 Radio Rewards\n"
         "Earn pts: request, like, fav, playlists.\n"
-        "!radiostats  !toplisteners  !toprequests",
+        "!radiostats  !toplisteners  !toprequests\n"
+        "!topliked  !topdisliked",
     )
 
     # ── Whisper 5: staff commands (mod / manager / admin / owner) ────────────

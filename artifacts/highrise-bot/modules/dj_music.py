@@ -3401,7 +3401,8 @@ async def handle_dj_help(bot: "BaseBot", user: "User") -> None:
         "!tipdj <amt> | !djleaderboard | !djstats\n"
         "!priorityqueue | !djvibes | !djreport <#>\n"
         "!dedicate <msg> | !favorite | !unfavorite\n"
-        "!favorites | !like | !dislike | !songrating",
+        "!favorites | !like | !dislike | !songrating\n"
+        "!topliked | !topdisliked | !radiostats",
     )
     # Section 3 — Radio & Controls (public/admin mix)
     await _w(

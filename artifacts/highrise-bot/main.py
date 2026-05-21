@@ -525,6 +525,8 @@ from modules.radio_rewards import (
     handle_radiostats      as rr_radiostats,
     handle_toplisteners    as rr_toplisteners,
     handle_toprequests     as rr_toprequests,
+    handle_topliked        as rr_topliked,
+    handle_topdisliked     as rr_topdisliked,
 )
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.autosummary import (
@@ -1802,6 +1804,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "like", "dislike", "songrating",
     "topsongs", "toprequesters",
     "radiostats", "toplisteners",
+    "topliked", "topdisliked",
     "tipdj",
     "djvibes",
     "vibe", "vibes", "vibescan",
@@ -7957,6 +7960,10 @@ class HangoutBot(BaseBot):
             await rr_radiostats(self, user, args)
         elif cmd == "toplisteners":
             await rr_toplisteners(self, user, args)
+        elif cmd == "topliked":
+            await rr_topliked(self, user, args)
+        elif cmd == "topdisliked":
+            await rr_topdisliked(self, user, args)
         elif cmd == "voters":
             await rc_voters(self, user, args)
         elif cmd == "likeslist":
