@@ -1,0 +1,191 @@
+RADIO LEADERBOARD / RADIOSTATS BUG FIX
+
+Issues found in room testing:
+
+1. !radiostats produced no DJ_DUDU reply.
+2. !toplisteners produced no DJ_DUDU reply.
+3. !topdisliked produced no DJ_DUDU reply.
+4. !radiohelp advertises !save, but the real favorite command should be !fav / !favorite.
+5. !topsongs appears to show liked songs instead of most requested/played songs.
+6. Leaderboard command meanings need to be clear and consistent.
+
+Do not rewrite radio backend.
+Do not change playback/AzuraCast/SFTP logic.
+Do not touch emote system.
+
+Inspect:
+- modules/radio_commands.py
+- modules/help_cmds.py
+- modules/multi_bot.py
+- database.py
+- any radio stats/reward tables added
+- command routing/ownership maps
+
+==================================================
+1. FIX COMMAND ROUTING / HANDLERS
+==================================================
+
+Make sure these commands are registered, routed, and handled by DJ_DUDU only:
+
+!radiostats
+!toplisteners
+!toprequests
+!topsongs
+!topliked
+!topdisliked
+
+Other bots must stay silent.
+
+If a command has no data yet, it should still reply with a helpful empty state.
+
+Examples:
+📊 No radio stats yet.
+🎧 No listener data yet.
+👎 No disliked songs yet.
+
+Do not silently fail.
+
+==================================================
+2. FIX RADIOHELP FAVORITE COMMAND
+==================================================
+
+In !radiohelp / !djhelp / !commands radio:
+
+Replace:
+!save — Save current song
+
+With:
+!fav — Save current song
+
+Also mention:
+!favorite — Save current song
+!favorites — View saved songs
+
+Do not advertise !save unless it actually exists and works.
+
+==================================================
+3. DEFINE LEADERBOARD MEANINGS
+==================================================
+
+Use these meanings:
+
+!toplisteners
+= users with highest radio_points/activity
+
+!toprequests
+= users with most successful song requests
+
+!topsongs
+= songs with most requests/plays
+
+!topliked
+= songs with most likes
+
+!topdisliked
+= songs with most dislikes
+
+Do not mix these together.
+
+==================================================
+4. OUTPUT TEMPLATES
+==================================================
+
+!radiostats:
+🎧 Radio Stats
+Requests: <n>
+Likes: <n> | Dislikes: <n>
+Favorites: <n>
+Playlists: <n>
+Points: <n>
+
+!toplisteners:
+🎧 Top Listeners
+1. @user — <points> pts
+2. @user — <points> pts
+
+!toprequests:
+💿 Top Requesters
+1. @user — <requests> requests
+2. @user — <requests> requests
+
+!topsongs:
+🔥 Top Songs
+1. <title> — <artist> • <plays> plays
+2. <title> — <artist> • <plays> plays
+
+!topliked:
+👍 Top Liked Songs
+1. <title> — <artist> • <likes> likes
+
+!topdisliked:
+👎 Top Disliked Songs
+1. <title> — <artist> • <dislikes> dislikes
+
+Keep every message under 249 characters.
+Paginate if needed.
+
+==================================================
+5. EMPTY STATES
+==================================================
+
+If there is no data, reply clearly:
+
+!radiostats:
+🎧 Radio Stats
+No radio activity yet. Use !play to request a song.
+
+!toplisteners:
+🎧 No listener data yet.
+
+!toprequests:
+💿 No requests yet.
+
+!topsongs:
+🔥 No song stats yet.
+
+!topliked:
+👍 No liked songs yet.
+
+!topdisliked:
+👎 No disliked songs yet.
+
+==================================================
+6. DATA SOURCES
+==================================================
+
+Use existing stats/rewards tables if they were added.
+
+If data is missing from new stats tables, safely aggregate from existing:
+- successful requests from request_queue / yt_request_jobs / radio request tables
+- likes/dislikes from dj_ratings
+- favorites from dj_favorites
+- playlists from radio playlists tables
+
+Do not create duplicate counters if aggregation is safer.
+
+For !topliked and !topdisliked:
+Use the same data source as !like / !dislike / !ratings.
+
+For !topsongs:
+Use request/play count, not likes.
+
+For !toprequests:
+Use users/requesters, not songs.
+
+==================================================
+7. CHECKLIST
+==================================================
+
+Test:
+- !radiostats replies
+- !toplisteners replies
+- !toprequests replies
+- !topsongs replies
+- !topliked replies
+- !topdisliked replies
+- empty states work
+- !radiohelp says !fav, not !save
+- !topsongs is plays/requests, not likes
+- !topliked is likes only
+- !topdisliked is dislikes only
+- only DJ_DUDU replies

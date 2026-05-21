@@ -1453,7 +1453,7 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
         "📜 !queue — See request queue\n"
         "🎧 !np — Current song\n"
         "📀 !vibe status — Current vibe\n"
-        "⭐ !save — Save current song\n"
+        "⭐ !fav / !favorite — Save current song\n"
         "📂 !playlist — VIP playlists",
     )
     await asyncio.sleep(0.2)
@@ -1531,9 +1531,9 @@ async def handle_radiotutorial(bot: "BaseBot", user: "User", _args: list) -> Non
 
         "🎧 Tutorial (5/7)\n"
         "Step 5: Save songs you love\n"
-        "→ !save          saves current song\n"
-        "→ !playlist      see your saved songs\n"
-        "→ !playmine #    re-play a saved song",
+        "→ !fav / !favorite  saves current song\n"
+        "→ !favorites        view saved songs\n"
+        "→ !playfav #        re-play a saved song",
 
         "🎧 Tutorial (6/7)\n"
         "Step 6: Priority requests\n"
@@ -1840,34 +1840,32 @@ def _top_requesters_db(limit: int = 5) -> list:
 # ─── !topsongs ────────────────────────────────────────────────────────────────
 
 async def handle_topsongs(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!topsongs — most liked requested songs ever."""
-    rows = _top_songs_db(limit=5)
+    """!topsongs — songs with the most requests/plays."""
+    rows = rr.top_songs(limit=5)
     if not rows:
-        await _w(bot, user.id, "No song ratings yet.")
+        await _w(bot, user.id, "🔥 No song stats yet. Use !play to request a song!")
         return
-    lines = ["🏆 Top Songs"]
+    lines = ["🔥 Top Songs"]
     for i, r in enumerate(rows, 1):
-        name = r["key"][:35].title()
-        lines.append(f"{i}. {name} — 👍 {r['count']}")
-    await _w(bot, user.id, "\n".join(lines))
+        title  = (r.get("title") or r["song_key"] or "?")
+        title  = title.replace("-", " ").replace("_", " ")
+        title  = (title[:1].upper() + title[1:])[:30]
+        lines.append(f"{i}. {title} • {r['count']} plays")
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ─── !toprequesters ───────────────────────────────────────────────────────────
 
 async def handle_toprequesters(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!toprequesters — users whose requests received the most likes."""
-    rows = _top_requesters_db(limit=5)
+    """!toprequesters — users with the most successful song requests."""
+    rows = rr.top_requesters(limit=5)
     if not rows:
-        await _w(bot, user.id, "No requester stats yet.")
+        await _w(bot, user.id, "💿 No requests yet. Use !play to request a song!")
         return
-    lines = ["🏆 Top Requesters"]
+    lines = ["💿 Top Requesters"]
     for i, r in enumerate(rows, 1):
-        lines.append(f"{i}. @\u200b{r['username']} — 👍 {r['count']}")
-    print(
-        f"{_LOG} stage=top_requester_update"
-        f" user={user.username!r} results={len(rows)}"
-    )
-    await _w(bot, user.id, "\n".join(lines))
+        lines.append(f"{i}. @{r['username'][:18]} — {r['count']} requests")
+    await _w(bot, user.id, "\n".join(lines)[:249])
 
 
 # ─── !voters ──────────────────────────────────────────────────────────────────

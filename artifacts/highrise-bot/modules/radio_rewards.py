@@ -348,9 +348,14 @@ async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
 
 async def handle_radiostats(bot: "BaseBot", user: "User", args: list) -> None:
     """!radiostats — show your radio engagement stats."""
-    uid  = user.id
-    s    = get_user_stats(uid)
-    msg  = (
+    uid = user.id
+    s   = get_user_stats(uid)
+    if s["points"] == 0 and s["requests"] == 0 and s["likes"] == 0:
+        await _w(bot, uid,
+                 "🎧 Radio Stats\n"
+                 "No radio activity yet. Use !play to request a song.")
+        return
+    msg = (
         f"🎧 Radio Stats\n"
         f"Requests: {s['requests']}\n"
         f"Likes: {s['likes']} | Dislikes: {s['dislikes']}\n"
