@@ -2039,8 +2039,8 @@ async def handle_emotetestchecklist(bot: "BaseBot", user: "User",
 # ===========================================================================
 async def handle_customhelp(bot: "BaseBot", user: "User",
                              _args: list | None = None) -> None:
-    """!customhelp — custom emote sequence reference."""
-    await _send_help_pages(bot, user.id, "🎭 Custom", [
+    """!customhelp — custom emote sequence reference (open to all players)."""
+    await _send_help_pages(bot, user.id, "🎭 Custom (all players)", [
         "!customemote <e1> <e2>... — play sequence",
         "!customtimed <e> <sec> <e> <sec>... — timed",
         "!stopcustom — stop loop",
@@ -2051,6 +2051,7 @@ async def handle_customhelp(bot: "BaseBot", user: "User",
         "!custominfo <pack> — show contents",
         "!renamecustom <old> <new>",
         "!deletecustom <pack>",
+        "Loops persist after bot restart",
     ])
 
 

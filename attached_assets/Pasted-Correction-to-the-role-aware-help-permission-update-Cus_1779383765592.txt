@@ -1,0 +1,112 @@
+Correction to the role-aware help/permission update:
+
+Custom emote commands must be available to ALL roles, including normal players.
+
+Move these commands from VIP-only into Everyone/Public:
+
+- !customemote <emotes>
+- !customtimed <emote sec...>
+- !stopcustom
+- !savecustom <pack>
+- !savecustomtimed <pack>
+- !playcustom <pack>
+- !custompacks
+- !custominfo <pack>
+- !renamecustom <old> <new>
+- !deletecustom <pack>
+
+Requirements:
+1. Normal players should see these commands in !customhelp.
+2. Normal players should be allowed to use these commands.
+3. Do not show “VIP only” message for !customhelp anymore.
+4. Keep custom emote persistence working.
+5. Keep custom timed emote persistence working.
+6. Keep saved custom packs working.
+7. Keep sync followers able to follow custom loops.
+8. Keep movement from stopping custom loops.
+
+Updated role layout:
+
+Everyone/Public:
+- plain emote name usage
+- !customemote <emotes>
+- !customtimed <emote sec...>
+- !stopcustom
+- !savecustom <pack>
+- !savecustomtimed <pack>
+- !playcustom <pack>
+- !custompacks
+- !custominfo <pack>
+- !renamecustom <old> <new>
+- !deletecustom <pack>
+- !sync @user
+- !syncstop
+- !syncstatus
+- !heart @user
+- !emotehelp
+- !customhelp
+- !synchelp
+- !socialhelp
+
+VIP:
+- !kiss @user
+- !slap @user
+- !punch @user
+- !bonk @user
+- !hypnotize @user
+- !heart @user 20
+
+Staff/Owner:
+- !setemote <name> time <sec>
+- !syncpersist on/off
+- !dancefloor setpoint 1
+- !dancefloor setpoint 2
+- !dancefloor save
+- !dancefloor start
+- !dancefloor stop
+- !dancefloor status
+- !dancefloor debug
+- !dancefloor clear
+- !dancefloor emotes <a b c>
+- !dancefloor timed <a sec b sec>
+- !dancefloor random <N>
+- !dancefloor randomtimed <N|all> <sec>
+- !dancefloor randomtimed <N|all> <min> <max>
+- !dancefloor savepack <name>
+- !dancefloor loadpack <name>
+- !dancefloor packs
+- !dancefloor packinfo <name>
+- !dancefloor renamepack <old> <new>
+- !dancefloor deletepack <name>
+- !botemote @bot <emote>
+- !botemote stop @bot
+- !botemotes
+- !superpunch @user
+- !yeet @user
+- !duel @user
+- !swordfight @user
+- !heart @user 100
+- !heart all
+- !hearts all 10
+
+Also update emote_permission_checklist.md:
+
+Normal player should be able to:
+- use !customemote
+- use !customtimed
+- use !savecustom
+- use !savecustomtimed
+- use !playcustom
+- use !custompacks
+- use !custominfo
+- use !renamecustom
+- use !deletecustom
+- see all custom commands in !customhelp
+
+Normal player should still NOT be able to:
+- use !setemote
+- use !dancefloor
+- use !botemote
+- use !syncpersist
+- use !heart all
+- use staff-only socials
