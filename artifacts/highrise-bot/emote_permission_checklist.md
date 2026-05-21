@@ -26,11 +26,12 @@
 
 ### Sync (all players)
 - [ ] Normal player: `!sync @user` works
-- [ ] Normal player: `!syncstop` works
+- [ ] Normal player: `!syncstop` stops own sync only
+- [ ] Normal player: `!syncstop all` is blocked (❌ Only owner/admin can stop everyone's sync.)
 - [ ] Normal player: `!syncstatus` works
-- [ ] Normal player: `!sync all` is blocked (❌ Only owner/admin)
+- [ ] Normal player: `!sync all` is blocked (❌ Only owner/admin can sync everyone.)
 - [ ] Normal player: `!sync all @user` is blocked
-- [ ] Normal player: `!synchelp` does NOT show `!sync all`
+- [ ] Normal player: `!synchelp` does NOT show `!sync all` or `!syncstop all`
 - [ ] Sync follows target's custom loops
 - [ ] Sync follows target's bot emotes
 - [ ] Sync follows target's dancefloor moves
@@ -52,9 +53,11 @@
 ## VIP+ required
 
 - [ ] VIP: `!sync @user` works
+- [ ] VIP: `!syncstop` stops own sync only
+- [ ] VIP: `!syncstop all` is blocked
 - [ ] VIP: `!sync all` is blocked
 - [ ] VIP: `!sync all @user` is blocked
-- [ ] VIP: `!synchelp` does NOT show `!sync all`
+- [ ] VIP: `!synchelp` does NOT show `!sync all` or `!syncstop all`
 - [ ] `!kiss @user`
 - [ ] `!slap @user`
 - [ ] `!bonk @user`
@@ -76,7 +79,7 @@
 - [ ] Bot emotes persist after restart
 
 ### Dancefloor (staff)
-- [ ] `!dancefloorhelp` shows full help (not blocked)
+- [ ] `!dancefloorhelp` shows full help
 - [ ] `!dancefloor setpoint 1`
 - [ ] `!dancefloor setpoint 2`
 - [ ] `!dancefloor save`
@@ -97,18 +100,23 @@
 - [ ] `!dancefloor renamepack <old> <new>`
 - [ ] `!dancefloor deletepack <name>`
 
-### Owner/Admin sync-all
-- [ ] `!sync all` works (all non-bot players synced to sender)
-- [ ] `!sync all @user` works (all non-bot players synced to @user)
-- [ ] Bots are skipped as followers
-- [ ] Bot as `@user` target is rejected (❌ Bots cannot be sync leaders.)
+### Owner/Admin sync commands
+- [ ] `!sync all` syncs all non-bot room players to sender
+- [ ] `!sync all @user` syncs all non-bot room players to @user
+- [ ] `!syncstop all` stops sync for all non-bot room players
+- [ ] `!syncstop all` — bots are skipped
+- [ ] `!syncstop all` — sync persistence DB records cleared for stopped players
+- [ ] `!syncstop all` — custom loops keep running (not stopped)
+- [ ] `!syncstop all` — dancefloor keeps running (not stopped)
+- [ ] `!syncstop all` — reports count: ✅ Stopped sync for N players. Bots skipped.
+- [ ] `!syncstop all` when no one is synced: No synced players found.
+- [ ] Bot as `@user` target for `!sync all` is rejected (❌ Bots cannot be sync leaders.)
 - [ ] Leader is not added as their own follower
-- [ ] `!synchelp` shows `!sync all` and `!sync all @user`
-- [ ] `!synchelp` shows `!syncpersist on|off`
+- [ ] `!synchelp` shows `!sync all`, `!sync all @user`, `!syncstop all`, `!syncpersist on|off`
 - [ ] Followers added by `!sync all` follow normal emotes
 - [ ] Followers added by `!sync all` follow custom loops
 - [ ] Followers added by `!sync all` follow dancefloor emotes
-- [ ] `!syncstop` still removes a user from sync after `!sync all`
+- [ ] `!syncstop` still removes only the sender from sync
 - [ ] Sync persistence still works if enabled
 
 ### Staff socials
@@ -123,24 +131,25 @@
 
 ## Normal player must NOT be able to
 
-- [ ] `!setemote` — blocked for non-staff
-- [ ] `!dancefloor` any subcommand — blocked for non-staff
-- [ ] `!dancefloorhelp` — blocked for non-staff
-- [ ] `!botemote` — blocked for non-staff
-- [ ] `!botemotehelp` — blocked for non-staff
-- [ ] `!syncpersist` — blocked for non-staff
-- [ ] `!sync all` — blocked for non-admin
-- [ ] `!sync all @user` — blocked for non-admin
-- [ ] `!heart all` — blocked for non-staff
-- [ ] `!superpunch`, `!yeet`, `!duel` — blocked for non-staff
+- [ ] `!setemote` — blocked
+- [ ] `!dancefloor` any subcommand — blocked
+- [ ] `!dancefloorhelp` — blocked
+- [ ] `!botemote` — blocked
+- [ ] `!botemotehelp` — blocked
+- [ ] `!syncpersist` — blocked
+- [ ] `!sync all` — blocked
+- [ ] `!sync all @user` — blocked
+- [ ] `!syncstop all` — blocked
+- [ ] `!heart all` — blocked
+- [ ] `!superpunch`, `!yeet`, `!duel` — blocked
 
 ---
 
 ## Regression tests
 
-- [ ] Sync followers still follow normal emotes after any of the above changes
+- [ ] Sync followers still follow normal emotes
 - [ ] Sync followers still follow custom loops
 - [ ] Sync followers still follow dancefloor emotes
-- [ ] `!syncstop` still removes a user from sync
+- [ ] `!syncstop` (no args) still removes only the sender from sync
 - [ ] Sync persistence still works if enabled
-- [ ] Dancefloor catch-up sends ONE immediate emote — does NOT start a loop that locks followers on the first emote
+- [ ] Dancefloor catch-up sends ONE immediate emote — does NOT lock followers on first emote

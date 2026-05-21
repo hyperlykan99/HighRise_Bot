@@ -871,9 +871,41 @@ async def try_sync_shortcut(bot: "BaseBot", user: "User",
 
 
 async def handle_syncstop(bot: "BaseBot", user: "User",
-                           _args: list | None = None) -> None:
-    """!syncstop — leave sync group."""
-    _sync_db_deactivate(user.id)   # always mark inactive in DB
+                           args: list | None = None) -> None:
+    """!syncstop — leave sync group.
+    !syncstop all — owner/admin: stop sync for all non-bot room players.
+    """
+    # ── !syncstop all ────────────────────────────────────────────────────────
+    if args and len(args) >= 2 and args[1].lower() == "all":
+        if not _is_admin(user.username):
+            await _w(bot, user.id, "❌ Only owner/admin can stop everyone's sync.")
+            return
+        from modules.live_bot_registry import live_bot_keys
+        bot_names = {str(n).lower() for n in (live_bot_keys() or [])}
+        try:
+            resp = await bot.highrise.get_room_users()
+            room_pairs = resp.content
+        except Exception as exc:
+            print(f"[SYNCSTOP_ALL] get_room_users err: {exc!r}")
+            await _w(bot, user.id, "❌ Could not fetch room users.")
+            return
+        count = 0
+        for follower, _ in room_pairs:
+            if follower.username.lower() in bot_names:
+                continue
+            _sync_db_deactivate(follower.id)
+            prior = _unsubscribe_follower(follower.id)
+            if prior is not None:
+                count += 1
+        if count == 0:
+            await _w(bot, user.id, "No synced players found.")
+        else:
+            await _w(bot, user.id,
+                     f"✅ Stopped sync for {count} players. Bots skipped."[:249])
+        return
+
+    # ── !syncstop (self only, existing behaviour) ────────────────────────────
+    _sync_db_deactivate(user.id)
     prior = _unsubscribe_follower(user.id)
     if prior is None:
         await _w(bot, user.id, "You have no active sync.")
@@ -1036,6 +1068,7 @@ async def handle_synchelp(bot: "BaseBot", user: "User",
         lines += [
             "!sync all — sync all players to you (admin)",
             "!sync all @user — sync all players to @user",
+            "!syncstop all — stop sync for all players",
             "!syncpersist on|off — resume after restart",
             "!syncdebug @user — inspect state (staff)",
         ]
