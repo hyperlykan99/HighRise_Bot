@@ -713,9 +713,77 @@ def get_current_controlled_emote(user_id: str) -> dict | None:
 
 
 async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
-    """!sync @Leader — subscribe to Leader's emote group."""
+    """!sync @Leader — subscribe to Leader's emote group.
+    !sync all        — owner/admin: sync all room players to self.
+    !sync all @user  — owner/admin: sync all room players to @user.
+    """
+    # ── !sync all [optional @target] ────────────────────────────────────────
+    if len(args) >= 2 and args[1].lower() == "all":
+        if not _is_admin(user.username):
+            await _w(bot, user.id, "❌ Only owner/admin can sync everyone.")
+            return
+        from modules.live_bot_registry import live_bot_keys
+        bot_names = {str(n).lower() for n in (live_bot_keys() or [])}
+        # Determine leader
+        if len(args) >= 3 and args[2].startswith("@"):
+            leader_name = args[2].lstrip("@")
+            if leader_name.lower() in bot_names:
+                await _w(bot, user.id, "❌ Bots cannot be sync leaders.")
+                return
+            from modules.room_utils import _resolve_user_in_room
+            pair = await _resolve_user_in_room(bot, leader_name)
+            if not pair:
+                await _w(bot, user.id, "❌ User not found.")
+                return
+            leader_user, _ = pair
+        else:
+            leader_user = user
+        # Gather room users
+        try:
+            resp = await bot.highrise.get_room_users()
+            room_pairs = resp.content
+        except Exception as exc:
+            print(f"[SYNC_ALL] get_room_users err: {exc!r}")
+            await _w(bot, user.id, "❌ Could not fetch room users.")
+            return
+        count = 0
+        for follower, _ in room_pairs:
+            if follower.username.lower() in bot_names:
+                continue
+            if follower.id == leader_user.id:
+                continue
+            # Subscribe follower using the same state as !sync @user
+            _unsubscribe_follower(follower.id)
+            try:
+                from modules.emote_system import _cancel_player_loop
+                _cancel_player_loop(follower.id)
+            except Exception:
+                pass
+            try:
+                from modules.custom_emotes import stop_custom_permanent
+                stop_custom_permanent(follower.id, "sync_subscribe")
+            except Exception:
+                pass
+            _df_inside.discard(follower.id)
+            _df_user_emote.pop(follower.id, None)
+            _sync_leader_of[follower.id]    = leader_user.id
+            _sync_leader_name[follower.id]  = leader_user.username
+            _sync_follower_name[follower.id] = follower.username
+            _sync_followers.setdefault(leader_user.id, set()).add(follower.id)
+            _sync_db_save(follower.id, follower.username,
+                          leader_user.id, leader_user.username)
+            count += 1
+        if count == 0:
+            await _w(bot, user.id, "No players available to sync.")
+        else:
+            await _w(bot, user.id,
+                     f"✅ Synced {count} players to @{leader_user.username}. "
+                     f"Bots skipped."[:249])
+        return
+
+    # ── !sync @user (single follower, existing behaviour) ───────────────────
     if len(args) < 2 or not args[1].startswith("@"):
-        await _w(bot, user.id, "Usage: !sync @user")
+        await _w(bot, user.id, "Usage: !sync @user  |  !sync all  |  !sync all @user")
         return
     target_name = args[1].lstrip("@")
     if target_name.lower() == user.username.lower():
@@ -956,16 +1024,22 @@ async def handle_syncpersist(bot: "BaseBot", user: "User", args: list) -> None:
 
 async def handle_synchelp(bot: "BaseBot", user: "User",
                            _args: list | None = None) -> None:
-    """!synchelp — sync system reference."""
-    await _send_help_pages(bot, user.id, "🔄 Sync", [
+    """!synchelp — sync system reference (role-aware)."""
+    lines = [
         "!sync @user — mirror their emotes exactly",
         "!syncstop — stop following",
         "Stop — also exits sync",
         "!syncstatus — show who you're syncing to",
-        "!syncpersist on|off — resume after restart",
-        "!syncdebug @user — inspect state (staff)",
         "Follows: bot emotes, custom loops, dancefloor",
-    ])
+    ]
+    if _is_admin(user.username):
+        lines += [
+            "!sync all — sync all players to you (admin)",
+            "!sync all @user — sync all players to @user",
+            "!syncpersist on|off — resume after restart",
+            "!syncdebug @user — inspect state (staff)",
+        ]
+    await _send_help_pages(bot, user.id, "🔄 Sync", lines)
 
 
 # ===========================================================================
@@ -1921,7 +1995,10 @@ async def startup_dancefloor_recovery(bot: "BaseBot") -> None:
 
 async def handle_dancefloorhelp(bot: "BaseBot", user: "User",
                                  _args: list | None = None) -> None:
-    """!dancefloorhelp — staff dancefloor reference."""
+    """!dancefloorhelp — staff dancefloor reference (staff-only)."""
+    if not _is_staff(user.username):
+        await _w(bot, user.id, "❌ Dancefloor commands are for staff only.")
+        return
     await _send_help_pages(bot, user.id, "💃 Dancefloor", [
         "!dancefloor setpoint 1|2 — mark corners",
         "!dancefloor save — build box from points",
@@ -2057,7 +2134,10 @@ async def handle_customhelp(bot: "BaseBot", user: "User",
 
 async def handle_botemotehelp(bot: "BaseBot", user: "User",
                                _args: list | None = None) -> None:
-    """!botemotehelp — bot emote system reference."""
+    """!botemotehelp — bot emote system reference (staff-only)."""
+    if not _is_staff(user.username):
+        await _w(bot, user.id, "❌ Bot emote commands are for staff only.")
+        return
     await _send_help_pages(bot, user.id, "🤖 BotEmote", [
         "!botemote @bot <emote> — send emote to bot",
         "!botemote stop @bot — stop bot emote",

@@ -1,0 +1,302 @@
+Update the HighRise Multi-Bot emote/sync system with these fixes and new feature.
+
+IMPORTANT:
+Do not break existing systems:
+- normal emotes
+- custom emote loops
+- custom timed loops
+- saved custom packs
+- sync with normal emotes
+- sync with custom loops
+- sync with dancefloor
+- dancefloor persistence
+- custom persistence
+- botemote persistence
+- heart burst
+- paged 255-character-safe whispers
+- multi-bot routing
+
+Use existing permission helpers if they already exist.
+Do not create duplicate role logic if the project already has helpers like:
+- is_owner(...)
+- is_admin(...)
+- is_staff(...)
+- is_vip(...)
+- has_permission(...)
+
+==================================================
+PART 1 — FIX ROLE-AWARE HELP LEAK
+==================================================
+
+Bug:
+Normal/non-staff users are blocked correctly when they type:
+
+!dancefloor help
+
+But normal users can still type:
+
+!dancefloorhelp
+
+and the bot shows full staff-only dancefloor help pages.
+
+Fix:
+Both commands must use the same owner/admin/staff permission guard:
+
+- !dancefloor help
+- !dancefloorhelp
+
+Expected behavior:
+
+If user is NOT owner/admin/staff:
+Reply only:
+
+❌ Dancefloor commands are for staff only.
+
+Do NOT show any dancefloor command list.
+
+If user IS owner/admin/staff:
+Show the full paged dancefloor help.
+
+Also check and apply the same direct-help guard pattern to other staff-only help shortcuts:
+
+- !botemotehelp
+- any staff-only syncpersist help, if it exists
+- any other staff-only help shortcut command
+
+Important:
+Do not only hide staff commands from !emotehelp.
+The direct help commands themselves must also be guarded.
+
+Test:
+Normal user:
+- !dancefloor help = blocked
+- !dancefloorhelp = blocked
+- !dancefloor stop = blocked
+- !botemotehelp = blocked
+- !botemote @DJ_DUDU wave = blocked
+
+Staff/owner:
+- !dancefloorhelp = full help visible
+- !dancefloor help = full help visible
+- !botemotehelp = full help visible
+
+==================================================
+PART 2 — ADD !sync all FEATURE
+==================================================
+
+Add a new sync command:
+
+!sync all
+
+Behavior:
+Sync all current non-bot players in the room to the command sender.
+
+Example:
+If owner/admin types:
+
+!sync all
+
+Then every non-bot player in the room should become a sync follower of the command sender.
+
+Also support:
+
+!sync all @player
+
+Behavior:
+Sync all current non-bot players in the room to @player.
+
+Example:
+If owner/admin types:
+
+!sync all @AshQuinn_
+
+Then every non-bot player in the room should become a sync follower of AshQuinn_.
+
+Permissions:
+Only owner/admin can use !sync all.
+
+Allowed:
+- owner: !sync all
+- owner: !sync all @player
+- admin/staff: !sync all
+- admin/staff: !sync all @player
+
+Blocked:
+- normal players
+- VIP users
+- bots
+
+Blocked message:
+
+❌ Only owner/admin can sync everyone.
+
+Do not allow normal users or VIP users to control everyone’s sync.
+
+==================================================
+PART 3 — BOT EXCLUSION RULES
+==================================================
+
+Bots must never be added as followers by !sync all.
+
+Skip:
+- DJ_DUDU
+- ChillTopiaMC
+- all other configured bot accounts
+- any user where user.is_bot == True, if that field exists
+- any username in the existing bot names/config/list
+
+Also:
+- Do not sync the leader to themselves.
+- Do not allow a bot to be the sync leader.
+
+If someone tries:
+
+!sync all @DJ_DUDU
+
+Reply:
+
+❌ Bots cannot be sync leaders.
+
+Same for ChillTopiaMC or any configured bot.
+
+==================================================
+PART 4 — REUSE EXISTING SYNC SYSTEM
+==================================================
+
+Do not create a separate sync system.
+
+!sync all must reuse the existing sync follower state used by:
+
+!sync @user
+
+That means followers added by !sync all must still work with:
+- normal emotes
+- custom loops
+- dancefloor emotes
+- persistence if sync persistence is enabled
+- !syncstop
+- !syncstatus
+
+Important:
+Existing bug fix must stay intact:
+Dancefloor catch-up should only send one immediate emote and should NOT start a separate sync loop that locks followers on the first dancefloor emote.
+
+==================================================
+PART 5 — EXPECTED COMMAND PARSING
+==================================================
+
+Existing:
+
+!sync @user
+
+Keep existing behavior:
+Only the command sender syncs to @user.
+
+New:
+
+!sync all
+
+New behavior:
+All non-bot players sync to the command sender.
+
+New:
+
+!sync all @user
+
+New behavior:
+All non-bot players sync to @user.
+
+Optional alias if easy and safe:
+
+!sync @user all
+
+May also sync all non-bot players to @user.
+
+But the required syntax is:
+
+!sync all
+!sync all @user
+
+==================================================
+PART 6 — RESULT MESSAGES
+==================================================
+
+After successful !sync all, whisper or respond with a clean message:
+
+✅ Synced <count> players to @<leader>. Bots skipped.
+
+If no eligible players:
+
+No players available to sync.
+
+If target user is not found:
+
+❌ User not found.
+
+If target is a bot:
+
+❌ Bots cannot be sync leaders.
+
+If sender has no permission:
+
+❌ Only owner/admin can sync everyone.
+
+==================================================
+PART 7 — UPDATE HELP
+==================================================
+
+Update !synchelp to show role-aware sync commands.
+
+Everyone should see:
+
+!sync @user - Sync yourself to a user
+!syncstop - Stop your sync
+!syncstatus - Check sync status
+
+Owner/admin should additionally see:
+
+!sync all - Sync all non-bot players to yourself
+!sync all @user - Sync all non-bot players to a user
+!syncpersist on/off - Toggle sync persistence
+
+Normal users and VIP users should NOT see !sync all in help.
+
+==================================================
+PART 8 — UPDATE CHECKLIST
+==================================================
+
+Update emote_permission_checklist.md with these tests:
+
+Normal player:
+- !sync @user works
+- !syncstop works
+- !syncstatus works
+- !sync all is blocked
+- !sync all @user is blocked
+- !synchelp does not show !sync all
+- !dancefloorhelp is blocked
+- !botemotehelp is blocked
+
+VIP:
+- !sync @user works
+- !sync all is blocked
+- !sync all @user is blocked
+- !synchelp does not show !sync all
+
+Owner/admin:
+- !sync all works
+- !sync all @user works
+- bots are skipped as followers
+- bot target is rejected as leader
+- leader is not synced to themselves
+- !synchelp shows !sync all
+- !dancefloorhelp shows full help
+- !botemotehelp shows full help
+
+Regression tests:
+- sync followers still follow normal emotes
+- sync followers still follow custom loops
+- sync followers still follow dancefloor emotes
+- !syncstop still removes a user from sync
+- sync persistence still works if enabled
+- dancefloor catch-up does not lock followers on first emote

@@ -24,28 +24,37 @@
 - [ ] Custom timed loop persists after bot restart
 - [ ] Saved custom packs persist after bot restart
 
-### Sync
-- [ ] Normal player can use `!sync @user`
-- [ ] Normal player can use `!syncstop`
-- [ ] Normal player can use `!syncstatus`
+### Sync (all players)
+- [ ] Normal player: `!sync @user` works
+- [ ] Normal player: `!syncstop` works
+- [ ] Normal player: `!syncstatus` works
+- [ ] Normal player: `!sync all` is blocked (❌ Only owner/admin)
+- [ ] Normal player: `!sync all @user` is blocked
+- [ ] Normal player: `!synchelp` does NOT show `!sync all`
 - [ ] Sync follows target's custom loops
 - [ ] Sync follows target's bot emotes
 - [ ] Sync follows target's dancefloor moves
-- [ ] Movement stops custom loop (does NOT stop sync itself)
+- [ ] Movement stops custom loop — does NOT stop sync itself
 
-### Hearts
-- [ ] Normal player can use `!heart @user` (1 heart)
+### Hearts (all players)
+- [ ] Normal player: `!heart @user` (1 heart) works
 
 ### Help commands (all players)
-- [ ] `!emotehelp`
-- [ ] `!customhelp`
-- [ ] `!synchelp`
-- [ ] `!socialhelp`
+- [ ] `!emotehelp` visible to all
+- [ ] `!customhelp` visible to all (no VIP message)
+- [ ] `!synchelp` visible to all
+- [ ] `!socialhelp` visible to all
+- [ ] `!dancefloorhelp` — blocked for non-staff (❌ Dancefloor commands are for staff only.)
+- [ ] `!botemotehelp` — blocked for non-staff (❌ Bot emote commands are for staff only.)
 
 ---
 
 ## VIP+ required
 
+- [ ] VIP: `!sync @user` works
+- [ ] VIP: `!sync all` is blocked
+- [ ] VIP: `!sync all @user` is blocked
+- [ ] VIP: `!synchelp` does NOT show `!sync all`
 - [ ] `!kiss @user`
 - [ ] `!slap @user`
 - [ ] `!bonk @user`
@@ -60,8 +69,14 @@
 ### Emote admin
 - [ ] `!setemote <name> time <sec>`
 - [ ] `!syncpersist on|off`
+- [ ] `!botemotehelp` shows full help
+- [ ] `!botemote @bot <emote>`
+- [ ] `!botemote stop @bot`
+- [ ] `!botemotes`
+- [ ] Bot emotes persist after restart
 
 ### Dancefloor (staff)
+- [ ] `!dancefloorhelp` shows full help (not blocked)
 - [ ] `!dancefloor setpoint 1`
 - [ ] `!dancefloor setpoint 2`
 - [ ] `!dancefloor save`
@@ -82,11 +97,19 @@
 - [ ] `!dancefloor renamepack <old> <new>`
 - [ ] `!dancefloor deletepack <name>`
 
-### Bot emotes (staff)
-- [ ] `!botemote @bot <emote>`
-- [ ] `!botemote stop @bot`
-- [ ] `!botemotes`
-- [ ] Bot emotes persist after restart
+### Owner/Admin sync-all
+- [ ] `!sync all` works (all non-bot players synced to sender)
+- [ ] `!sync all @user` works (all non-bot players synced to @user)
+- [ ] Bots are skipped as followers
+- [ ] Bot as `@user` target is rejected (❌ Bots cannot be sync leaders.)
+- [ ] Leader is not added as their own follower
+- [ ] `!synchelp` shows `!sync all` and `!sync all @user`
+- [ ] `!synchelp` shows `!syncpersist on|off`
+- [ ] Followers added by `!sync all` follow normal emotes
+- [ ] Followers added by `!sync all` follow custom loops
+- [ ] Followers added by `!sync all` follow dancefloor emotes
+- [ ] `!syncstop` still removes a user from sync after `!sync all`
+- [ ] Sync persistence still works if enabled
 
 ### Staff socials
 - [ ] `!superpunch @user`
@@ -102,7 +125,22 @@
 
 - [ ] `!setemote` — blocked for non-staff
 - [ ] `!dancefloor` any subcommand — blocked for non-staff
+- [ ] `!dancefloorhelp` — blocked for non-staff
 - [ ] `!botemote` — blocked for non-staff
+- [ ] `!botemotehelp` — blocked for non-staff
 - [ ] `!syncpersist` — blocked for non-staff
+- [ ] `!sync all` — blocked for non-admin
+- [ ] `!sync all @user` — blocked for non-admin
 - [ ] `!heart all` — blocked for non-staff
 - [ ] `!superpunch`, `!yeet`, `!duel` — blocked for non-staff
+
+---
+
+## Regression tests
+
+- [ ] Sync followers still follow normal emotes after any of the above changes
+- [ ] Sync followers still follow custom loops
+- [ ] Sync followers still follow dancefloor emotes
+- [ ] `!syncstop` still removes a user from sync
+- [ ] Sync persistence still works if enabled
+- [ ] Dancefloor catch-up sends ONE immediate emote — does NOT start a loop that locks followers on the first emote
