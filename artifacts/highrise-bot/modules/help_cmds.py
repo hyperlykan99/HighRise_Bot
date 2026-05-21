@@ -559,6 +559,31 @@ async def handle_commands(bot: BaseBot, user: User, args: list[str]) -> None:
                      "!syncpersist on|off")
         return
 
+    if sub in ("radio", "music"):
+        if _config.BOT_MODE != "dj":
+            return
+        await _w(bot, user.id,
+                 "📻 Radio\n"
+                 "!radio — stream URL\n"
+                 "!np / !queue — now playing / queue\n"
+                 "!request <song> → !pick 1-5\n"
+                 "!ytrequest <URL> — direct upload\n"
+                 "!skipvote  !vibe status  !radiohelp")
+        if can_moderate(user.username):
+            await _w(bot, user.id,
+                     "🛠️ Staff Radio\n"
+                     "!skip  !djconfig  !ytstatus\n"
+                     "!ytqueue  !setytcooldown <s>\n"
+                     "!vibe chill | !vibe party")
+        if is_admin(user.username):
+            await _w(bot, user.id,
+                     "👑 Admin Radio\n"
+                     "!djlock / !radiolock on|off\n"
+                     "!djclear / !radioclear\n"
+                     "!djremove / !radioremove <#>\n"
+                     "!djset <key> <val>  !djdebug on|off")
+        return
+
     # Player categories
     cat_aliases = {
         "earn":       "earn",

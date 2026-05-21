@@ -1,0 +1,359 @@
+RADIO / DJ_DUDU CLEANUP — PHASE 1
+
+Goal:
+Clean and organize the radio/music system so it feels like one clean DJ_DUDU radio module to users, without merging or rewriting the working internals yet.
+
+Do NOT merge dj_music.py and yt_request.py in this phase.
+Do NOT move files yet.
+Do NOT rename files yet.
+Do NOT rewrite YouTube download, SFTP, AzuraCast, database, or playback logic.
+Do NOT touch emote system.
+
+Current architecture:
+- modules/dj_music.py = search-based request queue:
+  !request <song>, !pick <1-5>, !queue, !np, !skipvote, !radio, !djhelp, DJ queue controls.
+- modules/yt_request.py = direct YouTube URL → SFTP/AzuraCast request pipeline:
+  !ytrequest <url>, !ytnow, !ytqueue, !ytstatus, cooldowns, staging, bans, request jobs.
+- modules/radio_vibe.py = AzuraCast vibe/playlist switching:
+  !vibe chill, !vibe party, !vibe status.
+
+Important:
+DJ_DUDU / BOT_MODE=dj must own all radio/music commands.
+Other bots must not reply to radio/music commands.
+
+==================================================
+PART 1 — RADIO COMMAND OWNERSHIP
+==================================================
+
+Create or update a single radio command ownership guard.
+
+All these commands must be handled only by DJ_DUDU:
+
+Public:
+- !radio
+- !radiohelp
+- !djhelp
+- !commands radio
+- !commands music
+- !request
+- !req
+- !sr
+- !song
+- !pick
+- !queue
+- !djqueue
+- !np
+- !nowplaying
+- !skipvote
+- !ytrequest
+- !ytnow
+- !vibe
+
+Manager/admin:
+- !skip
+- !djskip
+- !stopmusic
+- !djconfig
+- !radioconfig
+- !ytqueue
+- !ytstatus
+- !radiostatus
+- !ytcooldown
+- !setytcooldown
+
+Admin/owner:
+- !djlock
+- !radiolock
+- !djclear
+- !radioclear
+- !djremove
+- !radioremove
+- !djset
+- !djdebug
+
+Expected:
+Only DJ_DUDU replies to radio/music commands.
+ChillTopiaMC and other bots silently ignore them.
+
+Reuse existing multi-bot routing helpers if available.
+Do not create a duplicate routing system if one already exists.
+
+==================================================
+PART 2 — UNIFIED RADIO HELP
+==================================================
+
+Add or improve:
+
+!radiohelp
+
+Make !djhelp use the same clean help builder or redirect to it.
+
+Add global help categories:
+- !commands radio
+- !commands music
+
+Help must be role-aware and whisper-only.
+
+👤 Everyone:
+📻 !radio — Show stream URL
+🎧 !np / !nowplaying — Show current song
+📜 !queue / !djqueue — Show upcoming songs
+🔎 !request <song> — Search YouTube, then use !pick
+✅ !pick <1-5> — Pick a search result
+🔗 !ytrequest <YouTube URL> — Request a direct YouTube link
+🎵 !ytnow — Show latest requested song
+🗳️ !skipvote — Vote to skip current song
+🎚️ !vibe status — Show current chill/party vibe
+
+⭐ VIP:
+Show only if already implemented/enabled:
+⭐ VIP requests may be free if vip_free_requests is enabled
+⚡ VIP requests may get priority if vip_priority is enabled
+
+🛠️ Manager/Admin:
+⏭️ !skip / !djskip — Force skip
+🛑 !stopmusic — Stop/clear pending music
+⚙️ !djconfig / !radioconfig — Show DJ settings
+📋 !ytqueue — Show request jobs
+🧪 !ytstatus / !radiostatus — Show SFTP/AzuraCast status
+⏳ !ytcooldown — Show cooldown settings
+⏱️ !setytcooldown <sec> — Set request cooldown
+🎶 !vibe chill — Switch to chill playlist
+🔥 !vibe party — Switch to party playlist
+
+👑 Admin/Owner:
+🔒 !djlock / !radiolock on|off — Lock/unlock requests
+🧹 !djclear / !radioclear — Clear queue
+❌ !djremove / !radioremove <#> — Remove queue item
+🛠️ !djset <key> <val> — Change DJ setting
+🐞 !djdebug on|off — Toggle debug
+
+Keep every whisper chunk 249/255-character safe.
+
+==================================================
+PART 3 — CLEARLY EXPLAIN TWO REQUEST TYPES
+==================================================
+
+In !radiohelp / !djhelp, clearly explain:
+
+Search request:
+!request <song>
+The bot searches YouTube and whispers 5 results.
+Then use:
+!pick <1-5>
+
+Direct URL request:
+!ytrequest <YouTube URL>
+The bot validates the URL, downloads audio, uploads it to AzuraCast/SFTP Requests, and logs the job.
+
+Do not merge these behaviors yet.
+Just make the difference clear to users.
+
+==================================================
+PART 4 — ADD CLEAN ALIASES ONLY
+==================================================
+
+Add these cleaner aliases if safe:
+
+!radiostatus → same as !ytstatus
+!radioconfig → same as !djconfig
+!radiolock on/off → same as !djlock on/off
+!radioclear → same as !djclear
+!radioremove <#> → same as !djremove <#>
+
+Do not remove old commands:
+- !ytstatus
+- !djconfig
+- !djlock
+- !djclear
+- !djremove
+
+If typo alias !requesy exists, keep it silently for compatibility but do not advertise it in help.
+
+==================================================
+PART 5 — CLEAN STATUS OUTPUTS
+==================================================
+
+Improve !ytstatus / !radiostatus:
+Show:
+- SFTP ready/missing
+- AzuraCast API ready/missing
+- station ID
+- SFTP upload path
+- media dir
+- playlist ID
+- active jobs count
+- staged jobs count if available
+- latest error if available
+
+Do NOT show:
+- SFTP password
+- API key
+- credentials
+- secrets
+
+Improve !djconfig / !radioconfig:
+Show:
+- queue max
+- cooldown
+- user max
+- skip vote threshold
+- lock on/off
+- debug on/off
+- autoplay on/off if used
+- repeat on/off if used
+- announce on/off if used
+- request cost if used
+- VIP free requests if used
+- VIP priority if used
+
+Whisper only. Chunk safely.
+
+==================================================
+PART 6 — PERMISSION CONSISTENCY
+==================================================
+
+Everyone can use:
+- !radio
+- !radiohelp
+- !djhelp
+- !commands radio
+- !commands music
+- !np / !nowplaying
+- !queue / !djqueue
+- !request / !req / !sr / !song
+- !pick
+- !ytrequest
+- !ytnow
+- !skipvote
+- !vibe status
+
+Manager/admin can use:
+- !skip / !djskip
+- !stopmusic
+- !djconfig / !radioconfig
+- !ytqueue
+- !ytstatus / !radiostatus
+- !ytcooldown
+- !setytcooldown
+- !vibe chill
+- !vibe party
+
+Admin/owner can use:
+- !djlock / !radiolock
+- !djclear / !radioclear
+- !djremove / !radioremove
+- !djset
+- !djdebug
+- request ban/unban tools if already implemented
+
+Blocked messages:
+🔒 Manager/admin only.
+🔒 Admin/owner only.
+
+Do not create a new permission system.
+Reuse existing helpers from modules.permissions.
+
+==================================================
+PART 7 — ADD MODULE BOUNDARY COMMENTS
+==================================================
+
+Add clear top comments:
+
+dj_music.py:
+Search-based request queue and DJ queue controls.
+
+yt_request.py:
+Direct YouTube URL to AzuraCast/SFTP Requests pipeline.
+
+radio_vibe.py:
+AzuraCast vibe/playlist switching.
+
+Avoid duplicate help text if possible.
+If safe, centralize radio help text in one helper function.
+
+==================================================
+PART 8 — DO NOT DO THESE YET
+==================================================
+
+Do not merge dj_music.py and yt_request.py.
+Do not move files into modules/radio yet.
+Do not implement a new streaming backend.
+Do not replace NullBackend.
+Do not change yt-dlp logic.
+Do not change SFTP upload logic.
+Do not change AzuraCast API behavior.
+Do not remove old aliases.
+Do not remove DB tables.
+Do not change payment/VIP request logic.
+Do not change staging/dedup/ban/cooldown behavior.
+Do not touch emote system.
+
+==================================================
+PART 9 — CHECKLIST
+==================================================
+
+Create or update:
+
+radio_music_checklist.md
+
+Tests:
+
+Routing:
+- !radio → only DJ_DUDU replies
+- !radiohelp → only DJ_DUDU replies
+- !djhelp → only DJ_DUDU replies
+- !request test song → only DJ_DUDU replies
+- !ytrequest <url> → only DJ_DUDU replies
+- !vibe status → only DJ_DUDU replies
+- ChillTopiaMC stays silent
+- Other bots stay silent
+
+Normal user:
+- !radio works or says stream not configured
+- !radiohelp shows public commands only
+- !djhelp shows public commands only
+- !commands radio works
+- !commands music works
+- !request <song> works
+- !pick <1-5> works after search
+- !ytrequest validates URL
+- !ytnow works
+- !vibe status works
+- !ytstatus is blocked
+- !radiostatus is blocked
+- !djset is blocked
+- !djclear is blocked
+
+VIP:
+- !radiohelp shows VIP benefits only if enabled
+- VIP request cost/priority behavior unchanged
+
+Manager/admin:
+- !ytstatus works
+- !radiostatus works
+- !ytqueue works
+- !setytcooldown works
+- !vibe chill works
+- !vibe party works
+- !djconfig works
+- !radioconfig works
+- !skip works
+
+Admin/owner:
+- !djlock on/off works
+- !radiolock on/off works
+- !djclear works
+- !radioclear works
+- !djremove <#> works
+- !radioremove <#> works
+- !djset works
+- !djdebug works
+
+Regression:
+- !request search still works
+- !pick still adds to queue
+- !ytrequest still uses existing SFTP/AzuraCast pipeline
+- !vibe still toggles playlists
+- no secrets are shown in chat/whispers
+- old aliases still work

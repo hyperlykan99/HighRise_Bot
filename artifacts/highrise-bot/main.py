@@ -1842,6 +1842,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "setrequestcooldown", "setmaxuserqueue", "setmaxqueue",
     "djcleanup",
     "djlock", "djclear", "djremove",
+    "radiolock", "radioclear", "radioremove",
     "stopmusic", "djstop", "clearqueue",
     "djconfig", "djsettings",
     "djset", "djdebug",
@@ -7890,7 +7891,11 @@ class HangoutBot(BaseBot):
             await handle_dj_cleanup(self, user)
         elif cmd == "djlock":
             await handle_dj_lock(self, user, args)
+        elif cmd == "radiolock":
+            await handle_dj_lock(self, user, args)
         elif cmd == "djclear":
+            await handle_dj_clear(self, user)
+        elif cmd == "radioclear":
             await handle_dj_clear(self, user)
         elif cmd == "radio":
             await handle_dj_radio(self, user)
@@ -8034,7 +8039,7 @@ class HangoutBot(BaseBot):
             await handle_unbanrequester(self, user, args)
         elif cmd == "queueadmin":
             await handle_queueadmin(self, user, args)
-        elif cmd in ("remove", "djremove"):
+        elif cmd in ("remove", "djremove", "radioremove"):
             await rc_remove(self, user, args)
         elif cmd in ("voteskip", "skipvote"):
             await rc_voteskip(self, user, args)

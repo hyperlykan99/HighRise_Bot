@@ -381,6 +381,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "setrequestcooldown": "dj", "setmaxuserqueue": "dj", "setmaxqueue": "dj",
     "djcleanup": "dj",
     "djlock": "dj", "djclear": "dj", "djremove": "dj",
+    "radiolock": "dj", "radioclear": "dj", "radioremove": "dj",
     "stopmusic": "dj", "djstop": "dj", "clearqueue": "dj",
     "djconfig": "dj", "djsettings": "dj",
     "djset": "dj", "djdebug": "dj",
@@ -761,9 +762,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "djconfig": "dj", "djsettings": "dj",
     "djset": "dj",
     "djdebug": "dj",
-    "djlock": "dj",
-    "djclear": "dj",
-    "djremove": "dj",
+    "djlock": "dj", "radiolock": "dj",
+    "djclear": "dj", "radioclear": "dj",
+    "djremove": "dj", "radioremove": "dj",
     "radio": "dj",
     "setradio": "dj", "radiostatus": "dj",
     "webplayer": "dj", "setwebplayer": "dj",
@@ -1096,6 +1097,7 @@ _DJ_MUST_OWN: frozenset[str] = frozenset({
     "hypnotize", "duel", "swordfight",
     "heart", "hearts",
     "social", "blocksocial", "unblocksocial",
+    "radiolock", "radioclear", "radioremove",
 })
 
 
