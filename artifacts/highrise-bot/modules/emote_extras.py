@@ -717,22 +717,34 @@ async def handle_sync(bot: "BaseBot", user: "User", args: list) -> None:
     cur = get_current_controlled_emote(leader_user.id)
     if cur:
         eid, alias = cur["eid"], cur["alias"]
-        print(f"[SYNC_CATCHUP] follower={user.id} leader={leader_user.id} "
-              f"source={cur['source']} alias={alias} eid={eid}")
+        source = cur["source"]
         try:
             from modules.emote_system import _send_player
             await _send_player(bot, eid, user.id)
         except Exception as exc:
             print(f"[SYNC_CATCHUP] send err: {exc!r}")
-        # Start group loop if not already running (covers first-follower case)
-        existing_task = _sync_group_tasks.get(leader_user.id)
-        if existing_task is None or existing_task.done():
-            _sync_group_emote[leader_user.id] = eid
-            _sync_group_tasks[leader_user.id] = asyncio.create_task(
-                _sync_group_loop(bot, leader_user.id, eid, alias))
-        await _w(bot, user.id,
-                 f"🔄 Synced to @{leader_user.username} — "
-                 f"now doing: {alias}"[:249])
+
+        if source == "dancefloor":
+            # One-shot catch-up only — _df_shared_cycle fan-out drives all future
+            # steps for every subscriber. Starting a group loop here would fight
+            # the dancefloor cycle and lock the follower on the first emote.
+            print(f"[SYNC_CATCHUP_DF_ONESHOT] follower={user.id} "
+                  f"leader={leader_user.id} eid={eid}")
+            await _w(bot, user.id,
+                     f"🔄 Synced to @{leader_user.username} (dancefloor) — "
+                     f"now doing: {alias}"[:249])
+        else:
+            # source == "player_loop" or "sync_group" — start/keep group loop
+            print(f"[SYNC_CATCHUP] follower={user.id} leader={leader_user.id} "
+                  f"source={source} alias={alias} eid={eid}")
+            existing_task = _sync_group_tasks.get(leader_user.id)
+            if existing_task is None or existing_task.done():
+                _sync_group_emote[leader_user.id] = eid
+                _sync_group_tasks[leader_user.id] = asyncio.create_task(
+                    _sync_group_loop(bot, leader_user.id, eid, alias))
+            await _w(bot, user.id,
+                     f"🔄 Synced to @{leader_user.username} — "
+                     f"now doing: {alias}"[:249])
     else:
         print(f"[SYNC_WAITING] follower={user.id} leader={leader_user.id}")
         await _w(bot, user.id,
