@@ -87,6 +87,41 @@ def reload_emote_registry() -> None:
             print(f"[EMOTE] registry reload failed: {exc!r}")
 
 
+def apply_saved_emote_timings() -> None:
+    """Re-apply DB-persisted timing overrides onto the central emote registry.
+
+    Called at bot startup (all modes) so that !setemote <alias> time <N>
+    changes survive registry rebuilds triggered by migration, !importemotes,
+    !reloademotes, or a corrupt/missing data/emotes.json.
+
+    Each override is written back via set_field so data/emotes.json also stays
+    in sync — the registry remains the single runtime source of truth.
+    """
+    if _reg is None:
+        return
+    import json as _json_mod
+    try:
+        _raw = db.get_room_setting("emote_timing_overrides", "{}")
+        overrides: dict = _json_mod.loads(_raw) if (_raw or "").strip() else {}
+    except Exception:
+        return
+    if not overrides:
+        return
+    count = 0
+    for alias, seconds in overrides.items():
+        try:
+            ok = _reg.set_field(alias, "time", float(seconds))
+            if ok:
+                print(f"[EMOTE_TIMING] Startup: {alias} = {seconds}s")
+                count += 1
+            else:
+                print(f"[EMOTE_TIMING] Startup skip (not in registry): {alias}")
+        except Exception as exc:
+            print(f"[EMOTE_TIMING] Startup error {alias}: {exc!r}")
+    if count:
+        print(f"[EMOTE_TIMING] Applied {count} saved timing override(s) from DB.")
+
+
 def _merged_bot_names() -> "list[str]":
     """Sorted display names of all bot-usable emotes (registry-driven)."""
     if _reg is not None:
@@ -1357,18 +1392,29 @@ async def handle_setemote(bot: "BaseBot", user: "User", args: list) -> None:
     if not ok:
         await _w(bot, uid, f"Failed — alias '{alias}' not found or bad value.")
         return
+    # Persist timing overrides to DB so they survive registry rebuilds on restart
+    if field == "time":
+        import json as _json_mod
+        try:
+            _raw_ov = db.get_room_setting("emote_timing_overrides", "{}")
+            _ov: dict = _json_mod.loads(_raw_ov) if (_raw_ov or "").strip() else {}
+        except Exception:
+            _ov = {}
+        _ov[alias.strip().lower()] = float(value)
+        db.set_room_setting("emote_timing_overrides", _json_mod.dumps(_ov))
+        print(f"[SETEMOTE_TIME] Persisted {alias}={float(value)}s to DB")
     try:
         reload_custom_emotes()
     except Exception:
         pass
-    entry = _reg.get_emote(alias)
-    if entry:
-        await _w(bot, uid,
-                 f"✅ {alias}: {field}={value}  "
-                 f"(id={entry['id']} t={entry['time']}s "
-                 f"bot={_fmt_bool(entry['bot'])} player={_fmt_bool(entry['player'])})")
+    if field == "time":
+        await _w(bot, uid, f"✅ Updated {alias} time to {float(value)}s permanently.")
     else:
-        await _w(bot, uid, f"✅ Updated {alias}.{field}")
+        entry = _reg.get_emote(alias)
+        if entry:
+            await _w(bot, uid, f"✅ {alias}: {field}={value}")
+        else:
+            await _w(bot, uid, f"✅ Updated {alias}.{field}")
 
 
 async def handle_addemote(bot: "BaseBot", user: "User", args: list) -> None:

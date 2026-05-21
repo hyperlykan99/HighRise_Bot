@@ -971,6 +971,7 @@ from modules.emote_system import (   # re-open for remaining symbols
     handle_timingaudit,
     is_emote_controller_bot,
     reload_emote_registry,
+    apply_saved_emote_timings,
 )
 from modules.custom_emote_manager import (
     handle_missingtimings,
@@ -3781,6 +3782,11 @@ class HangoutBot(BaseBot):
             _safe_task(startup_dancefloor_recovery(self), "startup_dancefloor_recovery")
             _safe_task(startup_custom_loop_recovery(self), "startup_custom_loop_recovery")
             _safe_task(startup_sync_recovery(self), "startup_sync_recovery")
+        # Re-apply DB-persisted emote timing overrides (all modes, runs synchronously)
+        try:
+            apply_saved_emote_timings()
+        except Exception:
+            pass
         # Emote discovery — only runs on dj bot (emote test uses dj's Highrise account)
         if BOT_MODE == "dj":
             _safe_task(startup_emote_discovery(self), "startup_emote_discovery")

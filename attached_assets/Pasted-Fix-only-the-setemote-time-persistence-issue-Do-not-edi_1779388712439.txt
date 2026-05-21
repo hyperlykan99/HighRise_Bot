@@ -1,0 +1,171 @@
+Fix only the !setemote time persistence issue.
+
+Do not edit sync.
+Do not edit dancefloor.
+Do not edit botemote.
+Do not edit social commands.
+Do not edit help pages unless needed for !setemote usage text.
+Do not add !sync all or !syncstop all in this task.
+
+Bug:
+I used:
+
+!setemote justvibing time 12
+
+It worked before restart, but after restart the bot went back to:
+
+Looping justvibing every 20.0s
+
+Expected:
+After restart, justvibing should still loop every 12.0s.
+
+Required command syntax:
+Use ONLY this syntax:
+
+!setemote <emote_name> time <seconds>
+
+Example:
+
+!setemote justvibing time 12
+
+Do NOT add "timing" as a new keyword.
+
+Core requirement:
+There must be only ONE source of truth for emote timing:
+the central emote registry.
+
+Do not create duplicate timing dictionaries, duplicate timing tables, or separate override maps for setemote timing.
+
+Do NOT add:
+- EMOTE_TIMING_OVERRIDES
+- CUSTOM_TIMINGS
+- LOOP_TIMINGS
+- separate per-feature timing dictionaries that can disagree with the registry
+
+When owner/admin runs:
+
+!setemote justvibing time 12
+
+The command must:
+1. Normalize the emote name.
+2. Find that emote in the central emote registry.
+3. Update the time/timing field directly on that registry entry.
+4. Save that same registry time value to the DB immediately.
+5. Keep using the same central registry object for all emote systems.
+
+Correct idea:
+
+EMOTE_REGISTRY["justvibing"]["time"] = 12.0
+
+or if the project uses "timing" internally:
+
+EMOTE_REGISTRY["justvibing"]["timing"] = 12.0
+
+But the command keyword must still be "time".
+
+Incorrect idea:
+
+EMOTE_TIMING_OVERRIDES["justvibing"] = 12.0
+CUSTOM_TIMINGS["justvibing"] = 12.0
+LOOP_TIMINGS["justvibing"] = 12.0
+
+Startup/restart load order:
+1. Build/load the base emote registry first.
+2. Load saved emote time values from DB.
+3. Apply DB saved time values back onto the same central registry entries.
+4. DB saved time must override hardcoded/default registry time.
+5. Do not overwrite DB saved values with base registry defaults after loading.
+
+Expected priority:
+
+DB saved registry time > base registry time > fallback 20.0
+
+Example:
+Base registry has:
+
+justvibing time = 20.0
+
+Owner/admin runs:
+
+!setemote justvibing time 12
+
+Central registry now has:
+
+justvibing time = 12.0
+
+DB saves:
+
+justvibing time = 12.0
+
+After restart:
+Base registry may load justvibing as 20.0 first.
+Then DB saved value must apply and change it back to 12.0.
+Bot must loop justvibing every 12.0s until owner/admin changes it again.
+
+All systems must read emote timing from the central registry only:
+- plain emote commands
+- !emote
+- !loopemote
+- !customemote default timing
+- !customtimed when validating emotes
+- sync followers
+- dancefloor random/default timing lookups
+- saved custom packs when they need default timing
+- saved dancefloor packs when they need default timing
+
+Confirmation message after setting time:
+
+✅ Updated justvibing time to 12.0s permanently.
+
+Add or update debug command if available:
+
+!emoteinfo justvibing
+
+It should show:
+- emote name
+- emote ID
+- current time: 12.0s
+- source: central registry / saved DB
+- whether the emote exists in registry
+
+If !emoteinfo already exists, update it.
+If it does not exist and adding it is simple, add it.
+If adding it risks breaking routing, skip the new command and add startup logging instead.
+
+Add startup logging/debug:
+Example:
+
+Loaded saved emote time: justvibing = 12.0s
+
+Tests:
+1. Run:
+!setemote justvibing time 12
+
+2. Confirm message:
+✅ Updated justvibing time to 12.0s permanently.
+
+3. Run:
+justvibing
+or:
+!loopemote justvibing
+
+Expected:
+Bot uses 12.0s.
+
+4. Restart bot.
+
+5. Run:
+justvibing
+or:
+!loopemote justvibing
+
+Expected:
+Bot still uses 12.0s, not 20.0s.
+
+6. Change it again:
+!setemote justvibing time 15
+
+7. Restart bot.
+
+Expected:
+Bot now uses 15.0s.
