@@ -1,0 +1,336 @@
+RADIO REWARDS / LISTENER STATS UPDATE
+
+Goal:
+Add lightweight radio engagement stats and rewards so players feel progression from using DJ DUDU radio.
+
+Do not rewrite the radio backend.
+Do not change AzuraCast/SFTP logic.
+Do not change request upload/download logic.
+Do not touch emote system.
+Do not break DJ_DUDU internal routing or BOT_MODE=dj.
+
+Relevant files to inspect:
+- modules/radio_commands.py
+- modules/request_queue.py
+- modules/playback_engine.py
+- modules/music_credits.py
+- modules/payment_service.py
+- modules/config_store.py
+- modules/permissions.py
+- modules/profile.py
+- modules/achievements.py
+- modules/reputation.py
+- database.py
+- modules/help_cmds.py
+
+==================================================
+1. ADD RADIO STATS COMMANDS
+==================================================
+
+Add:
+
+!radiostats
+
+Shows the user’s radio profile.
+
+Suggested compact output:
+🎧 Radio Stats
+Requests: <n>
+Likes: <n> | Dislikes: <n>
+Favorites: <n>
+Playlists: <n>
+Top Vibe: <vibe or N/A>
+
+Keep under 249 chars.
+Use whisper.
+
+Also support:
+!radiostats @user
+
+If viewing another user is already allowed by your profile/privacy system, use that.
+If not, keep self-only for now.
+
+==================================================
+2. ADD RADIO LEADERBOARDS
+==================================================
+
+Add:
+
+!toplisteners
+Shows most active radio users.
+
+!toprequests
+Shows users with most successful song requests.
+
+!topsongs
+Shows most requested or most liked songs.
+
+Suggested outputs:
+
+🎧 Top Listeners
+1. @user — 42 pts
+2. @user — 35 pts
+3. @user — 20 pts
+
+💿 Top Requesters
+1. @user — 18 requests
+2. @user — 11 requests
+
+🔥 Top Songs
+1. Song Title — 9 plays
+2. Song Title — 7 plays
+
+Keep paginated/safe under 249 chars.
+
+==================================================
+3. TRACK RADIO ACTIVITY
+==================================================
+
+Create or reuse existing DB tables/helpers for radio stats.
+
+Track:
+- successful song requests
+- likes given
+- dislikes given
+- favorites saved
+- playlist songs added
+- playlists created
+- playlist plays
+- optional: time/listener activity if already tracked safely
+
+Do not count failed requests.
+Do not count blocked requests.
+Do not count duplicate spam.
+
+Suggested table if needed:
+radio_user_stats:
+- user_id
+- username
+- requests_count
+- likes_count
+- dislikes_count
+- favorites_count
+- playlists_created
+- playlist_songs_added
+- playlist_plays
+- radio_points
+- last_updated
+
+Suggested song table if needed:
+radio_song_stats:
+- song_key
+- title
+- artist
+- source_type
+- request_count
+- like_count
+- dislike_count
+- favorite_count
+- playlist_add_count
+- last_played_at
+
+Reuse existing dj_ratings, dj_favorites, radio playlist tables, and request history if possible.
+Do not duplicate data if existing tables can be aggregated safely.
+
+==================================================
+4. LIGHTWEIGHT REWARDS
+==================================================
+
+Add small rewards for radio engagement.
+
+Reward actions:
+- successful song request
+- first like/dislike per song
+- saving a favorite
+- creating a playlist
+- adding a song to a playlist
+- playing a playlist song
+
+Rewards should be small:
+- small XP if profile/XP system exists
+- small ChillCoins if economy helpers exist
+- radio_points always safe to add
+
+Recommended:
+Successful request: +5 radio points
+Like/dislike first time: +1 radio point
+Favorite: +2 radio points
+Playlist create: +3 radio points
+Playlist song add: +1 radio point
+Playlist play: +2 radio points
+
+If XP/coins are added:
+keep very small and respect daily caps.
+
+Do not give large economy rewards.
+
+==================================================
+5. ANTI-SPAM / DAILY CAPS
+==================================================
+
+Prevent farming.
+
+Rules:
+- Reward like/dislike only once per user per song.
+- Changing like to dislike should not give another reward.
+- Favoriting the same song twice gives no reward.
+- Creating/deleting/recreating same playlist name should not farm rewards.
+- Playlist add duplicate song gives no reward.
+- Failed request gives no reward.
+- Blocked/cooldown request gives no reward.
+
+Add daily cap:
+- max radio_points reward per user per day, default 50
+- optional max coins/XP per day if used
+
+Suggested table:
+radio_reward_log:
+- id
+- user_id
+- username
+- action
+- song_key nullable
+- target_key nullable
+- points
+- rewarded_at
+- reward_day
+
+Use this to prevent duplicate rewards.
+
+==================================================
+6. INTEGRATE WITH EXISTING ACTIONS
+==================================================
+
+Hook stats/rewards into existing commands:
+
+!play successful queue:
+- increment request count
+- add radio points
+- update song request count
+
+!like:
+- increment likes_count only if first rating for this song
+- add radio points once
+- update song like count
+
+!dislike:
+- increment dislikes_count only if first rating for this song
+- add radio points once
+- update song dislike count
+
+!fav / !favorite:
+- increment favorites_count only when newly favorited
+- add radio points once
+- update song favorite count
+
+!playlist create:
+- increment playlists_created only on successful new playlist
+- add points once
+
+!playlist add / addcurrent:
+- increment playlist_songs_added only on successful non-duplicate add
+- add points once
+
+!playlist play:
+- increment playlist_plays on successful queue/play
+- add points with cap
+
+Do not reward actions that only show lists:
+- !favorites
+- !playlist
+- !queue
+- !np
+- !history
+
+==================================================
+7. HELP UPDATES
+==================================================
+
+Update:
+- !radiohelp
+- !djhelp
+- !commands radio
+- !commands music
+- !command radiostats
+- !command toplisteners
+- !command toprequests
+- !command topsongs
+
+Add section:
+
+🏆 Radio Rewards
+!radiostats — View your radio stats
+!toplisteners — Top radio fans
+!toprequests — Top requesters
+!topsongs — Most popular songs
+
+Short explanation:
+Earn small radio points by requesting, liking, favoriting, and using playlists.
+
+Keep help compact and role-aware.
+
+==================================================
+8. ROUTING
+==================================================
+
+Only DJ_DUDU / BOT_MODE=dj handles:
+- !radiostats
+- !toplisteners
+- !toprequests
+- !topsongs
+
+Other bots must stay silent.
+
+==================================================
+9. PRIVACY / SAFETY
+==================================================
+
+Do not expose private file paths.
+Do not expose raw user IDs.
+Show usernames as @username.
+Do not show secret API/config values.
+Do not reveal hidden/local server media paths in topsongs.
+
+==================================================
+10. CHECKLIST
+==================================================
+
+Create or update:
+radio_rewards_checklist.md
+
+Tests:
+
+Stats:
+- !radiostats shows self stats
+- stats update after successful !play
+- stats update after !like
+- stats update after !fav
+- stats update after playlist create/add/play
+
+Leaderboards:
+- !toplisteners works
+- !toprequests works
+- !topsongs works
+- all outputs stay under 249 chars
+
+Anti-spam:
+- repeated !like on same song does not farm rewards
+- like → dislike does not double reward
+- duplicate favorite does not reward
+- duplicate playlist song does not reward
+- failed request does not reward
+- daily cap works
+
+Routing:
+- only DJ_DUDU replies
+- ChillTopiaMC stays silent
+- other bots stay silent
+
+Regression:
+- !play still works
+- !queue still works
+- !np still works
+- !history still works
+- !favorites still works
+- !playlist still works
+- Auto DJ/source intelligence still works

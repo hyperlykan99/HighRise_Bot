@@ -43,6 +43,7 @@ import modules.music_credits        as mc
 import modules.payment_service      as ps
 import modules.request_queue        as rq
 import modules.playback_engine      as engine
+import modules.radio_rewards        as rr
 from modules.permissions import is_admin, is_owner, can_moderate
 from modules.luxe import get_luxe_balance, deduct_luxe_balance, log_luxe_transaction
 from modules.msg_utils import safe_send as _safe_send_mu
@@ -438,6 +439,12 @@ async def _submit_url(
         _remaining = mc.get_credits(uid, uname)["total"]
         _lines.append(f"💿 Plays left: {_remaining}")
     await _w(bot, uid, "\n".join(_lines)[:249])
+
+    # Radio rewards: successful request queued
+    _req_key = (_title or url)[:150]
+    rr.record_reward(uid, uname, "request", song_key=_req_key)
+    if _title:
+        rr.update_song_info(_req_key, _title, _artist)
 
     # Launch pipeline
     rq.submit_job(
@@ -1462,7 +1469,17 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
         "Need help? !radiotutorial",
     )
 
-    # ── Whisper 3: staff commands (mod / manager / admin / owner) ────────────
+    await asyncio.sleep(0.2)
+
+    # ── Whisper 4: radio rewards ──────────────────────────────────────────────
+    await _w(
+        bot, uid,
+        "🏆 Radio Rewards\n"
+        "Earn pts: request, like, fav, playlists.\n"
+        "!radiostats  !toplisteners  !toprequests",
+    )
+
+    # ── Whisper 5: staff commands (mod / manager / admin / owner) ────────────
     if can_moderate(uname):
         await asyncio.sleep(0.2)
         await _w(
@@ -1702,6 +1719,7 @@ async def handle_like(bot: "BaseBot", user: "User", _args: list) -> None:
         await _w(bot, user.id, f"👍 Changed to like: {title}\n{score}")
     elif result == "added":
         await _w(bot, user.id, f"👍 Liked: {title}\n{score}")
+        rr.record_reward(user.id, user.username, "like", song_key=track["key"])
     else:
         await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
         return
@@ -1744,6 +1762,7 @@ async def handle_dislike(bot: "BaseBot", user: "User", _args: list) -> None:
         await _w(bot, user.id, f"👎 Changed to dislike: {title}\n{score}")
     elif result == "added":
         await _w(bot, user.id, f"👎 Disliked: {title}\n{score}")
+        rr.record_reward(user.id, user.username, "dislike", song_key=track["key"])
     else:
         await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
         return
@@ -1959,6 +1978,7 @@ async def handle_favorite(bot: "BaseBot", user: "User", _args: list) -> None:
     added = _fav_add(user.id, user.username, track["title"], url, track.get("artist", ""))
     if added:
         await _w(bot, user.id, f"⭐ Saved to favorites: {track['title'][:55]}")
+        rr.record_reward(user.id, user.username, "favorite", song_key=track["key"])
     else:
         await _w(bot, user.id, f"⭐ Already in your favorites: {track['title'][:50]}")
 
@@ -2435,6 +2455,9 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             "error":     "❌ Could not create playlist. Try again.",
         }
         await _w(bot, uid, msgs.get(result, "❌ Error."))
+        if result == "created":
+            rr.record_reward(uid, uname, "playlist_create",
+                             target_key=name.strip().lower()[:150])
         return
 
     # ── Remaining subs need playlist name ────────────────────────────────────
@@ -2502,6 +2525,9 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             "error":     "❌ Could not add song. Try again.",
         }
         await _w(bot, uid, msgs.get(result, "❌ Error."))
+        if result == "added":
+            rr.record_reward(uid, uname, "playlist_add",
+                             target_key=f"{pl['id']}|{url}"[:150])
         return
 
     # ── !playlist addcurrent <name> ───────────────────────────────────────────
@@ -2529,6 +2555,9 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             "error":     "❌ Could not add song. Try again.",
         }
         await _w(bot, uid, msgs.get(result, "❌ Error."))
+        if result == "added":
+            _akey = f"{pl['id']}|{track.get('youtube_url') or track['title']}"[:150]
+            rr.record_reward(uid, uname, "playlist_add", target_key=_akey)
         return
 
     # ── !playlist rename <old> <new> ──────────────────────────────────────────
@@ -2652,6 +2681,8 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
         if skipped:
             parts.append(f"⚠️ Skipped {skipped} local songs not supported yet.")
         await _w(bot, uid, "\n".join(parts)[:249])
+        if queued > 0:
+            rr.record_reward(uid, uname, "playlist_play")
         return
 
 
