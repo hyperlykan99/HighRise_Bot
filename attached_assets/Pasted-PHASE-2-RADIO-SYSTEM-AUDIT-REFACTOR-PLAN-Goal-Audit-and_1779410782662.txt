@@ -1,0 +1,178 @@
+PHASE 2 — RADIO SYSTEM AUDIT + REFACTOR PLAN
+
+Goal:
+Audit and map the entire DJ_DUDU radio system before any module migration/refactor.
+
+IMPORTANT:
+Do NOT move files yet.
+Do NOT rename imports yet.
+Do NOT change behavior.
+Do NOT add features.
+Do NOT touch emote system.
+Do NOT change playback logic.
+
+This phase is planning + dependency mapping only.
+
+==================================================
+1. AUDIT ALL RADIO MODULES
+==================================================
+
+Inspect and map:
+
+- modules/radio_commands.py
+- modules/radio_rewards.py
+- modules/radio_achievements.py
+- modules/dj_announcer.py
+- modules/request_queue.py
+- modules/playback_engine.py
+- modules/track_resolver.py
+- modules/azuracast_controller.py
+- modules/music_credits.py
+- modules/yt_request.py
+- modules/help_cmds.py
+- any favorites/playlists helpers
+- any renderer/card builder helpers
+- any request history helpers
+
+Identify:
+- imports
+- circular dependencies
+- duplicate helpers
+- duplicate rendering
+- duplicate queue logic
+- duplicate DB logic
+- overlapping request systems
+- old !request remnants
+- old dj_music remnants
+- dead code
+- risky startup imports
+- background tasks
+- polling loops
+- startup hooks
+
+==================================================
+2. IDENTIFY CLEAN TARGET STRUCTURE
+==================================================
+
+Plan target structure only:
+
+modules/radio/
+  __init__.py
+  router.py
+  commands.py
+  renderer.py
+  playback.py
+  queue.py
+  requests.py
+  playlists.py
+  favorites.py
+  rewards.py
+  achievements.py
+  announcer.py
+  azuracast.py
+  vibe.py
+  history.py
+
+Do NOT create all files yet unless needed for planning docs.
+
+==================================================
+3. IDENTIFY SAFE MIGRATION ORDER
+==================================================
+
+Determine safest migration order.
+
+Expected low-risk first candidates:
+1. renderer/card builders
+2. help formatting
+3. history formatting
+4. favorites/playlists helpers
+5. rewards/achievements
+6. request handling
+7. queue/playback core LAST
+
+Identify:
+- which modules can become wrappers first
+- which imports must stay temporarily
+- which modules are most dangerous to move
+
+==================================================
+4. IDENTIFY RENDERER DUPLICATION
+==================================================
+
+Find duplicated formatting logic between:
+- !np
+- announcements
+- queue/status cards
+- history
+- leaderboard formatting
+- playlist formatting
+
+Recommend a future:
+radio/renderer.py
+
+without implementing it yet.
+
+==================================================
+5. STARTUP / CRASH RISK AUDIT
+==================================================
+
+Identify:
+- modules imported globally by all bots
+- DJ-only modules imported by non-DJ bots
+- background tasks started globally
+- startup pollers
+- loops without guards
+- anything that can crash all bots
+
+Especially inspect:
+- radio achievements
+- rewards
+- announcer startup
+- queue pollers
+- AzuraCast pollers
+
+Recommend lazy imports or BOT_MODE guards where needed.
+
+==================================================
+6. GENERATE AUDIT REPORT
+==================================================
+
+Create:
+docs/radio_phase2_audit.md
+
+Include:
+- dependency map
+- risky modules
+- duplicate systems
+- recommended migration order
+- wrapper strategy
+- startup risk findings
+- renderer duplication findings
+- proposed final structure
+
+==================================================
+7. NO BEHAVIOR CHANGES
+==================================================
+
+This phase must NOT:
+- rename commands
+- move modules
+- change routing
+- change database schema
+- change playback
+- change queue behavior
+
+Only planning/audit documentation allowed.
+
+==================================================
+8. CHECKLIST
+==================================================
+
+Deliverables:
+- docs/radio_phase2_audit.md created
+- migration order documented
+- duplicate systems identified
+- startup risks identified
+- renderer duplication identified
+- no bot behavior changed
+- all bots still stable
