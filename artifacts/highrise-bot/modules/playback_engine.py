@@ -1,23 +1,19 @@
 """
 modules/playback_engine.py
 --------------------------
-Bot-as-source-of-truth AzuraCast playback engine.
+AzuraCast-first playback engine.
 
-The bot controls what AzuraCast streams by managing which playlists are enabled.
-AzuraCast is used only as the audio streaming backend — it never decides what
-plays next on its own.
+AzuraCast AutoDJ controls playback order entirely.
+The bot submits requests, watches now-playing, and cleans up files after play.
 
-Playlist State Machine
-──────────────────────
-  VIBE      — only the active vibe playlist (Chill or Party) is enabled
-  REQUESTS  — only the Requests playlist is enabled; Chill + Party disabled
+Playlist Rules (always enforced)
+─────────────────────────────────
+  • Requests playlist  — ALWAYS enabled
+  • Current vibe playlist — ALWAYS enabled
+  • All other vibe/music playlists — disabled
 
-Transitions
-───────────
-  New request ready (status='done' + azura_file_id set in DB)
-      → switch to REQUESTS mode, optionally skip current vibe track
-  Last queued request finishes playing
-      → switch back to VIBE mode (Chill or Party per saved vibe)
+The bot never disables the vibe playlist when requests are queued, never
+pre-switches modes, and never skips the current song automatically.
 
 Song Detection  (polls every POLL_INTERVAL seconds)
 ───────────────
@@ -25,7 +21,6 @@ Song Detection  (polls every POLL_INTERVAL seconds)
     1. Previous track was a request → mark played in DB, delete file from AzuraCast
     2. New track matches a queued request → mark playing, announce to room
     3. New track is a vibe song → announce with vibe prefix
-    4. Queue just emptied → switch playlists back to vibe folder
 """
 from __future__ import annotations
 import asyncio
@@ -400,23 +395,6 @@ def _db_match_request(
 
 # ─── Playlist control ─────────────────────────────────────────────────────────
 
-async def _apply_requests_playlists() -> None:
-    """Enable Requests playlist. Disable all vibe playlists."""
-    loop   = asyncio.get_running_loop()
-    req_id = cs.requests_playlist_id()
-
-    if req_id:
-        await loop.run_in_executor(None, azura.set_playlist_enabled, req_id, True)
-
-    for _v in cs.VIBE_NAMES:
-        _pid = cs.vibe_playlist_id(_v)
-        if _pid and _pid != req_id:
-            await loop.run_in_executor(None, azura.set_playlist_enabled, _pid, False)
-
-    _save("playlist_mode", "requests")
-    print(f"{_LOG} Playlists → REQUESTS (req={req_id or 'unset'})")
-
-
 async def _apply_vibe_playlists() -> None:
     """
     Enable the current vibe playlist; disable all other vibe playlists.
@@ -435,15 +413,6 @@ async def _apply_vibe_playlists() -> None:
 
     _save("playlist_mode", "vibe")
     print(f"{_LOG} Playlists → VIBE/{v.upper()} (Requests always ON)")
-
-
-async def _switch_to_requests(bot: "BaseBot") -> None:
-    """Enable Requests playlist only. Does NOT skip — skip is handled by _verified_skip_task."""
-    global _mode
-    with _lock:
-        _mode = "requests"
-    await _apply_requests_playlists()
-    print(f"{_LOG} Switched → REQUESTS (skip handled by verified-skip task)")
 
 
 async def _switch_to_vibe(bot: "BaseBot") -> None:
@@ -1099,13 +1068,9 @@ async def _poll_loop(bot: "BaseBot") -> None:
                 ready_ids = {j["id"] for j in all_ready}
                 _submitted_jids.intersection_update(ready_ids)
 
-            # ── Switch to REQUESTS mode if queue has items and we're in vibe mode ─
+            # AzuraCast AutoDJ controls order — vibe+requests playlists always both ON
             with _lock:
-                cur_mode        = _mode
-                skip_task_busy  = _skip_task_active
-            if cur_mode != "requests" and _db_count_active() > 0:
-                print(f"{_LOG} Pending requests detected — switching to REQUESTS mode")
-                await _switch_to_requests(bot)  # playlists only, no skip
+                skip_task_busy = _skip_task_active
 
             # ── Submit oldest unsubmitted ready request to AzuraCast ─────────
             # Queues the song so AzuraCast plays it after the current track.
@@ -1418,15 +1383,9 @@ async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
 async def apply_vibe_change(bot: "BaseBot") -> None:
     """
     Called by the !vibe command after config_store.set_vibe() has been saved.
-    Immediately re-applies playlists if in VIBE mode.
-    If in REQUESTS mode, the new vibe takes effect once the queue empties.
+    Always re-applies playlists immediately (vibe + requests always both ON).
     """
-    with _lock:
-        cur_mode = _mode
-    if cur_mode == "vibe":
-        await _apply_vibe_playlists()
-    else:
-        print(f"{_LOG} In REQUESTS mode — new vibe takes effect when queue empties")
+    await _apply_vibe_playlists()
 
 
 async def startup_playback_engine(bot: "BaseBot") -> None:
@@ -1468,21 +1427,20 @@ async def _startup_init_task(bot: "BaseBot") -> None:
         if playing_now:
             with _lock:
                 _cur_req_id = playing_now["id"]
-                _mode       = "requests"
+                _mode       = "vibe"
             print(f"{_LOG} Recovery: request was playing db_id={playing_now['id']!r}")
-            await _apply_requests_playlists()
 
         elif in_flight > 0:
             with _lock:
-                _mode = "requests"
-            print(f"{_LOG} Recovery: {in_flight} request(s) in queue — REQUESTS mode")
-            await _apply_requests_playlists()
+                _mode = "vibe"
+            print(f"{_LOG} Recovery: {in_flight} request(s) in queue — vibe+requests both ON")
 
         else:
             with _lock:
                 _mode = "vibe"
-            print(f"{_LOG} No queued requests — applying VIBE/{cs.vibe().upper()} playlists")
-            await _apply_vibe_playlists()
+            print(f"{_LOG} Startup — applying VIBE/{cs.vibe().upper()} + Requests playlists")
+
+        await _apply_vibe_playlists()
 
         asyncio.create_task(_poll_loop(bot))
         from modules.yt_request import radio_request_prepare_worker as _rpw
