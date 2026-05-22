@@ -84,13 +84,14 @@ def _ensure_schema() -> None:
                 )
             """)
             # Idempotent migration for existing DBs that predate azura_file_id
-            try:
-                conn.execute(
-                    "ALTER TABLE local_replay_jobs"
-                    " ADD COLUMN azura_file_id TEXT DEFAULT ''"
-                )
-            except Exception:
-                pass  # column already exists
+            for _col_sql in (
+                "ALTER TABLE local_replay_jobs ADD COLUMN azura_file_id TEXT DEFAULT ''",
+                "ALTER TABLE local_replay_jobs ADD COLUMN yt_request_job_id INTEGER",
+            ):
+                try:
+                    conn.execute(_col_sql)
+                except Exception:
+                    pass  # column already exists
     except Exception as _e:
         print(f"{_LOG} schema init (non-fatal): {_e!r}")
 
@@ -156,6 +157,48 @@ def _list_jobs(limit: int = 10) -> list[dict]:
         ]
     except Exception:
         return []
+
+
+def _register_as_yt_request_job(
+    user_id: str, username: str, title: str,
+    temp_filename: str, azura_file_id: str, azura_song_id: str,
+) -> int:
+    """
+    Insert a yt_request_jobs row (status='ready', source_type='local_replay')
+    so playback_engine can detect this file in now-playing and run the normal
+    _delete_request_file cleanup lifecycle after play.
+
+    Returns the new row id (0 on error).
+    """
+    try:
+        import database as _db
+        with _db.db_conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO yt_request_jobs
+                       (user_id, username, url, title, status, started_at,
+                        filename, azura_file_id, azura_song_id, source_type)
+                   VALUES (?, ?, '', ?, 'ready', datetime('now'), ?, ?, 'local_replay')""",
+                (user_id, username, title, temp_filename, azura_file_id, azura_song_id),
+            )
+            return cur.lastrowid or 0
+    except Exception as exc:
+        print(f"{_LOG} _register_as_yt_request_job error: {exc!r}")
+        return 0
+
+
+def _link_yt_job(temp_filename: str, yt_job_id: int) -> None:
+    """Cross-reference: write yt_request_jobs.id back to local_replay_jobs row."""
+    if not yt_job_id:
+        return
+    try:
+        import database as _db
+        with _db.db_conn() as conn:
+            conn.execute(
+                "UPDATE local_replay_jobs SET yt_request_job_id=? WHERE temp_filename=?",
+                (yt_job_id, temp_filename),
+            )
+    except Exception as exc:
+        print(f"{_LOG} _link_yt_job error: {exc!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -821,11 +864,32 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
 
     if req_ok:
         print(f"{_LOG} ✓ queued: {temp_filename} uid={used_uid!r}")
+        # Register with yt_request_jobs — playback_engine will auto-delete
+        # the temp file via the normal ready→playing→played→cleaned lifecycle.
+        _yt_job_id = _register_as_yt_request_job(
+            user_id=user.id,
+            username=user.username,
+            title=fav_title,
+            temp_filename=temp_filename,
+            azura_file_id=azura_file_id_str,
+            azura_song_id=used_uid,
+        )
+        if _yt_job_id:
+            _link_yt_job(temp_filename, _yt_job_id)
+            print(
+                f"{_LOG} yt_request_job_id={_yt_job_id}"
+                f" linked → temp cleanup is automatic"
+            )
+        else:
+            print(
+                f"{_LOG} warn: yt_request_jobs insert returned 0"
+                f" — auto-cleanup unavailable; use !localreplaycleanup"
+            )
         await _w(
             f"✅ Replay queued!\n"
             f"'{fav_title}'\n"
             f"Temp: {temp_filename[:28]}\n"
-            f"Cleanup: auto on next replay."
+            f"Cleanup: auto after play."
         )
     else:
         _update_status(temp_filename, "cleanup_pending")
