@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING
 import database as db
 import modules.azuracast_controller as azura
 import modules.config_store         as cs
-import modules.local_replay         as _local_copy
+# local_replay is lazy-imported only when LOCAL_REPLAY_ENABLED=true (see call sites)
 import modules.dj_announcer         as ann
 import modules.music_credits        as mc
 import modules.payment_service      as ps
@@ -2158,7 +2158,11 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
             metadata={"title": fav["title"], "artist": fav.get("artist", "")},
         )
         return
-    # Local/AzuraCast song — SFTP-copy to Requests folder and queue normally
+    # Local/AzuraCast song — guarded by LOCAL_REPLAY_ENABLED feature flag
+    if not cs.local_replay_enabled():
+        await _w(bot, user.id, "⚠️ Local replay is temporarily disabled.")
+        return
+    import modules.local_replay as _local_copy  # lazy: only when flag is on
     try:
         ok, err = await _local_copy.queue_local_copy(
             user_id=user.id,
@@ -2174,7 +2178,7 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
         return
     if ok:
         await _w(bot, user.id, f"▶️ Queued favorite:\n{lb}"[:249])
-    elif err == "not_configured":
+    elif err in ("not_configured", "disabled"):
         await _w(bot, user.id, "⚠️ Local replay not available on this bot.")
     elif err == "multi":
         await _w(bot, user.id,
@@ -2698,6 +2702,10 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                     metadata={"title": s["title"], "artist": s.get("artist", "")},
                 )
             else:
+                if not cs.local_replay_enabled():
+                    await _w(bot, uid, "⚠️ Local replay is temporarily disabled.")
+                    return
+                import modules.local_replay as _local_copy  # lazy: only when flag is on
                 try:
                     ok, err = await _local_copy.queue_local_copy(
                         user_id=user.id,
@@ -2713,7 +2721,7 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                     return
                 if ok:
                     await _w(bot, uid, f"▶️ Queued from {pl['name'][:18]}:\n{lb}"[:249])
-                elif err in ("not_configured", "sftp_fail"):
+                elif err in ("not_configured", "disabled", "sftp_fail"):
                     await _w(bot, uid, "⚠️ Radio server unavailable. Try again.")
                 elif err == "multi":
                     await _w(bot, uid, f"⚠️ Multiple local matches for: {t[:40]}")
@@ -2744,6 +2752,10 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                 print(f"{_LOG} playlist_play song_error: {_exc!r}")
                 break
         for s in local_songs:
+            if not cs.local_replay_enabled():
+                skipped += 1
+                continue
+            import modules.local_replay as _local_copy  # lazy: only when flag is on
             try:
                 ok, _err = await _local_copy.queue_local_copy(
                     user_id=user.id,

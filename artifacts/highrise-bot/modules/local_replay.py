@@ -32,7 +32,12 @@ import traceback
 import uuid
 
 import database as db
-from modules.config_store import sftp_cfg, sftp_ready, requests_playlist_id
+from modules.config_store import (
+    local_replay_enabled,
+    sftp_cfg,
+    sftp_ready,
+    requests_playlist_id,
+)
 import modules.azuracast_controller as azura
 
 _LLOG          = "[LOCAL_REPLAY]"
@@ -90,6 +95,11 @@ def _queue_local_copy_sync_impl(
     azura_song_id: str = "",
 ) -> tuple[bool, str]:
     """Inner implementation — called only from queue_local_copy_sync."""
+    # ── Feature flag gate ─────────────────────────────────────────────────────
+    if not local_replay_enabled():
+        print(f"{_LLOG} LOCAL_REPLAY_ENABLED=false — feature disabled, skipping")
+        return False, "disabled"
+
     title_s  = (title  or "?")[:40]
     artist_s = (artist or "")[:20]
 

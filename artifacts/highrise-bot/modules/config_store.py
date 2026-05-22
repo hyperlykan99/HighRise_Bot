@@ -272,3 +272,13 @@ def sftp_missing_vars() -> list:
 
 def sftp_ready() -> bool:
     return not sftp_missing_vars()
+
+
+def local_replay_enabled() -> bool:
+    """
+    Feature flag for local/AzuraCast library replay via SFTP copy.
+    Off by default — set LOCAL_REPLAY_ENABLED=true to enable.
+    """
+    return (os.environ.get("LOCAL_REPLAY_ENABLED") or "").strip().lower() in (
+        "1", "true", "yes"
+    )
