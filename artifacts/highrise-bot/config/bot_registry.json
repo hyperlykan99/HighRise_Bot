@@ -1,0 +1,91 @@
+{
+  "_comment": "Central bot registry. Keys are bot_mode names (match BOT_MODE env). Set enabled=false to skip a bot without removing its token.",
+  "host": {
+    "enabled": true,
+    "display_name": "Host Bot",
+    "role": "host",
+    "room": "ChillTopia",
+    "priority": 0,
+    "auto_reconnect": true
+  },
+  "dj": {
+    "enabled": true,
+    "display_name": "DJ Bot",
+    "role": "dj",
+    "room": "ChillTopia",
+    "priority": 1,
+    "auto_reconnect": true
+  },
+  "blackjack": {
+    "enabled": true,
+    "display_name": "Blackjack Bot",
+    "role": "game",
+    "room": "ChillTopia",
+    "priority": 2,
+    "auto_reconnect": true
+  },
+  "poker": {
+    "enabled": true,
+    "display_name": "Poker Bot",
+    "role": "game",
+    "room": "ChillTopia",
+    "priority": 3,
+    "auto_reconnect": true
+  },
+  "miner": {
+    "enabled": true,
+    "display_name": "Miner Bot",
+    "role": "game",
+    "room": "ChillTopia",
+    "priority": 4,
+    "auto_reconnect": true
+  },
+  "banker": {
+    "enabled": true,
+    "display_name": "Banking Bot",
+    "role": "economy",
+    "room": "ChillTopia",
+    "priority": 5,
+    "auto_reconnect": true
+  },
+  "shopkeeper": {
+    "enabled": true,
+    "display_name": "Shop Bot",
+    "role": "economy",
+    "room": "ChillTopia",
+    "priority": 6,
+    "auto_reconnect": true
+  },
+  "security": {
+    "enabled": true,
+    "display_name": "Security Bot",
+    "role": "security",
+    "room": "ChillTopia",
+    "priority": 7,
+    "auto_reconnect": true
+  },
+  "eventhost": {
+    "enabled": true,
+    "display_name": "Event Bot",
+    "role": "events",
+    "room": "ChillTopia",
+    "priority": 8,
+    "auto_reconnect": true
+  },
+  "fisher": {
+    "enabled": true,
+    "display_name": "Fishing Bot",
+    "role": "game",
+    "room": "ChillTopia",
+    "priority": 9,
+    "auto_reconnect": true
+  },
+  "all": {
+    "enabled": true,
+    "display_name": "Main Bot",
+    "role": "host",
+    "room": "ChillTopia",
+    "priority": 0,
+    "auto_reconnect": true
+  }
+}

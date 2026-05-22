@@ -495,6 +495,15 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                 delay = _BACKOFF[min(_reconnect_count - 1, len(_BACKOFF) - 1)] \
                         if _reconnect_count > 0 else _BACKOFF[0]
 
+                # Per-reason minimum cooldown (supervisor config).
+                # Multilogin = 120s, rate-limit = 60s, etc.
+                _reason_min = 0
+                try:
+                    from modules import bot_supervisor as _sup
+                    _reason_min = _sup.cooldown_for_reason(_last_reason)
+                except Exception:
+                    pass
+
                 print(
                     f"[RECONNECT] {spec.label} mode={spec.bot_mode}"
                     f" reason={_last_reason} uptime={uptime:.0f}s"
@@ -505,6 +514,7 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                 if uptime < 120:
                     _fast_exit_count += 1
                     delay = _FAST_BACKOFF[min(_fast_exit_count - 1, len(_FAST_BACKOFF) - 1)]
+                    delay = max(delay, _reason_min)
                     if _fast_exit_count >= _MAX_FAST_EXITS:
                         print(
                             f"[BOT_DISABLED] {spec.label} mode={spec.bot_mode}"
@@ -547,6 +557,21 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                         print(f"  {_ln}")
 
                 _write_rc_stats(spec.bot_mode, _reconnect_count, _last_reason, _ts2)
+
+                # Persist supervisor health snapshot so !botstatus can read it.
+                try:
+                    from modules import bot_supervisor as _sup
+                    _sup.update_health(
+                        spec.bot_username or spec.bot_mode,
+                        bot_mode=spec.bot_mode,
+                        connected=False,
+                        uptime=uptime,
+                        reconnect_count=_reconnect_count,
+                        last_disconnect_reason=_last_reason,
+                    )
+                    _sup.persist_health_to_db()
+                except Exception:
+                    pass
 
             except asyncio.CancelledError:
                 if proc and proc.returncode is None:
@@ -631,6 +656,44 @@ async def _run_all(specs: list[_BotSpec]) -> None:
 
 def run() -> None:
     specs = _collect_bots()
+
+    # ── Central bot registry (optional) ─────────────────────────────────────
+    # config/bot_registry.json controls enable/disable and startup priority.
+    # Missing file = graceful fallback to existing env-var-only behaviour.
+    try:
+        from modules import bot_supervisor as _sup
+        _registry = _sup.load_registry()
+        if _registry:
+            _before = len(specs)
+            _filtered: list[_BotSpec] = []
+            for _s in specs:
+                # Check by both mode and username so either key style works.
+                _enabled = (
+                    _sup.is_bot_enabled(_s.bot_mode,     _registry)
+                    and _sup.is_bot_enabled(_s.bot_username, _registry)
+                )
+                if _enabled:
+                    _filtered.append(_s)
+                else:
+                    print(
+                        f"[BOT_SUPERVISOR] skipping disabled bot"
+                        f" '{_s.label}' (mode={_s.bot_mode})"
+                    )
+            specs = _filtered
+            _skipped = _before - len(specs)
+            # Sort by registry priority so host/dj always start before games.
+            specs.sort(key=lambda _s: min(
+                _sup.get_priority(_s.bot_mode,     _registry),
+                _sup.get_priority(_s.bot_username, _registry),
+            ))
+            print(
+                f"[BOT_SUPERVISOR] registry loaded — "
+                f"{len(specs)} active, {_skipped} disabled"
+            )
+        else:
+            print("[BOT_SUPERVISOR] no registry found — using env-var order")
+    except Exception as _sup_err:
+        print(f"[BOT_SUPERVISOR] registry error (non-fatal): {_sup_err!r}")
 
     if not specs:
         print(

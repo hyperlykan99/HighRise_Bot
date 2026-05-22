@@ -1,0 +1,143 @@
+PHASE — CENTRAL BOT REGISTRY + SUPERVISOR
+
+Goal:
+Create a centralized bot registry and lightweight supervisor system.
+
+Do not change gameplay.
+Do not change radio behavior.
+Do not touch local replay.
+Do not rewrite command routing.
+
+==================================================
+1. CREATE CENTRAL BOT REGISTRY
+==================================================
+
+Create:
+config/bot_registry.json
+
+Structure example:
+
+{
+  "DJ_DUDU": {
+    "enabled": true,
+    "role": "dj",
+    "room": "ChillTopia",
+    "priority": 1,
+    "auto_reconnect": true
+  },
+  "ChillTopiaMC": {
+    "enabled": true,
+    "role": "host",
+    "room": "ChillTopia",
+    "priority": 0,
+    "auto_reconnect": true
+  }
+}
+
+==================================================
+2. BOT SUPERVISOR MODULE
+==================================================
+
+Create:
+modules/bot_supervisor.py
+
+Responsibilities:
+- load registry
+- track active bots
+- reconnect staggering
+- startup order
+- health snapshots
+- reconnect cooldowns
+
+==================================================
+3. STARTUP ORDER
+==================================================
+
+Launch in stable order:
+
+priority 0:
+- host
+
+priority 1:
+- dj
+
+priority 2+:
+- games/social/etc
+
+Delay between launches:
+2–5 seconds stagger.
+
+==================================================
+4. ENABLE/DISABLE BOTS
+==================================================
+
+If enabled=false:
+- bot does not launch
+- prints:
+[BOT_SUPERVISOR] skipping disabled bot
+
+==================================================
+5. HEALTH SNAPSHOT API
+==================================================
+
+Supervisor stores:
+- connected
+- last_seen
+- uptime
+- reconnect_count
+- last_disconnect_reason
+- room
+- startup_time
+
+==================================================
+6. !botstatus IMPROVEMENT
+==================================================
+
+Use supervisor data.
+
+Display compact multi-bot summary:
+🟢 DJ_DUDU 2h15m
+🟢 ChillTopiaMC 2h10m
+🔴 PokerBot multilogin
+
+Auto-split if needed.
+
+==================================================
+7. SAFE RECONNECTS
+==================================================
+
+If disconnect reason contains:
+- multilogin
+- rate limit
+- websocket closed
+
+Use different reconnect cooldowns.
+
+Prevent reconnect storms.
+
+==================================================
+8. NO FEATURE CHANGES
+==================================================
+
+Do not modify:
+- radio commands
+- AzuraCast
+- emotes
+- games
+- economy
+- local replay
+
+Infrastructure only.
+
+==================================================
+9. CHECKLIST
+==================================================
+
+Test:
+- all bots still launch
+- disabled bots skip correctly
+- reconnects stagger properly
+- !botstatus works
+- no reconnect storms
+- no duplicate launches
+- bots remain stable 10+ minutes
