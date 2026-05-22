@@ -817,28 +817,20 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         azura_file_id=azura_file_id_str,
     )
 
-    # ── Assign temp file to active vibe playlist ─────────────────────────────
-    # AzuraCast only marks a file requestable when it belongs to an *enabled*
-    # playlist.  The vibe system keeps exactly one vibe playlist active at a
-    # time, so the temp copy must be in that playlist before submit_request.
+    # ── Assign temp file to Requests playlist — mirrors YouTube pipeline ─────
+    # YouTube's _azura_post_upload always assigns to AZURA_PLAYLIST_ID (the
+    # Requests playlist).  We do the same here so submit_request(unique_id)
+    # finds the song as a normal requestable item in the same playlist.
     _pl_assigned  = False
-    _active_vibe  = ""
     _target_pl_id = ""
     if azura_file_id_str:
         try:
             import modules.config_store as _cs
             from modules.azuracast_controller import add_file_to_playlist as _add_pl
-            _active_vibe = _cs.vibe()
-            _cache_vibes = (_cs.get_vibe_scan_cache().get("vibes") or {})
-            _target_pl_id = (
-                (_cache_vibes.get(_active_vibe) or {}).get("playlist_id")
-                or _cs.get_dynamic_vibe_playlist(_active_vibe)
-                or _cs.vibe_playlist_id(_active_vibe)
-                or _cs.requests_playlist_id()
-            )
+            # Use Requests playlist — same target as YouTube upload pipeline.
+            _target_pl_id = _cs.requests_playlist_id()
             print(
-                f"{_LOG} vibe_assign"
-                f" vibe={_active_vibe!r}"
+                f"{_LOG} requests_assign"
                 f" playlist={_target_pl_id!r}"
                 f" file_id={azura_file_id_str!r}"
             )
@@ -846,20 +838,18 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
                 _pl_assigned = await loop.run_in_executor(
                     None, _add_pl, azura_file_id_str, _target_pl_id
                 )
-                print(f"{_LOG} vibe_assign result={_pl_assigned}")
+                print(f"{_LOG} requests_assign result={_pl_assigned}")
             else:
-                print(f"{_LOG} vibe_assign: no playlist resolved"
-                      f" for vibe={_active_vibe!r}")
+                print(f"{_LOG} requests_assign: AZURA_PLAYLIST_ID not configured")
         except Exception as _vex:
-            print(f"{_LOG} vibe_assign error: {_vex!r}")
+            print(f"{_LOG} requests_assign error: {_vex!r}")
         await _w(
-            f"vibe={_active_vibe or '?'}"
-            f" playlist={_target_pl_id[:28] if _target_pl_id else 'NONE'}"
+            f"Requests playlist={_target_pl_id[:28] if _target_pl_id else 'NONE'}"
             f" requestable={'true' if _pl_assigned else 'false'}"
         )
         if not _pl_assigned:
             await _w(
-                "❌ Vibe playlist assign failed (both methods)."
+                "❌ Requests playlist assign failed."
                 " Staging blocked — track not requestable."
             )
 
@@ -871,13 +861,12 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         )
         return
 
-    # Gate: file must be in a playlist so AzuraCast can request it.
+    # Gate: file must be in Requests playlist so AzuraCast can service it.
     if azura_file_id_str and not _pl_assigned:
         _update_status(temp_filename, "cleanup_pending")
         await _w(
             f"❌ Cannot stage: '{fav_title[:40]}' not in"
-            f" playlist {_target_pl_id or '?'}."
-            f" vibe={_active_vibe or '?'}"
+            f" Requests playlist {_target_pl_id or '?'}."
             f" !localreplaycleanup to clear."
         )
         return
