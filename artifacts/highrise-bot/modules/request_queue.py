@@ -64,13 +64,14 @@ _CLR_PH = ",".join("?" * len(_CLEAR_STATUSES))
 _COLS = (
     "id", "user_id", "username", "url", "title", "status",
     "filename", "azura_file_id", "azura_song_id", "coins_charged", "started_at",
-    "video_id", "artist", "priority",
+    "video_id", "artist", "priority", "source_type",
 )
 _SEL = (
     "id, user_id, username, url, title, status, "
     "filename, azura_file_id, azura_song_id, coins_charged, started_at, video_id, "
     "COALESCE(artist, '') AS artist, "
-    "COALESCE(priority, 0) AS priority"
+    "COALESCE(priority, 0) AS priority, "
+    "COALESCE(source_type, 'youtube') AS source_type"
 )
 
 

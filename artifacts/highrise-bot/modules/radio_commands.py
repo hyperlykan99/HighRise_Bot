@@ -2159,16 +2159,23 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
         )
         return
     # Local/AzuraCast song — SFTP-copy to Requests folder and queue normally
-    ok, err = await _local_copy.queue_local_copy(
-        user_id=user.id,
-        username=user.username,
-        title=fav.get("title", ""),
-        artist=fav.get("artist", ""),
-        azura_file_id=(fav.get("azura_file_id") or "").strip(),
-        azura_song_id=(fav.get("azura_song_id") or "").strip(),
-    )
+    try:
+        ok, err = await _local_copy.queue_local_copy(
+            user_id=user.id,
+            username=user.username,
+            title=fav.get("title", ""),
+            artist=fav.get("artist", ""),
+            azura_file_id=(fav.get("azura_file_id") or "").strip(),
+            azura_song_id=(fav.get("azura_song_id") or "").strip(),
+        )
+    except Exception as _exc:
+        print(f"{_LOG} playfav local_copy_error: {_exc!r}")
+        await _w(bot, user.id, "⚠️ Local replay temporarily unavailable.")
+        return
     if ok:
         await _w(bot, user.id, f"▶️ Queued favorite:\n{lb}"[:249])
+    elif err == "not_configured":
+        await _w(bot, user.id, "⚠️ Local replay not available on this bot.")
     elif err == "multi":
         await _w(bot, user.id,
                  f"⚠️ Multiple local matches for: {t[:40]}\nSave from !np to fix.")
@@ -2691,20 +2698,25 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                     metadata={"title": s["title"], "artist": s.get("artist", "")},
                 )
             else:
-                ok, err = await _local_copy.queue_local_copy(
-                    user_id=user.id,
-                    username=user.username,
-                    title=s.get("title", ""),
-                    artist=s.get("artist", ""),
-                    azura_file_id=(s.get("azura_file_id") or "").strip(),
-                    azura_song_id=(s.get("azura_song_id") or "").strip(),
-                )
+                try:
+                    ok, err = await _local_copy.queue_local_copy(
+                        user_id=user.id,
+                        username=user.username,
+                        title=s.get("title", ""),
+                        artist=s.get("artist", ""),
+                        azura_file_id=(s.get("azura_file_id") or "").strip(),
+                        azura_song_id=(s.get("azura_song_id") or "").strip(),
+                    )
+                except Exception as _exc:
+                    print(f"{_LOG} playlist_play local_copy_error: {_exc!r}")
+                    await _w(bot, uid, "⚠️ Local replay temporarily unavailable.")
+                    return
                 if ok:
                     await _w(bot, uid, f"▶️ Queued from {pl['name'][:18]}:\n{lb}"[:249])
+                elif err in ("not_configured", "sftp_fail"):
+                    await _w(bot, uid, "⚠️ Radio server unavailable. Try again.")
                 elif err == "multi":
                     await _w(bot, uid, f"⚠️ Multiple local matches for: {t[:40]}")
-                elif err == "sftp_fail":
-                    await _w(bot, uid, "⚠️ Radio server unavailable. Try again.")
                 else:
                     await _w(bot, uid, f"⚠️ Local song not found: {t}")
             return

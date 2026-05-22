@@ -21,19 +21,24 @@ so _delete_request_file in playback_engine.py deletes the copy only —
 the original AutoDJ library file is always untouched.
 
 Logging prefix: [LOCAL_REPLAY]
+
+Safety: every path returns (bool, str). No exception escapes this module.
 """
 from __future__ import annotations
+import asyncio
 import os
 import time
+import traceback
 import uuid
 
 import database as db
-from modules.config_store import sftp_cfg, requests_playlist_id
+from modules.config_store import sftp_cfg, sftp_ready, requests_playlist_id
 import modules.azuracast_controller as azura
 
 _LLOG          = "[LOCAL_REPLAY]"
 _POLL_TIMEOUT  = 20.0   # seconds to wait for AzuraCast to register the copy
 _POLL_INTERVAL = 2.0
+_ASYNC_TIMEOUT = 90.0   # hard cap on the entire async call
 
 
 # ─── Blocking implementation ──────────────────────────────────────────────────
@@ -50,18 +55,51 @@ def queue_local_copy_sync(
     Copy a local AzuraCast library file into the Requests pipeline.
 
     Blocking — must be called via loop.run_in_executor() from async code.
+    NEVER raises — all exceptions are caught and logged.
 
     Returns (ok, error_code):
-      (True,  "")               — success; yt_request_jobs row inserted
-      (False, "not_found")      — no media found matching the identifiers
-      (False, "multi")          — ambiguous search results, no exact match
-      (False, "sftp_fail")      — SFTP copy failed
-      (False, "register_fail")  — AzuraCast did not register the copy in time
+      (True,  "")                  — success; yt_request_jobs row inserted
+      (False, "not_configured")    — SFTP not set up on this bot
+      (False, "not_found")         — no media found matching the identifiers
+      (False, "multi")             — ambiguous search results, no exact match
+      (False, "sftp_fail")         — SFTP copy failed
+      (False, "register_fail")     — AzuraCast did not register the copy in time
+      (False, "error")             — unexpected exception (logged)
     """
+    try:
+        return _queue_local_copy_sync_impl(
+            user_id=user_id,
+            username=username,
+            title=title,
+            artist=artist,
+            azura_file_id=azura_file_id,
+            azura_song_id=azura_song_id,
+        )
+    except Exception as exc:
+        print(f"{_LLOG} error={exc!r} title={title[:40]!r}")
+        traceback.print_exc()
+        return False, "error"
+
+
+def _queue_local_copy_sync_impl(
+    user_id:       str,
+    username:      str,
+    title:         str,
+    artist:        str = "",
+    azura_file_id: str = "",
+    azura_song_id: str = "",
+) -> tuple[bool, str]:
+    """Inner implementation — called only from queue_local_copy_sync."""
     title_s  = (title  or "?")[:40]
     artist_s = (artist or "")[:20]
 
     print(f"{_LLOG} favorite replay requested title={title_s!r} artist={artist_s!r}")
+
+    # ── Gate: only run on bots with SFTP configured ───────────────────────────
+    # Prevents non-DJ bots (no SFTP env vars) from attempting network I/O.
+    if not sftp_ready():
+        print(f"{_LLOG} error=sftp_not_configured — local replay requires SFTP env vars")
+        return False, "not_configured"
 
     # ── 1. Locate the original file record ────────────────────────────────────
     rec: "dict | None" = None
@@ -69,7 +107,10 @@ def queue_local_copy_sync(
     print(f"{_LLOG} checking metadata file_id={azura_file_id!r} song_id={azura_song_id!r}")
 
     if azura_file_id:
-        rec = azura.get_media_file(azura_file_id)
+        try:
+            rec = azura.get_media_file(azura_file_id)
+        except Exception as exc:
+            print(f"{_LLOG} error=get_media_file {exc!r}")
         if rec:
             print(f"{_LLOG} found original media via file_id={azura_file_id!r}")
         else:
@@ -77,7 +118,11 @@ def queue_local_copy_sync(
 
     if not rec and azura_song_id and title:
         print(f"{_LLOG} searching AzuraCast by song_id title={title_s!r}")
-        candidates = azura.search_media_by_phrase(title)
+        try:
+            candidates = azura.search_media_by_phrase(title)
+        except Exception as exc:
+            print(f"{_LLOG} error=search_media_by_phrase {exc!r}")
+            candidates = []
         for r in candidates:
             uid = ((r.get("song") or {}).get("unique_id") or "").strip()
             if uid and uid == azura_song_id:
@@ -91,10 +136,18 @@ def queue_local_copy_sync(
     if not rec:
         phrase  = f"{title} {artist}".strip() if artist else title.strip()
         print(f"{_LLOG} searching AzuraCast phrase={phrase!r}")
-        results = azura.search_media_by_phrase(phrase) if phrase else []
+        try:
+            results = azura.search_media_by_phrase(phrase) if phrase else []
+        except Exception as exc:
+            print(f"{_LLOG} error=search_phrase {exc!r}")
+            results = []
         if not results and artist and title:
             print(f"{_LLOG} searching AzuraCast title-only={title.strip()!r}")
-            results = azura.search_media_by_phrase(title.strip())
+            try:
+                results = azura.search_media_by_phrase(title.strip())
+            except Exception as exc:
+                print(f"{_LLOG} error=search_title_only {exc!r}")
+                results = []
 
         print(f"{_LLOG} search returned {len(results)} result(s)")
 
@@ -131,9 +184,6 @@ def queue_local_copy_sync(
 
     cfg        = sftp_cfg()
     req_folder = cfg.get("folder", "").rstrip("/")
-    # Media root: explicit env var override OR parent of the Requests folder.
-    # Standard AzuraCast layout: /var/azuracast/stations/<id>/media/Requests
-    #   → media root = /var/azuracast/stations/<id>/media
     media_root = (
         (os.environ.get("AZURA_MEDIA_ROOT") or "").strip()
         or os.path.dirname(req_folder)
@@ -148,19 +198,31 @@ def queue_local_copy_sync(
     print(f"{_LLOG} copying {file_path!r} → Requests/{dest_filename}")
 
     # ── 4. SFTP copy (source NEVER modified) ─────────────────────────────────
-    if not azura.sftp_copy_to_requests(src_abs_path, dest_filename):
+    try:
+        copy_ok = azura.sftp_copy_to_requests(src_abs_path, dest_filename)
+    except Exception as exc:
+        print(f"{_LLOG} error=sftp_copy {exc!r}")
+        copy_ok = False
+    if not copy_ok:
         return False, "sftp_fail"
     print(f"{_LLOG} copied to request folder")
 
     # ── 5. Rescan so AzuraCast picks up the new copy ──────────────────────────
-    azura.rescan_requests_folder()
+    try:
+        azura.rescan_requests_folder()
+    except Exception as exc:
+        print(f"{_LLOG} error=rescan {exc!r}")
 
     # ── 6. Poll for AzuraCast registration ───────────────────────────────────
     new_file_id  = ""
     new_song_uid = ""
     deadline = time.time() + _POLL_TIMEOUT
     while time.time() < deadline:
-        row = azura.search_media(dest_filename)
+        try:
+            row = azura.search_media(dest_filename)
+        except Exception as exc:
+            print(f"{_LLOG} error=search_media_poll {exc!r}")
+            row = None
         if row:
             new_file_id  = str(row.get("id") or "")
             new_song_uid = ((row.get("song") or {}).get("unique_id") or "").strip()
@@ -169,7 +231,10 @@ def queue_local_copy_sync(
 
     if not new_file_id:
         print(f"{_LLOG} register_fail: AzuraCast did not register {dest_filename!r}")
-        azura.sftp_delete_file(dest_filename)
+        try:
+            azura.sftp_delete_file(dest_filename)
+        except Exception as exc:
+            print(f"{_LLOG} error=cleanup_orphan {exc!r}")
         return False, "register_fail"
 
     print(f"{_LLOG} queued local copy file_id={new_file_id}")
@@ -177,11 +242,12 @@ def queue_local_copy_sync(
     # ── 7. Add copy to Requests playlist ─────────────────────────────────────
     req_pid = requests_playlist_id()
     if req_pid:
-        azura.add_file_to_playlist(new_file_id, req_pid)
+        try:
+            azura.add_file_to_playlist(new_file_id, req_pid)
+        except Exception as exc:
+            print(f"{_LLOG} error=add_to_playlist {exc!r}")
 
     # ── 8. Insert yt_request_jobs row (status='ready') ────────────────────────
-    # Cleanup in playback_engine uses this row's azura_file_id (the copy's ID),
-    # so only the copy is ever deleted — original library file is untouched.
     print(f"{_LLOG} queueing copied request dest={dest_filename!r} file_id={new_file_id!r}")
     try:
         with db.db_conn() as conn:
@@ -202,8 +268,7 @@ def queue_local_copy_sync(
             )
             job_db_id = cur.lastrowid or 0
     except Exception as exc:
-        print(f"{_LLOG} db insert error: {exc}")
-        # Clean up the orphaned copy so it does not sit in /Requests forever
+        print(f"{_LLOG} error=db_insert {exc!r}")
         try:
             azura.sftp_delete_file(dest_filename)
         except Exception:
@@ -211,6 +276,7 @@ def queue_local_copy_sync(
         return False, "register_fail"
 
     print(f"{_LLOG} job created db_id={job_db_id} filename={dest_filename!r}")
+    print(f"{_LLOG} queued job_id={job_db_id} title={title[:40]!r} filename={dest_filename!r}")
     return True, ""
 
 
@@ -227,18 +293,27 @@ async def queue_local_copy(
     """
     Async wrapper around queue_local_copy_sync.
     Safe to await from any async handler in radio_commands.py.
-    Returns (ok, error_code).
+    Returns (ok, error_code). NEVER raises.
     """
-    import asyncio
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None,
-        lambda: queue_local_copy_sync(
-            user_id=user_id,
-            username=username,
-            title=title,
-            artist=artist,
-            azura_file_id=azura_file_id,
-            azura_song_id=azura_song_id,
-        ),
-    )
+    try:
+        loop = asyncio.get_running_loop()
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: queue_local_copy_sync(
+                    user_id=user_id,
+                    username=username,
+                    title=title,
+                    artist=artist,
+                    azura_file_id=azura_file_id,
+                    azura_song_id=azura_song_id,
+                ),
+            ),
+            timeout=_ASYNC_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        print(f"{_LLOG} error=async_timeout after {_ASYNC_TIMEOUT}s title={title[:40]!r}")
+        return False, "error"
+    except Exception as exc:
+        print(f"{_LLOG} error=async_wrapper {exc!r} title={title[:40]!r}")
+        return False, "error"
