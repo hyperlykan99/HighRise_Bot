@@ -1,0 +1,122 @@
+LOCAL REPLAY MEDIA MAP FIX
+
+Issue:
+!localreplaytest finds the favorite but AzuraCast has no record by stored ID.
+The file exists in media folders, but old favorites do not have reliable azura_file_id/path.
+
+Goal:
+Create a local media map by scanning the whole AzuraCast media library, then match favorites by title/artist/path.
+
+Do not touch AutoDJ playback.
+Do not touch normal requests.
+Do not change radio renderer.
+
+==================================================
+1. ADD MEDIA MAP COMMANDS
+==================================================
+
+Add owner/admin commands:
+
+!localmediascan
+!localmediastatus
+!localmediafind <search text>
+
+==================================================
+2. FULL LIBRARY SCAN
+==================================================
+
+!localmediascan should:
+- call AzuraCast files API if available
+- scan all media rows
+- include nested folders like EDM/, BGCNights/, RnBHits/, Requests/
+- store local map in SQLite table
+
+Table:
+local_media_map
+
+Fields:
+- azura_file_id
+- unique_id
+- title
+- artist
+- path
+- filename
+- normalized_title
+- normalized_artist
+- normalized_filename
+- updated_at
+
+==================================================
+3. NORMALIZATION
+==================================================
+
+Normalize by:
+- lowercase
+- remove punctuation
+- remove extra spaces
+- remove “official video”, “lyrics”, etc if helpful
+- compare title + artist + filename
+
+==================================================
+4. MATCH FAVORITES FROM MAP
+==================================================
+
+For !localreplaytest <#>:
+
+If favorite has broken/missing azura_file_id:
+- search local_media_map by normalized title/artist
+- fallback filename/title partial match
+- if one strong match:
+  backfill favorite row with:
+  azura_file_id
+  azura_song_id / unique_id
+  azura_path
+  source_type=local
+- then continue local replay validation
+
+==================================================
+5. SAFE MATCHING
+==================================================
+
+If one strong match:
+✅ Local match found:
+<title> — <artist>
+Path: <folder/file>
+
+If multiple matches:
+⚠️ Multiple matches found. Use !localmediafind <title>
+
+If no match:
+❌ No local media match found. Run !localmediascan.
+
+==================================================
+6. !LOCALMEDIAFIND
+==================================================
+
+Example:
+!localmediafind ethereal
+
+Shows top 5 matches:
+1. ETHEREAL! - Sped Up — svliient
+   Path: EDM/ETHEREAL.mp3
+
+Keep under 249 chars, split if needed.
+
+==================================================
+7. DO NOT COPY YET
+==================================================
+
+Scanning/mapping only.
+Do not copy or queue anything in this phase unless !playfavlocal already works after map match.
+
+==================================================
+8. CHECKLIST
+==================================================
+
+Test:
+- !localmediascan
+- !localmediastatus
+- !localmediafind ethereal
+- !localreplaytest 1 backfills from map
+- no crashes
+- bots stay online

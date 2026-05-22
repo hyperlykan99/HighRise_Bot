@@ -409,6 +409,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "playmine": "dj", "playfav": "dj",
     "playfavlocal": "dj", "localreplaytest": "dj",
     "localreplaystatus": "dj", "localreplaycleanup": "dj",
+    "localmediascan": "dj", "localmediastatus": "dj", "localmediafind": "dj",
     "unfav": "dj",
     "removefav": "dj", "delfav": "dj", "deletefav": "dj",
     # ── dj — voting / ratings ────────────────────────────────────────────────
@@ -792,6 +793,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "myplaylist": "dj", "addtoplaylist": "dj",
     "playlist": "dj", "pl": "dj",
     "playfav": "dj",
+    "playfavlocal": "dj", "localreplaytest": "dj",
+    "localreplaystatus": "dj", "localreplaycleanup": "dj",
+    "localmediascan": "dj", "localmediastatus": "dj", "localmediafind": "dj",
     "removefavorite": "dj",
     "history": "dj", "radiohistory": "dj",
     "like": "dj", "dislike": "dj", "songrating": "dj", "ratings": "dj",

@@ -1043,6 +1043,46 @@ def list_media_folders(parent: str = "") -> list:
     return []
 
 
+def list_all_media() -> list:
+    """
+    Return every media file in the AzuraCast library by:
+      1. Listing all folders from the root.
+      2. Fetching files from root + each folder (+ one level of subfolders).
+
+    Uses the existing list_folder_files / list_media_folders helpers so the
+    same API shape handling is reused.  Returns a flat list of file dicts.
+    """
+    all_files: list = []
+    seen_paths: set = set()
+
+    def _add(rows: list) -> None:
+        for r in rows:
+            p = r.get("path", "")
+            if p and p not in seen_paths:
+                seen_paths.add(p)
+                all_files.append(r)
+
+    # Root-level files (some libraries keep files directly under media/)
+    _add(list_folder_files(""))
+
+    # Top-level folders (EDM, BGCNights, Requests, …)
+    top_folders = list_media_folders("")
+    for folder in top_folders:
+        fname = folder if isinstance(folder, str) else ""
+        if not fname:
+            continue
+        _add(list_folder_files(fname))
+        # One level deeper
+        sub_folders = list_media_folders(fname)
+        for sub in sub_folders:
+            sname = sub if isinstance(sub, str) else ""
+            if sname:
+                _add(list_folder_files(sname))
+
+    print(f"{_LOG} list_all_media → {len(all_files)} total files")
+    return all_files
+
+
 def scan_vibe_sources() -> dict:
     """
     Discover all vibe-worthy playlists and media folders from AzuraCast.

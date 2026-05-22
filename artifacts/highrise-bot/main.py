@@ -1864,6 +1864,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "playmine", "playfav",
     "playfavlocal", "localreplaytest",
     "localreplaystatus", "localreplaycleanup",
+    "localmediascan", "localmediastatus", "localmediafind",
     "removefav", "delfav", "deletefav",
     "removefavorite",
     "fav", "addtoplaylist",
@@ -8044,6 +8045,39 @@ class HangoutBot(BaseBot):
                 try:
                     await self.highrise.send_whisper(
                         user.id, "⚠️ Local replay command error. Check logs.")
+                except Exception:
+                    pass
+        elif cmd == "localmediascan":
+            try:
+                from modules.local_media_map import handle_localmediascan as _lms
+                await _lms(self, user, args)
+            except Exception as _lme:
+                print(f"[LOCAL_MEDIA_MAP] scan error: {_lme!r}")
+                try:
+                    await self.highrise.send_whisper(
+                        user.id, "⚠️ Media map scan error. Check logs.")
+                except Exception:
+                    pass
+        elif cmd == "localmediastatus":
+            try:
+                from modules.local_media_map import handle_localmediastatus as _lmst
+                await _lmst(self, user, args)
+            except Exception as _lme:
+                print(f"[LOCAL_MEDIA_MAP] status error: {_lme!r}")
+                try:
+                    await self.highrise.send_whisper(
+                        user.id, "⚠️ Media map error. Check logs.")
+                except Exception:
+                    pass
+        elif cmd == "localmediafind":
+            try:
+                from modules.local_media_map import handle_localmediafind as _lmf
+                await _lmf(self, user, args)
+            except Exception as _lme:
+                print(f"[LOCAL_MEDIA_MAP] find error: {_lme!r}")
+                try:
+                    await self.highrise.send_whisper(
+                        user.id, "⚠️ Media map error. Check logs.")
                 except Exception:
                     pass
         elif cmd == "like":

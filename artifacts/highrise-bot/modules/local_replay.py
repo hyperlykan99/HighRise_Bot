@@ -408,12 +408,12 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         return
     pos = int(num_arg)
 
-    # ── Load favorites ───────────────────────────────────────────────────────
+    # ── Load favorites (full meta — includes azura_file_id, source_type) ────
     try:
-        from modules.radio_commands import _fav_get
-        rows = _fav_get(user.id, limit=20)
+        from modules.local_media_map import _fav_get_full
+        rows = _fav_get_full(user.id, limit=20)
     except Exception as exc:
-        print(f"{_LOG} _fav_get error: {exc!r}")
+        print(f"{_LOG} _fav_get_full error: {exc!r}")
         await _w("Could not load favorites. Try again.")
         return
 
@@ -460,17 +460,50 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         except Exception as exc:
             print(f"{_LOG} get_media_file error: {exc!r}")
 
-    # Fallback: search library by title (+ artist) if fid lookup returned nothing
+    # Fallback: search local_media_map by normalized title/artist
     if not azura_file_rec:
-        search_q = f"{fav_artist} {fav_title}".strip() if fav_artist else fav_title
-        print(f"{_LOG} no fid record — library search: {search_q!r}")
+        print(f"{_LOG} no fid record — searching local_media_map for {fav_title!r}")
         try:
-            from modules.azuracast_controller import search_media
-            azura_file_rec = await loop.run_in_executor(
-                None, search_media, search_q
-            ) or {}
+            from modules.local_media_map import match_from_map, _fav_backfill
+            map_row, map_status = match_from_map(fav_title, fav_artist)
+            if map_status == "ok" and map_row:
+                # Backfill the favorites row so future calls use the fid directly
+                _fav_backfill(
+                    fav["id"],
+                    map_row["azura_file_id"],
+                    map_row["unique_id"],
+                )
+                # Build a minimal azura_file_rec from the map row
+                azura_file_rec = {
+                    "path":      map_row["path"],
+                    "unique_id": map_row["unique_id"],
+                    "id":        map_row["azura_file_id"],
+                }
+                await _w(
+                    f"✅ Local match found:\n"
+                    f"{map_row['title']}"
+                    + (f" — {map_row['artist']}" if map_row.get("artist") else "")
+                    + f"\nPath: {map_row['path']}"
+                )
+            elif map_status == "multiple":
+                await _w(
+                    f"⚠️ Multiple matches found for '{fav_title}'.\n"
+                    f"Use !localmediafind {fav_title[:30]} to identify."
+                )
+                return
+            else:
+                await _w(
+                    f"❌ No local media match for '{fav_title}'.\n"
+                    f"Run !localmediascan, then retry."
+                )
+                return
         except Exception as exc:
-            print(f"{_LOG} library search error: {exc!r}")
+            print(f"{_LOG} map search error: {exc!r}")
+            await _w(
+                f"❌ AzuraCast has no record for '{fav_title}'.\n"
+                f"File may have been removed from the library."
+            )
+            return
 
     if not azura_file_rec:
         await _w(
