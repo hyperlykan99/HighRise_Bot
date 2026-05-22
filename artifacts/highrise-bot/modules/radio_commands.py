@@ -2735,6 +2735,7 @@ async def startup_radio(bot: "BaseBot") -> None:
     print(f"{_LOG} Starting radio / playback engine…")
     await _start_cleanup(bot)
     asyncio.create_task(_cleanup_poll_task())
+    print(f"[DJ_RADIO] radio startup complete")
 
 
 # ─── Safety guard ─────────────────────────────────────────────────────────────

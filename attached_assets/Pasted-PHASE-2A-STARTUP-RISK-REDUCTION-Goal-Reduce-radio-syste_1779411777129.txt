@@ -1,0 +1,147 @@
+PHASE 2A — STARTUP RISK REDUCTION
+
+Goal:
+Reduce radio system startup/crash risk before any module migration.
+
+This phase is safety/stability only.
+Do NOT add features.
+Do NOT move modules yet.
+Do NOT change command behavior.
+Do NOT touch emote system.
+Do NOT change playback logic itself.
+
+Main findings from audit:
+- playback_engine.py self-starts poll loop on import
+- heavy radio modules imported globally by all bots
+- yt_request.py loads yt_dlp/paramiko globally
+- non-DJ bots may load DJ radio systems unnecessarily
+
+==================================================
+1. FIX PLAYBACK_ENGINE AUTO-START
+==================================================
+
+Current issue:
+playback_engine.py starts polling loops on import.
+
+This is dangerous because:
+- importing module can start background tasks
+- non-DJ bots may accidentally start radio pollers
+- import failures can affect all bots
+
+Fix:
+- remove auto-start behavior from import side-effects
+- create explicit startup function:
+  start_playback_engine(bot)
+
+Requirements:
+- poll loop starts ONLY when explicitly called
+- no polling loop starts during module import
+- importing playback_engine.py must be safe
+
+==================================================
+2. DJ-ONLY STARTUP GUARDS
+==================================================
+
+Ensure ONLY DJ_DUDU / BOT_MODE=dj starts:
+- playback engine
+- AzuraCast polling
+- yt cleanup tasks
+- radio startup tasks
+- vibe monitoring
+- now-playing polling
+- verified skip tasks
+
+Use existing:
+should_this_bot_run_module("yt_request")
+
+or BOT_MODE=dj checks consistently.
+
+==================================================
+3. REDUCE GLOBAL IMPORT RISK
+==================================================
+
+Inspect main.py imports.
+
+Heavy radio modules should NOT load globally on all bots if avoidable:
+
+Examples:
+- yt_request.py
+- playback_engine.py
+- azuracast_controller.py
+
+Preferred:
+- lazy imports inside DJ routing branches
+OR
+- guarded imports under BOT_MODE=dj
+
+Goal:
+Non-DJ bots should not initialize:
+- yt_dlp
+- paramiko
+- AzuraCast clients
+- playback pollers
+- radio startup systems
+
+==================================================
+4. KEEP EXISTING COMMANDS WORKING
+==================================================
+
+Do NOT break:
+- !play
+- !queue
+- !np
+- !favorites
+- !playlist
+- !radiostats
+- !radioachievements
+
+Behavior must remain identical.
+
+==================================================
+5. ADD SAFE STARTUP LOGGING
+==================================================
+
+Add clean startup logs:
+
+[DJ_RADIO] playback engine started
+[DJ_RADIO] yt cleanup started
+[DJ_RADIO] radio startup complete
+
+If skipped on non-DJ bot:
+
+[DJ_RADIO] skipped startup for BOT_MODE=<mode>
+
+Do not spam logs repeatedly.
+
+==================================================
+6. NO MODULE MOVES YET
+==================================================
+
+Do NOT:
+- create radio/ package yet
+- rename imports
+- move files
+- rewrite routing
+- change DB schema
+
+This is only startup hardening.
+
+==================================================
+7. CHECKLIST
+==================================================
+
+Test:
+- DJ_DUDU still works normally
+- non-DJ bots stay online
+- playback polling only runs on DJ bot
+- importing playback_engine.py alone does not start loops
+- !play still works
+- !np still works
+- !radioachievements still works
+- no startup crashes
+- bots remain online 10+ minutes
+
+Regression:
+- no duplicate polling loops
+- no duplicate announcements
+- no broken radio features

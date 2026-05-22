@@ -1363,6 +1363,7 @@ async def startup_playback_engine(bot: "BaseBot") -> None:
         return
     _started = True
     _stop_flag.clear()   # Reset flag in case this is a reconnect cycle
+    print(f"[DJ_RADIO] playback engine starting…")
     print(f"{_LOG} Playback engine scheduled ✓ (init deferred)")
     asyncio.create_task(_startup_init_task(bot))
 
@@ -1406,6 +1407,7 @@ async def _startup_init_task(bot: "BaseBot") -> None:
         from modules.yt_request import radio_request_prepare_worker as _rpw
         asyncio.create_task(_rpw(bot, _stop_flag))
         print(f"{_LOG} Playback engine ready ✓")
+        print(f"[DJ_RADIO] playback engine started")
 
     except asyncio.CancelledError:
         print(f"{_LOG} Startup init task cancelled (bot disconnecting before init completed)")
