@@ -1862,6 +1862,8 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "save",
     "mysongs", "playlist", "myplaylist2",
     "playmine", "playfav",
+    "playfavlocal", "localreplaytest",
+    "localreplaystatus", "localreplaycleanup",
     "removefav", "delfav", "deletefav",
     "removefavorite",
     "fav", "addtoplaylist",
@@ -8010,6 +8012,24 @@ class HangoutBot(BaseBot):
             await rc_playmine(self, user, args)
         elif cmd == "playfav":
             await rc_playfav(self, user, args)
+        elif cmd in ("playfavlocal", "localreplaytest"):
+            try:
+                from modules.local_replay import handle_playfavlocal as _lr_play
+                await _lr_play(self, user, args)
+            except Exception as _lre:
+                print(f"[LOCAL_REPLAY] handler error: {_lre!r}")
+        elif cmd == "localreplaystatus":
+            try:
+                from modules.local_replay import handle_localreplaystatus as _lr_stat
+                await _lr_stat(self, user, args)
+            except Exception as _lre:
+                print(f"[LOCAL_REPLAY] status error: {_lre!r}")
+        elif cmd == "localreplaycleanup":
+            try:
+                from modules.local_replay import handle_localreplaycleanup as _lr_clean
+                await _lr_clean(self, user, args)
+            except Exception as _lre:
+                print(f"[LOCAL_REPLAY] cleanup error: {_lre!r}")
         elif cmd == "like":
             await rc_like(self, user, args)
         elif cmd == "dislike":

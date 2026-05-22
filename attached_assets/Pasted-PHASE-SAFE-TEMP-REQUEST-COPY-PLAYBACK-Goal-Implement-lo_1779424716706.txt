@@ -1,0 +1,127 @@
+PHASE — SAFE TEMP REQUEST-COPY PLAYBACK
+
+Goal:
+Implement local favorite replay safely using disposable VPS temp copies.
+
+ABSOLUTE RULES:
+- failures NEVER crash bots
+- no startup imports
+- no background replay tasks
+- feature disabled by default
+- replay isolated from main queue engine
+
+==================================================
+1. FEATURE FLAGS
+==================================================
+
+Add:
+
+LOCAL_REPLAY_ENABLED=false
+LOCAL_REPLAY_ALLOW_COPY=false
+
+Replay commands refuse unless BOTH are true.
+
+==================================================
+2. NEW COMMAND
+==================================================
+
+!playfavlocal <favorite #>
+
+Owner/admin only during testing.
+
+==================================================
+3. SAFE FLOW
+==================================================
+
+Flow:
+
+1. validate favorite exists
+2. validate AzuraCast match
+3. validate VPS source file exists
+4. create temp UUID filename
+5. duplicate source file on VPS
+6. place ONLY temp copy into Requests
+7. queue normal request playback
+8. after playback:
+   auto-delete temp copy
+
+NEVER queue original library file directly.
+
+==================================================
+4. TEMP FILES
+==================================================
+
+Temp filename example:
+
+tmp_replay_<uuid>.mp3
+
+Store separately if possible:
+requests/temp/
+
+==================================================
+5. PLAYBACK TRACKING
+==================================================
+
+Track:
+- temp filename
+- created_at
+- queued_at
+- playback_started
+- cleanup_complete
+
+==================================================
+6. CLEANUP SAFETY
+==================================================
+
+Cleanup must:
+- delete only temp replay files
+- never delete originals
+- retry safely if locked
+- timeout safely
+
+==================================================
+7. ERROR HANDLING
+==================================================
+
+If anything fails:
+- log replay error
+- notify requester
+- DO NOT crash queue
+- DO NOT affect AutoDJ
+- DO NOT restart bots
+
+==================================================
+8. LOGGING
+==================================================
+
+Add logs:
+
+[LOCAL_REPLAY]
+- favorite validated
+- source matched
+- temp copy created
+- queued successfully
+- cleanup success/failure
+
+==================================================
+9. TEST MODE FIRST
+==================================================
+
+Initially:
+- queue only ONE replay at a time
+- owner-only
+- no public access
+
+==================================================
+10. CHECKLIST
+==================================================
+
+Test:
+- !localreplaytest works
+- temp copy created correctly
+- playback works
+- temp copy deleted after playback
+- original file preserved
+- AutoDJ unaffected
+- queue survives replay failure
+- bots remain online
