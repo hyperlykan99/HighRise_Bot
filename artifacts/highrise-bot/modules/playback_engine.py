@@ -313,11 +313,17 @@ def _db_match_request(
                             ):
                                 j["_match_method"] = "requests_path_filename"
                                 return j
-                    # Fallback: oldest active job (path proves it's a request)
+                    # Fallback: oldest active job (path proves it's a request).
+                    # ONLY allowed when the job has no filename stored — if a
+                    # filename is set but didn't match, this NP song is not our
+                    # job (e.g. a different request or a stale Requests/ file).
+                    # Using this fallback on a named job would set status='playing'
+                    # on the wrong row and trigger premature cleanup.
                     if rows:
                         j = _jrow(rows[0])
-                        j["_match_method"] = "requests_path_oldest"
-                        return j
+                        if not (j.get("filename") or "").strip():
+                            j["_match_method"] = "requests_path_oldest"
+                            return j
             except Exception:
                 pass
             # Path is Requests/ but queue is empty — never label this as AutoDJ
