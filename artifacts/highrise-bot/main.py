@@ -3858,6 +3858,7 @@ class HangoutBot(BaseBot):
             _safe_task(startup_dancefloor_recovery(self), "startup_dancefloor_recovery")
             _safe_task(startup_custom_loop_recovery(self), "startup_custom_loop_recovery")
             _safe_task(startup_sync_recovery(self), "startup_sync_recovery")
+            print("[LOCAL_REPLAY] commands registered")
         # Re-apply DB-persisted emote timing overrides (all modes, runs synchronously)
         try:
             apply_saved_emote_timings()
@@ -8018,18 +8019,33 @@ class HangoutBot(BaseBot):
                 await _lr_play(self, user, args)
             except Exception as _lre:
                 print(f"[LOCAL_REPLAY] handler error: {_lre!r}")
+                try:
+                    await self.highrise.send_whisper(
+                        user.id, "⚠️ Local replay command error. Check logs.")
+                except Exception:
+                    pass
         elif cmd == "localreplaystatus":
             try:
                 from modules.local_replay import handle_localreplaystatus as _lr_stat
                 await _lr_stat(self, user, args)
             except Exception as _lre:
                 print(f"[LOCAL_REPLAY] status error: {_lre!r}")
+                try:
+                    await self.highrise.send_whisper(
+                        user.id, "⚠️ Local replay command error. Check logs.")
+                except Exception:
+                    pass
         elif cmd == "localreplaycleanup":
             try:
                 from modules.local_replay import handle_localreplaycleanup as _lr_clean
                 await _lr_clean(self, user, args)
             except Exception as _lre:
                 print(f"[LOCAL_REPLAY] cleanup error: {_lre!r}")
+                try:
+                    await self.highrise.send_whisper(
+                        user.id, "⚠️ Local replay command error. Check logs.")
+                except Exception:
+                    pass
         elif cmd == "like":
             await rc_like(self, user, args)
         elif cmd == "dislike":

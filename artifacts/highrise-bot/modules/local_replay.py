@@ -345,10 +345,19 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         return
 
     # ── Arg validation ───────────────────────────────────────────────────────
-    if not args or len(args) < 2 or not args[1].isdigit():
+    # Support both arg styles:
+    #   args=["playfavlocal","1"]  (standard — cmd is args[0], number is args[1])
+    #   args=["1"]                 (stripped-cmd style — number is args[0])
+    num_arg: str | None = None
+    if args:
+        if str(args[0]).isdigit():
+            num_arg = str(args[0])
+        elif len(args) >= 2 and str(args[1]).isdigit():
+            num_arg = str(args[1])
+    if not num_arg:
         await _w("Usage: !playfavlocal <#>  (see !favs for list)")
         return
-    pos = int(args[1])
+    pos = int(num_arg)
 
     # ── Load favorites ───────────────────────────────────────────────────────
     try:

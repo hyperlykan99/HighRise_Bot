@@ -407,6 +407,8 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "save": "dj",
     "mysongs": "dj", "playlist": "dj", "pl": "dj", "myplaylist2": "dj",
     "playmine": "dj", "playfav": "dj",
+    "playfavlocal": "dj", "localreplaytest": "dj",
+    "localreplaystatus": "dj", "localreplaycleanup": "dj",
     "unfav": "dj",
     "removefav": "dj", "delfav": "dj", "deletefav": "dj",
     # ── dj — voting / ratings ────────────────────────────────────────────────
