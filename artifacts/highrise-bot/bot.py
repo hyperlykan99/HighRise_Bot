@@ -48,7 +48,9 @@ HERE = Path(__file__).parent
 
 # Apply safe runtime defaults first so the prints reflect what will actually run.
 # Any existing env var (set in Replit Secrets) wins over these defaults.
-os.environ.setdefault("BOTS_ENABLED",                 "eventhost,dj,blackjack,poker,miner,banker,security,fisher")
+# NOTE: BOTS_ENABLED is intentionally NOT defaulted here — when unset, all
+#       configured bot tokens start. config/bot_registry.json controls
+#       enable/disable per-bot. Set BOTS_ENABLED only as a manual override.
 os.environ.setdefault("BOT_DISABLE_ON_FAST_EXIT",     "false")
 os.environ.setdefault("BOT_RECONNECT_MAX_FAST_EXITS", "999")
 
@@ -270,6 +272,8 @@ def _collect_bots() -> list[_BotSpec]:
         if not specs:
             print("[RUNNER] WARN: BOTS_ENABLED excluded all bots — check its value.")
 
+    _final_modes = ",".join(s.bot_mode for s in specs) if specs else "(none)"
+    print(f"[RUNNER] final bots: {_final_modes}")
     return specs
 
 

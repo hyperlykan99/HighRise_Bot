@@ -28,6 +28,8 @@ Future bot layout (example):
 """
 
 import asyncio
+import os
+import sys
 import modules.bot_state as bot_state
 from highrise import BaseBot, User
 from highrise.__main__ import BotDefinition, main as highrise_main
