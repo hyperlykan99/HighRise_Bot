@@ -160,15 +160,77 @@ def _get_sftp_cfg() -> dict:
         return {}
 
 
+# Ordered fallback roots tried when AZURA_MEDIA_SFTP_PATH doesn't work.
+# The SFTP user may be chrooted or see a different filesystem layout.
+_SFTP_FALLBACK_ROOTS: list[str] = [
+    "/var/lib/docker/volumes/azuracast_station_data/_data/chilltopia/media",
+    "/var/azuracast/stations/chilltopia/media",
+    "chilltopia/media",
+    "media",
+    "",  # bare relative path — last resort
+]
+
+
+def _build_path_candidates(azura_file_path: str) -> list[str]:
+    """
+    Return an ordered list of absolute/relative SFTP paths to probe.
+
+    Order:
+      1. AZURA_MEDIA_SFTP_PATH env var  (if set)
+      2–6. _SFTP_FALLBACK_ROOTS
+    Duplicates are silently skipped.
+    """
+    rel = azura_file_path.lstrip("/")
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(root: str) -> None:
+        path = f"{root.rstrip('/')}/{rel}" if root else rel
+        if path not in seen:
+            seen.add(path)
+            candidates.append(path)
+
+    env_root = os.environ.get("AZURA_MEDIA_SFTP_PATH", "").strip()
+    if env_root:
+        _add(env_root)
+    for root in _SFTP_FALLBACK_ROOTS:
+        _add(root)
+
+    return candidates
+
+
+def _sftp_resolve_path(
+    sftp,
+    candidates: list[str],
+) -> "tuple[str | None, list[tuple[int, str, bool]]]":
+    """
+    Try each candidate with sftp.stat() on an already-open SFTP session.
+
+    Returns:
+      resolved  — first path where stat succeeded, or None
+      trial_log — [(1-based-index, path, ok), …] for every path tried
+    Stops at the first success.
+    """
+    trial_log: list[tuple[int, str, bool]] = []
+    resolved: "str | None" = None
+    for i, path in enumerate(candidates, 1):
+        try:
+            sftp.stat(path)
+            trial_log.append((i, path, True))
+            resolved = path
+            break
+        except (IOError, FileNotFoundError):
+            trial_log.append((i, path, False))
+        except Exception as exc:
+            trial_log.append((i, path, False))
+            print(f"{_LOG} resolve candidate {i} error: {exc!r}")
+    return resolved, trial_log
+
+
 def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str) -> bool:
     """
-    Open an SFTP session and stream-copy the library file to the requests
-    folder as temp_filename.
-
-    Source full SFTP path is built as:
-      {media_root}/{azura_file_path}
-    where media_root = AZURA_MEDIA_SFTP_PATH  (env var, explicit override)
-                    or parent dir of AZURA_SFTP_PATH  (derived default).
+    Open an SFTP session, resolve the source path via candidate probing,
+    and stream-copy to requests_folder/temp_filename.
 
     Returns True on success; False on any error (logged, never re-raised).
     NEVER modifies the original file.
@@ -184,14 +246,8 @@ def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str) -> bool:
         print(f"{_LOG} SFTP not configured — copy aborted")
         return False
 
-    requests_folder = cfg["folder"].rstrip("/")
-    media_root = (
-        os.environ.get("AZURA_MEDIA_SFTP_PATH", "").strip()
-        or os.path.dirname(requests_folder)
-    )
-
-    src_path  = f"{media_root.rstrip('/')}/{azura_file_path.lstrip('/')}"
-    dest_path = f"{requests_folder}/{temp_filename}"
+    candidates   = _build_path_candidates(azura_file_path)
+    dest_path    = f"{cfg['folder'].rstrip('/')}/{temp_filename}"
 
     ssh  = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -204,16 +260,14 @@ def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str) -> bool:
         )
         sftp = ssh.open_sftp()
 
-        # 1. Stat source to confirm it exists before reading
-        try:
-            sftp.stat(src_path)
-        except IOError:
-            print(f"{_LOG} source not found on VPS: {src_path!r}")
+        resolved, trial_log = _sftp_resolve_path(sftp, candidates)
+        if not resolved:
+            tried = ", ".join(p for _, p, _ in trial_log)
+            print(f"{_LOG} source not found — tried: {tried}")
             return False
 
-        # 2. Stream-copy in the same SFTP session — never touches original
-        print(f"{_LOG} copying {src_path!r} → {dest_path!r}")
-        with sftp.file(src_path, "rb") as src_f:
+        print(f"{_LOG} copying {resolved!r} → {dest_path!r}")
+        with sftp.file(resolved, "rb") as src_f:
             data = src_f.read()
         with sftp.file(dest_path, "wb") as dst_f:
             dst_f.write(data)
@@ -235,26 +289,25 @@ def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str) -> bool:
             pass
 
 
-def _sftp_stat_exists(azura_file_path: str) -> bool:
+def _sftp_stat_exists_with_log(
+    azura_file_path: str,
+) -> "tuple[str | None, list[tuple[int, str, bool]]]":
     """
-    Return True if the file exists on the VPS at:
-      AZURA_MEDIA_SFTP_PATH / azura_file_path
-    Used only by !localreplaytest debug whisper — never modifies files.
+    Probe all candidate paths via SFTP stat without copying anything.
+
+    Returns (resolved_path or None, trial_log).
+    Used by !localreplaytest debug whisper only.
     """
     try:
         import paramiko
     except ImportError:
-        return False
+        return None, []
 
     cfg = _get_sftp_cfg()
     if not cfg.get("host") or not cfg.get("user"):
-        return False
+        return None, []
 
-    media_root = (
-        os.environ.get("AZURA_MEDIA_SFTP_PATH", "").strip()
-        or os.path.dirname(cfg["folder"].rstrip("/"))
-    )
-    src_path = f"{media_root.rstrip('/')}/{azura_file_path.lstrip('/')}"
+    candidates = _build_path_candidates(azura_file_path)
 
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -266,12 +319,10 @@ def _sftp_stat_exists(azura_file_path: str) -> bool:
             timeout=15, look_for_keys=False, allow_agent=False,
         )
         sftp = ssh.open_sftp()
-        sftp.stat(src_path)
-        return True
-    except IOError:
-        return False
-    except Exception:
-        return False
+        return _sftp_resolve_path(sftp, candidates)
+    except Exception as exc:
+        print(f"{_LOG} stat_exists_with_log connect error: {exc!r}")
+        return None, []
     finally:
         if sftp:
             try:
@@ -521,25 +572,28 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
 
     # ── !localreplaytest debug whisper ───────────────────────────────────────
     if is_test:
-        media_root = (
-            os.environ.get("AZURA_MEDIA_SFTP_PATH", "").strip()
-            or os.path.dirname(
-                (_get_sftp_cfg().get("folder") or "").rstrip("/")
-            )
+        resolved_path, trial_log = await loop.run_in_executor(
+            None, _sftp_stat_exists_with_log, azura_file_path
         )
-        src_full = (
-            f"{media_root.rstrip('/')}/{azura_file_path.lstrip('/')}"
-            if media_root else azura_file_path
-        )
-        file_exists = await loop.run_in_executor(
-            None, _sftp_stat_exists, azura_file_path
-        )
-        found_label = "found ✅" if file_exists else "missing ❌"
+        found_label = f"found ✅" if resolved_path else "missing ❌"
         await _w(
             f"🔍 [TEST] #{pos} {fav_title}\n"
             f"Path: {azura_file_path}\n"
             f"Source: {found_label}"
         )
+        # Show every probed path so the owner can see which root works
+        if trial_log:
+            page = "Tried:"
+            for idx, path, ok in trial_log:
+                mark = "✅" if ok else "❌"
+                line = f"\n{idx} {mark} {path}"
+                if len(page + line) > 249:
+                    await _w(page)
+                    page = line.lstrip("\n")
+                else:
+                    page += line
+            if page and page != "Tried:":
+                await _w(page)
 
     # ── Lazy stale cleanup ───────────────────────────────────────────────────
     try:
