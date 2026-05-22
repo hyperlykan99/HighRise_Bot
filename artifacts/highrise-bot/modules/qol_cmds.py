@@ -836,3 +836,117 @@ async def handle_botregistry(bot, user, args: list[str] | None = None) -> None:
     half = max(1, len(lines) // 2)
     await _w(bot, user.id, "\n".join(lines[:half])[:249])
     await _w(bot, user.id, "\n".join(lines[half:])[:249])
+
+
+# ---------------------------------------------------------------------------
+# /botdiag [mode] — per-bot health diagnostics (owner/admin only)
+# ---------------------------------------------------------------------------
+
+async def handle_botdiag(bot, user, args: list[str] | None = None) -> None:
+    """/botdiag [mode] — uptime, reconnects, last crash, locks for a bot."""
+    import time as _t
+    from modules.economy import can_manage_economy
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+
+    print(f"[BOT_SUPERVISOR] botdiag requested by {user.username}"
+          + (f" target={args[1]}" if args and len(args) > 1 else ""))
+
+    target = args[1].lower().strip() if args and len(args) > 1 else None
+
+    # Load supervisor health from DB
+    try:
+        from modules.bot_supervisor import load_health_from_db as _lhdb
+        health = _lhdb()
+    except Exception:
+        health = {}
+
+    def _hm(secs: float) -> str:
+        m, _ = divmod(max(0, int(secs)), 60)
+        h, m = divmod(m, 60)
+        return f"{h}h{m}m" if h else f"{m}m"
+
+    now = _t.time()
+
+    # ── No target → compact summary of all modes ───────────────────────────
+    if not target:
+        lines = ["🔍 Botdiag (all)"]
+        for k, v in sorted(health.items()):
+            bm  = (v.get("bot_mode") or k).lower()
+            pst = v.get("process_started_at")
+            up  = _hm(now - float(pst)) if pst else "?"
+            rc  = v.get("reconnect_count", 0)
+            reason = (v.get("last_disconnect_reason") or "—")[:20]
+            lines.append(f"{bm} up={up} rc={rc} last={reason}")
+        if len(lines) == 1:
+            lines.append("(no health data yet — wait for first disconnect)")
+        full = "\n".join(lines)
+        if len(full) <= 249:
+            await _w(bot, user.id, full)
+        else:
+            half = max(1, len(lines) // 2)
+            await _w(bot, user.id, "\n".join(lines[:half])[:249])
+            await _w(bot, user.id, "\n".join(lines[half:])[:249])
+        return
+
+    # ── Targeted mode diag ─────────────────────────────────────────────────
+    snap: dict = {}
+    for k, v in health.items():
+        if (v.get("bot_mode") or k).lower() == target:
+            snap = v
+            break
+
+    if not snap:
+        await _w(bot, user.id,
+                 f"No health data for '{target}'. "
+                 f"Check mode name or wait for first disconnect.")
+        return
+
+    pst    = snap.get("process_started_at")
+    cs     = snap.get("connected_since")
+    up     = _hm(now - float(pst)) if pst else "?"
+    conn   = _hm(now - float(cs))  if cs  else "?"
+    rc     = snap.get("reconnect_count", 0)
+    reason = (snap.get("last_disconnect_reason") or "—")[:35]
+
+    # Normalised reason category
+    try:
+        from modules.bot_logger import categorize_reason as _cat
+        cat = _cat(reason)
+    except Exception:
+        cat = "unknown"
+
+    # Latest crash snapshot timestamp
+    crash_ts = "—"
+    try:
+        from modules.bot_logger import get_recent_crashes as _grc
+        snaps = _grc(target, n=1)
+        if snaps:
+            crash_ts = snaps[0].get("timestamp", "?")[:16]
+    except Exception:
+        pass
+
+    # Active locks held by this bot
+    lock_info = "none"
+    try:
+        import database as _db2
+        _cn = _db2.get_connection()
+        _rows = _cn.execute(
+            "SELECT module FROM bot_module_locks WHERE bot_id=?", (target,)
+        ).fetchall()
+        _cn.close()
+        if _rows:
+            lock_info = ",".join(r[0] for r in _rows)
+    except Exception:
+        pass
+
+    lines = [
+        f"🔍 Diag: {target}",
+        f"up={up}  conn={conn}  rc={rc}",
+        f"reason={reason}",
+        f"category={cat}",
+        f"last_crash={crash_ts}",
+        f"locks={lock_info}",
+    ]
+    await _w(bot, user.id, "\n".join(lines)[:249])

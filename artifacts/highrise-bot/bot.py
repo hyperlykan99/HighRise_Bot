@@ -436,6 +436,14 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
     # Wall-clock time this runner task started — set once, never reset.
     # Used by !botstatus to display true process uptime across reconnects.
     _proc_start_wall: float = time.time()
+    try:
+        from modules import bot_logger as _blog
+        _blog.supervisor_log(
+            f"STARTING {spec.label} mode={spec.bot_mode} id={spec.bot_id}"
+        )
+        _blog.bot_log(spec.bot_mode, f"PROCESS_START label={spec.label}")
+    except Exception:
+        pass
 
     health_task = asyncio.create_task(_health_loop(spec.label))
     try:
@@ -445,6 +453,17 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
             _conn_start_wall: float = time.time()   # reset each subprocess spawn
             _ts = _utc_ts()
             print(f"[BOT_START] connected {spec.label} id={spec.bot_id} @ {_ts}")
+            try:
+                from modules import bot_logger as _blog
+                _blog.bot_log(
+                    spec.bot_mode,
+                    f"CONNECT id={spec.bot_id} rc={_reconnect_count} @ {_ts}",
+                )
+                _blog.supervisor_log(
+                    f"CONNECT {spec.label} mode={spec.bot_mode} rc={_reconnect_count}"
+                )
+            except Exception:
+                pass
             try:
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable, main_path,
@@ -567,6 +586,22 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
 
                 _write_rc_stats(spec.bot_mode, _reconnect_count, _last_reason, _ts2)
 
+                # Write structured disconnect log + crash snapshot.
+                try:
+                    from modules import bot_logger as _blog
+                    _blog.bot_log(
+                        spec.bot_mode,
+                        f"DISCONNECT reason={_last_reason!r}"
+                        f" uptime={uptime:.0f}s rc={_reconnect_count}",
+                    )
+                    _blog.write_crash_snapshot(
+                        mode=spec.bot_mode, label=spec.label,
+                        uptime=uptime, reconnect_count=_reconnect_count,
+                        reason=_last_reason, ts=_ts2,
+                    )
+                except Exception:
+                    pass
+
                 # Persist supervisor health snapshot so !botstatus can read it.
                 try:
                     from modules import bot_supervisor as _sup
@@ -603,6 +638,17 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     f" delay={delay}s @ {_ts2}"
                 )
                 _write_rc_stats(spec.bot_mode, _reconnect_count, _last_reason, _ts2)
+                try:
+                    from modules import bot_logger as _blog
+                    _blog.bot_log(spec.bot_mode,
+                                  f"EXCEPTION {_last_reason[:80]}")
+                    _blog.write_crash_snapshot(
+                        mode=spec.bot_mode, label=spec.label,
+                        uptime=0.0, reconnect_count=_reconnect_count,
+                        reason=_last_reason, ts=_ts2,
+                    )
+                except Exception:
+                    pass
 
             print(f"[WATCHDOG] {spec.label} mode={spec.bot_mode}"
                   f" reconnect_attempt={_reconnect_count} delay={delay}s")

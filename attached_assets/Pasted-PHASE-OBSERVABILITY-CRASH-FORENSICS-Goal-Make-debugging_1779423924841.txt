@@ -1,0 +1,111 @@
+PHASE — OBSERVABILITY + CRASH FORENSICS
+
+Goal:
+Make debugging and monitoring production-grade.
+
+Do not modify gameplay/radio/emotes.
+
+==================================================
+1. STRUCTURED LOGGING
+==================================================
+
+Create:
+logs/
+  supervisor/
+  bots/
+  crashes/
+
+Per-bot logs:
+logs/bots/dj.log
+logs/bots/host.log
+etc
+
+==================================================
+2. CRASH SNAPSHOTS
+==================================================
+
+On bot crash/disconnect:
+Save snapshot JSON:
+- bot name
+- mode
+- uptime
+- reconnect count
+- disconnect reason
+- traceback if exists
+- timestamp
+
+Store:
+logs/crashes/
+
+==================================================
+3. STARTUP TIMELINE
+==================================================
+
+Log:
+- workflow started
+- registry loaded
+- locks acquired
+- stagger delay
+- websocket connect
+- room join
+- ready state
+
+==================================================
+4. !BOTDIAG
+==================================================
+
+Owner/admin only.
+
+Example:
+!botdiag dj
+
+Shows:
+- uptime
+- reconnects
+- last disconnect
+- last errors
+- room
+- startup time
+- lock status
+
+==================================================
+5. COMMAND AUDIT TRAIL
+==================================================
+
+Log owner/admin commands:
+- !botdisable
+- !botenable
+- !botreconnect
+- !botregistry
+
+==================================================
+6. RECONNECT FORENSICS
+==================================================
+
+Track reconnect reasons separately:
+- multilogin
+- websocket close
+- timeout
+- rate limit
+- crash
+- manual restart
+
+==================================================
+7. SAFETY
+==================================================
+
+Cap log sizes.
+Auto-rotate old logs.
+Prevent memory growth.
+
+==================================================
+8. CHECKLIST
+==================================================
+
+Test:
+- logs generate correctly
+- crash snapshots save
+- !botdiag works
+- reconnect reasons tracked
+- no performance impact
+- bots remain stable

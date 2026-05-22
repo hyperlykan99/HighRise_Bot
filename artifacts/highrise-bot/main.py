@@ -266,6 +266,7 @@ from modules.qol_cmds import (
     handle_todo, handle_aetest, handle_ownercheck,
     handle_botstatus as handle_botstatus_simple,
     handle_botregistry,
+    handle_botdiag,
 )
 from modules.beta import (
     handle_betamode, handle_betacheck, handle_betadash,
@@ -1372,7 +1373,7 @@ ALL_KNOWN_COMMANDS = (
         "lasthand", "handlog", "pokerguide",
         "pokerlogs", "pokeraudit", "pokerhandlog",
         "pokertest", "pokereconomy", "pokerverify",
-        "botstatus", "botregistry", "dbstats", "backup",
+        "botstatus", "botregistry", "botdiag", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "restarthelp", "restartstatus", "softrestart", "restartbot",
         "casinosettings", "casinolimits", "casinotoggles",
@@ -3653,6 +3654,12 @@ class HangoutBot(BaseBot):
         if BOT_MODE == "dj":
             print(f"[DJ MODE ACTIVE] mode={BOT_MODE} — music/radio commands enabled")
         print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
+        try:
+            from modules import bot_logger as _blog
+            _blog.bot_log(BOT_MODE, f"ROOM_JOIN room={config.ROOM_ID}")
+            _blog.supervisor_log(f"READY mode={BOT_MODE} room={config.ROOM_ID}")
+        except Exception:
+            pass
         print(f"[HangoutBot] SDK version: {_TIP_SDK_VERSION}")
         print(f"[HangoutBot] Run command: cd artifacts/highrise-bot && python3 bot.py")
         # Store bot identity so gold rain / tip receiver-check can use it
@@ -7248,7 +7255,15 @@ class HangoutBot(BaseBot):
             await handle_botstatus_simple(self, user, args)
 
         elif cmd == "botregistry":
+            try:
+                from modules import bot_logger as _blog
+                _blog.audit_log(user.username, "botregistry")
+            except Exception:
+                pass
             await handle_botregistry(self, user, args)
+
+        elif cmd == "botdiag":
+            await handle_botdiag(self, user, args)
 
         elif cmd == "dbstats":
             await handle_dbstats(self, user)
@@ -8427,7 +8442,14 @@ class HangoutBot(BaseBot):
         elif cmd == "dblockcheck":
             await handle_dblockcheck(self, user, args)
         elif cmd == "botregistry":
+            try:
+                from modules import bot_logger as _blog
+                _blog.audit_log(user.username, "botregistry")
+            except Exception:
+                pass
             await handle_botregistry(self, user, args)
+        elif cmd == "botdiag":
+            await handle_botdiag(self, user, args)
         elif cmd == "botlocks":
             await handle_botlocks(self, user)
         elif cmd == "clearstalebotlocks":
