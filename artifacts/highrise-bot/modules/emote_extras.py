@@ -1395,7 +1395,7 @@ async def _dancefloor_loop(bot: "BaseBot") -> None:
                 await asyncio.sleep(_DF_POLL_SECS)
                 continue
             box = _df_get_box()
-            if not box or not _df_get_emotes():
+            if not box or not (_df_get_sequence() or _df_get_emotes()):
                 await asyncio.sleep(_DF_POLL_SECS)
                 continue
 
@@ -1737,6 +1737,8 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
                      f"No valid emotes. Rejected: {', '.join(bad_t)[:200]}")
             return
         _df_set_sequence(seq_t, "timed")
+        db.set_room_setting("dancefloor_emotes",
+                            ",".join(s["alias"] for s in seq_t))
         msg = f"⏱ Timed {len(seq_t)} steps saved."
         if bad_t:
             msg += f" Rejected: {', '.join(bad_t)[:100]}"
@@ -1746,7 +1748,7 @@ async def handle_dancefloor(bot: "BaseBot", user: "User", args: list) -> None:
     # ----- start --------------------------------------------------------
     if sub == "start":
         box = _df_get_box()
-        emotes = _df_get_emotes()
+        emotes = _df_get_sequence() or _df_get_emotes()
         if not box:
             await _w(bot, uid, "Save points first: setpoint 1/2 → save.")
             return
