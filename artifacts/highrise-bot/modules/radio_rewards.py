@@ -573,15 +573,8 @@ async def handle_toplisteners(bot: "BaseBot", user: "User", _args: list) -> None
     if not rows:
         await _w(bot, user.id, "🎧 No listener data yet.")
         return
-    lines = ["🎧 Top Listeners"]
-    for r in rows[:5]:
-        try:
-            uname  = str(r.get("username") or "unknown")[:18]
-            pts    = int(r.get("points") or 0)
-            lines.append(f"{len(lines)}. @{uname} — {pts} pts")
-        except Exception:
-            lines.append(f"{len(lines)}. (data error)")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    await _w(bot, user.id,
+             _render_user_lb(rows, "🎧 Top Listeners", "points", "pts"))
 
 
 async def handle_toprequests(bot: "BaseBot", user: "User", _args: list) -> None:
@@ -590,15 +583,8 @@ async def handle_toprequests(bot: "BaseBot", user: "User", _args: list) -> None:
     if not rows:
         await _w(bot, user.id, "💿 No requester data yet.")
         return
-    lines = ["💿 Top Requesters"]
-    for r in rows[:5]:
-        try:
-            uname = str(r.get("username") or "unknown")[:18]
-            cnt   = int(r.get("count") or 0)
-            lines.append(f"{len(lines)}. @{uname} — {cnt} requests")
-        except Exception:
-            lines.append(f"{len(lines)}. (data error)")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    await _w(bot, user.id,
+             _render_user_lb(rows, "💿 Top Requesters", "count", "requests"))
 
 
 # ─── Top liked / top disliked helpers ────────────────────────────────────────
@@ -647,37 +633,12 @@ def top_disliked_songs(limit: int = 5) -> list:
         return []
 
 
-def _prettify(raw: str) -> str:
-    """Lower-case song_key → readable title (hyphens/underscores → spaces, title-case)."""
-    text = re.sub(r"[-_]", " ", raw or "")
-    text = re.sub(r"\s{2,}", " ", text).strip()
-    return text.title() if text else ""
-
-
-def _trunc(s: str, maxlen: int) -> str:
-    """Truncate string with ellipsis if it exceeds maxlen."""
-    s = s.strip()
-    return s if len(s) <= maxlen else s[:maxlen - 1] + "…"
-
-
-def _fmt_song_line(i: int, row: dict, label: str) -> str:
-    """Format one leaderboard song line — fully defensive, ≤ 72 chars."""
-    try:
-        raw_title  = str(row.get("title") or row.get("song_key") or "")
-        raw_artist = str(row.get("artist") or "")
-        n          = int(row.get("count") or 0)
-
-        title  = _prettify(raw_title) or "Unknown Title"
-        title  = _trunc(title, 28)
-
-        artist = _prettify(raw_artist) or "Unknown"
-        artist = _trunc(artist, 18)
-
-        # singular vs plural  (1 like, 2 likes)
-        word = label[:-1] if (n == 1 and label.endswith("s")) else label
-        return f"{i}. {title} — {artist} • {n} {word}"
-    except Exception:
-        return f"{i}. (data error)"
+from modules.radio_renderer import (
+    _prettify, _trunc,
+    render_song_line  as _fmt_song_line,
+    render_song_pages as _render_song_pages,
+    render_user_leaderboard as _render_user_lb,
+)
 
 
 async def _send_song_pages(
@@ -687,23 +648,11 @@ async def _send_song_pages(
     rows: list,
     label: str,
 ) -> None:
-    """Paginate formatted song rows (3 per page), every page ≤ 249 chars."""
-    items: list[str] = []
-    for i, r in enumerate(rows, 1):
-        try:
-            items.append(_fmt_song_line(i, r, label))
-        except Exception:
-            items.append(f"{i}. (data error)")
-
-    chunks    = [items[k:k + 3] for k in range(0, len(items), 3)]
-    total_pgs = len(chunks)
-    for pg, chunk in enumerate(chunks, 1):
-        hdr  = f"{header} {pg}/{total_pgs}" if total_pgs > 1 else header
-        body = "\n".join(chunk)
-        msg  = f"{hdr}\n{body}"
-        # Hard-trim if somehow still over 249 (shouldn't happen with our limits)
-        await _w(bot, uid, msg[:249])
-        if pg < total_pgs:
+    """Paginate formatted song rows via radio_renderer (3 per page, ≤249 chars)."""
+    pages = _render_song_pages(header, rows, label)
+    for i, msg in enumerate(pages):
+        await _w(bot, uid, msg)
+        if i < len(pages) - 1:
             await asyncio.sleep(0.25)
 
 

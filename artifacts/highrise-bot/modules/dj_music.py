@@ -814,12 +814,6 @@ def _parse_duration(s: str) -> int:
     return 0
 
 
-def _fmt_secs(secs: int) -> str:
-    """Format seconds as M:SS."""
-    secs = max(0, int(secs))
-    return f"{secs // 60}:{secs % 60:02d}"
-
-
 # ---------------------------------------------------------------------------
 # Playback DB helpers (repeat / favorites / stats)
 # ---------------------------------------------------------------------------

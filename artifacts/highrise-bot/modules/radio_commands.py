@@ -282,17 +282,8 @@ def _is_staff(username: str) -> bool:
     return is_owner(username) or is_admin(username)
 
 
-def _fmt_secs(secs: int) -> str:
-    m, s = divmod(max(0, int(secs)), 60)
-    return f"{m}:{s:02d}"
-
-
-def _progress_bar(elapsed: int, total: int, cells: int = 10) -> str:
-    if total <= 0:
-        return "▱" * cells
-    filled = round(cells * min(elapsed, total) / total)
-    return "▰" * filled + "▱" * (cells - filled)
-
+from modules.radio_renderer import _fmt_secs, _progress_bar
+import modules.radio_renderer as rdr
 
 # ─── Title noise stripper (for search results display) ────────────────────────
 _TITLE_NOISE = re.compile(
@@ -1075,23 +1066,10 @@ async def handle_history(bot: "BaseBot", user: "User", _args: list) -> None:
     if not history:
         await _w(bot, user.id, "📜 No request history yet. Be the first to request a song!")
         return
-
-    # Build numbered item lines; \u200b (zero-width space) after @ prevents
-    # Highrise from converting @username into a clickable <link=@user>@user mention.
-    items: list[str] = []
-    for i, row in enumerate(history, 1):
-        t = (row.get("title") or "?")[:32]
-        u = (row.get("username") or "?")[:14]
-        items.append(f"{i}. 🎧 {t} — @\u200b{u}")
-
-    # 4 items per page keeps each whisper well under 240 chars
-    chunk_size   = 4
-    chunks       = [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
-    total_pages  = len(chunks)
-    for pg, chunk in enumerate(chunks, 1):
-        header = f"📜 History {pg}/{total_pages}" if total_pages > 1 else "📜 Recent Requests"
-        await _w(bot, user.id, header + "\n" + "\n".join(chunk))
-        if pg < total_pages:
+    pages = rdr.render_history_pages(history)
+    for i, msg in enumerate(pages):
+        await _w(bot, user.id, msg)
+        if i < len(pages) - 1:
             await asyncio.sleep(0.1)
 
 

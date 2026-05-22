@@ -1,0 +1,187 @@
+PHASE 2B — RADIO RENDERER CONSOLIDATION
+
+Goal:
+Consolidate duplicated radio rendering/formatting helpers into a shared renderer layer.
+
+This is the FIRST real Phase 2 refactor.
+
+IMPORTANT:
+Do NOT change playback behavior.
+Do NOT change queue behavior.
+Do NOT change database schema.
+Do NOT move core modules yet.
+Do NOT touch emote system.
+Do NOT rewrite commands.
+
+This phase is formatting/rendering consolidation only.
+
+==================================================
+1. CREATE SHARED RENDERER MODULE
+==================================================
+
+Create:
+
+modules/radio_renderer.py
+
+Do NOT create full radio/ package yet.
+Keep migration low-risk.
+
+==================================================
+2. MOVE SHARED FORMAT HELPERS
+==================================================
+
+Centralize these helpers into radio_renderer.py:
+
+- _fmt_secs(secs)
+- _progress_bar(elapsed, total)
+- leaderboard row formatting
+- history line formatting
+- compact song line formatting
+- playlist song formatting
+- favorite song formatting
+
+Use the audit findings.
+
+==================================================
+3. CENTRALIZE NOW-PLAYING CARD
+==================================================
+
+Move shared now-playing rendering into radio_renderer.py.
+
+Current sources:
+- track_resolver.render_now_playing()
+- DJ announcements
+- queue cards
+- history formatting
+
+Goal:
+Single canonical renderer for:
+
+render_now_playing(track, mode="request|autodj")
+
+Requirements:
+- preserve current virtual media player style
+- preserve compact layout
+- preserve progress bar
+- preserve likes/dislikes
+- preserve source labels:
+  NOW PLAYING
+  Auto DJ
+- preserve vibe display
+- preserve !play footer
+
+Do NOT visually redesign cards yet.
+Only centralize logic.
+
+==================================================
+4. KEEP OLD IMPORTS WORKING
+==================================================
+
+Do NOT break existing modules.
+
+Existing modules should temporarily import from radio_renderer.py:
+
+- radio_commands.py
+- track_resolver.py
+- dj_announcer.py
+- radio_rewards.py
+- radio_achievements.py
+
+Use compatibility wrappers if needed.
+
+==================================================
+5. REMOVE DUPLICATED HELPERS
+==================================================
+
+Delete duplicated local helpers ONLY after imports are updated safely.
+
+Examples from audit:
+- radio_commands.py local _fmt_secs
+- radio_commands.py local _progress_bar
+- dj_music.py legacy _fmt_secs copy
+
+Do not delete helpers still in use.
+
+==================================================
+6. CENTRALIZE LEADERBOARD FORMATTING
+==================================================
+
+Create shared leaderboard render helper:
+
+render_leaderboard(rows, title)
+
+Used by:
+- !toplisteners
+- !topliked
+- !topdisliked
+- future !toprequests
+
+Keep compact.
+Keep under 249 chars.
+Support pagination safely.
+
+==================================================
+7. CENTRALIZE HISTORY FORMATTING
+==================================================
+
+Create:
+render_history_page(entries, page, total_pages)
+
+Used by:
+- !history
+- future queue history systems
+
+Must:
+- auto-split safely
+- never exceed 249 chars
+- preserve numbering
+
+==================================================
+8. NO BEHAVIOR CHANGES
+==================================================
+
+This phase must NOT:
+- rename commands
+- change routing
+- change playback
+- change queue order
+- change request handling
+- change rewards
+- change achievements
+- change DB tables
+
+Only rendering/formatting consolidation.
+
+==================================================
+9. SAFE LOGGING
+==================================================
+
+Optional clean logs:
+
+[DJ_RENDER] using shared renderer
+[DJ_RENDER] migrated queue card renderer
+
+No spam.
+
+==================================================
+10. CHECKLIST
+==================================================
+
+Test:
+- !np unchanged visually
+- announcements unchanged visually
+- !history still paginates correctly
+- !favorites still compact
+- !playlist still compact
+- !toplisteners works
+- !topliked works
+- !topdisliked works
+- no 255-char cutoff
+- no crashes
+- all bots stable
+
+Regression:
+- no duplicate helpers left active
+- no broken imports
+- no broken progress bars
+- no broken duration display
