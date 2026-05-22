@@ -848,17 +848,6 @@ async def _on_new_track(
 
         print(f"{_LOG} Now playing REQUEST: {req_title!r} by @{req_uname}")
 
-        # ── Proactive file deletion ────────────────────────────────────────────
-        if live_fid or live_fn:
-            loop = asyncio.get_running_loop()
-            loop.run_in_executor(
-                None, _delete_request_file, db_id, live_fid, live_fn, req_title
-            )
-        print(
-            f"{_LOG} stage=request_cleanup request_id={db_id}"
-            f" filename={live_fn!r} status=playing (proactive deletion queued)"
-        )
-
         # ── Pre-switch playlists to VIBE if this is the last active request ───
         remaining = _db_count_active()
         if remaining <= 1:
@@ -1065,20 +1054,7 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                     f" request_id={job_id} username={req_uname!r} title={req_title!r}"
                 )
 
-                # Proactive file cleanup
-                job_fresh = _db_get_job(job_id)
-                if job_fresh:
-                    _fid = (job_fresh.get("azura_file_id") or np_fid).strip()
-                    _fn  = (job_fresh.get("filename") or req_fn).strip()
-                    if _fid or _fn:
-                        loop.run_in_executor(
-                            None, _delete_request_file,
-                            job_id, _fid, _fn, req_title,
-                        )
-                    print(
-                        f"{_LOG} stage=request_cleanup request_id={job_id}"
-                        f" filename={_fn!r} status=playing (deletion queued by skip task)"
-                    )
+                # Cleanup deferred to _on_request_finished / _on_request_skipped
                 if _db_count_active() <= 1:
                     print(f"{_LOG} Last active request — pre-switching to vibe from skip task")
                     await _switch_to_vibe(bot)
