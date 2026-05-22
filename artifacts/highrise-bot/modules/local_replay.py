@@ -628,9 +628,11 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
     _INDEX_RETRY_DELAY  = 2.0   # seconds between each search attempt
 
     azura_unique_id = ""
+    azura_file_id_str = ""
     try:
         from modules.azuracast_controller import (
-            rescan_requests_folder, search_media, submit_request,
+            rescan_requests_folder, search_media,
+            submit_request_verbose, lookup_requestable_id,
         )
         # Trigger rescan once, then poll
         await loop.run_in_executor(None, rescan_requests_folder)
@@ -641,17 +643,26 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
                 None, search_media, temp_filename
             )
             if media_row:
+                # Match yt_request.py extraction exactly — never fall back to
+                # the numeric 'id' field, which is NOT a valid requestable id.
                 azura_unique_id = str(
                     media_row.get("unique_id")
-                    or media_row.get("song_id")
-                    or media_row.get("id")
+                    or media_row.get("song_unique_id")
+                    or (media_row.get("song") or {}).get("id")
                     or ""
                 )
+                azura_file_id_str = str(media_row.get("id") or "")
                 print(
-                    f"{_LOG} indexed on attempt {attempt}: "
-                    f"uid={azura_unique_id!r}"
+                    f"{_LOG} indexed attempt={attempt}"
+                    f" file_id={azura_file_id_str!r}"
+                    f" unique_id={azura_unique_id!r}"
+                    f" song_id={(media_row.get('song') or {}).get('id')!r}"
                 )
-                await _w(f"Attempt {attempt}: found media id {azura_unique_id}")
+                await _w(
+                    f"Attempt {attempt}: indexed"
+                    f" file_id={azura_file_id_str}"
+                    f" uid={azura_unique_id[:20] if azura_unique_id else 'EMPTY'}"
+                )
                 break
 
             print(f"{_LOG} attempt {attempt}: not indexed yet ({temp_filename})")
@@ -686,16 +697,51 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         )
         return
 
-    request_ok = False
+    # Use same verbose path as normal !play — logs URL, station_id, uid,
+    # HTTP status, and response body so failures are fully visible.
+    req_ok = False
+    req_status = 0
+    req_body = ""
+    used_uid = azura_unique_id
     try:
-        request_ok = await loop.run_in_executor(
-            None, submit_request, azura_unique_id
+        req_ok, req_status, req_body = await loop.run_in_executor(
+            None, submit_request_verbose, azura_unique_id
         )
     except Exception as exc:
-        print(f"{_LOG} submit_request error: {exc!r}")
+        print(f"{_LOG} submit_request_verbose error: {exc!r}")
+        req_body = repr(exc)
 
-    if request_ok:
-        print(f"{_LOG} ✓ queued: {temp_filename}")
+    # ── Fallback: if direct submit failed, look up station request_id ────────
+    if not req_ok:
+        print(
+            f"{_LOG} submit failed uid={azura_unique_id!r}"
+            f" status={req_status} body={req_body!r}"
+            f" — trying lookup_requestable_id fallback"
+        )
+        await _w(
+            f"⚠️ Submit failed (HTTP {req_status}).\n"
+            f"uid={azura_unique_id[:20] if azura_unique_id else 'EMPTY'}\n"
+            f"Trying requestable-id lookup…"
+        )
+        try:
+            rid = await loop.run_in_executor(
+                None, lookup_requestable_id, temp_filename
+            )
+            if rid and rid != azura_unique_id:
+                used_uid = rid
+                print(f"{_LOG} retrying with requestable rid={rid!r}")
+                req_ok, req_status, req_body = await loop.run_in_executor(
+                    None, submit_request_verbose, rid
+                )
+            elif rid == azura_unique_id:
+                print(f"{_LOG} requestable id same as unique_id — no retry")
+            else:
+                print(f"{_LOG} lookup_requestable_id returned nothing")
+        except Exception as exc2:
+            print(f"{_LOG} fallback lookup error: {exc2!r}")
+
+    if req_ok:
+        print(f"{_LOG} ✓ queued: {temp_filename} uid={used_uid!r}")
         await _w(
             f"✅ Replay queued!\n"
             f"'{fav_title}'\n"
@@ -704,9 +750,12 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         )
     else:
         _update_status(temp_filename, "cleanup_pending")
+        err_hint = req_body[:120] if req_body else "no response body"
         await _w(
-            f"⚠️ Temp copy created but request submit failed.\n"
-            f"Use !localreplaycleanup to clear. Queue unaffected."
+            f"❌ Request submit failed (HTTP {req_status}).\n"
+            f"uid={used_uid[:24] if used_uid else 'EMPTY'}\n"
+            f"AzuraCast: {err_hint}\n"
+            f"!localreplaycleanup to clear temp."
         )
 
 

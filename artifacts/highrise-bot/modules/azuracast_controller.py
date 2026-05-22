@@ -420,22 +420,88 @@ def sftp_delete_file(filename: str) -> bool:
 
 def submit_request(unique_id: str) -> bool:
     """POST /api/station/{id}/request/{unique_id}"""
+    ok, _status, _body = submit_request_verbose(unique_id)
+    return ok
+
+
+def submit_request_verbose(unique_id: str) -> "tuple[bool, int, str]":
+    """
+    POST /api/station/{id}/request/{unique_id}
+    Returns (success, http_status_code, response_body_excerpt).
+    Logs endpoint URL, station_id, unique_id, status, and response body.
+    """
     import requests as req_lib
     cfg = azura_api_cfg()
-    if not cfg or not unique_id:
-        return False
+    if not cfg:
+        print(f"{_LOG} submit_request_verbose: no API config")
+        return False, 0, "no_api_config"
+    if not unique_id:
+        print(f"{_LOG} submit_request_verbose: empty unique_id")
+        return False, 0, "empty_unique_id"
+    url = f"{cfg['base_url']}/api/station/{cfg['station_id']}/request/{unique_id}"
+    print(
+        f"{_LOG} submit_request"
+        f" station={cfg['station_id']!r}"
+        f" uid={unique_id!r}"
+        f" url={url!r}"
+    )
     try:
-        resp = req_lib.post(
-            f"{cfg['base_url']}/api/station/{cfg['station_id']}/request/{unique_id}",
+        resp = req_lib.post(url, headers=_headers(cfg), timeout=15)
+        ok = resp.status_code in (200, 204)
+        try:
+            body = resp.json()
+            body_s = str(body)[:300]
+        except Exception:
+            body_s = resp.text[:300] if resp.text else ""
+        print(
+            f"{_LOG} submit_request"
+            f" status={resp.status_code} ok={ok}"
+            f" body={body_s!r}"
+        )
+        return ok, resp.status_code, body_s
+    except Exception as exc:
+        print(f"{_LOG} submit_request error: {exc!r}")
+        return False, 0, repr(exc)
+
+
+def lookup_requestable_id(search_phrase: str) -> "str | None":
+    """
+    GET /api/station/{id}/requests?searchPhrase=<phrase>
+    Returns the request_id (== unique_id) for the first matching requestable
+    song, or None.  Used as fallback when submit_request fails because AzuraCast
+    needs the requestable unique_id rather than the file unique_id.
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg or not search_phrase:
+        return None
+    url = f"{cfg['base_url']}/api/station/{cfg['station_id']}/requests"
+    print(f"{_LOG} lookup_requestable_id phrase={search_phrase!r} url={url!r}")
+    try:
+        resp = req_lib.get(
+            url,
+            params={"searchPhrase": search_phrase},
             headers=_headers(cfg),
             timeout=15,
         )
-        ok = resp.status_code in (200, 204)
-        print(f"{_LOG} submit_request uid={unique_id} → HTTP {resp.status_code} ok={ok}")
-        return ok
+        print(f"{_LOG} lookup_requestable_id status={resp.status_code}")
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        rows = data if isinstance(data, list) else data.get("rows", [])
+        for row in rows:
+            rid = (
+                row.get("request_id")
+                or row.get("unique_id")
+                or (row.get("song") or {}).get("id")
+                or (row.get("song") or {}).get("unique_id")
+            )
+            if rid:
+                print(f"{_LOG} lookup_requestable_id found rid={rid!r}")
+                return str(rid)
     except Exception as exc:
-        print(f"{_LOG} submit_request error: {exc}")
-    return False
+        print(f"{_LOG} lookup_requestable_id error: {exc!r}")
+    return None
 
 
 def rescan_library(folder: str = "") -> bool:
