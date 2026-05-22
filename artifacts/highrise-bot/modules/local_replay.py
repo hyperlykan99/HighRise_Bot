@@ -623,23 +623,48 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         )
         return
 
-    # ── AzuraCast: rescan → find temp → get unique_id ────────────────────────
+    # ── AzuraCast: rescan → poll until indexed (max 5 attempts × 2 s) ────────
+    _MAX_INDEX_ATTEMPTS = 5
+    _INDEX_RETRY_DELAY  = 2.0   # seconds between each search attempt
+
     azura_unique_id = ""
     try:
-        from modules.azuracast_controller import rescan_requests_folder, search_media
+        from modules.azuracast_controller import (
+            rescan_requests_folder, search_media, submit_request,
+        )
+        # Trigger rescan once, then poll
         await loop.run_in_executor(None, rescan_requests_folder)
-        await asyncio.sleep(2)    # let AzuraCast index the new file
-        media_row = await loop.run_in_executor(None, search_media, temp_filename)
-        if media_row:
-            azura_unique_id = str(
-                media_row.get("unique_id")
-                or media_row.get("song_id")
-                or media_row.get("id")
-                or ""
+        await asyncio.sleep(_INDEX_RETRY_DELAY)
+
+        for attempt in range(1, _MAX_INDEX_ATTEMPTS + 1):
+            media_row = await loop.run_in_executor(
+                None, search_media, temp_filename
             )
-            print(f"{_LOG} AzuraCast indexed temp: uid={azura_unique_id!r}")
-        else:
-            print(f"{_LOG} temp file not indexed after rescan: {temp_filename}")
+            if media_row:
+                azura_unique_id = str(
+                    media_row.get("unique_id")
+                    or media_row.get("song_id")
+                    or media_row.get("id")
+                    or ""
+                )
+                print(
+                    f"{_LOG} indexed on attempt {attempt}: "
+                    f"uid={azura_unique_id!r}"
+                )
+                await _w(f"Attempt {attempt}: found media id {azura_unique_id}")
+                break
+
+            print(f"{_LOG} attempt {attempt}: not indexed yet ({temp_filename})")
+            await _w(f"Attempt {attempt}: not indexed yet…")
+
+            if attempt < _MAX_INDEX_ATTEMPTS:
+                # Re-trigger rescan on each miss, then wait
+                try:
+                    await loop.run_in_executor(None, rescan_requests_folder)
+                except Exception:
+                    pass
+                await asyncio.sleep(_INDEX_RETRY_DELAY)
+
     except Exception as exc:
         print(f"{_LOG} rescan/search error: {exc!r}")
 
@@ -656,14 +681,13 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
     # ── Submit request ───────────────────────────────────────────────────────
     if not azura_unique_id:
         await _w(
-            f"⚠️ Temp copied but AzuraCast hasn't indexed it yet.\n"
-            f"Wait 30s then retry or use !localreplaycleanup."
+            f"⚠️ AzuraCast indexing timeout for '{fav_title}'.\n"
+            f"Use !localreplaycleanup to clear the temp file."
         )
         return
 
     request_ok = False
     try:
-        from modules.azuracast_controller import submit_request
         request_ok = await loop.run_in_executor(
             None, submit_request, azura_unique_id
         )
