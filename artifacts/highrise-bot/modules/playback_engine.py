@@ -650,7 +650,13 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         f"{_LOG} stage=request_cleanup request_id={db_id}"
         f" remaining_in_queue={remaining}"
     )
-    if remaining == 0:
+    if remaining > 0:
+        print(
+            f"[QUEUE_GUARD] skip switch_to_vibe because"
+            f" active_requests={remaining}"
+        )
+        print(f"[QUEUE_GUARD] pending request preserved")
+    else:
         with _lock:
             cur_mode = _mode
         if cur_mode != "vibe":
@@ -847,12 +853,7 @@ async def _on_new_track(
             )
 
         print(f"{_LOG} Now playing REQUEST: {req_title!r} by @{req_uname}")
-
-        # ── Pre-switch playlists to VIBE if this is the last active request ───
-        remaining = _db_count_active()
-        if remaining <= 1:
-            print(f"{_LOG} Last active request — pre-switching playlists to VIBE")
-            await _switch_to_vibe(bot)
+        # Playlist switch deferred to _on_request_finished when queue empties.
 
     elif from_requests:
         # NP is from Requests/ folder but no DB record matched.
@@ -1055,10 +1056,6 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 )
 
                 # Cleanup deferred to _on_request_finished / _on_request_skipped
-                if _db_count_active() <= 1:
-                    print(f"{_LOG} Last active request — pre-switching to vibe from skip task")
-                    await _switch_to_vibe(bot)
-
                 confirmed = True
                 break
 
@@ -1403,7 +1400,13 @@ async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
         f"{_LOG} stage=request_cleanup request_id={job_id}"
         f" remaining_in_queue={remaining} source=skip"
     )
-    if remaining == 0:
+    if remaining > 0:
+        print(
+            f"[QUEUE_GUARD] skip switch_to_vibe because"
+            f" active_requests={remaining}"
+        )
+        print(f"[QUEUE_GUARD] pending request preserved")
+    else:
         with _lock:
             cur_mode = _mode
         if cur_mode != "vibe":
