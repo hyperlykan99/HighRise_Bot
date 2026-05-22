@@ -817,35 +817,100 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         azura_file_id=azura_file_id_str,
     )
 
+    # ── Debug: upload path vs AzuraCast media path ───────────────────────────
+    _sftp_cfg_now  = _get_sftp_cfg()
+    _upload_folder = _sftp_cfg_now.get("folder", "?")
+    _upload_dest   = f"{_upload_folder.rstrip('/')}/{temp_filename}"
+    _azura_mpath   = (media_row.get("path") if media_row else None) or "NOT_INDEXED"
+    print(
+        f"{_LOG} path_debug"
+        f" upload_dest={_upload_dest!r}"
+        f" azura_media_path={_azura_mpath!r}"
+        f" file_id={azura_file_id_str!r}"
+        f" unique_id={azura_unique_id!r}"
+    )
+    await _w(
+        f"📂 upload→{_upload_folder}"
+        f"\nazura_path={_azura_mpath}"
+    )
+
     # ── Assign temp file to Requests playlist — mirrors YouTube pipeline ─────
-    # YouTube's _azura_post_upload always assigns to AZURA_PLAYLIST_ID (the
-    # Requests playlist).  We do the same here so submit_request(unique_id)
-    # finds the song as a normal requestable item in the same playlist.
+    # YouTube's _azura_post_upload resolves playlist_id in two steps:
+    #   1. AZURA_PLAYLIST_ID env var
+    #   2. GET /playlists → find by name "Requests" / "Request"
+    # We apply the same two-step resolution here.
     _pl_assigned  = False
     _target_pl_id = ""
+    _pl_source    = ""
     if azura_file_id_str:
         try:
             import modules.config_store as _cs
-            from modules.azuracast_controller import add_file_to_playlist as _add_pl
-            # Use Requests playlist — same target as YouTube upload pipeline.
+            from modules.azuracast_controller import (
+                add_file_to_playlist as _add_pl,
+                list_playlists       as _list_pl,
+                find_playlist_by_name as _find_pl,
+            )
+
+            # Step 1: env var (same as YouTube)
             _target_pl_id = _cs.requests_playlist_id()
+            if _target_pl_id:
+                _pl_source = "env_var"
+            else:
+                # Step 2: name lookup (same fallback as YouTube _azura_post_upload)
+                _all_pls = await loop.run_in_executor(None, _list_pl)
+                _pl_names = [
+                    f"{p.get('id')}:{p.get('name')}"
+                    for p in _all_pls
+                ]
+                print(
+                    f"{_LOG} requests_assign_debug"
+                    f" AZURA_PLAYLIST_ID=UNSET"
+                    f" playlists_found={len(_all_pls)}"
+                    f" names={_pl_names!r}"
+                )
+                await _w(
+                    f"AZURA_PLAYLIST_ID unset → name lookup"
+                    f"\nFound {len(_all_pls)} playlists:"
+                    f" {', '.join(_pl_names)[:180]}"
+                )
+                for _pname in ("Requests", "Request"):
+                    _pl_row = await loop.run_in_executor(None, _find_pl, _pname)
+                    if _pl_row:
+                        _target_pl_id = str(_pl_row.get("id") or "")
+                        _pl_source    = f"name_lookup:{_pname}"
+                        print(
+                            f"{_LOG} requests_assign_debug"
+                            f" name_lookup={_pname!r}"
+                            f" found_id={_target_pl_id!r}"
+                        )
+                        break
+
             print(
                 f"{_LOG} requests_assign"
-                f" playlist={_target_pl_id!r}"
+                f" playlist_id={_target_pl_id!r}"
+                f" source={_pl_source!r}"
                 f" file_id={azura_file_id_str!r}"
             )
             if _target_pl_id:
                 _pl_assigned = await loop.run_in_executor(
                     None, _add_pl, azura_file_id_str, _target_pl_id
                 )
-                print(f"{_LOG} requests_assign result={_pl_assigned}")
+                print(
+                    f"{_LOG} requests_assign result={_pl_assigned}"
+                    f" playlist_id={_target_pl_id!r}"
+                    f" source={_pl_source!r}"
+                )
             else:
-                print(f"{_LOG} requests_assign: AZURA_PLAYLIST_ID not configured")
+                print(
+                    f"{_LOG} requests_assign: no playlist resolved"
+                    f" (env_var=unset, name_lookup=no_match)"
+                )
         except Exception as _vex:
             print(f"{_LOG} requests_assign error: {_vex!r}")
         await _w(
-            f"Requests playlist={_target_pl_id[:28] if _target_pl_id else 'NONE'}"
-            f" requestable={'true' if _pl_assigned else 'false'}"
+            f"playlist_id={_target_pl_id or 'NONE'}"
+            f" src={_pl_source or 'none'}"
+            f" assigned={'true' if _pl_assigned else 'false'}"
         )
         if not _pl_assigned:
             await _w(
@@ -866,7 +931,8 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         _update_status(temp_filename, "cleanup_pending")
         await _w(
             f"❌ Cannot stage: '{fav_title[:40]}' not in"
-            f" Requests playlist {_target_pl_id or '?'}."
+            f" Requests playlist {_target_pl_id or 'NONE'}"
+            f" (src={_pl_source or 'none'})."
             f" !localreplaycleanup to clear."
         )
         return
