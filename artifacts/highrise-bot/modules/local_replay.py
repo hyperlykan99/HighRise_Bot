@@ -760,7 +760,6 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
     try:
         from modules.azuracast_controller import (
             rescan_requests_folder, search_media,
-            submit_request_verbose, lookup_requestable_id,
         )
         # Trigger rescan once, then poll
         await loop.run_in_executor(None, rescan_requests_folder)
@@ -861,10 +860,10 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         if not _pl_assigned:
             await _w(
                 "❌ Vibe playlist assign failed (both methods)."
-                " Blocking submit — track not requestable."
+                " Staging blocked — track not requestable."
             )
 
-    # ── Submit request ───────────────────────────────────────────────────────
+    # ── Gate: must have AzuraCast unique_id ─────────────────────────────────
     if not azura_unique_id:
         await _w(
             f"⚠️ AzuraCast indexing timeout for '{fav_title}'.\n"
@@ -872,102 +871,50 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         )
         return
 
-    # Gate on playlist assignment — AzuraCast rejects requests for files
-    # that are not in an enabled playlist.
+    # Gate: file must be in a playlist so AzuraCast can request it.
     if azura_file_id_str and not _pl_assigned:
         _update_status(temp_filename, "cleanup_pending")
         await _w(
-            f"❌ Cannot submit: '{fav_title}' is not in"
-            f" playlist {_target_pl_id or '?'}.\n"
-            f"vibe={_active_vibe or '?'}\n"
-            f"!localreplaycleanup to clear temp."
+            f"❌ Cannot stage: '{fav_title[:40]}' not in"
+            f" playlist {_target_pl_id or '?'}."
+            f" vibe={_active_vibe or '?'}"
+            f" !localreplaycleanup to clear."
         )
         return
 
-    # Use same verbose path as normal !play — logs URL, station_id, uid,
-    # HTTP status, and response body so failures are fully visible.
-    req_ok = False
-    req_status = 0
-    req_body = ""
-    used_uid = azura_unique_id
-    try:
-        req_ok, req_status, req_body = await loop.run_in_executor(
-            None, submit_request_verbose, azura_unique_id
-        )
-    except Exception as exc:
-        print(f"{_LOG} submit_request_verbose error: {exc!r}")
-        req_body = repr(exc)
-
-    # ── Fallback: if direct submit failed, look up station request_id ────────
-    if not req_ok:
+    # ── Stage: insert yt_request_jobs so playback_engine submits + cleans up ─
+    # Do NOT call submit_request here — playback_engine owns submission.
+    # Flow: ready → playback_engine submits → playing → finished → cleanup.
+    _yt_job_id = _register_as_yt_request_job(
+        user_id=user.id,
+        username=user.username,
+        title=fav_title,
+        temp_filename=temp_filename,
+        azura_file_id=azura_file_id_str,
+        azura_song_id=azura_unique_id,
+    )
+    if _yt_job_id:
+        _link_yt_job(temp_filename, _yt_job_id)
         print(
-            f"{_LOG} submit failed uid={azura_unique_id!r}"
-            f" status={req_status} body={req_body!r}"
-            f" — trying lookup_requestable_id fallback"
+            f"{_LOG} staged yt_request_job_id={_yt_job_id}"
+            f" uid={azura_unique_id!r}"
+            f" — playback_engine will submit"
         )
         await _w(
-            f"⚠️ Submit failed (HTTP {req_status}).\n"
-            f"uid={azura_unique_id[:20] if azura_unique_id else 'EMPTY'}\n"
-            f"Trying requestable-id lookup…"
-        )
-        try:
-            rid = await loop.run_in_executor(
-                None, lookup_requestable_id, temp_filename
-            )
-            if rid and rid != azura_unique_id:
-                used_uid = rid
-                print(f"{_LOG} retrying with requestable rid={rid!r}")
-                req_ok, req_status, req_body = await loop.run_in_executor(
-                    None, submit_request_verbose, rid
-                )
-            elif rid == azura_unique_id:
-                print(f"{_LOG} requestable id same as unique_id — no retry")
-            else:
-                print(f"{_LOG} lookup_requestable_id returned nothing")
-        except Exception as exc2:
-            print(f"{_LOG} fallback lookup error: {exc2!r}")
-
-    if req_ok:
-        print(f"{_LOG} ✓ queued: {temp_filename} uid={used_uid!r}")
-        # Register with yt_request_jobs — playback_engine will auto-delete
-        # the temp file via the normal ready→playing→played→cleaned lifecycle.
-        _yt_job_id = _register_as_yt_request_job(
-            user_id=user.id,
-            username=user.username,
-            title=fav_title,
-            temp_filename=temp_filename,
-            azura_file_id=azura_file_id_str,
-            azura_song_id=used_uid,
-        )
-        if _yt_job_id:
-            _link_yt_job(temp_filename, _yt_job_id)
-            print(
-                f"{_LOG} yt_request_job_id={_yt_job_id}"
-                f" linked → temp cleanup is automatic"
-            )
-        else:
-            print(
-                f"{_LOG} warn: yt_request_jobs insert returned 0"
-                f" — auto-cleanup unavailable; use !localreplaycleanup"
-            )
-            await _w(
-                "⚠️ Queued OK but cleanup tracking failed"
-                " (yt_request_jobs insert error — check bot console)."
-                " Use !localreplaycleanup if temp file lingers."
-            )
-        await _w(
-            f"✅ Replay queued!\n"
+            f"✅ Local replay staged!\n"
             f"'{fav_title}'\n"
             f"Temp: {temp_filename[:28]}\n"
             f"Cleanup: auto after play."
         )
     else:
         _update_status(temp_filename, "cleanup_pending")
-        err_hint = req_body[:120] if req_body else "no response body"
+        print(
+            f"{_LOG} yt_request_jobs insert returned 0"
+            f" — staging failed; use !localreplaycleanup"
+        )
         await _w(
-            f"❌ Request submit failed (HTTP {req_status}).\n"
-            f"uid={used_uid[:24] if used_uid else 'EMPTY'}\n"
-            f"AzuraCast: {err_hint}\n"
+            f"❌ Staging failed: could not create request job"
+            f" (check bot console).\n"
             f"!localreplaycleanup to clear temp."
         )
 
