@@ -1372,7 +1372,7 @@ ALL_KNOWN_COMMANDS = (
         "lasthand", "handlog", "pokerguide",
         "pokerlogs", "pokeraudit", "pokerhandlog",
         "pokertest", "pokereconomy", "pokerverify",
-        "botstatus", "dbstats", "backup",
+        "botstatus", "botregistry", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
         "restarthelp", "restartstatus", "softrestart", "restartbot",
         "casinosettings", "casinolimits", "casinotoggles",
@@ -7247,6 +7247,9 @@ class HangoutBot(BaseBot):
         elif cmd == "botstatus":
             await handle_botstatus_simple(self, user, args)
 
+        elif cmd == "botregistry":
+            await handle_botregistry(self, user, args)
+
         elif cmd == "dbstats":
             await handle_dbstats(self, user)
 
@@ -8423,6 +8426,8 @@ class HangoutBot(BaseBot):
             await handle_deploymentcheck(self, user, args)
         elif cmd == "dblockcheck":
             await handle_dblockcheck(self, user, args)
+        elif cmd == "botregistry":
+            await handle_botregistry(self, user, args)
         elif cmd == "botlocks":
             await handle_botlocks(self, user)
         elif cmd == "clearstalebotlocks":

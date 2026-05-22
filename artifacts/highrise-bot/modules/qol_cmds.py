@@ -797,6 +797,8 @@ async def handle_botregistry(bot, user, args: list[str] | None = None) -> None:
         await _w(bot, user.id, "Owner/admin only.")
         return
 
+    print(f"[BOT_SUPERVISOR] botregistry requested by {user.username}")
+
     try:
         from modules.bot_supervisor import load_registry as _lreg
         reg = _lreg()
