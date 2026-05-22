@@ -36,6 +36,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -428,12 +429,16 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
     delay            = _BACKOFF[0]
     _log_ring: collections.deque[str] = collections.deque(maxlen=50)
     _flags: dict = {"multilogin": False}   # mutable state shared with streamer
+    # Wall-clock time this runner task started — set once, never reset.
+    # Used by !botstatus to display true process uptime across reconnects.
+    _proc_start_wall: float = time.time()
 
     health_task = asyncio.create_task(_health_loop(spec.label))
     try:
         while True:
             proc: asyncio.subprocess.Process | None = None
             started_at = asyncio.get_event_loop().time()
+            _conn_start_wall: float = time.time()   # reset each subprocess spawn
             _ts = _utc_ts()
             print(f"[BOT_START] connected {spec.label} id={spec.bot_id} @ {_ts}")
             try:
@@ -568,6 +573,8 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                         uptime=uptime,
                         reconnect_count=_reconnect_count,
                         last_disconnect_reason=_last_reason,
+                        process_started_at=_proc_start_wall,
+                        connected_since=_conn_start_wall,
                     )
                     _sup.persist_health_to_db()
                 except Exception:

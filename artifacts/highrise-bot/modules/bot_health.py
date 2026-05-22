@@ -475,30 +475,42 @@ async def handle_botlocks(bot, user) -> None:
     if not locks:
         await _w(bot, user.id, "🔓 No active module locks.")
         return
+
     now = datetime.now(timezone.utc)
-    parts: list[str] = []
+    lines: list[str] = [f"🔒 Module Locks ({len(locks)})"]
     stale_count = 0
+
+    def _age_fmt(secs: int) -> str:
+        if secs < 60:
+            return f"{secs}s"
+        m, s = divmod(secs, 60)
+        return f"{m}m{s:02d}s"
+
     for lock in locks:
-        mod = lock.get("module", "?")
-        bid = lock.get("bot_id", "?")
-        exp = lock.get("expires_at", "")
+        mod  = lock.get("module", "?")
+        bid  = lock.get("bot_id", "?")
+        owner = lock.get("owner", bid)   # owner field if present, else bot_id
+        exp  = lock.get("expires_at", "")
         try:
             ex = datetime.fromisoformat(exp.replace("Z", "+00:00"))
             if ex.tzinfo is None:
                 ex = ex.replace(tzinfo=timezone.utc)
-            age = int((now - ex).total_seconds())
-            if age > 0:
-                parts.append(f"{mod} STALE {age}s by {bid}")
+            diff = int((now - ex).total_seconds())
+            if diff > 0:
+                # Lock has expired — stale
+                lines.append(f"⚠️ stale {mod} by {owner} {_age_fmt(diff)}")
                 stale_count += 1
             else:
-                ttl = -age
-                parts.append(f"{mod} LIVE {ttl}s by {bid}")
+                # Still live — show time-to-live
+                lines.append(f"🔒 {mod} by {owner} {_age_fmt(-diff)} left")
         except Exception:
-            parts.append(f"{mod} ? by {bid}")
-    await _w(bot, user.id, ("Locks: " + " | ".join(parts))[:249])
+            lines.append(f"❓ {mod} by {owner} (unknown expiry)")
+
+    msg = "\n".join(lines)
+    await _w(bot, user.id, msg[:249])
     if stale_count:
         await _w(bot, user.id,
-                 f"⚠️ {stale_count} stale lock(s). Use !clearstalebotlocks to remove.")
+                 f"⚠️ {stale_count} stale lock(s). Use !clearstalebotlocks.")
 
 
 # ---------------------------------------------------------------------------

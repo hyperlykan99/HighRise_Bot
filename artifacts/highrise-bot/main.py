@@ -263,6 +263,7 @@ from modules.qol_cmds import (
     handle_feedback, handle_feedbacks,
     handle_todo, handle_aetest, handle_ownercheck,
     handle_botstatus as handle_botstatus_simple,
+    handle_botregistry,
 )
 from modules.beta import (
     handle_betamode, handle_betacheck, handle_betadash,

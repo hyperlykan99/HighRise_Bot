@@ -639,12 +639,12 @@ async def handle_ownercheck(bot, user) -> None:
 # ---------------------------------------------------------------------------
 
 async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
-    """/botstatus — compact multi-bot status with uptime, reconnects, reason."""
+    """/botstatus — compact multi-bot status: 🟢 mode up=Xh rc=N"""
     import json as _j, time as _time
 
     _HIDDEN_MODES = {"main", "all", ""}
 
-    # ── Gather data ────────────────────────────────────────────────────────────
+    # ── Gather raw data ────────────────────────────────────────────────────────
     try:
         instances  = db.get_all_bot_instances_status()
         maint_rows = db.get_all_maintenance_states()
@@ -656,7 +656,7 @@ async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
     global_maint = any(r["enabled"] for r in maint_rows
                        if r.get("scope") == "global")
 
-    # Deduplicate bot_instances by mode (newest heartbeat wins).
+    # Deduplicate bot_instances by mode — newest heartbeat row wins.
     inst_by_mode: dict[str, dict] = {}
     for inst in instances:
         mode = (inst.get("bot_mode") or "").lower().strip()
@@ -666,7 +666,7 @@ async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
         if prev is None or (inst.get("last_seen_at") or "") > (prev.get("last_seen_at") or ""):
             inst_by_mode[mode] = inst
 
-    # Reconnect stats from bot.py runner (keyed by mode).
+    # Reconnect stats (rc count + last reason) written by bot.py runner.
     rc_stats: dict[str, dict] = {}
     for _m in inst_by_mode:
         try:
@@ -676,74 +676,79 @@ async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
         except Exception:
             pass
 
-    # Supervisor health (startup_time → accurate uptime; last disconnect reason).
+    # Supervisor health — provides process_started_at (true uptime) and reason.
     sup_health: dict[str, dict] = {}
     try:
         from modules.bot_supervisor import load_health_from_db as _lhdb
-        _raw_sup = _lhdb()
-        for _k, _v in _raw_sup.items():
-            _bm = (_v.get("bot_mode") or _k).lower()
-            sup_health[_bm] = _v
+        for _k, _v in _lhdb().items():
+            sup_health[(_v.get("bot_mode") or _k).lower()] = _v
     except Exception:
         pass
 
-    # Registry display names.
+    # Registry — for disabled bots + display names.
     _reg: dict = {}
     try:
-        from modules.bot_supervisor import load_registry as _lreg, get_display_name as _gdn
+        from modules.bot_supervisor import load_registry as _lreg
         _reg = _lreg()
     except Exception:
         pass
 
-    def _display(mode: str) -> str:
-        if _reg:
-            try:
-                return _gdn(mode, _reg)
-            except Exception:
-                pass
-        return mode.title()
+    # ── Helpers ────────────────────────────────────────────────────────────────
+    def _hm(secs: float) -> str:
+        m, _ = divmod(int(secs), 60)
+        h, m = divmod(m, 60)
+        return f"{h}h{m}m" if h else f"{m}m"
 
-    def _uptime_str(mode: str) -> str:
-        """Best-effort uptime string: supervisor startup_time > heartbeat age."""
-        # Try supervisor startup_time first (most accurate).
+    def _proc_uptime(mode: str) -> str:
+        """True process uptime from supervisor process_started_at."""
         sh = sup_health.get(mode, {})
-        st = sh.get("startup_time")
-        if st:
-            secs = int(_time.time() - float(st))
-            m, s = divmod(secs, 60)
-            h, m = divmod(m, 60)
-            return f"{h}h{m}m" if h else f"{m}m"
-        # Fallback: age since last heartbeat.
-        inst = inst_by_mode.get(mode, {})
-        ls_str = inst.get("last_seen_at", "")
+        pst = sh.get("process_started_at")
+        if pst:
+            return _hm(_time.time() - float(pst))
+        # Fallback: age since last heartbeat timestamp.
+        ls_str = (inst_by_mode.get(mode) or {}).get("last_seen_at", "")
         if ls_str:
             try:
                 ls = datetime.fromisoformat(ls_str)
                 if ls.tzinfo is None:
                     ls = ls.replace(tzinfo=timezone.utc)
-                age_s = int((datetime.now(timezone.utc) - ls).total_seconds())
-                m2, _ = divmod(age_s, 60)
-                h2, m2 = divmod(m2, 60)
-                return f"{h2}h{m2}m" if h2 else f"{m2}m"
+                return _hm((datetime.now(timezone.utc) - ls).total_seconds())
             except Exception:
                 pass
         return "?"
 
-    # ── Format compact lines (🟢/🔴 Name uptime | rc=N [reason]) ──────────────
-    bot_lines: list[str] = []
     now_utc = datetime.now(timezone.utc)
 
-    for mode in sorted(inst_by_mode):
-        inst   = inst_by_mode[mode]
-        status = inst.get("status", "offline")
+    # ── Build bot lines ────────────────────────────────────────────────────────
+    bot_lines: list[str] = []
+
+    # Modes seen in bot_instances (started bots).
+    all_modes = set(inst_by_mode)
+
+    # Add registry-disabled bots that were never started.
+    for _rk in _reg:
+        if not _rk.startswith("_") and not _reg[_rk].get("enabled", True):
+            if _rk not in all_modes:
+                all_modes.add(_rk)
+
+    for mode in sorted(all_modes):
+        inst     = inst_by_mode.get(mode)
         in_maint = maint_map.get(mode, False)
-        name   = _display(mode)
+        rc       = rc_stats.get(mode, {})
+        rc_n     = int(rc.get("rc", 0))
+        sh       = sup_health.get(mode, {})
+
+        # Registry disabled and never connected.
+        if inst is None:
+            bot_lines.append(f"⚫ {mode} disabled")
+            continue
+
+        status = inst.get("status", "offline")
 
         if in_maint:
-            icon = "🔧"
-            detail = "MAINT"
+            icon   = "🔧"
+            detail = "maint"
         elif status == "online":
-            # Staleness check: heartbeat older than 90 s = stale.
             try:
                 ls = datetime.fromisoformat(inst.get("last_seen_at", ""))
                 if ls.tzinfo is None:
@@ -753,38 +758,79 @@ async def handle_botstatus(bot, user, args: list[str] | None = None) -> None:
                 stale = False
             if stale:
                 icon   = "🟡"
-                detail = "STALE"
+                detail = "reconnecting"
             else:
                 icon   = "🟢"
-                detail = _uptime_str(mode)
+                detail = f"up={_proc_uptime(mode)}"
         else:
             icon   = "🔴"
-            # Show last disconnect reason from supervisor or rc_stats.
-            sh = sup_health.get(mode, {})
             reason = (sh.get("last_disconnect_reason")
-                      or rc_stats.get(mode, {}).get("reason", ""))
-            detail = reason[:18] if reason else "OFFLINE"
+                      or rc.get("reason", "")).lower()
+            detail = f"reason={reason[:15]}" if reason else "offline"
 
-        rc = rc_stats.get(mode, {})
-        rc_n = rc.get("rc", 0)
         rc_sfx = f" rc={rc_n}" if rc_n else ""
+        bot_lines.append(f"{icon} {mode} {detail}{rc_sfx}")
 
-        bot_lines.append(f"{icon} {name} {detail}{rc_sfx}")
-
-    # ── Send: split into at most 2 whispers to stay ≤249 chars each ───────────
+    # ── Send (split at ~125 chars if long) ────────────────────────────────────
     header = "🤖 Bot Status"
-    body   = "\n".join(bot_lines) if bot_lines else "(no bots registered)"
     footer = f"Maint: {'ON 🛡️' if global_maint else 'OFF'}"
 
-    msg1 = f"{header}\n{body}"
-    if len(msg1) > 245:
-        # Split at midpoint by line count.
-        half = max(1, len(bot_lines) // 2)
-        msg1 = f"{header}\n" + "\n".join(bot_lines[:half])
-        msg2 = "\n".join(bot_lines[half:]) + f"\n{footer}"
-        await _w(bot, user.id, msg1[:249])
-        await _w(bot, user.id, msg2[:249])
+    if not bot_lines:
+        await _w(bot, user.id, f"{header}\n(no bots)\n{footer}")
         return
 
-    full = f"{msg1}\n{footer}"
-    await _w(bot, user.id, full[:249])
+    full = f"{header}\n" + "\n".join(bot_lines) + f"\n{footer}"
+    if len(full) <= 249:
+        await _w(bot, user.id, full)
+        return
+
+    # Split: page 1 = header + first half, page 2 = second half + footer.
+    half = max(1, len(bot_lines) // 2)
+    await _w(bot, user.id, (f"{header}\n" + "\n".join(bot_lines[:half]))[:249])
+    await _w(bot, user.id, ("\n".join(bot_lines[half:]) + f"\n{footer}")[:249])
+
+
+async def handle_botregistry(bot, user, args: list[str] | None = None) -> None:
+    """/botregistry — show config/bot_registry.json in compact format."""
+    from modules.economy import can_manage_economy
+    if not can_manage_economy(user.username):
+        await _w(bot, user.id, "Owner/admin only.")
+        return
+
+    try:
+        from modules.bot_supervisor import load_registry as _lreg
+        reg = _lreg()
+    except Exception as exc:
+        await _w(bot, user.id, f"Registry load error: {str(exc)[:80]}")
+        return
+
+    if not reg:
+        await _w(bot, user.id, "📋 No registry found (config/bot_registry.json missing).")
+        return
+
+    # Sort by priority then name.
+    entries = sorted(
+        ((k, v) for k, v in reg.items() if not k.startswith("_") and isinstance(v, dict)),
+        key=lambda kv: (int(kv[1].get("priority", 99)), kv[0]),
+    )
+
+    active = sum(1 for _, v in entries if v.get("enabled", True))
+    lines  = [f"📋 Bot Registry ({active}/{len(entries)} active)"]
+
+    for mode, cfg in entries:
+        enabled     = cfg.get("enabled", True)
+        priority    = cfg.get("priority", 99)
+        reconnect   = cfg.get("auto_reconnect", True)
+        tick  = "✓" if enabled  else "✗"
+        rtick = "✓" if reconnect else "✗"
+        lines.append(f"{mode} {tick} p{priority} reconnect{rtick}")
+
+    # Send in up to 2 whispers.
+    full = "\n".join(lines)
+    if len(full) <= 249:
+        await _w(bot, user.id, full)
+        return
+
+    half = max(1, len(lines) // 2)
+    await _w(bot, user.id, "\n".join(lines[:half])[:249])
+    await _w(bot, user.id, "\n".join(lines[half:])[:249])

@@ -130,11 +130,28 @@ def update_health(
     reconnect_count: int = 0,
     last_disconnect_reason: str = "",
     room: str = "",
-    startup_time: Optional[float] = None,
+    process_started_at: Optional[float] = None,
+    connected_since: Optional[float] = None,
 ) -> None:
-    """Update the in-memory health snapshot for one bot."""
+    """
+    Update the in-memory health snapshot for one bot.
+
+    process_started_at — wall-clock time the _run_bot_forever task began.
+                         Set once and never overwritten (persists across reconnects).
+    connected_since    — wall-clock time the current subprocess was spawned.
+                         Updated every reconnect cycle.
+    """
     now = time.time()
     snap = _health.setdefault(bot_username.lower(), {})
+
+    # process_started_at is only set the first time — it measures true process age.
+    if process_started_at is not None:
+        snap.setdefault("process_started_at", process_started_at)
+
+    # connected_since is updated every cycle (current connection age).
+    if connected_since is not None:
+        snap["connected_since"] = connected_since
+
     snap.update({
         "bot_username":           bot_username,
         "bot_mode":               bot_mode,
@@ -144,8 +161,6 @@ def update_health(
         "uptime":                 uptime,
         "reconnect_count":        reconnect_count,
         "last_disconnect_reason": last_disconnect_reason,
-        "startup_time":           startup_time if startup_time is not None
-                                  else snap.get("startup_time", now),
     })
 
 
