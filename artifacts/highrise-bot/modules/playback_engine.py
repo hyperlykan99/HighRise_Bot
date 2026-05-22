@@ -68,12 +68,10 @@ _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
 _COLS = (
     "id", "user_id", "username", "title", "filename",
     "azura_file_id", "azura_song_id", "coins_charged", "status", "video_id",
-    "source_type",
 )
 _SEL = (
     "id, user_id, username, title, filename, "
-    "azura_file_id, azura_song_id, coins_charged, status, video_id, "
-    "COALESCE(source_type,'youtube') AS source_type"
+    "azura_file_id, azura_song_id, coins_charged, status, video_id"
 )
 
 
@@ -375,14 +373,8 @@ def _db_match_request(
         except Exception:
             pass
 
-    # Strategy 5: title substring match — ONLY when path is empty or from Requests/.
-    # Guard: never match a vibe/AutoDJ song to a pending request by title alone.
-    # Without this, a local_copy job for "Song X" would be falsely triggered the
-    # moment AzuraCast plays the AutoDJ version of "Song X" before the copy plays.
-    if np_title and (
-        not media_path
-        or media_path.lstrip("/").lower().startswith("requests/")
-    ):
+    # Strategy 5: title substring match (last fallback — only without reliable path)
+    if np_title:
         norm = np_title.lower().strip()
         try:
             with db.db_conn() as conn:
@@ -639,16 +631,11 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
     )
 
     if job:
-        fid      = (job.get("azura_file_id") or "").strip()
-        fn       = (job.get("filename")      or "").strip()
-        src_type = (job.get("source_type")   or "youtube").strip()
-        if src_type == "local_copy":
-            print(
-                f"[LOCAL_REPLAY] cleanup after played job_id={db_id}"
-                f" filename={fn!r} file_id={fid!r}"
-            )
-        # Idempotent: for local_copy this is the primary cleanup path;
-        # for YouTube this is a re-attempt (proactive may have already run).
+        fid  = (job.get("azura_file_id") or "").strip()
+        fn   = (job.get("filename")      or "").strip()
+        # Re-attempt deletion — idempotent: if _on_new_track already deleted
+        # the file, the API returns 404 and sftp returns file-not-found.
+        # Both are treated as success so cleaned_at is set.
         if fid or fn:
             loop = asyncio.get_running_loop()
             loop.run_in_executor(
@@ -794,26 +781,15 @@ async def _on_new_track(
 
         print(f"{_LOG} Now playing REQUEST: {req_title!r} by @{req_uname}")
 
-        # ── File cleanup ───────────────────────────────────────────────────────
-        # local_copy: skip proactive deletion — the copied file must stay on
-        # disk until playback finishes; _on_request_finished handles cleanup.
-        # YouTube: proactive deletion is safe (file already buffered by AzuraCast).
-        src_type = (match.get("source_type") or "youtube").strip()
-        if src_type == "local_copy":
-            print(
-                f"[LOCAL_REPLAY] nowplaying matched job_id={db_id}"
-                f" title={req_title!r} username={req_uname!r}"
-                f" — deferring file cleanup to on_request_finished"
-            )
-        elif live_fid or live_fn:
+        # ── Proactive file deletion ────────────────────────────────────────────
+        if live_fid or live_fn:
             loop = asyncio.get_running_loop()
             loop.run_in_executor(
                 None, _delete_request_file, db_id, live_fid, live_fn, req_title
             )
         print(
             f"{_LOG} stage=request_cleanup request_id={db_id}"
-            f" source_type={src_type!r} filename={live_fn!r} status=playing"
-            f" ({'deferred' if src_type == 'local_copy' else 'proactive deletion queued'})"
+            f" filename={live_fn!r} status=playing (proactive deletion queued)"
         )
 
         # ── Pre-switch playlists to VIBE if this is the last active request ───
@@ -967,9 +943,7 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 match_method = "filename"
             elif req_vid and np_path and req_vid in np_path:
                 match_method = "video_id"
-            elif _title_matches(req_title, np_title) and np_lpath.startswith("requests/"):
-                # title_fuzzy only valid inside Requests/ — prevents the AutoDJ
-                # version of a song from stealing a pending local_copy job's match
+            elif _title_matches(req_title, np_title):
                 match_method = "title_fuzzy"
 
             print(
@@ -1099,13 +1073,7 @@ async def _poll_loop(bot: "BaseBot") -> None:
             if all_ready and not skip_task_busy:
                 next_job = _db_find_oldest_ready()
                 if next_job and next_job["id"] not in _submitted_jids:
-                    uid      = (next_job.get("azura_song_id") or "").strip()
-                    src_type = (next_job.get("source_type")   or "youtube").strip()
-                    if src_type == "local_copy":
-                        print(
-                            f"[LOCAL_REPLAY] status ready job_id={next_job['id']}"
-                            f" title={next_job.get('title','?')!r} uid={uid!r}"
-                        )
+                    uid = (next_job.get("azura_song_id") or "").strip()
                     if uid:
                         _submitted_jids.add(next_job["id"])
                         print(

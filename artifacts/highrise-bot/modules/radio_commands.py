@@ -38,7 +38,6 @@ from typing import TYPE_CHECKING
 import database as db
 import modules.azuracast_controller as azura
 import modules.config_store         as cs
-# local_replay is lazy-imported only when LOCAL_REPLAY_ENABLED=true (see call sites)
 import modules.dj_announcer         as ann
 import modules.music_credits        as mc
 import modules.payment_service      as ps
@@ -140,34 +139,16 @@ def _fav_get(user_id: str, limit: int = 10) -> list:
     try:
         with db.db_conn() as conn:
             rows = conn.execute(
-                "SELECT id, title, youtube_url, COALESCE(artist,''), "
-                "COALESCE(source_type,'youtube'), COALESCE(azura_song_id,''), "
-                "COALESCE(azura_file_id,'') "
-                "FROM dj_favorites "
+                "SELECT id, title, youtube_url, COALESCE(artist,'') FROM dj_favorites "
                 "WHERE user_id=? ORDER BY favorited_at DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
-            return [
-                {
-                    "id": r[0], "title": r[1], "url": r[2], "artist": r[3],
-                    "source_type": r[4], "azura_song_id": r[5], "azura_file_id": r[6],
-                }
-                for r in rows
-            ]
+            return [{"id": r[0], "title": r[1], "url": r[2], "artist": r[3]} for r in rows]
     except Exception:
         return []
 
 
-def _fav_add(
-    user_id: str,
-    username: str,
-    title: str,
-    url: str,
-    artist: str = "",
-    source_type: str = "youtube",
-    azura_song_id: str = "",
-    azura_file_id: str = "",
-) -> bool:
+def _fav_add(user_id: str, username: str, title: str, url: str, artist: str = "") -> bool:
     """Insert into dj_favorites. Returns False if already there."""
     try:
         with db.db_conn() as conn:
@@ -177,28 +158,13 @@ def _fav_add(
             ).fetchone():
                 return False
             conn.execute(
-                "INSERT INTO dj_favorites "
-                "(user_id, username, title, youtube_url, artist, "
-                " source_type, azura_song_id, azura_file_id) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (user_id, username.lower(), title, url, artist,
-                 source_type, azura_song_id, azura_file_id),
+                "INSERT INTO dj_favorites (user_id, username, title, youtube_url, artist) "
+                "VALUES (?,?,?,?,?)",
+                (user_id, username.lower(), title, url, artist),
             )
             return True
     except Exception:
         return False
-
-
-def _fav_update_azura_id(fav_id: int, azura_song_id: str) -> None:
-    """Backfill azura_song_id on an existing favorite (discovered via search replay)."""
-    try:
-        with db.db_conn() as conn:
-            conn.execute(
-                "UPDATE dj_favorites SET azura_song_id=? WHERE id=?",
-                (azura_song_id, fav_id),
-            )
-    except Exception:
-        pass
 
 
 def _fav_remove_by_pos(user_id: str, pos: int) -> "str | None":
@@ -1992,17 +1958,13 @@ async def handle_favorite(bot: "BaseBot", user: "User", _args: list) -> None:
     """!favorite / !fav / !addtoplaylist — save current AzuraCast track to favorites."""
     _rlog("favorite", "handle_favorite", user.username)
     loop  = asyncio.get_running_loop()
-    track = await loop.run_in_executor(None, _current_track_full)
+    track = await loop.run_in_executor(None, _azura_track)
     if not track:
         await _w(bot, user.id, "🎵 Nothing playing right now. Try !np to check the stream.")
         return
-    added = _fav_add(
-        user.id, user.username,
-        track["title"], track.get("youtube_url", ""), track.get("artist", ""),
-        source_type=track.get("source_type", "youtube"),
-        azura_song_id=track.get("azura_song_id", ""),
-        azura_file_id=track.get("azura_file_id", ""),
-    )
+    cp  = rq.currently_playing()
+    url = (cp.get("url") or "") if cp else ""
+    added = _fav_add(user.id, user.username, track["title"], url, track.get("artist", ""))
     if added:
         await _w(bot, user.id, f"⭐ Saved to favorites: {track['title'][:55]}")
         rr.record_reward(user.id, user.username, "favorite", song_key=track["key"])
@@ -2157,38 +2119,8 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
             bot, user, url,
             metadata={"title": fav["title"], "artist": fav.get("artist", "")},
         )
-        return
-    # Local/AzuraCast song — guarded by LOCAL_REPLAY_ENABLED feature flag
-    if not cs.local_replay_enabled():
-        await _w(bot, user.id, "⚠️ Local replay is temporarily disabled.")
-        return
-    import modules.local_replay as _local_copy  # lazy: only when flag is on
-    try:
-        ok, err = await _local_copy.queue_local_copy(
-            user_id=user.id,
-            username=user.username,
-            title=fav.get("title", ""),
-            artist=fav.get("artist", ""),
-            azura_file_id=(fav.get("azura_file_id") or "").strip(),
-            azura_song_id=(fav.get("azura_song_id") or "").strip(),
-        )
-    except Exception as _exc:
-        print(f"{_LOG} playfav local_copy_error: {_exc!r}")
-        await _w(bot, user.id, "⚠️ Local replay temporarily unavailable.")
-        return
-    if ok:
-        await _w(bot, user.id, f"▶️ Queued favorite:\n{lb}"[:249])
-    elif err in ("not_configured", "disabled"):
-        await _w(bot, user.id, "⚠️ Local replay not available on this bot.")
-    elif err == "multi":
-        await _w(bot, user.id,
-                 f"⚠️ Multiple local matches for: {t[:40]}\nSave from !np to fix.")
-    elif err == "sftp_fail":
-        await _w(bot, user.id, "⚠️ Radio server unavailable. Try again shortly.")
-    elif err == "register_fail":
-        await _w(bot, user.id, "⚠️ Song queued but took too long to register. Retry.")
     else:
-        await _w(bot, user.id, f"⚠️ Local song not found: {t}")
+        await _w(bot, user.id, f"⚠️ Local replay not supported yet: {t}")
 
 
 # ─── !playmine ────────────────────────────────────────────────────────────────
@@ -2702,44 +2634,31 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                     metadata={"title": s["title"], "artist": s.get("artist", "")},
                 )
             else:
-                if not cs.local_replay_enabled():
-                    await _w(bot, uid, "⚠️ Local replay is temporarily disabled.")
-                    return
-                import modules.local_replay as _local_copy  # lazy: only when flag is on
-                try:
-                    ok, err = await _local_copy.queue_local_copy(
-                        user_id=user.id,
-                        username=user.username,
-                        title=s.get("title", ""),
-                        artist=s.get("artist", ""),
-                        azura_file_id=(s.get("azura_file_id") or "").strip(),
-                        azura_song_id=(s.get("azura_song_id") or "").strip(),
-                    )
-                except Exception as _exc:
-                    print(f"{_LOG} playlist_play local_copy_error: {_exc!r}")
-                    await _w(bot, uid, "⚠️ Local replay temporarily unavailable.")
-                    return
-                if ok:
-                    await _w(bot, uid, f"▶️ Queued from {pl['name'][:18]}:\n{lb}"[:249])
-                elif err in ("not_configured", "disabled", "sftp_fail"):
-                    await _w(bot, uid, "⚠️ Radio server unavailable. Try again.")
-                elif err == "multi":
-                    await _w(bot, uid, f"⚠️ Multiple local matches for: {t[:40]}")
-                else:
-                    await _w(bot, uid, f"⚠️ Local song not found: {t}")
+                await _w(bot, uid,
+                         f"⚠️ Local replay not supported yet: {t}")
             return
 
         # ── Play all songs in playlist ────────────────────────────────────────
-        songs = _pl_songs(pl["id"])
+        songs      = _pl_songs(pl["id"])
         if not songs:
             await _w(bot, uid, f"📂 {pl['name'][:22]} is empty.")
             return
-        total       = len(songs)
-        yt_songs    = [s for s in songs if s.get("youtube_url")]
-        local_songs = [s for s in songs if not s.get("youtube_url")]
-        await _w(bot, uid, f"📂 Queueing from {pl['name'][:20]}…")
-        queued  = 0
-        skipped = 0
+        yt_songs   = [s for s in songs if s.get("youtube_url")]
+        local_sngs = [s for s in songs if not s.get("youtube_url")]
+        skipped    = len(local_sngs)
+        if not yt_songs:
+            await _w(bot, uid,
+                     f"⚠️ {pl['name'][:20]} has no YouTube songs.\n"
+                     "Add via !playlist add <name> <URL>.")
+            for s in local_sngs[:3]:
+                t = (s.get("title") or "?")[:44]
+                await _w(bot, uid, f"⚠️ Local not supported yet: {t}")
+            return
+        skip_note = f"\n⚠️ Skipping {skipped} local song(s)." if skipped else ""
+        await _w(bot, uid,
+                 (f"📂 Queueing {len(yt_songs)}/{len(songs)} from "
+                  f"{pl['name'][:16]}…" + skip_note)[:249])
+        queued = 0
         for s in yt_songs:
             try:
                 await _submit_url(
@@ -2751,31 +2670,9 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             except Exception as _exc:
                 print(f"{_LOG} playlist_play song_error: {_exc!r}")
                 break
-        for s in local_songs:
-            if not cs.local_replay_enabled():
-                skipped += 1
-                continue
-            import modules.local_replay as _local_copy  # lazy: only when flag is on
-            try:
-                ok, _err = await _local_copy.queue_local_copy(
-                    user_id=user.id,
-                    username=user.username,
-                    title=s.get("title", ""),
-                    artist=s.get("artist", ""),
-                    azura_file_id=(s.get("azura_file_id") or "").strip(),
-                    azura_song_id=(s.get("azura_song_id") or "").strip(),
-                )
-                if ok:
-                    queued += 1
-                    await asyncio.sleep(1.0)
-                else:
-                    skipped += 1
-            except Exception as _exc:
-                print(f"{_LOG} playlist_play local_error: {_exc!r}")
-                skipped += 1
-        parts = [f"✅ Queued {queued}/{total} from {pl['name'][:20]}."]
+        parts = [f"✅ Queued {queued}/{len(yt_songs)} from {pl['name'][:20]}."]
         if skipped:
-            parts.append(f"⚠️ Skipped {skipped} unsupported local song(s).")
+            parts.append(f"⚠️ Skipped {skipped} local songs not supported yet.")
         await _w(bot, uid, "\n".join(parts)[:249])
         if queued > 0:
             rr.record_reward(uid, uname, "playlist_play")

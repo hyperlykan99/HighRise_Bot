@@ -459,83 +459,92 @@ from modules.dj_music import (
 # paramiko, and AzuraCast clients into every bot process. ──────────────────
 _IS_DJ_BOT = config.BOT_MODE in ("dj", "all")
 if _IS_DJ_BOT:
-    from modules.yt_request import (
-        handle_ytrequest, handle_ytqueue, handle_ytstatus,
-        handle_ytnow, handle_ytcooldown, handle_setytcooldown,
-        handle_ytpick,
-        has_pending_yt_search,
-        handle_clearrequests,
-        handle_requesthistory,
-        handle_requestcleanup,
-        handle_playedrequests,
-        startup_yt_cleanup_task,
-        handle_setrequestcost,
-        handle_setprioritycost,
-        handle_bantrack,
-        handle_unbantrack,
-        handle_banrequester,
-        handle_unbanrequester,
-        handle_queueadmin,
-        on_request_user_left,
-    )
-    from modules.radio_commands import (
-        handle_request         as rc_request,
-        handle_pick            as rc_pick,
-        handle_queue           as rc_queue,
-        handle_skip            as rc_skip,
-        handle_remove          as rc_remove,
-        handle_clearqueue      as rc_clearqueue,
-        handle_history         as rc_history,
-        handle_voteskip        as rc_voteskip,
-        handle_nowplaying      as rc_nowplaying,
-        handle_vibes           as rc_vibes,
-        handle_vibe            as rc_vibe,
-        handle_vibescan        as rc_vibescan,
-        handle_setrequestprice as rc_setrequestprice,
-        handle_radiohelp       as rc_radiohelp,
-        handle_like            as rc_like,
-        handle_dislike         as rc_dislike,
-        handle_favorite        as rc_favorite,
-        handle_unfavorite      as rc_unfavorite,
-        handle_favorites       as rc_favorites,
-        handle_removefavorite  as rc_removefavorite,
-        handle_myrequests      as rc_myrequests,
-        handle_cancel          as rc_cancel,
-        handle_priority        as rc_priority,
-        handle_save            as rc_save,
-        handle_mysongs         as rc_mysongs,
-        handle_playfav         as rc_playfav,
-        handle_playlist        as rc_playlist,
-        handle_ratings         as rc_ratings,
-        handle_removefav       as rc_removefav,
-        handle_playmine        as rc_playmine,
-        handle_likes           as rc_likes,
-        handle_voters          as rc_voters,
-        handle_likeslist       as rc_likeslist,
-        handle_dislikeslist    as rc_dislikeslist,
-        handle_topsongs        as rc_topsongs,
-        handle_toprequesters   as rc_toprequesters,
-        handle_playedby        as rc_playedby,
-        handle_myplayed        as rc_myplayed,
-        handle_queuelimit      as rc_queuelimit,
-        handle_setqueuelimit   as rc_setqueuelimit,
-        handle_radiotutorial   as rc_radiotutorial,
-        handle_musicshop       as rc_musicshop,
-        handle_buyrequests     as rc_buyrequests,
-        handle_buyplays        as rc_buyplays,
-        startup_radio,
-    )
-    from modules.radio_rewards import (
-        handle_radiostats      as rr_radiostats,
-        handle_toplisteners    as rr_toplisteners,
-        handle_toprequests     as rr_toprequests,
-        handle_topliked        as rr_topliked,
-        handle_topdisliked     as rr_topdisliked,
-    )
-    from modules.radio_achievements import (
-        handle_radioachievements as ra_achievements,
-    )
-else:
+    try:
+        from modules.yt_request import (
+            handle_ytrequest, handle_ytqueue, handle_ytstatus,
+            handle_ytnow, handle_ytcooldown, handle_setytcooldown,
+            handle_ytpick,
+            has_pending_yt_search,
+            handle_clearrequests,
+            handle_requesthistory,
+            handle_requestcleanup,
+            handle_playedrequests,
+            startup_yt_cleanup_task,
+            handle_setrequestcost,
+            handle_setprioritycost,
+            handle_bantrack,
+            handle_unbantrack,
+            handle_banrequester,
+            handle_unbanrequester,
+            handle_queueadmin,
+            on_request_user_left,
+        )
+        from modules.radio_commands import (
+            handle_request         as rc_request,
+            handle_pick            as rc_pick,
+            handle_queue           as rc_queue,
+            handle_skip            as rc_skip,
+            handle_remove          as rc_remove,
+            handle_clearqueue      as rc_clearqueue,
+            handle_history         as rc_history,
+            handle_voteskip        as rc_voteskip,
+            handle_nowplaying      as rc_nowplaying,
+            handle_vibes           as rc_vibes,
+            handle_vibe            as rc_vibe,
+            handle_vibescan        as rc_vibescan,
+            handle_setrequestprice as rc_setrequestprice,
+            handle_radiohelp       as rc_radiohelp,
+            handle_like            as rc_like,
+            handle_dislike         as rc_dislike,
+            handle_favorite        as rc_favorite,
+            handle_unfavorite      as rc_unfavorite,
+            handle_favorites       as rc_favorites,
+            handle_removefavorite  as rc_removefavorite,
+            handle_myrequests      as rc_myrequests,
+            handle_cancel          as rc_cancel,
+            handle_priority        as rc_priority,
+            handle_save            as rc_save,
+            handle_mysongs         as rc_mysongs,
+            handle_playfav         as rc_playfav,
+            handle_playlist        as rc_playlist,
+            handle_ratings         as rc_ratings,
+            handle_removefav       as rc_removefav,
+            handle_playmine        as rc_playmine,
+            handle_likes           as rc_likes,
+            handle_voters          as rc_voters,
+            handle_likeslist       as rc_likeslist,
+            handle_dislikeslist    as rc_dislikeslist,
+            handle_topsongs        as rc_topsongs,
+            handle_toprequesters   as rc_toprequesters,
+            handle_playedby        as rc_playedby,
+            handle_myplayed        as rc_myplayed,
+            handle_queuelimit      as rc_queuelimit,
+            handle_setqueuelimit   as rc_setqueuelimit,
+            handle_radiotutorial   as rc_radiotutorial,
+            handle_musicshop       as rc_musicshop,
+            handle_buyrequests     as rc_buyrequests,
+            handle_buyplays        as rc_buyplays,
+            startup_radio,
+        )
+        from modules.radio_rewards import (
+            handle_radiostats      as rr_radiostats,
+            handle_toplisteners    as rr_toplisteners,
+            handle_toprequests     as rr_toprequests,
+            handle_topliked        as rr_topliked,
+            handle_topdisliked     as rr_topdisliked,
+        )
+        from modules.radio_achievements import (
+            handle_radioachievements as ra_achievements,
+        )
+    except Exception as _radio_import_err:
+        import traceback as _tb_radio
+        print(
+            f"[DJ_RADIO] WARNING: radio module import failed — {_radio_import_err!r}\n"
+            "[DJ_RADIO] Bot will stay online; radio commands unavailable until fixed."
+        )
+        _tb_radio.print_exc()
+        _IS_DJ_BOT = False  # fall through to stubs so NameErrors never occur
+if not _IS_DJ_BOT:
     # Non-DJ bots: lightweight no-ops so the routing dispatch never NameErrors.
     # Command ownership (should_this_bot_handle) already prevents these from
     # being called — these stubs are purely defensive.
