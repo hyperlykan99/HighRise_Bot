@@ -586,6 +586,18 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
     print(f"{_LOG} stage=request_live_clear request_id={db_id}")
 
     job = _db_get_job(db_id)
+    job_status = (job.get("status") if job else None) or ""
+
+    # Safety net: never mark a request as played unless it was actually confirmed
+    # playing. If status is still 'ready', it was queued but AzuraCast never
+    # played it this cycle — leave it in the queue for the next poll.
+    if job_status != "playing":
+        print(
+            f"[QUEUE_GUARD] _on_request_finished: job={db_id} status={job_status!r}"
+            f" — not playing, refusing to mark as played. Queue preserved."
+        )
+        return
+
     _db_set_status(db_id, "played")
 
     fn_s  = (job.get("filename")      if job else None) or "?"
@@ -960,11 +972,11 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 match_method = "song_id"
             elif unique_id and np_uid and np_uid == unique_id:
                 match_method = "unique_id"
-            elif np_lpath.startswith("requests/"):
-                if req_fn and np_fn and req_fn.lower() == np_fn:
-                    match_method = "requests_path_filename"
-                else:
-                    match_method = "requests_path"
+            elif np_lpath.startswith("requests/") and req_fn and np_fn and req_fn.lower() == np_fn:
+                # Only match when the exact filename in Requests/ matches ours.
+                # The old loose fallback ("requests_path") fired for ANY Requests/
+                # song and incorrectly confirmed the local replay as playing.
+                match_method = "requests_path_filename"
             elif req_fn and np_fn and req_fn.lower() == np_fn:
                 match_method = "filename"
             elif req_vid and np_path and req_vid in np_path:
@@ -1181,7 +1193,21 @@ async def _poll_loop(bot: "BaseBot") -> None:
                 )
 
             if prev_req_id:
-                await _on_request_finished(bot, prev_req_id)
+                # Only fire cleanup if the job was actually confirmed playing.
+                # If status is still 'ready' (never confirmed), the request
+                # was never played — preserve it and reset _cur_req_id only.
+                _prev_job    = _db_get_job(prev_req_id)
+                _prev_status = (_prev_job.get("status") if _prev_job else None) or ""
+                if _prev_status == "playing":
+                    await _on_request_finished(bot, prev_req_id)
+                else:
+                    print(
+                        f"[QUEUE_GUARD] song changed but prev_req={prev_req_id}"
+                        f" status={_prev_status!r} (not playing) — preserving,"
+                        f" clearing _cur_req_id only"
+                    )
+                    with _lock:
+                        _cur_req_id = 0
 
             await _on_new_track(bot, song, media)
 
