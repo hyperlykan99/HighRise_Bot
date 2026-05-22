@@ -61,15 +61,22 @@ def queue_local_copy_sync(
     title_s  = (title  or "?")[:40]
     artist_s = (artist or "")[:20]
 
+    print(f"{_LLOG} favorite replay requested title={title_s!r} artist={artist_s!r}")
+
     # ── 1. Locate the original file record ────────────────────────────────────
     rec: "dict | None" = None
+
+    print(f"{_LLOG} checking metadata file_id={azura_file_id!r} song_id={azura_song_id!r}")
 
     if azura_file_id:
         rec = azura.get_media_file(azura_file_id)
         if rec:
             print(f"{_LLOG} found original media via file_id={azura_file_id!r}")
+        else:
+            print(f"{_LLOG} file_id lookup returned nothing id={azura_file_id!r}")
 
     if not rec and azura_song_id and title:
+        print(f"{_LLOG} searching AzuraCast by song_id title={title_s!r}")
         candidates = azura.search_media_by_phrase(title)
         for r in candidates:
             uid = ((r.get("song") or {}).get("unique_id") or "").strip()
@@ -78,12 +85,18 @@ def queue_local_copy_sync(
                 azura_file_id = str(rec.get("id") or "")
                 print(f"{_LLOG} found original media via song_id={azura_song_id!r}")
                 break
+        if not rec:
+            print(f"{_LLOG} song_id scan found {len(candidates)} candidate(s), no uid match")
 
     if not rec:
         phrase  = f"{title} {artist}".strip() if artist else title.strip()
+        print(f"{_LLOG} searching AzuraCast phrase={phrase!r}")
         results = azura.search_media_by_phrase(phrase) if phrase else []
         if not results and artist and title:
+            print(f"{_LLOG} searching AzuraCast title-only={title.strip()!r}")
             results = azura.search_media_by_phrase(title.strip())
+
+        print(f"{_LLOG} search returned {len(results)} result(s)")
 
         if len(results) == 1:
             rec = results[0]
@@ -105,7 +118,7 @@ def queue_local_copy_sync(
                 print(f"{_LLOG} multiple matches for {phrase!r} — no exact match")
                 return False, "multi"
         else:
-            print(f"{_LLOG} no match for title={title_s!r} artist={artist_s!r}")
+            print(f"{_LLOG} unsupported after all fallbacks failed title={title_s!r}")
             return False, "not_found"
 
     # ── 2. Extract SFTP source path ───────────────────────────────────────────
@@ -113,6 +126,8 @@ def queue_local_copy_sync(
     if not file_path:
         print(f"{_LLOG} media record has no path for title={title_s!r}")
         return False, "not_found"
+
+    print(f"{_LLOG} match found id={azura_file_id!r} path={file_path!r}")
 
     cfg        = sftp_cfg()
     req_folder = cfg.get("folder", "").rstrip("/")
@@ -167,6 +182,7 @@ def queue_local_copy_sync(
     # ── 8. Insert yt_request_jobs row (status='ready') ────────────────────────
     # Cleanup in playback_engine uses this row's azura_file_id (the copy's ID),
     # so only the copy is ever deleted — original library file is untouched.
+    print(f"{_LLOG} queueing copied request dest={dest_filename!r} file_id={new_file_id!r}")
     try:
         with db.db_conn() as conn:
             cur = conn.execute(
