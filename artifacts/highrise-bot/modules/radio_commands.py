@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 import database as db
 import modules.azuracast_controller as azura
 import modules.config_store         as cs
+import modules.local_replay         as _local_copy
 import modules.dj_announcer         as ann
 import modules.music_credits        as mc
 import modules.payment_service      as ps
@@ -2157,26 +2158,26 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
             metadata={"title": fav["title"], "artist": fav.get("artist", "")},
         )
         return
-    # Local/AzuraCast song — try to queue via the station request API
-    asid = (fav.get("azura_song_id") or "").strip()
-    afid = (fav.get("azura_file_id") or "").strip()
-    loop = asyncio.get_running_loop()
-    ok, found_uid, multi = await loop.run_in_executor(
-        None,
-        lambda: azura.queue_local_media(
-            azura_song_id=asid, azura_file_id=afid,
-            title=fav.get("title", ""), artist=fav.get("artist", ""),
-        ),
+    # Local/AzuraCast song — SFTP-copy to Requests folder and queue normally
+    ok, err = await _local_copy.queue_local_copy(
+        user_id=user.id,
+        username=user.username,
+        title=fav.get("title", ""),
+        artist=fav.get("artist", ""),
+        azura_file_id=(fav.get("azura_file_id") or "").strip(),
+        azura_song_id=(fav.get("azura_song_id") or "").strip(),
     )
     if ok:
-        if found_uid and not asid:
-            _fav_update_azura_id(fav["id"], found_uid)
         await _w(bot, user.id, f"▶️ Queued favorite:\n{lb}"[:249])
-    elif multi:
+    elif err == "multi":
         await _w(bot, user.id,
-                 f"⚠️ Multiple local matches for: {t[:40]}\nSave it again from !np.")
+                 f"⚠️ Multiple local matches for: {t[:40]}\nSave from !np to fix.")
+    elif err == "sftp_fail":
+        await _w(bot, user.id, "⚠️ Radio server unavailable. Try again shortly.")
+    elif err == "register_fail":
+        await _w(bot, user.id, "⚠️ Song queued but took too long to register. Retry.")
     else:
-        await _w(bot, user.id, f"⚠️ Local replay not supported yet: {t}")
+        await _w(bot, user.id, f"⚠️ Local song not found: {t}")
 
 
 # ─── !playmine ────────────────────────────────────────────────────────────────
@@ -2690,21 +2691,22 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                     metadata={"title": s["title"], "artist": s.get("artist", "")},
                 )
             else:
-                asid = (s.get("azura_song_id") or "").strip()
-                afid = (s.get("azura_file_id") or "").strip()
-                ok, _, multi = await asyncio.get_running_loop().run_in_executor(
-                    None,
-                    lambda: azura.queue_local_media(
-                        azura_song_id=asid, azura_file_id=afid,
-                        title=s.get("title", ""), artist=s.get("artist", ""),
-                    ),
+                ok, err = await _local_copy.queue_local_copy(
+                    user_id=user.id,
+                    username=user.username,
+                    title=s.get("title", ""),
+                    artist=s.get("artist", ""),
+                    azura_file_id=(s.get("azura_file_id") or "").strip(),
+                    azura_song_id=(s.get("azura_song_id") or "").strip(),
                 )
                 if ok:
                     await _w(bot, uid, f"▶️ Queued from {pl['name'][:18]}:\n{lb}"[:249])
-                elif multi:
+                elif err == "multi":
                     await _w(bot, uid, f"⚠️ Multiple local matches for: {t[:40]}")
+                elif err == "sftp_fail":
+                    await _w(bot, uid, "⚠️ Radio server unavailable. Try again.")
                 else:
-                    await _w(bot, uid, f"⚠️ Local replay not supported yet: {t}")
+                    await _w(bot, uid, f"⚠️ Local song not found: {t}")
             return
 
         # ── Play all songs in playlist ────────────────────────────────────────
@@ -2731,14 +2733,13 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                 break
         for s in local_songs:
             try:
-                ok, _, _ = await asyncio.get_running_loop().run_in_executor(
-                    None,
-                    lambda _s=s: azura.queue_local_media(
-                        azura_song_id=((_s.get("azura_song_id") or "").strip()),
-                        azura_file_id=((_s.get("azura_file_id") or "").strip()),
-                        title=_s.get("title", ""),
-                        artist=_s.get("artist", ""),
-                    ),
+                ok, _err = await _local_copy.queue_local_copy(
+                    user_id=user.id,
+                    username=user.username,
+                    title=s.get("title", ""),
+                    artist=s.get("artist", ""),
+                    azura_file_id=(s.get("azura_file_id") or "").strip(),
+                    azura_song_id=(s.get("azura_song_id") or "").strip(),
                 )
                 if ok:
                     queued += 1

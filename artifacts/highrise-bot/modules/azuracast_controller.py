@@ -416,6 +416,60 @@ def sftp_delete_file(filename: str) -> bool:
             pass
 
 
+def sftp_copy_to_requests(src_abs_path: str, dest_filename: str) -> bool:
+    """
+    Read a file from src_abs_path on the SFTP server and write a copy into
+    the Requests folder as dest_filename.  The source file is never modified.
+
+    Used for local/AzuraCast library replays: the original AutoDJ file stays
+    in place; only the copy lands in /Requests for the normal request pipeline.
+
+    Returns True on success, False on any error.
+    """
+    import paramiko
+    cfg = sftp_cfg()
+    if not cfg["host"] or not cfg["user"]:
+        print("[LOCAL_REPLAY] sftp_copy_to_requests: SFTP not configured — skipping")
+        return False
+
+    dest_path = f"{cfg['folder'].rstrip('/')}/{dest_filename}"
+    ssh  = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    sftp = None
+    try:
+        ssh.connect(
+            hostname=cfg["host"], port=cfg["port"],
+            username=cfg["user"], password=cfg["passwd"],
+            timeout=30, look_for_keys=False, allow_agent=False,
+        )
+        sftp = ssh.open_sftp()
+        with sftp.file(src_abs_path, "rb") as src_f:
+            data = src_f.read()
+        with sftp.file(dest_path, "wb") as dst_f:
+            dst_f.write(data)
+        print(f"[LOCAL_REPLAY] sftp_copy_to_requests ✓ {src_abs_path!r} → {dest_path!r}")
+        return True
+    except IOError as exc:
+        if getattr(exc, "errno", None) == 2 or "No such file" in str(exc):
+            print(f"[LOCAL_REPLAY] sftp_copy_to_requests: source not found — {src_abs_path!r}")
+        else:
+            print(f"[LOCAL_REPLAY] sftp_copy_to_requests IOError: {exc}")
+        return False
+    except Exception as exc:
+        print(f"[LOCAL_REPLAY] sftp_copy_to_requests error: {exc}")
+        return False
+    finally:
+        if sftp:
+            try:
+                sftp.close()
+            except Exception:
+                pass
+        try:
+            ssh.close()
+        except Exception:
+            pass
+
+
 # ─── Request queue submission ─────────────────────────────────────────────────
 
 def submit_request(unique_id: str) -> bool:

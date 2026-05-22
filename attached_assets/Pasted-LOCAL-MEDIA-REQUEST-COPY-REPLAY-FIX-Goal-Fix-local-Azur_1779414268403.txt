@@ -1,0 +1,160 @@
+LOCAL MEDIA REQUEST COPY REPLAY FIX
+
+Goal:
+Fix local/AzuraCast favorites and playlist songs so they replay by copying the original local media into the normal Requests flow.
+
+Current issue:
+!playfav <#> still says:
+⚠️ Local replay not supported yet: <title>
+
+Expected:
+Local favorites/playlists should work like requests:
+original local media → copy to Requests folder → queue normally → play when turn comes → cleanup copied request file only.
+
+Do not rewrite radio backend.
+Do not touch emote system.
+Do not change renderer layout.
+Do not break !play, !favorites, !playlist, Auto DJ, or YouTube requests.
+
+==================================================
+1. CORE RULE
+==================================================
+
+Never move or delete the original AutoDJ/local media file.
+
+Only COPY the original local file into the request/temporary area.
+
+After playback:
+- cleanup/delete/move only the temporary copied request file
+- original AutoDJ/vibe library file must remain untouched
+
+==================================================
+2. LOCAL FAVORITE REPLAY FLOW
+==================================================
+
+For:
+!playfav <#>
+
+If favorite is YouTube:
+- keep existing YouTube request pipeline.
+
+If favorite is local/AzuraCast:
+1. find original media by:
+   - azura_media_id
+   - azura_song_id
+   - azura_unique_id
+   - azura_path / filename
+   - fallback title + artist search
+2. copy original file into Requests folder
+3. create a normal queue/request job for the copied file
+4. mark source_type/local_copy if needed
+5. play it when its turn comes
+6. cleanup copied file after playback
+
+Success:
+▶️ Queued favorite:
+<#>. <title> — <artist>
+
+==================================================
+3. LOCAL PLAYLIST REPLAY FLOW
+==================================================
+
+For:
+!playlist play <name> <#>
+!playlist play <name>
+
+Use the same copy-to-request flow.
+
+Whole playlist:
+- queue supported YouTube songs normally
+- queue supported local songs by copying to Requests
+- skip only songs that cannot be found
+
+Success:
+✅ Queued <n>/<total> songs from <playlist>.
+⚠️ Skipped <m> songs not found.
+
+==================================================
+4. BACKFILL OLD FAVORITES / PLAYLISTS
+==================================================
+
+Old saved local songs may only have title/artist.
+
+If media IDs are missing:
+- search AzuraCast media library using normalized title + artist
+- punctuation-insensitive
+- case-insensitive
+- partial filename match
+
+If one strong match:
+- save media_id/path/unique_id back into favorite/playlist row
+- then copy to Requests and queue
+
+If multiple weak matches:
+⚠️ Multiple local matches found. Re-save from !np.
+
+If no match:
+⚠️ Local song not found: <title>
+
+==================================================
+5. REQUEST QUEUE INTEGRATION
+==================================================
+
+The copied local media should enter the same queue system as normal requests.
+
+It should appear as:
+DJ DUDU: NOW PLAYING
+
+Not Auto DJ.
+
+Queue/history/request stats should treat it as a live request/replay.
+
+Do not download anything.
+Do not use yt-dlp.
+Do not re-upload original if copying inside AzuraCast is possible.
+
+==================================================
+6. CLEANUP
+==================================================
+
+After copied local request finishes:
+- cleanup copied request file using existing request cleanup logic
+- do not delete original media library file
+- do not remove original from vibe playlists
+- do not break Auto DJ
+
+Add safety check:
+Only cleanup files marked temporary/local_copy/request_copy.
+
+==================================================
+7. LOGGING
+==================================================
+
+Add logs:
+
+[LOCAL_REPLAY] found original media
+[LOCAL_REPLAY] copied to request folder
+[LOCAL_REPLAY] queued local copy
+[LOCAL_REPLAY] cleaned temp copy
+
+If skipped:
+[LOCAL_REPLAY] no match
+[LOCAL_REPLAY] multiple matches
+
+No user-facing file paths.
+
+==================================================
+8. CHECKLIST
+==================================================
+
+Test:
+- !playfav 1 queues a local favorite
+- local favorite plays as NOW PLAYING
+- original AutoDJ file remains in library
+- copied request file is cleaned after playback
+- !playlist play RnB 1 queues local song
+- !playlist play RnB queues local + YouTube songs
+- YouTube favorites still work
+- Auto DJ still works
+- no local file paths exposed
+- only DJ_DUDU replies

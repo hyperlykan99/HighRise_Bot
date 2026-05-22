@@ -3411,6 +3411,14 @@ def _migrate_db():
     except Exception:
         pass  # column already exists
 
+    # 3.3F — yt_request_jobs: source_type (youtube | local_copy)
+    try:
+        conn.execute(
+            "ALTER TABLE yt_request_jobs ADD COLUMN source_type TEXT NOT NULL DEFAULT 'youtube'"
+        )
+    except Exception:
+        pass  # column already exists
+
     # Music request credit system — per-player credit wallet
     try:
         conn.execute("""
