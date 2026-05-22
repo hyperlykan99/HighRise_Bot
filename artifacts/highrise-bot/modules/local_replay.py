@@ -178,7 +178,7 @@ def _register_as_yt_request_job(
                 """INSERT INTO yt_request_jobs
                        (user_id, username, url, title, status, started_at,
                         filename, azura_file_id, azura_song_id, source_type)
-                   VALUES (?, ?, '', ?, 'ready', datetime('now'), ?, ?, 'local_replay')""",
+                   VALUES (?, ?, '', ?, 'ready', datetime('now'), ?, ?, ?, 'local_replay')""",
                 (user_id, username, title, temp_filename, azura_file_id, azura_song_id),
             )
             return cur.lastrowid or 0
@@ -949,6 +949,11 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
             print(
                 f"{_LOG} warn: yt_request_jobs insert returned 0"
                 f" — auto-cleanup unavailable; use !localreplaycleanup"
+            )
+            await _w(
+                "⚠️ Queued OK but cleanup tracking failed"
+                " (yt_request_jobs insert error — check bot console)."
+                " Use !localreplaycleanup if temp file lingers."
             )
         await _w(
             f"✅ Replay queued!\n"
