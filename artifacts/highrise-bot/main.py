@@ -8942,8 +8942,42 @@ def run():
     """Connect the bot to Highrise and start the event loop."""
     import signal as _signal
 
+    # ── Single-session protection ─────────────────────────────────────────────
+    # Acquire a per-account lock file so a second subprocess for the same
+    # Highrise account exits immediately rather than fighting for the session.
+    _bot_username = (os.environ.get("BOT_USERNAME") or "").strip()
+    _bot_mode     = (os.environ.get("BOT_MODE") or "all").strip()
+    _guard_active = False
+    if _bot_username:
+        try:
+            from modules import bot_guard as _bg
+            if not _bg.acquire(_bot_username, _bot_mode):
+                # Another live process already holds this account — exit cleanly.
+                # bot.py runner will wait its normal delay before retrying.
+                import sys as _sys
+                _sys.exit(0)
+            import atexit as _atexit
+            _atexit.register(_bg.release, _bot_username)
+            _guard_active = True
+        except Exception as _bg_err:
+            print(f"[BOT_GUARD] lock error (non-fatal): {_bg_err!r}")
+    else:
+        print("[BOT_GUARD] BOT_USERNAME not set — session lock skipped")
+
     async def _main():
         loop = asyncio.get_running_loop()
+
+        # Heartbeat task keeps the lock file fresh while the bot runs.
+        if _guard_active and _bot_username:
+            try:
+                from modules import bot_guard as _bg2
+                asyncio.create_task(
+                    _bg2.heartbeat_loop(_bot_username),
+                    name="bot_guard_heartbeat",
+                )
+            except Exception as _hb_err:
+                print(f"[BOT_GUARD] heartbeat task error (non-fatal): {_hb_err!r}")
+
         task = asyncio.create_task(
             highrise_main([BotDefinition(
                 bot=HangoutBot(),

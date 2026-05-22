@@ -352,11 +352,16 @@ async def _health_loop(label: str) -> None:
 async def _stream_and_buffer(
     stream: asyncio.StreamReader,
     ring: "collections.deque[str]",
+    flags: "dict | None" = None,
 ) -> None:
     """
     Read subprocess stdout/stderr line-by-line, echo each line immediately
     to the parent process stdout, and store in a fixed-size ring buffer so
     the last N lines can be reprinted before a restart.
+
+    If `flags` dict is supplied, sets flags["multilogin"] = True when the
+    Highrise SDK emits "Multilogin closing connection" so the runner can
+    apply an extended backoff instead of the normal fast-exit schedule.
     """
     while True:
         line = await stream.readline()
@@ -365,6 +370,8 @@ async def _stream_and_buffer(
         decoded = line.decode("utf-8", errors="replace").rstrip("\n")
         print(decoded, flush=True)
         ring.append(decoded)
+        if flags is not None and "Multilogin closing connection" in decoded:
+            flags["multilogin"] = True
 
 
 def _utc_ts() -> str:
@@ -400,6 +407,8 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
         await asyncio.sleep(startup_delay)
 
     print(f"[BOT_START] starting {spec.label} mode={spec.bot_mode}")
+    print(f"[BOT_GUARD] launching {spec.label}"
+          f" username={spec.bot_username!r} mode={spec.bot_mode!r}")
 
     env = dict(os.environ)
     env["BOT_TOKEN"]       = spec.token
@@ -418,6 +427,7 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
     _last_reason     = "none"
     delay            = _BACKOFF[0]
     _log_ring: collections.deque[str] = collections.deque(maxlen=50)
+    _flags: dict = {"multilogin": False}   # mutable state shared with streamer
 
     health_task = asyncio.create_task(_health_loop(spec.label))
     try:
@@ -435,13 +445,37 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     stderr=asyncio.subprocess.STDOUT,
                 )
                 # Echo output in real-time AND buffer last 50 lines for pre-restart summary
+                _flags["multilogin"] = False   # reset for this run
                 _reader = asyncio.create_task(
-                    _stream_and_buffer(proc.stdout, _log_ring),  # type: ignore[arg-type]
+                    _stream_and_buffer(proc.stdout, _log_ring, _flags),  # type: ignore[arg-type]
                     name=f"log_reader_{spec.bot_id}",
                 )
                 code = await proc.wait()
                 await _reader   # drain remaining buffered output
                 uptime = asyncio.get_event_loop().time() - started_at
+
+                # ── Multilogin fast-path ─────────────────────────────────────
+                # If the Highrise server kicked this bot for a duplicate session,
+                # applying the normal fast-exit backoff would just hammer the
+                # server.  Wait 120 s instead and skip the fast-exit counter so
+                # the bot doesn't get BOT_DISABLED after repeated conflicts.
+                if _flags.get("multilogin"):
+                    _ml_delay = 120
+                    _ts_ml = _utc_ts()
+                    print(
+                        f"[BOT_GUARD] ⚠️  Multilogin detected for {spec.label}"
+                        f" ({spec.bot_username!r}) — "
+                        "Same Highrise account is already logged in elsewhere. "
+                        f"Waiting {_ml_delay}s before retry. @ {_ts_ml}"
+                    )
+                    _last_reason = "multilogin"
+                    _write_rc_stats(spec.bot_mode, _reconnect_count,
+                                    "multilogin", _ts_ml)
+                    print(f"[WATCHDOG] {spec.label} mode={spec.bot_mode}"
+                          f" reconnect_attempt={_reconnect_count}"
+                          f" delay={_ml_delay}s (multilogin)")
+                    await asyncio.sleep(_ml_delay)
+                    continue   # back to top — don't touch fast-exit counters
                 _ts2 = _utc_ts()
                 _last_reason = (
                     "clean exit"       if code == 0   else

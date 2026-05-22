@@ -1,0 +1,140 @@
+BOT INFRASTRUCTURE HARDENING — SINGLE SESSION + HEALTH MONITOR
+
+Goal:
+Prevent duplicate bot launches, multilogin conflicts, and reconnect storms.
+
+Do not touch radio features.
+Do not touch emote behavior.
+Do not change game logic.
+
+==================================================
+1. SINGLE-SESSION PROTECTION
+==================================================
+
+Add a startup lock system for each bot account.
+
+Requirements:
+- One lock per BOT_NAME or BOT_MODE.
+- If a bot is already running, the second launch exits safely.
+- Do not let two Host Bot / ChillTopiaMC sessions fight each other.
+- Lock should clean up on graceful shutdown.
+- If lock is stale, allow recovery after timeout.
+
+Suggested:
+runtime_locks/
+  ChillTopiaMC.lock
+  DJ_DUDU.lock
+  PokerBot.lock
+
+Lock file should include:
+- bot_name
+- bot_mode
+- pid
+- started_at
+- heartbeat_at
+
+==================================================
+2. DUPLICATE LAUNCH DETECTION
+==================================================
+
+On startup, print:
+
+[BOT_GUARD] starting BOT_NAME=<name> BOT_MODE=<mode>
+[BOT_GUARD] lock acquired
+or
+[BOT_GUARD] duplicate session detected, exiting safely
+
+Do not reconnect-loop if duplicate is detected.
+
+==================================================
+3. MULTILOGIN HANDLING
+==================================================
+
+If Highrise disconnect reason contains:
+Multilogin closing connection
+
+Do not spam reconnect forever.
+
+Behavior:
+- log clear warning
+- wait longer before reconnect
+- max retry backoff
+- tell console:
+  Same Highrise account is already logged in elsewhere.
+
+==================================================
+4. BOT HEALTH MONITOR
+==================================================
+
+Add command:
+
+!botstatus
+
+Owner/admin only.
+
+Shows:
+- bot name
+- bot mode
+- online status
+- uptime
+- reconnect count
+- last disconnect reason
+- last error
+- room/world if available
+- active tasks count if easy
+
+Keep under 249 chars. Split if needed.
+
+==================================================
+5. RECONNECT STAGGERING
+==================================================
+
+When multiple bots start:
+- stagger connect attempts by BOT_MODE or BOT_NAME
+- avoid all 8 bots reconnecting at the same second
+
+Example:
+host: 0s
+dj: 3s
+game: 6s
+bank: 9s
+casino: 12s
+
+==================================================
+6. SAFE SHUTDOWN
+==================================================
+
+On shutdown:
+- update lock status
+- release lock
+- cancel background tasks cleanly if possible
+
+Do not leave stale locks unless process dies hard.
+
+==================================================
+7. NO FEATURE CHANGES
+==================================================
+
+Do not modify:
+- radio commands
+- local replay
+- AzuraCast
+- emotes
+- dancefloor
+- games
+- economy
+
+This is infrastructure only.
+
+==================================================
+8. CHECKLIST
+==================================================
+
+Test:
+- normal startup works
+- duplicate workflow exits safely
+- no multilogin reconnect storm
+- !botstatus works
+- all bots stay online
+- stopping workflow releases locks
+- stale lock expires safely
