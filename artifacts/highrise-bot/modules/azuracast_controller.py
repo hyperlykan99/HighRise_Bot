@@ -551,24 +551,134 @@ def search_media(filename: str) -> "dict | None":
     return None
 
 
-def add_file_to_playlist(file_id: "int | str", playlist_id: str) -> bool:
-    """POST /api/station/{id}/files/batch  {"do":"playlist","playlist":pid,"files":[fid]}"""
+def verify_file_in_playlist(file_id: "int | str", playlist_id: "int | str") -> bool:
+    """
+    GET /api/station/{id}/file/{file_id}
+    Returns True if playlist_id appears in the file's 'playlists' array.
+    Matches by string comparison of the 'id' field inside each playlist entry.
+    """
     import requests as req_lib
     cfg = azura_api_cfg()
-    if not cfg or not playlist_id or not file_id:
+    if not cfg or not file_id or not playlist_id:
         return False
+    url = f"{cfg['base_url']}/api/station/{cfg['station_id']}/file/{file_id}"
     try:
-        resp = req_lib.post(
-            f"{cfg['base_url']}/api/station/{cfg['station_id']}/files/batch",
-            json={"do": "playlist", "playlist": playlist_id, "files": [file_id]},
-            headers=_headers(cfg),
-            timeout=15,
+        r = req_lib.get(url, headers=_headers(cfg), timeout=15)
+        print(
+            f"{_LOG} verify_file_in_playlist"
+            f" file_id={file_id!r} playlist_id={playlist_id!r}"
+            f" → HTTP {r.status_code}"
         )
-        ok = resp.status_code in (200, 204)
-        print(f"{_LOG} playlist_add file={file_id} pl={playlist_id} → HTTP {resp.status_code}")
-        return ok
+        if r.status_code == 200:
+            data = r.json()
+            playlists = data.get("playlists") or []
+            print(f"{_LOG} verify_file_in_playlist playlists={playlists!r}")
+            return any(
+                str(p.get("id") if isinstance(p, dict) else p) == str(playlist_id)
+                for p in playlists
+            )
     except Exception as exc:
-        print(f"{_LOG} playlist_add error: {exc}")
+        print(f"{_LOG} verify_file_in_playlist error: {exc!r}")
+    return False
+
+
+def add_file_to_playlist(file_id: "int | str", playlist_id: "int | str") -> bool:
+    """
+    Assign a media file to a playlist.  Tries two methods (matching the
+    yt_request.py flow) and verifies via GET after each:
+
+      Method A: POST /api/station/{id}/files/batch
+                {"do":"playlist","playlist":<pid>,"files":[<int fid>]}
+
+      Method B: PUT  /api/station/{id}/file/{fid}
+                {"playlists":[<int pid>]}
+
+    Returns True only when GET /file/{fid} confirms the playlist is present.
+    Full debug logging of URL, method, payload, HTTP status, and response body.
+    """
+    import requests as req_lib
+    import time as _time
+    cfg = azura_api_cfg()
+    if not cfg or not playlist_id or not file_id:
+        print(
+            f"{_LOG} add_file_to_playlist: missing arg"
+            f" file_id={file_id!r} playlist_id={playlist_id!r}"
+        )
+        return False
+
+    base  = cfg["base_url"]
+    sid   = cfg["station_id"]
+    hdrs  = _headers(cfg)
+
+    # Normalise IDs — AzuraCast batch endpoint needs int for files
+    try:
+        fid_int = int(file_id)
+    except (ValueError, TypeError):
+        fid_int = file_id
+    try:
+        pid_int: "int | str" = int(playlist_id)
+    except (ValueError, TypeError):
+        pid_int = playlist_id
+
+    # ── Method A: batch POST ──────────────────────────────────────────────────
+    batch_url  = f"{base}/api/station/{sid}/files/batch"
+    batch_body = {"do": "playlist", "playlist": str(playlist_id), "files": [fid_int]}
+    print(
+        f"{_LOG} add_file_to_playlist method=A(batch)"
+        f" url={batch_url!r}"
+        f" payload={batch_body!r}"
+    )
+    try:
+        resp = req_lib.post(batch_url, json=batch_body, headers=hdrs, timeout=15)
+        try:
+            body_s = resp.json()
+            body_s = str(body_s)[:300]
+        except Exception:
+            body_s = resp.text[:300] if resp.text else ""
+        print(
+            f"{_LOG} add_file_to_playlist method=A"
+            f" status={resp.status_code}"
+            f" body={body_s!r}"
+        )
+    except Exception as exc:
+        print(f"{_LOG} add_file_to_playlist method=A error: {exc!r}")
+
+    _time.sleep(2)  # Let AzuraCast process the batch write
+
+    if verify_file_in_playlist(fid_int, playlist_id):
+        print(f"{_LOG} add_file_to_playlist method=A verified ✓")
+        return True
+
+    # ── Method B: direct PUT /file/{id} ──────────────────────────────────────
+    put_url  = f"{base}/api/station/{sid}/file/{fid_int}"
+    put_body = {"playlists": [pid_int]}
+    print(
+        f"{_LOG} add_file_to_playlist method=B(put)"
+        f" url={put_url!r}"
+        f" payload={put_body!r}"
+    )
+    try:
+        resp = req_lib.put(put_url, json=put_body, headers=hdrs, timeout=15)
+        try:
+            body_s = resp.json()
+            body_s = str(body_s)[:300]
+        except Exception:
+            body_s = resp.text[:300] if resp.text else ""
+        print(
+            f"{_LOG} add_file_to_playlist method=B"
+            f" status={resp.status_code}"
+            f" body={body_s!r}"
+        )
+    except Exception as exc:
+        print(f"{_LOG} add_file_to_playlist method=B error: {exc!r}")
+
+    _time.sleep(2)
+
+    if verify_file_in_playlist(fid_int, playlist_id):
+        print(f"{_LOG} add_file_to_playlist method=B verified ✓")
+        return True
+
+    print(f"{_LOG} add_file_to_playlist FAILED — not in playlist after both methods")
     return False
 
 

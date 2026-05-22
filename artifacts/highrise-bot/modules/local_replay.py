@@ -752,8 +752,8 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         )
         if not _pl_assigned:
             await _w(
-                "⚠️ Vibe playlist assign failed."
-                " Submit may still fail — check AzuraCast playlist config."
+                "❌ Vibe playlist assign failed (both methods)."
+                " Blocking submit — track not requestable."
             )
 
     # ── Submit request ───────────────────────────────────────────────────────
@@ -761,6 +761,18 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         await _w(
             f"⚠️ AzuraCast indexing timeout for '{fav_title}'.\n"
             f"Use !localreplaycleanup to clear the temp file."
+        )
+        return
+
+    # Gate on playlist assignment — AzuraCast rejects requests for files
+    # that are not in an enabled playlist.
+    if azura_file_id_str and not _pl_assigned:
+        _update_status(temp_filename, "cleanup_pending")
+        await _w(
+            f"❌ Cannot submit: '{fav_title}' is not in"
+            f" playlist {_target_pl_id or '?'}.\n"
+            f"vibe={_active_vibe or '?'}\n"
+            f"!localreplaycleanup to clear temp."
         )
         return
 
