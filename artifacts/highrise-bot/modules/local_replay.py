@@ -76,12 +76,21 @@ def _ensure_schema() -> None:
                     source_path      TEXT,
                     temp_filename    TEXT UNIQUE,
                     azura_unique_id  TEXT,
+                    azura_file_id    TEXT DEFAULT '',
                     status           TEXT DEFAULT 'queued',
                     created_at       TEXT,
                     queued_at        TEXT,
                     cleanup_complete TEXT
                 )
             """)
+            # Idempotent migration for existing DBs that predate azura_file_id
+            try:
+                conn.execute(
+                    "ALTER TABLE local_replay_jobs"
+                    " ADD COLUMN azura_file_id TEXT DEFAULT ''"
+                )
+            except Exception:
+                pass  # column already exists
     except Exception as _e:
         print(f"{_LOG} schema init (non-fatal): {_e!r}")
 
@@ -92,7 +101,8 @@ def _ts() -> str:
 
 def _insert_job(
     user_id: str, username: str, fav_title: str,
-    source_path: str, temp_filename: str, azura_unique_id: str = "",
+    source_path: str, temp_filename: str,
+    azura_unique_id: str = "", azura_file_id: str = "",
 ) -> None:
     try:
         _ensure_schema()
@@ -101,10 +111,10 @@ def _insert_job(
             conn.execute(
                 "INSERT OR IGNORE INTO local_replay_jobs "
                 "(user_id, username, fav_title, source_path, temp_filename, "
-                " azura_unique_id, status, created_at, queued_at) "
-                "VALUES (?,?,?,?,?,?,'queued',?,?)",
+                " azura_unique_id, azura_file_id, status, created_at, queued_at) "
+                "VALUES (?,?,?,?,?,?,?,'queued',?,?)",
                 (user_id, username, fav_title, source_path,
-                 temp_filename, azura_unique_id, _ts(), _ts()),
+                 temp_filename, azura_unique_id, azura_file_id, _ts(), _ts()),
             )
     except Exception as _e:
         print(f"{_LOG} insert_job error: {_e!r}")
@@ -369,7 +379,8 @@ def _cleanup_stale_temps() -> int:
         import database as _db
         with _db.db_conn() as conn:
             rows = conn.execute(
-                "SELECT temp_filename FROM local_replay_jobs "
+                "SELECT temp_filename, COALESCE(azura_file_id,'') "
+                "FROM local_replay_jobs "
                 "WHERE status IN ('queued','playing','cleanup_pending') "
                 "  AND (cleanup_complete IS NULL OR cleanup_complete='') "
                 "  AND created_at < datetime('now','-2 hours')",
@@ -379,9 +390,18 @@ def _cleanup_stale_temps() -> int:
         return 0
 
     cleaned = 0
-    for (tfn,) in rows:
+    for (tfn, fid) in rows:
         if not tfn or not tfn.startswith("tmp_replay_"):
             continue
+        # Remove from all playlists before SFTP delete so AutoDJ
+        # cannot replay the temp file while the delete is in flight.
+        if fid:
+            try:
+                from modules.azuracast_controller import clear_file_playlists
+                clear_file_playlists(fid)
+                print(f"{_LOG} cleanup: cleared playlists for file_id={fid!r}")
+            except Exception as _cex:
+                print(f"{_LOG} cleanup clear_playlists error: {_cex!r}")
         ok = _sftp_delete_temp(tfn)
         if ok:
             _update_status(tfn, "done", _ts())
@@ -687,7 +707,54 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         source_path=azura_file_path,
         temp_filename=temp_filename,
         azura_unique_id=azura_unique_id,
+        azura_file_id=azura_file_id_str,
     )
+
+    # ── Assign temp file to active vibe playlist ─────────────────────────────
+    # AzuraCast only marks a file requestable when it belongs to an *enabled*
+    # playlist.  The vibe system keeps exactly one vibe playlist active at a
+    # time, so the temp copy must be in that playlist before submit_request.
+    _pl_assigned  = False
+    _active_vibe  = ""
+    _target_pl_id = ""
+    if azura_file_id_str:
+        try:
+            import modules.config_store as _cs
+            from modules.azuracast_controller import add_file_to_playlist as _add_pl
+            _active_vibe = _cs.vibe()
+            _cache_vibes = (_cs.get_vibe_scan_cache().get("vibes") or {})
+            _target_pl_id = (
+                (_cache_vibes.get(_active_vibe) or {}).get("playlist_id")
+                or _cs.get_dynamic_vibe_playlist(_active_vibe)
+                or _cs.vibe_playlist_id(_active_vibe)
+                or _cs.requests_playlist_id()
+            )
+            print(
+                f"{_LOG} vibe_assign"
+                f" vibe={_active_vibe!r}"
+                f" playlist={_target_pl_id!r}"
+                f" file_id={azura_file_id_str!r}"
+            )
+            if _target_pl_id:
+                _pl_assigned = await loop.run_in_executor(
+                    None, _add_pl, azura_file_id_str, _target_pl_id
+                )
+                print(f"{_LOG} vibe_assign result={_pl_assigned}")
+            else:
+                print(f"{_LOG} vibe_assign: no playlist resolved"
+                      f" for vibe={_active_vibe!r}")
+        except Exception as _vex:
+            print(f"{_LOG} vibe_assign error: {_vex!r}")
+        await _w(
+            f"vibe={_active_vibe or '?'}"
+            f" playlist={_target_pl_id[:28] if _target_pl_id else 'NONE'}"
+            f" requestable={'true' if _pl_assigned else 'false'}"
+        )
+        if not _pl_assigned:
+            await _w(
+                "⚠️ Vibe playlist assign failed."
+                " Submit may still fail — check AzuraCast playlist config."
+            )
 
     # ── Submit request ───────────────────────────────────────────────────────
     if not azura_unique_id:
