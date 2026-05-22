@@ -1,0 +1,278 @@
+RADIO ACHIEVEMENTS / BADGES UPDATE
+
+Goal:
+Add hard long-term radio achievements based on existing DJ DUDU radio stats.
+
+Do not rewrite radio backend.
+Do not change playback/AzuraCast/SFTP logic.
+Do not touch emote system.
+Do not break DJ_DUDU internal routing or BOT_MODE=dj.
+
+Important:
+This should use existing radio stats, rewards, ratings, favorites, playlist, and request data.
+Do not create duplicate stat systems.
+
+Relevant files:
+- modules/radio_rewards.py
+- modules/radio_commands.py
+- modules/profile.py
+- modules/achievements.py
+- modules/help_cmds.py
+- database.py
+
+==================================================
+1. ADD !RADIOACHIEVEMENTS
+==================================================
+
+Add command:
+
+!radioachievements
+
+Aliases if safe:
+!radioach
+!radioawards
+
+Shows the user’s radio achievement progress.
+
+Output must be compact and under 249 chars per message.
+Use pagination if needed.
+
+Example:
+
+🏅 Radio Achievements 1/2
+🎧 Radio Fan: Bronze
+⭐ Taste Maker: Locked
+🔥 Hit Maker: Locked
+
+🏅 Radio Achievements 2/2
+📂 Curator: Bronze
+💿 Collector: Locked
+🏆 Legend: Locked
+
+Also show next progress if possible:
+
+Next:
+🎧 Radio Fan Silver: 78/100 requests
+
+==================================================
+2. ACHIEVEMENT TIERS
+==================================================
+
+Use hard milestone tiers.
+
+🎧 Radio Fan
+Based on successful requests:
+- Bronze: 25 requests
+- Silver: 100 requests
+- Gold: 250 requests
+- Legend: 500 requests
+
+⭐ Taste Maker
+Based on likes given:
+- Bronze: 25 likes
+- Silver: 100 likes
+- Gold: 300 likes
+- Legend: 750 likes
+
+🔥 Hit Maker
+Based on the most-liked song requested by the user:
+- Bronze: one requested song gets 10 likes
+- Silver: one requested song gets 25 likes
+- Gold: one requested song gets 50 likes
+- Legend: one requested song gets 100 likes
+
+📂 Playlist Curator
+Based on playlists and playlist songs:
+- Bronze: 3 playlists + 25 playlist songs
+- Silver: 5 playlists + 100 playlist songs
+- Gold: 10 playlists + 250 playlist songs
+- Legend: 500 playlist songs
+
+💿 Collector
+Based on favorites:
+- Bronze: 25 favorites
+- Silver: 100 favorites
+- Gold: 250 favorites
+- Legend: 500 favorites
+
+🏆 Radio Legend
+Ultimate achievement.
+Requires all:
+- 500 successful requests
+- 500 likes/favorites combined
+- 10 playlists
+- one requested song with 100 likes
+
+==================================================
+3. DATA SOURCES
+==================================================
+
+Use existing sources:
+
+Requests:
+- radio_user_stats.requests_count
+- fallback: yt_request_jobs successful request count
+
+Likes given:
+- radio_user_stats.likes_count
+- fallback: dj_ratings where user_id and rating='like'
+
+Favorites:
+- radio_user_stats.favorites_count
+- fallback: dj_favorites count
+
+Playlists:
+- radio_user_stats.playlists_created
+- fallback: radio_playlists count
+
+Playlist songs:
+- radio_user_stats.playlist_songs_added
+- fallback: radio_playlist_songs count
+
+Hit Maker:
+Use requested songs by this user and count likes on those songs.
+Possible sources:
+- yt_request_jobs title/song_key/user_id
+- radio_song_stats like_count
+- dj_ratings aggregated by song_key
+
+If Hit Maker cannot be computed safely yet:
+show:
+🔥 Hit Maker: Tracking soon
+but do not crash.
+
+==================================================
+4. SAVE UNLOCKED ACHIEVEMENTS
+==================================================
+
+If existing modules/achievements.py has a badge/achievement system, reuse it.
+
+Do not create a duplicate global achievement system if one already exists.
+
+If safe, store unlocked radio achievements with IDs like:
+radio_fan_bronze
+radio_fan_silver
+radio_fan_gold
+radio_fan_legend
+taste_maker_bronze
+taste_maker_silver
+taste_maker_gold
+taste_maker_legend
+hit_maker_bronze
+hit_maker_silver
+hit_maker_gold
+hit_maker_legend
+playlist_curator_bronze
+playlist_curator_silver
+playlist_curator_gold
+playlist_curator_legend
+collector_bronze
+collector_silver
+collector_gold
+collector_legend
+radio_legend
+
+When a new achievement unlocks, whisper:
+🏅 Achievement unlocked: <name>
+
+Do not spam unlock messages repeatedly.
+Only notify once per achievement.
+
+==================================================
+5. ADD TO !RADIOSTATS
+==================================================
+
+Add a short achievement preview to !radiostats if it fits.
+
+Example:
+
+🎧 Radio Stats
+Requests: 78
+Likes: 18 | Dislikes: 1
+Favorites: 2
+Playlists: 1
+🏆 416 radio pts
+🏅 Radio Fan: Bronze
+
+If too long, keep !radiostats compact and add:
+Use !radioachievements for badges.
+
+==================================================
+6. ADD TO !PROFILE IF SAFE
+==================================================
+
+If profile.py supports adding sections, add a compact radio badge summary:
+
+🎧 Radio
+Pts: 416
+Badge: Radio Fan Bronze
+
+If changing profile is risky, skip profile integration for now.
+
+Do not break existing profile.
+
+==================================================
+7. HELP UPDATES
+==================================================
+
+Update:
+- !radiohelp
+- !djhelp
+- !commands radio
+- !command radioachievements
+
+Add:
+
+🏅 !radioachievements — Radio badges/progress
+
+Keep help compact.
+
+==================================================
+8. ANTI-SPAM RULES
+==================================================
+
+Achievements must use real successful activity only.
+
+Do not count:
+- failed requests
+- blocked requests
+- duplicate favorites
+- duplicate playlist songs
+- like/dislike toggle farming
+- deleted/recreated playlist spam
+
+Use already-cleaned stats where possible.
+
+==================================================
+9. ROUTING
+==================================================
+
+Only DJ_DUDU / BOT_MODE=dj handles:
+- !radioachievements
+- !radioach
+- !radioawards
+
+Other bots stay silent.
+
+==================================================
+10. CHECKLIST
+==================================================
+
+Test:
+- !radioachievements works
+- output paginates safely
+- current user with 78 requests gets Radio Fan Bronze
+- next progress shows 78/100 for Silver
+- locked achievements show cleanly
+- no duplicate unlock spam
+- !radiostats still works
+- !radiohelp includes !radioachievements
+- only DJ_DUDU replies
+
+Regression:
+- !play still works
+- !radiostats still works
+- !topliked still works
+- !topdisliked still works
+- radio points still correct
+- no crashes

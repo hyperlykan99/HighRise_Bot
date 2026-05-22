@@ -44,6 +44,7 @@ import modules.payment_service      as ps
 import modules.request_queue        as rq
 import modules.playback_engine      as engine
 import modules.radio_rewards        as rr
+import modules.radio_achievements   as _ra
 from modules.permissions import is_admin, is_owner, can_moderate
 from modules.luxe import get_luxe_balance, deduct_luxe_balance, log_luxe_transaction
 from modules.msg_utils import safe_send as _safe_send_mu
@@ -443,6 +444,7 @@ async def _submit_url(
     # Radio rewards: successful request queued
     _req_key = (_title or url)[:150]
     rr.record_reward(uid, uname, "request", song_key=_req_key)
+    asyncio.create_task(_ra.check_radio_achievements(bot, uid, uname))
     if _title:
         rr.update_song_info(_req_key, _title, _artist)
 
@@ -1477,7 +1479,7 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
         "🏆 Radio Rewards\n"
         "Earn pts: request, like, fav, playlists.\n"
         "!radiostats  !toplisteners  !toprequests\n"
-        "!topliked  !topdisliked",
+        "!topliked  !topdisliked  !radioachievements",
     )
 
     # ── Whisper 5: staff commands (mod / manager / admin / owner) ────────────
@@ -1721,6 +1723,7 @@ async def handle_like(bot: "BaseBot", user: "User", _args: list) -> None:
     elif result == "added":
         await _w(bot, user.id, f"👍 Liked: {title}\n{score}")
         rr.record_reward(user.id, user.username, "like", song_key=track["key"])
+        asyncio.create_task(_ra.check_radio_achievements(bot, user.id, user.username))
     else:
         await _w(bot, user.id, "⚠️ Could not save rating. Try again.")
         return
@@ -1987,6 +1990,7 @@ async def handle_favorite(bot: "BaseBot", user: "User", _args: list) -> None:
     if added:
         await _w(bot, user.id, f"⭐ Saved to favorites: {track['title'][:55]}")
         rr.record_reward(user.id, user.username, "favorite", song_key=track["key"])
+        asyncio.create_task(_ra.check_radio_achievements(bot, user.id, user.username))
     else:
         await _w(bot, user.id, f"⭐ Already in your favorites: {track['title'][:50]}")
 
@@ -2466,6 +2470,7 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
         if result == "created":
             rr.record_reward(uid, uname, "playlist_create",
                              target_key=name.strip().lower()[:150])
+            asyncio.create_task(_ra.check_radio_achievements(bot, uid, uname))
         return
 
     # ── Remaining subs need playlist name ────────────────────────────────────
@@ -2536,6 +2541,7 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
         if result == "added":
             rr.record_reward(uid, uname, "playlist_add",
                              target_key=f"{pl['id']}|{url}"[:150])
+            asyncio.create_task(_ra.check_radio_achievements(bot, uid, uname))
         return
 
     # ── !playlist addcurrent <name> ───────────────────────────────────────────
@@ -2566,6 +2572,7 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
         if result == "added":
             _akey = f"{pl['id']}|{track.get('youtube_url') or track['title']}"[:150]
             rr.record_reward(uid, uname, "playlist_add", target_key=_akey)
+            asyncio.create_task(_ra.check_radio_achievements(bot, uid, uname))
         return
 
     # ── !playlist rename <old> <new> ──────────────────────────────────────────
@@ -2691,6 +2698,7 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
         await _w(bot, uid, "\n".join(parts)[:249])
         if queued > 0:
             rr.record_reward(uid, uname, "playlist_play")
+            asyncio.create_task(_ra.check_radio_achievements(bot, uid, uname))
         return
 
 

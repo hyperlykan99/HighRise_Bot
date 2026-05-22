@@ -567,7 +567,8 @@ async def handle_commands(bot: BaseBot, user: User, args: list[str]) -> None:
                  "!np / !queue (!q) — now playing / queue\n"
                  "!play <song/URL> | !pick 1-5\n"
                  "!voteskip  !history  !vibe status\n"
-                 "!radiohelp — full radio guide")
+                 "!radiohelp — full radio guide\n"
+                 "!radioachievements — radio badges")
         await _w(bot, user.id,
                  "⭐ Favorites & Ratings\n"
                  "!fav — save now-playing song\n"

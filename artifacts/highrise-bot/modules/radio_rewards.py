@@ -564,6 +564,7 @@ async def handle_radiostats(bot: "BaseBot", user: "User", args: list) -> None:
         f"🏆 {s['points']} radio pts"
     )
     await _w(bot, uid, msg)
+    await _w(bot, uid, "🏅 Use !radioachievements for radio badges.")
 
 
 async def handle_toplisteners(bot: "BaseBot", user: "User", _args: list) -> None:
