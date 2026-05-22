@@ -235,6 +235,55 @@ def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str) -> bool:
             pass
 
 
+def _sftp_stat_exists(azura_file_path: str) -> bool:
+    """
+    Return True if the file exists on the VPS at:
+      AZURA_MEDIA_SFTP_PATH / azura_file_path
+    Used only by !localreplaytest debug whisper — never modifies files.
+    """
+    try:
+        import paramiko
+    except ImportError:
+        return False
+
+    cfg = _get_sftp_cfg()
+    if not cfg.get("host") or not cfg.get("user"):
+        return False
+
+    media_root = (
+        os.environ.get("AZURA_MEDIA_SFTP_PATH", "").strip()
+        or os.path.dirname(cfg["folder"].rstrip("/"))
+    )
+    src_path = f"{media_root.rstrip('/')}/{azura_file_path.lstrip('/')}"
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    sftp = None
+    try:
+        ssh.connect(
+            hostname=cfg["host"], port=cfg["port"],
+            username=cfg["user"], password=cfg["passwd"],
+            timeout=15, look_for_keys=False, allow_agent=False,
+        )
+        sftp = ssh.open_sftp()
+        sftp.stat(src_path)
+        return True
+    except IOError:
+        return False
+    except Exception:
+        return False
+    finally:
+        if sftp:
+            try:
+                sftp.close()
+            except Exception:
+                pass
+        try:
+            ssh.close()
+        except Exception:
+            pass
+
+
 def _sftp_delete_temp(temp_filename: str) -> bool:
     """
     Delete a temp replay file from the requests folder.
@@ -377,29 +426,51 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
 
     fav         = rows[pos - 1]
     fav_title   = (fav.get("title") or "?")[:40]
+    fav_artist  = (fav.get("artist") or "").strip()
     azura_fid   = (fav.get("azura_file_id") or "").strip()
-    source_type = (fav.get("source_type") or "").lower()
 
-    if not azura_fid or source_type == "youtube":
+    # Detect test mode: args[0] is the command name when not stripped.
+    is_test = bool(args) and str(args[0]).lower() == "localreplaytest"
+
+    # Only reject if this is definitely a YouTube track.
+    # A blank azura_file_id or any source_type label is NOT grounds for rejection —
+    # we fall back to an AzuraCast library search below.
+    yt_url   = (fav.get("youtube_url") or fav.get("url") or "").strip()
+    video_id = (fav.get("video_id") or fav.get("yt_id") or "").strip()
+    if yt_url or video_id:
         await _w(
-            f"⚠️ '{fav_title}' is not a local file.\n"
+            f"⚠️ '{fav_title}' is a YouTube track.\n"
             f"Use !playfav for YouTube tracks."
         )
         return
 
-    print(f"{_LOG} playfavlocal: {user.username} #{pos} '{fav_title}' fid={azura_fid}")
+    print(f"{_LOG} playfavlocal: {user.username} #{pos} '{fav_title}' fid={azura_fid!r}")
     await _w(f"🎵 Local replay #{pos}: {fav_title}\nValidating source...")
 
-    # ── AzuraCast: get file record + path ────────────────────────────────────
+    # ── AzuraCast: get file record (by fid, then fallback title/artist search) ─
     loop = asyncio.get_running_loop()
     azura_file_rec: dict = {}
-    try:
-        from modules.azuracast_controller import get_media_file
-        azura_file_rec = await loop.run_in_executor(
-            None, get_media_file, azura_fid
-        ) or {}
-    except Exception as exc:
-        print(f"{_LOG} get_media_file error: {exc!r}")
+
+    if azura_fid:
+        try:
+            from modules.azuracast_controller import get_media_file
+            azura_file_rec = await loop.run_in_executor(
+                None, get_media_file, azura_fid
+            ) or {}
+        except Exception as exc:
+            print(f"{_LOG} get_media_file error: {exc!r}")
+
+    # Fallback: search library by title (+ artist) if fid lookup returned nothing
+    if not azura_file_rec:
+        search_q = f"{fav_artist} {fav_title}".strip() if fav_artist else fav_title
+        print(f"{_LOG} no fid record — library search: {search_q!r}")
+        try:
+            from modules.azuracast_controller import search_media
+            azura_file_rec = await loop.run_in_executor(
+                None, search_media, search_q
+            ) or {}
+        except Exception as exc:
+            print(f"{_LOG} library search error: {exc!r}")
 
     if not azura_file_rec:
         await _w(
@@ -414,6 +485,28 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         return
 
     print(f"{_LOG} source validated: path={azura_file_path!r}")
+
+    # ── !localreplaytest debug whisper ───────────────────────────────────────
+    if is_test:
+        media_root = (
+            os.environ.get("AZURA_MEDIA_SFTP_PATH", "").strip()
+            or os.path.dirname(
+                (_get_sftp_cfg().get("folder") or "").rstrip("/")
+            )
+        )
+        src_full = (
+            f"{media_root.rstrip('/')}/{azura_file_path.lstrip('/')}"
+            if media_root else azura_file_path
+        )
+        file_exists = await loop.run_in_executor(
+            None, _sftp_stat_exists, azura_file_path
+        )
+        found_label = "found ✅" if file_exists else "missing ❌"
+        await _w(
+            f"🔍 [TEST] #{pos} {fav_title}\n"
+            f"Path: {azura_file_path}\n"
+            f"Source: {found_label}"
+        )
 
     # ── Lazy stale cleanup ───────────────────────────────────────────────────
     try:
