@@ -3387,6 +3387,30 @@ def _migrate_db():
     except Exception:
         pass
 
+    # 3.3C — dj_favorites: source_type (youtube | local)
+    try:
+        conn.execute(
+            "ALTER TABLE dj_favorites ADD COLUMN source_type TEXT NOT NULL DEFAULT 'youtube'"
+        )
+    except Exception:
+        pass  # column already exists
+
+    # 3.3D — dj_favorites: azura_song_id (AzuraCast unique_id for direct request)
+    try:
+        conn.execute(
+            "ALTER TABLE dj_favorites ADD COLUMN azura_song_id TEXT NOT NULL DEFAULT ''"
+        )
+    except Exception:
+        pass  # column already exists
+
+    # 3.3E — dj_favorites: azura_file_id (media file ID for lookup fallback)
+    try:
+        conn.execute(
+            "ALTER TABLE dj_favorites ADD COLUMN azura_file_id TEXT NOT NULL DEFAULT ''"
+        )
+    except Exception:
+        pass  # column already exists
+
     # Music request credit system — per-player credit wallet
     try:
         conn.execute("""

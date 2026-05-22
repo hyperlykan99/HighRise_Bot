@@ -1,0 +1,149 @@
+LOCAL FAVORITES / PLAYLIST REPLAY SUPPORT FIX
+
+Issue:
+!favorites works and !playfav <#> works as a command, but local/AzuraCast favorites fail with:
+
+⚠️ Local replay not supported yet: <title>
+
+Expected:
+!playfav <#> and !playlist play <name> <#> should replay both:
+- YouTube songs
+- local/AzuraCast media songs
+
+Do not rewrite radio backend.
+Do not change emote system.
+Do not change renderer layout.
+Do not break !play, !favorites, or !playlist.
+
+Inspect:
+- modules/radio_commands.py
+- modules/azuracast_controller.py
+- modules/request_queue.py
+- modules/playback_engine.py
+- modules/track_resolver.py
+- modules/radio_rewards.py
+- database.py
+- favorites / playlist DB schema
+
+==================================================
+1. STORE LOCAL MEDIA IDENTIFIERS
+==================================================
+
+When saving current song to favorites or playlist, store as much usable metadata as available:
+
+- title
+- artist
+- source_type: youtube | local | azuracast
+- youtube_url or video_id if YouTube
+- azura_media_id if available
+- azura_song_id if available
+- azura_unique_id if available
+- azura_path / filename if available
+
+Do not only store title/artist for local songs.
+
+==================================================
+2. REPLAY LOCAL FAVORITES
+==================================================
+
+For !playfav <#>:
+
+If favorite is YouTube:
+- use existing !play/request pipeline.
+
+If favorite is local/AzuraCast:
+- try to replay using available AzuraCast identifier priority:
+  1. azura_media_id
+  2. azura_song_id / unique_id
+  3. azura_path / filename
+  4. title + artist search in AzuraCast media library
+
+If found:
+- queue/play it through existing AzuraCast local media support.
+- respond:
+▶️ Queued favorite:
+<#>. <title> — <artist>
+
+If no usable ID/search match:
+⚠️ Local replay not supported yet: <title>
+
+But do not fail if a usable ID exists.
+
+==================================================
+3. REPLAY LOCAL PLAYLIST SONGS
+==================================================
+
+For:
+!playlist play <name> <#>
+!playlist play <name>
+
+Apply the same logic:
+- YouTube songs use existing request pipeline
+- local/AzuraCast songs use local media replay
+- skip only unsupported local songs
+
+For whole playlist:
+✅ Queued <n>/<total> songs from <playlist>.
+⚠️ Skipped <m> unsupported local songs.
+
+==================================================
+4. AZURACAST LOCAL MEDIA HELPER
+==================================================
+
+Add helper if missing:
+
+queue_local_media(media_id=None, song_id=None, unique_id=None, path=None, title=None, artist=None)
+
+Behavior:
+- find matching media in AzuraCast library
+- place it in the request queue / play next using existing radio flow
+- do not duplicate SFTP upload
+- do not download YouTube
+- do not expose file paths to users
+
+If AzuraCast API cannot queue local media directly:
+- create a safe yt_request_jobs/request_queue row marked local/azuracast
+- playback engine should recognize it and trigger local media playback if supported
+
+==================================================
+5. BACKFILL EXISTING FAVORITES/PLAYLISTS
+==================================================
+
+Existing local favorites may only have title/artist.
+
+For those:
+- attempt title+artist search in AzuraCast media library
+- if exactly one strong match found, save the media_id/path back into the favorite/playlist row
+- then replay it
+
+If multiple matches:
+⚠️ Multiple local matches found. Save it again from !np.
+
+If no match:
+⚠️ Local replay not supported yet: <title>
+
+==================================================
+6. SAFE OUTPUT
+==================================================
+
+Keep messages under 249 characters.
+
+Do not show raw local paths.
+Do not show server paths.
+Do not expose SFTP details.
+
+==================================================
+7. CHECKLIST
+==================================================
+
+Test:
+- !favorites shows local favorite
+- !playfav 1 queues local favorite if media exists
+- !playfav 1 does not say unsupported when media_id/path exists
+- !playlist play RnB 1 queues local song if media exists
+- !playlist play RnB queues supported local + YouTube songs
+- unsupported local songs are skipped cleanly
+- no file paths exposed
+- !play still works
+- !np still works
+- only DJ_DUDU replies

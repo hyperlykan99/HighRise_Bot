@@ -485,6 +485,101 @@ def search_media(filename: str) -> "dict | None":
     return None
 
 
+def search_media_by_phrase(phrase: str) -> list:
+    """
+    GET /api/station/{id}/files?searchPhrase=<phrase>
+
+    Returns ALL matching file rows (no filename-exact filtering).
+    Each row typically contains: id, path, song.unique_id, song.title, song.artist.
+    Used by queue_local_media() for title+artist fallback matching.
+    """
+    import requests as req_lib
+    cfg = azura_api_cfg()
+    if not cfg or not phrase:
+        return []
+    try:
+        resp = req_lib.get(
+            f"{cfg['base_url']}/api/station/{cfg['station_id']}/files",
+            params={"searchPhrase": phrase[:100]},
+            headers=_headers(cfg),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data if isinstance(data, list) else data.get("rows", [])
+    except Exception as exc:
+        print(f"{_LOG} search_media_by_phrase error: {exc}")
+    return []
+
+
+def queue_local_media(
+    *,
+    azura_song_id: str = "",
+    azura_file_id: str = "",
+    title: str = "",
+    artist: str = "",
+) -> "tuple[bool, str, bool]":
+    """
+    Try to queue a local/AzuraCast media song via the station request API.
+
+    Priority order:
+      1. azura_song_id (unique_id) — submit_request() directly
+      2. azura_file_id             — get_media_file() → extract unique_id → submit
+      3. title + artist search     — search_media_by_phrase(), exact-title match → submit
+
+    Returns:
+      (ok, found_unique_id, multiple_matches)
+        ok               — True if the song was successfully queued
+        found_unique_id  — unique_id used (for backfill into favorites row)
+        multiple_matches — True when search found >1 candidates with no clear winner
+    """
+    # 1. Direct unique_id submit
+    if azura_song_id:
+        if submit_request(azura_song_id):
+            return True, azura_song_id, False
+        # Stored ID exists but request failed — fall through to search
+
+    # 2. Lookup by file ID → extract unique_id
+    if azura_file_id:
+        rec = get_media_file(azura_file_id)
+        if rec:
+            uid = ((rec.get("song") or {}).get("unique_id") or "").strip()
+            if not uid:
+                uid = str(rec.get("unique_id") or "").strip()
+            if uid and submit_request(uid):
+                return True, uid, False
+
+    # 3. Title + artist phrase search
+    if not title:
+        return False, "", False
+
+    phrase   = f"{title} {artist}".strip() if artist else title
+    results  = search_media_by_phrase(phrase)
+    if not results and artist:
+        results = search_media_by_phrase(title)  # retry title-only
+
+    if len(results) == 1:
+        row = results[0]
+        uid = ((row.get("song") or {}).get("unique_id") or str(row.get("unique_id") or "")).strip()
+        if uid and submit_request(uid):
+            return True, uid, False
+
+    elif len(results) > 1:
+        title_lower = title.lower()
+        for row in results:
+            row_title = (
+                ((row.get("song") or {}).get("title") or "")
+                or os.path.splitext(os.path.basename(row.get("path", "")))[0]
+            ).lower()
+            if title_lower in row_title or row_title in title_lower:
+                uid = ((row.get("song") or {}).get("unique_id") or str(row.get("unique_id") or "")).strip()
+                if uid and submit_request(uid):
+                    return True, uid, False
+        return False, "", True  # ambiguous — multiple candidates, no exact hit
+
+    return False, "", False
+
+
 def add_file_to_playlist(file_id: "int | str", playlist_id: str) -> bool:
     """POST /api/station/{id}/files/batch  {"do":"playlist","playlist":pid,"files":[fid]}"""
     import requests as req_lib
