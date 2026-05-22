@@ -61,6 +61,8 @@ _cur_elapsed:     int   = 0         # AzuraCast elapsed seconds for current song
 _cur_duration:    int   = 0         # AzuraCast total duration of current song
 _live_req: "dict | None" = None     # In-memory cache of the currently-playing request; set at
                                     # announcement time, cleared on finish/skip/AutoDJ
+_cur_replay_temp: str   = ""        # basename of tmp_replay_* currently playing ("" = none)
+_replay_marked:   set   = set()     # basenames already marked status='playing' in local_replay_jobs
 
 _ACT = ("pending", "downloading", "downloaded", "uploading", "ready", "playing")
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
@@ -657,6 +659,71 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
             print(f"{_LOG} Already in VIBE mode — skipping redundant playlist switch")
 
 
+async def _on_local_replay_finished(bot: "BaseBot", temp_basename: str) -> None:
+    """
+    Called when a tmp_replay_* file stops playing (song change detected in _poll_loop).
+
+    Runs the normal _delete_request_file cleanup path independently of
+    _db_match_request, then marks local_replay_jobs cleanup_complete.
+
+    Safety: only acts on filenames starting with tmp_replay_.
+    """
+    _LR  = "[LOCAL_REPLAY_CLEANUP]"
+    loop = asyncio.get_running_loop()
+
+    if not temp_basename.startswith("tmp_replay_"):
+        print(f"{_LR} safety guard: ignored non-replay basename={temp_basename!r}")
+        return
+
+    # ── Fetch local_replay_jobs row ───────────────────────────────────────────
+    yt_job_id = 0
+    azura_fid = ""
+    lr_title  = temp_basename
+    try:
+        from modules.local_replay import _fetch_job_by_temp
+        job = _fetch_job_by_temp(temp_basename)
+        if job:
+            yt_job_id = int(job.get("yt_request_job_id") or 0)
+            azura_fid = (job.get("azura_file_id") or "").strip()
+            lr_title  = (job.get("fav_title") or temp_basename)
+            print(
+                f"{_LR} found job"
+                f" yt_job_id={yt_job_id}"
+                f" azura_fid={azura_fid!r}"
+                f" title={lr_title!r}"
+            )
+        else:
+            print(f"{_LR} no local_replay_jobs row for temp={temp_basename!r}")
+    except Exception as exc:
+        print(f"{_LR} fetch error: {exc!r}")
+
+    # ── Run normal cleanup (remove playlist, delete API, SFTP, rescan, cleaned_at) ─
+    ok = False
+    try:
+        await loop.run_in_executor(
+            None, _delete_request_file,
+            yt_job_id, azura_fid, temp_basename, lr_title,
+        )
+        ok = True
+    except Exception as exc:
+        print(f"{_LR} delete error: {exc!r}")
+
+    # ── Mark local_replay_jobs complete ──────────────────────────────────────
+    try:
+        from modules.local_replay import _mark_job_cleanup_complete
+        await loop.run_in_executor(None, _mark_job_cleanup_complete, temp_basename)
+    except Exception as exc:
+        print(f"{_LR} mark_complete error: {exc!r}")
+
+    # ── Clean up tracking set ─────────────────────────────────────────────────
+    _replay_marked.discard(temp_basename)
+
+    if ok:
+        print(f"{_LR} success temp={temp_basename!r}")
+    else:
+        print(f"{_LR} failed, retry pending temp={temp_basename!r}")
+
+
 def _title_matches(req_title: str, np_title: str) -> bool:
     """
     Decide if the AzuraCast now-playing title corresponds to our request.
@@ -1042,7 +1109,7 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
 # ─── Main poll loop ───────────────────────────────────────────────────────────
 
 async def _poll_loop(bot: "BaseBot") -> None:
-    global _cur_song_id, _cur_req_id, _cur_elapsed, _cur_duration, _mode
+    global _cur_song_id, _cur_req_id, _cur_elapsed, _cur_duration, _mode, _cur_replay_temp
 
     print(f"{_LOG} Poll loop started (every {POLL_INTERVAL}s)")
     loop = asyncio.get_running_loop()
@@ -1103,16 +1170,38 @@ async def _poll_loop(bot: "BaseBot") -> None:
             elapsed  = int(np_obj.get("elapsed")  or 0)
             duration = int(np_obj.get("duration") or 0)
 
+            # Local-replay path detection — media.path basename starts with tmp_replay_
+            np_mpath = (media.get("path") or "").strip()
+            np_mbase = np_mpath.rsplit("/", 1)[-1] if np_mpath else ""
+            np_is_lr = np_mbase.startswith("tmp_replay_")
+
             if not song_id:
                 continue
 
             with _lock:
-                prev_song_id  = _cur_song_id
-                prev_req_id   = _cur_req_id
-                prev_elapsed  = _cur_elapsed
-                prev_duration = _cur_duration
-                _cur_elapsed  = elapsed
-                _cur_duration = duration
+                prev_song_id     = _cur_song_id
+                prev_req_id      = _cur_req_id
+                prev_elapsed     = _cur_elapsed
+                prev_duration    = _cur_duration
+                prev_replay_temp = _cur_replay_temp
+                _cur_elapsed     = elapsed
+                _cur_duration    = duration
+                if np_is_lr:
+                    _cur_replay_temp = np_mbase
+                elif song_id != prev_song_id:
+                    _cur_replay_temp = ""   # clear when song changes to non-replay
+
+            # ── Local-replay playing detection (path-based, runs every poll) ──
+            # Independent of _db_match_request — fires as soon as media.path
+            # shows a tmp_replay_ file so we can mark it playing promptly.
+            if np_is_lr and np_mbase not in _replay_marked:
+                _replay_marked.add(np_mbase)
+                print(f"[LOCAL_REPLAY_CLEANUP] detected playing temp={np_mbase!r}")
+                try:
+                    from modules.local_replay import _mark_job_playing
+                    loop.run_in_executor(None, _mark_job_playing, np_mbase)
+                except Exception as _lr_exc:
+                    print(f"[LOCAL_REPLAY_CLEANUP] mark_playing error: {_lr_exc!r}")
 
             # ── Replay detection: same song_id but elapsed has reset ──────────
             # AzuraCast looped the Requests playlist — the same file started
@@ -1137,8 +1226,21 @@ async def _poll_loop(bot: "BaseBot") -> None:
 
             # ── Song changed ──────────────────────────────────────────────────
             with _lock:
-                _cur_song_id = song_id
+                _cur_song_id     = song_id
+                _cur_replay_temp = np_mbase if np_is_lr else ""
             print(f"{_LOG} Song change: {prev_song_id!r} → {song_id!r}")
+
+            # Local-replay cleanup: previous song was a tmp_replay_ file.
+            # Runs independently of _db_match_request / prev_req_id so that
+            # cleanup fires even when azura_song_id matching fails.
+            if prev_replay_temp and prev_replay_temp.startswith("tmp_replay_"):
+                print(
+                    f"[LOCAL_REPLAY_CLEANUP] song changed,"
+                    f" deleting temp={prev_replay_temp!r}"
+                )
+                asyncio.create_task(
+                    _on_local_replay_finished(bot, prev_replay_temp)
+                )
 
             if prev_req_id:
                 await _on_request_finished(bot, prev_req_id)

@@ -87,6 +87,7 @@ def _ensure_schema() -> None:
             for _col_sql in (
                 "ALTER TABLE local_replay_jobs ADD COLUMN azura_file_id TEXT DEFAULT ''",
                 "ALTER TABLE local_replay_jobs ADD COLUMN yt_request_job_id INTEGER",
+                "ALTER TABLE local_replay_jobs ADD COLUMN playback_started TEXT",
             ):
                 try:
                     conn.execute(_col_sql)
@@ -199,6 +200,70 @@ def _link_yt_job(temp_filename: str, yt_job_id: int) -> None:
             )
     except Exception as exc:
         print(f"{_LOG} _link_yt_job error: {exc!r}")
+
+
+def _fetch_job_by_temp(temp_basename: str) -> "dict | None":
+    """
+    Return the local_replay_jobs row whose temp_filename matches temp_basename
+    (exact match or suffix match).  Returns None on no-match or error.
+    """
+    try:
+        _ensure_schema()
+        import database as _db
+        with _db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT id, user_id, username, fav_title, azura_file_id,"
+                "       azura_unique_id, yt_request_job_id, status"
+                " FROM local_replay_jobs"
+                " WHERE temp_filename=? OR temp_filename LIKE ?"
+                " ORDER BY id DESC LIMIT 1",
+                (temp_basename, f"%{temp_basename}"),
+            ).fetchone()
+        if row:
+            return {
+                "id": row[0], "user_id": row[1], "username": row[2],
+                "fav_title": row[3], "azura_file_id": row[4],
+                "azura_unique_id": row[5], "yt_request_job_id": row[6],
+                "status": row[7],
+            }
+    except Exception as exc:
+        print(f"{_LOG} _fetch_job_by_temp error: {exc!r}")
+    return None
+
+
+def _mark_job_playing(temp_basename: str) -> None:
+    """
+    Set status='playing' and playback_started=NOW.
+    Idempotent — only updates when status is not already 'playing'.
+    Matches on temp_filename exact or suffix.
+    """
+    try:
+        import database as _db
+        with _db.db_conn() as conn:
+            conn.execute(
+                "UPDATE local_replay_jobs"
+                " SET status='playing', playback_started=datetime('now')"
+                " WHERE (temp_filename=? OR temp_filename LIKE ?)"
+                "   AND status != 'playing'",
+                (temp_basename, f"%{temp_basename}"),
+            )
+    except Exception as exc:
+        print(f"{_LOG} _mark_job_playing error: {exc!r}")
+
+
+def _mark_job_cleanup_complete(temp_basename: str) -> None:
+    """Set status='cleaned' and cleanup_complete=NOW on the matching row."""
+    try:
+        import database as _db
+        with _db.db_conn() as conn:
+            conn.execute(
+                "UPDATE local_replay_jobs"
+                " SET status='cleaned', cleanup_complete=datetime('now')"
+                " WHERE temp_filename=? OR temp_filename LIKE ?",
+                (temp_basename, f"%{temp_basename}"),
+            )
+    except Exception as exc:
+        print(f"{_LOG} _mark_job_cleanup_complete error: {exc!r}")
 
 
 # ---------------------------------------------------------------------------
