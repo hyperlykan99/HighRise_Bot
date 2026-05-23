@@ -540,6 +540,11 @@ if _IS_DJ_BOT:
         from modules.radio_achievements import (
             handle_radioachievements as ra_achievements,
         )
+        from modules.radio_command_registry import (
+            dispatch_radio_command,
+            lookup as lookup_radio_command,
+            registry as radio_command_registry,
+        )
     except Exception as _radio_import_err:
         import traceback as _tb_radio
         print(
@@ -562,6 +567,9 @@ if not _IS_DJ_BOT:
     handle_playedrequests = handle_setrequestcost = handle_setprioritycost = _S
     handle_bantrack = handle_unbantrack = handle_banrequester = handle_unbanrequester = _S
     handle_queueadmin = on_request_user_left = startup_yt_cleanup_task = _S
+    async def dispatch_radio_command(*_a, **_k): return False
+    def lookup_radio_command(*_a, **_k): return None
+    def radio_command_registry(*_a, **_k): return {}
     (rc_request, rc_pick, rc_queue, rc_skip, rc_remove, rc_clearqueue,
      rc_history, rc_voteskip, rc_nowplaying, rc_vibes, rc_vibe, rc_vibescan,
      rc_setrequestprice, rc_radiohelp, rc_like, rc_dislike, rc_favorite,
@@ -7935,6 +7943,9 @@ class HangoutBot(BaseBot):
         # ── DJ Music: only BOT_MODE=dj (DJ_DUDU) responds ────────────────────
         elif cmd in DJ_COMMANDS and BOT_MODE != "dj":
             pass  # non-DJ bot silently ignores all music/radio commands
+
+        elif await dispatch_radio_command(self, user, args, cmd):
+            pass
 
         elif cmd in ("play", "request", "sr", "req", "song", "requesy"):
             print(f"[RADIO CMD] bot={config.BOT_USERNAME!r} mode={BOT_MODE} cmd={cmd!r}")
