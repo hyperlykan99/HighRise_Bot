@@ -1185,7 +1185,6 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
             import modules.config_store as _cs
             from modules.azuracast_controller import (
                 add_file_to_playlist as _add_pl,
-                disable_requests_rotation as _disable_req_rotation,
                 list_playlists       as _list_pl,
                 find_playlist_by_name as _find_pl,
             )
@@ -1233,16 +1232,6 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
             if _target_pl_id:
                 _pl_assigned = await loop.run_in_executor(
                     None, _add_pl, azura_file_id_str, _target_pl_id
-                )
-                await loop.run_in_executor(
-                    None,
-                    lambda: _disable_req_rotation(
-                        request_id=request_id,
-                        playlist_name="Requests",
-                        media_id=azura_file_id_str,
-                        song_id=azura_unique_id or "",
-                        path=f"Requests/{temp_filename}",
-                    ),
                 )
                 print(
                     f"{_LOG} requests_assign result={_pl_assigned}"

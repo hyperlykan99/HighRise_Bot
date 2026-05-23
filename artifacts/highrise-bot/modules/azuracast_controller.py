@@ -155,60 +155,6 @@ def set_playlist_enabled(playlist_id: str, enabled: bool) -> bool:
     return False
 
 
-def disable_requests_rotation(
-    *,
-    request_id: "int | str" = "",
-    playlist_name: str = "Requests",
-    media_id: "int | str" = "",
-    song_id: str = "",
-    path: str = "",
-) -> bool:
-    """
-    Keep the Requests playlist out of AutoDJ rotation.
-
-    Request media stays indexed/searchable and can still be queued through
-    submit_request(unique_id); the playlist itself must not be eligible for
-    normal AutoDJ/preload/fallback rotation.
-    """
-    pid = requests_playlist_id()
-    source = "config"
-    if not pid:
-        row = find_playlist_by_name(playlist_name) or find_playlist_by_name("Request")
-        pid = str((row or {}).get("id") or "")
-        playlist_name = str((row or {}).get("name") or playlist_name)
-        source = "name_lookup" if pid else "missing"
-
-    ok = False
-    if pid:
-        ok = set_playlist_enabled(pid, False)
-    try:
-        import modules.radio_diagnostics as diag
-        diag.log_radio_event(
-            "requests_rotation_disabled",
-            request_id=request_id,
-            playlist_name=playlist_name,
-            playlist_id=pid,
-            media_id=media_id,
-            song_id=song_id,
-            path=path,
-            source=source,
-            ok=bool(ok),
-        )
-    except Exception:
-        pass
-    print(
-        f"{_LOG} stage=requests_rotation_disabled"
-        f" playlist_name={playlist_name!r}"
-        f" playlist_id={pid!r}"
-        f" request_id={request_id!r}"
-        f" media_id={media_id!r}"
-        f" song_id={song_id!r}"
-        f" path={path!r}"
-        f" ok={str(bool(ok)).lower()}"
-    )
-    return ok
-
-
 def get_playlist_media_count(playlist_id: str) -> int:
     """
     GET /api/station/{id}/playlist/{pid}  → num_songs field.
@@ -236,8 +182,7 @@ def get_playlist_media_count(playlist_id: str) -> int:
 def switch_vibe(new_vibe: str) -> dict:
     """
     Enable only the selected vibe playlist; disable all other vibe playlists.
-    The Requests playlist is disabled so it cannot participate in AutoDJ
-    rotation; requests enter playback only through submit_request().
+    The Requests playlist (AZURA_PLAYLIST_ID) is NEVER touched.
 
     Checks env-var playlist ID first, then falls back to the DB-backed dynamic
     playlist ID (set by folder-discovery flow in radio_commands.handle_vibe).
@@ -254,8 +199,6 @@ def switch_vibe(new_vibe: str) -> dict:
     target_id = vibe_playlist_id(new_vibe) or get_dynamic_vibe_playlist(new_vibe)
     req_id    = requests_playlist_id()
 
-    disable_requests_rotation(playlist_name="Requests")
-
     if not target_id:
         print(
             f"{_LOG} stage=vibe_switch new_vibe={new_vibe!r}"
@@ -268,7 +211,7 @@ def switch_vibe(new_vibe: str) -> dict:
 
     for v in VIBE_NAMES:
         pid = vibe_playlist_id(v)
-        if not pid or pid == req_id:
+        if not pid or pid == req_id:   # never touch Requests
             continue
         if pid == target_id:
             ok = set_playlist_enabled(pid, True)
