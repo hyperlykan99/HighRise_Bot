@@ -50,6 +50,7 @@ import config as _config
 import database as db
 from modules.permissions import is_admin, is_owner, is_manager
 from modules.radio_status import ACTIVE_QUEUE_STATUSES
+import modules.request_queue as rq
 from modules.msg_utils import safe_send as _safe_send_mu
 
 # DB file path — config.DB_PATH reads SHARED_DB_PATH env var (default highrise_hangout.db)
@@ -321,54 +322,12 @@ def _update_job(jid: int, **kwargs: object) -> None:
 
 def _db_insert_job(job: dict) -> int:
     """Insert a pending job into yt_request_jobs. Returns new DB row id (0 on error)."""
-    try:
-        with sqlite3.connect(_DB_PATH) as conn:
-            cur = conn.execute(
-                """INSERT INTO yt_request_jobs
-                       (user_id, username, url, title, status, started_at,
-                        coins_charged, payment_type, priority)
-                   VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)""",
-                (job["user_id"], job["username"], job["url"],
-                 job["title"], job["status"],
-                 job.get("coins_charged", 0),
-                 job.get("payment_type", "free"),
-                 job.get("priority", 0)),
-            )
-            conn.commit()
-            return cur.lastrowid or 0
-    except Exception as exc:
-        print(f"[YT_REQUEST] DB insert error (non-fatal): {exc}")
-        return 0
+    return rq.insert_request_job(job)
 
 
 def _db_update_job(db_id: int, **kwargs: object) -> None:
     """Update a yt_request_jobs row by DB id (non-fatal on error)."""
-    if not db_id:
-        return
-    allowed = {"title", "status", "error", "finished_at", "filename",
-               "azura_file_id", "azura_song_id",
-               "video_id", "yt_uploader", "artist",
-               "coins_charged", "payment_type", "priority"}
-    fields  = {k: v for k, v in kwargs.items() if k in allowed}
-    if not fields:
-        return
-    # Convert epoch float to ISO string for finished_at
-    if "finished_at" in fields and isinstance(fields["finished_at"], float):
-        import datetime as _dt
-        fields["finished_at"] = _dt.datetime.utcfromtimestamp(
-            fields["finished_at"]
-        ).strftime("%Y-%m-%dT%H:%M:%S")
-    set_clause = ", ".join(f"{k} = ?" for k in fields)
-    values     = list(fields.values()) + [db_id]
-    try:
-        with sqlite3.connect(_DB_PATH) as conn:
-            conn.execute(
-                f"UPDATE yt_request_jobs SET {set_clause} WHERE id = ?",
-                values,
-            )
-            conn.commit()
-    except Exception as exc:
-        print(f"[YT_REQUEST] DB update error (non-fatal): {exc}")
+    rq.update_job_fields(db_id, **kwargs)
 
 
 def _db_check_dedup(url: str, window_secs: int) -> "dict | None":
@@ -553,17 +512,7 @@ def _db_recent_jobs(limit: int = 10) -> list[dict]:
 
 def _db_update_azura_ids(db_id: int, file_id: str, song_id: str) -> None:
     """Persist AzuraCast file_id and song unique_id to the job record."""
-    if not db_id:
-        return
-    try:
-        with sqlite3.connect(_DB_PATH) as conn:
-            conn.execute(
-                "UPDATE yt_request_jobs SET azura_file_id=?, azura_song_id=? WHERE id=?",
-                (str(file_id), song_id, db_id),
-            )
-            conn.commit()
-    except Exception as exc:
-        print(f"[YT_REQUEST] DB azura_ids update error (non-fatal): {exc}")
+    rq.update_azura_ids(db_id, file_id, song_id)
 
 
 def _db_get_oldest_staged() -> "dict | None":
@@ -622,44 +571,17 @@ def _db_get_pending_cleanup() -> list[dict]:
 
 def _db_mark_cleaned(db_id: int) -> None:
     """Set cleaned_at = now on a job record to mark it as removed from AzuraCast."""
-    try:
-        with sqlite3.connect(_DB_PATH) as conn:
-            conn.execute(
-                "UPDATE yt_request_jobs SET cleaned_at = datetime('now') WHERE id = ?",
-                (db_id,),
-            )
-            conn.commit()
-    except Exception as exc:
-        print(f"[YT_REQUEST] DB mark_cleaned error (non-fatal): {exc}")
+    rq.mark_cleaned(db_id)
 
 
 def _db_mark_played(db_id: int) -> None:
     """Set status='played' and played_at=now (idempotent — only fires once per job)."""
-    try:
-        with sqlite3.connect(_DB_PATH) as conn:
-            conn.execute(
-                """UPDATE yt_request_jobs
-                      SET status='played', played_at=datetime('now')
-                    WHERE id=? AND played_at IS NULL""",
-                (db_id,),
-            )
-            conn.commit()
-    except Exception as exc:
-        print(f"[YT_REQUEST] DB mark_played error (non-fatal): {exc}")
+    rq.mark_played_if_unplayed(db_id)
 
 
 def _db_mark_playing(db_id: int) -> None:
     """Set status='playing' when Now Playing detects the request is live."""
-    try:
-        with sqlite3.connect(_DB_PATH) as conn:
-            conn.execute(
-                "UPDATE yt_request_jobs SET status='playing'"
-                " WHERE id=? AND status NOT IN ('playing','played')",
-                (db_id,),
-            )
-            conn.commit()
-    except Exception as exc:
-        print(f"[YT_REQUEST] DB mark_playing error (non-fatal): {exc}")
+    rq.mark_playing_if_not_terminal(db_id)
 
 
 def _db_recent_played(limit: int = 10) -> list[dict]:

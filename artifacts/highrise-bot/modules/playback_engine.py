@@ -32,6 +32,7 @@ import database as db
 import modules.azuracast_controller as azura
 import modules.config_store         as cs
 import modules.dj_announcer         as ann
+import modules.request_queue        as rq
 from modules.radio_status import ACTIVE_QUEUE_STATUSES
 
 if TYPE_CHECKING:
@@ -183,40 +184,7 @@ def _db_count_active_in_requests() -> int:
 
 
 def _db_set_status(db_id: int, status: str, media_id: str = "") -> None:
-    if not db_id:
-        return
-    try:
-        with db.db_conn() as conn:
-            if status == "played":
-                conn.execute(
-                    "UPDATE yt_request_jobs "
-                    "SET status='played', played_at=datetime('now') WHERE id=?",
-                    (db_id,),
-                )
-            elif status == "playing":
-                if media_id:
-                    conn.execute(
-                        "UPDATE yt_request_jobs "
-                        "SET status='playing', started_at=datetime('now'), "
-                        "azura_file_id=CASE WHEN (azura_file_id IS NULL OR azura_file_id='') "
-                        "THEN ? ELSE azura_file_id END "
-                        "WHERE id=?",
-                        (media_id, db_id),
-                    )
-                else:
-                    conn.execute(
-                        "UPDATE yt_request_jobs "
-                        "SET status='playing', started_at=datetime('now') WHERE id=?",
-                        (db_id,),
-                    )
-            else:
-                conn.execute(
-                    "UPDATE yt_request_jobs SET status=? WHERE id=?",
-                    (status, db_id),
-                )
-        print(f"[RADIO_STATUS] job={db_id} new={status!r} reason=playback_engine")
-    except Exception as exc:
-        print(f"{_LOG} _db_set_status({db_id},{status!r}): {exc}")
+    rq.set_playback_status(db_id, status, media_id=media_id, reason="playback_engine")
 
 
 def _db_fail_and_refund(db_id: int, reason: str) -> None:
@@ -225,22 +193,12 @@ def _db_fail_and_refund(db_id: int, reason: str) -> None:
         return
     try:
         import modules.payment_service as ps
-        with db.db_conn() as conn:
-            row = conn.execute(
-                "SELECT user_id, username, coins_charged, status, played_at "
-                "FROM yt_request_jobs WHERE id=?",
-                (db_id,),
-            ).fetchone()
-            if not row:
-                return
-            uid, username, coins, status, played_at = row
-            if played_at or status == "played":
-                return
-            conn.execute(
-                "UPDATE yt_request_jobs SET status='error', error=?, finished_at=datetime('now') "
-                "WHERE id=? AND status!='played' AND played_at IS NULL",
-                (reason, db_id),
-            )
+        row = rq.mark_failed_if_unplayed(db_id, reason)
+        if not row:
+            return
+        uid = row.get("user_id", "")
+        username = row.get("username", "")
+        coins = int(row.get("coins_charged") or 0)
         if uid and int(coins or 0) > 0:
             ps.refund(uid, int(coins or 0), reason)
         print(
@@ -540,16 +498,7 @@ def _do_promote_staged(bot: "BaseBot", loop: "asyncio.AbstractEventLoop") -> Non
 
 def _db_set_cleaned(db_id: int) -> None:
     """Mark the request file as deleted by setting cleaned_at in the DB."""
-    if not db_id:
-        return
-    try:
-        with db.db_conn() as conn:
-            conn.execute(
-                "UPDATE yt_request_jobs SET cleaned_at=datetime('now') WHERE id=?",
-                (db_id,),
-            )
-    except Exception as exc:
-        print(f"{_LOG} _db_set_cleaned({db_id}): {exc}")
+    rq.mark_cleaned(db_id)
 
 
 def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
@@ -604,16 +553,7 @@ def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
                 _log("lookup_media_id", "found" if cur_fid else "not_found",
                      found_id=repr(cur_fid))
                 if cur_fid:
-                    try:
-                        with db.db_conn() as conn:
-                            conn.execute(
-                                "UPDATE yt_request_jobs SET azura_file_id=?"
-                                " WHERE id=?"
-                                " AND (azura_file_id IS NULL OR azura_file_id='')",
-                                (cur_fid, db_id),
-                            )
-                    except Exception:
-                        pass
+                    rq.set_azura_file_id_if_empty(db_id, cur_fid)
             else:
                 _log("lookup_media_id", "not_found")
         except Exception as exc:

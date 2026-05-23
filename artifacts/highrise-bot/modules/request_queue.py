@@ -79,6 +79,213 @@ def _rq():
     return _m
 
 
+# ─── Queue writes (single DB writer facade) ──────────────────────────────────
+
+def insert_request_job(job: dict) -> int:
+    """Insert a request row into yt_request_jobs. Returns the new row id."""
+    try:
+        with db.db_conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO yt_request_jobs
+                       (user_id, username, url, title, status, started_at,
+                        coins_charged, payment_type, priority)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)""",
+                (
+                    job["user_id"], job["username"], job["url"],
+                    job["title"], job["status"],
+                    job.get("coins_charged", 0),
+                    job.get("payment_type", "free"),
+                    job.get("priority", 0),
+                ),
+            )
+            return cur.lastrowid or 0
+    except Exception as exc:
+        print(f"{_LOG} insert_request_job error: {exc}")
+        return 0
+
+
+def update_job_fields(job_id: int, **kwargs: object) -> None:
+    """Update allowed yt_request_jobs fields. Non-fatal on error."""
+    if not job_id:
+        return
+    allowed = {
+        "title", "status", "error", "finished_at", "filename",
+        "azura_file_id", "azura_song_id",
+        "video_id", "yt_uploader", "artist",
+        "coins_charged", "payment_type", "priority",
+    }
+    fields = {k: v for k, v in kwargs.items() if k in allowed}
+    if not fields:
+        return
+    if "finished_at" in fields and isinstance(fields["finished_at"], float):
+        import datetime as _dt
+        fields["finished_at"] = _dt.datetime.utcfromtimestamp(
+            fields["finished_at"]
+        ).strftime("%Y-%m-%dT%H:%M:%S")
+
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [job_id]
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                f"UPDATE yt_request_jobs SET {set_clause} WHERE id = ?",
+                values,
+            )
+    except Exception as exc:
+        print(f"{_LOG} update_job_fields({job_id}): {exc}")
+
+
+def update_azura_ids(job_id: int, file_id: str, song_id: str) -> None:
+    """Persist AzuraCast file_id and song unique_id to a request row."""
+    if not job_id:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs SET azura_file_id=?, azura_song_id=? WHERE id=?",
+                (str(file_id), song_id, job_id),
+            )
+    except Exception as exc:
+        print(f"{_LOG} update_azura_ids({job_id}): {exc}")
+
+
+def set_azura_file_id_if_empty(job_id: int, file_id: str) -> None:
+    """Backfill azura_file_id only when it is missing."""
+    if not job_id or not file_id:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs SET azura_file_id=?"
+                " WHERE id=?"
+                " AND (azura_file_id IS NULL OR azura_file_id='')",
+                (str(file_id), job_id),
+            )
+    except Exception as exc:
+        print(f"{_LOG} set_azura_file_id_if_empty({job_id}): {exc}")
+
+
+def mark_cleaned(job_id: int) -> None:
+    """Set cleaned_at=now on a request row."""
+    if not job_id:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs SET cleaned_at=datetime('now') WHERE id=?",
+                (job_id,),
+            )
+    except Exception as exc:
+        print(f"{_LOG} mark_cleaned({job_id}): {exc}")
+
+
+def mark_played_if_unplayed(job_id: int) -> None:
+    """Set status='played' and played_at=now only if played_at is still NULL."""
+    if not job_id:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                """UPDATE yt_request_jobs
+                      SET status='played', played_at=datetime('now')
+                    WHERE id=? AND played_at IS NULL""",
+                (job_id,),
+            )
+    except Exception as exc:
+        print(f"{_LOG} mark_played_if_unplayed({job_id}): {exc}")
+
+
+def mark_playing_if_not_terminal(job_id: int) -> None:
+    """Set status='playing' unless the row is already playing or played."""
+    if not job_id:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "UPDATE yt_request_jobs SET status='playing'"
+                " WHERE id=? AND status NOT IN ('playing','played')",
+                (job_id,),
+            )
+    except Exception as exc:
+        print(f"{_LOG} mark_playing_if_not_terminal({job_id}): {exc}")
+
+
+def set_playback_status(job_id: int, status: str, media_id: str = "",
+                        reason: str = "request_queue") -> None:
+    """Set a playback lifecycle status using playback_engine's prior semantics."""
+    if not job_id:
+        return
+    try:
+        with db.db_conn() as conn:
+            if status == "played":
+                conn.execute(
+                    "UPDATE yt_request_jobs "
+                    "SET status='played', played_at=datetime('now') WHERE id=?",
+                    (job_id,),
+                )
+            elif status == "playing":
+                if media_id:
+                    conn.execute(
+                        "UPDATE yt_request_jobs "
+                        "SET status='playing', started_at=datetime('now'), "
+                        "azura_file_id=CASE WHEN (azura_file_id IS NULL OR azura_file_id='') "
+                        "THEN ? ELSE azura_file_id END "
+                        "WHERE id=?",
+                        (media_id, job_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE yt_request_jobs "
+                        "SET status='playing', started_at=datetime('now') WHERE id=?",
+                        (job_id,),
+                    )
+            else:
+                conn.execute(
+                    "UPDATE yt_request_jobs SET status=? WHERE id=?",
+                    (status, job_id),
+                )
+        print(f"[RADIO_STATUS] job={job_id} new={status!r} reason={reason}")
+    except Exception as exc:
+        print(f"{_LOG} set_playback_status({job_id},{status!r}): {exc}")
+
+
+def mark_failed_if_unplayed(job_id: int, reason: str) -> "dict | None":
+    """
+    Mark an unplayed request as error and return refund details for the caller.
+
+    Returns None when the row is missing or already played.
+    """
+    if not job_id:
+        return None
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT user_id, username, coins_charged, status, played_at "
+                "FROM yt_request_jobs WHERE id=?",
+                (job_id,),
+            ).fetchone()
+            if not row:
+                return None
+            uid, username, coins, status, played_at = row
+            if played_at or status == "played":
+                return None
+            conn.execute(
+                "UPDATE yt_request_jobs SET status='error', error=?, finished_at=datetime('now') "
+                "WHERE id=? AND status!='played' AND played_at IS NULL",
+                (reason, job_id),
+            )
+            return {
+                "user_id": uid,
+                "username": username,
+                "coins_charged": int(coins or 0),
+                "status": status,
+                "played_at": played_at,
+            }
+    except Exception as exc:
+        print(f"{_LOG} mark_failed_if_unplayed({job_id},{reason!r}): {exc}")
+        return None
+
+
 # ─── Queue reads (DB-based, restart-safe) ─────────────────────────────────────
 
 def pending_jobs() -> list:
