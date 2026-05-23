@@ -139,13 +139,40 @@ def _fav_get(user_id: str, limit: int = 10) -> list:
     try:
         with db.db_conn() as conn:
             rows = conn.execute(
-                "SELECT id, title, youtube_url, COALESCE(artist,'') FROM dj_favorites "
+                "SELECT id, title, youtube_url, COALESCE(artist,''), "
+                "COALESCE(source_type,''), COALESCE(azura_file_id,''), "
+                "COALESCE(azura_song_id,'') FROM dj_favorites "
                 "WHERE user_id=? ORDER BY favorited_at DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
-            return [{"id": r[0], "title": r[1], "url": r[2], "artist": r[3]} for r in rows]
+            return [
+                {
+                    "id": r[0], "title": r[1], "url": r[2], "artist": r[3],
+                    "source_type": r[4], "azura_file_id": r[5],
+                    "azura_song_id": r[6],
+                }
+                for r in rows
+            ]
     except Exception:
         return []
+
+
+def _fav_update_youtube_source(fav_id: int, url: str, artist: str = "") -> None:
+    """Backfill a favorite with the YouTube URL found by !playfav fallback."""
+    if not fav_id or not url:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "UPDATE dj_favorites "
+                "SET youtube_url=?, source_type='youtube', "
+                "    artist=CASE WHEN ?!='' THEN ? ELSE artist END "
+                "WHERE id=?",
+                (url, artist, artist, fav_id),
+            )
+        print(f"{_LOG} stage=playfav_fallback_update fav_id={fav_id} url={url!r}")
+    except Exception as exc:
+        print(f"{_LOG} playfav fallback source update error: {exc!r}")
 
 
 def _fav_add(user_id: str, username: str, title: str, url: str, artist: str = "") -> bool:
@@ -317,7 +344,7 @@ async def _submit_url(
     bot: "BaseBot", user: "User", url: str,
     metadata: "dict | None" = None,
     priority: int = 0,
-) -> None:
+) -> bool:
     """
     Validate, charge, and launch a job for a confirmed YouTube/audio URL.
     Handles dedup, queue capacity, payment, and cooldown in one place.
@@ -333,12 +360,12 @@ async def _submit_url(
     # Regular users: YouTube URLs only
     if not is_staff and not _is_yt_url(url):
         await _w(bot, uid, "🎵 Please use a YouTube URL or search by song name.")
-        return
+        return False
 
     # Banned requester check
     if rq.is_banned_requester(uname):
         await _w(bot, uid, "🚫 You are not allowed to request songs in this room.")
-        return
+        return False
 
     # Cooldown (admin bypasses)
     if not is_staff:
@@ -347,7 +374,7 @@ async def _submit_url(
         if elapsed < cd:
             remaining = int(cd - elapsed)
             await _w(bot, uid, f"⏳ Cooldown: {remaining}s remaining. Please wait.")
-            return
+            return False
 
     # Dedup (admin bypasses)
     if not is_staff:
@@ -358,7 +385,7 @@ async def _submit_url(
                 bot, uid,
                 f"⚠️ That song was requested recently by @{req_by}. Try again tomorrow.",
             )
-            return
+            return False
 
     # Queue capacity
     if rq.active_count() >= cs.MAX_ACTIVE_JOBS:
@@ -366,7 +393,7 @@ async def _submit_url(
             bot, uid,
             f"📋 Queue is full ({cs.MAX_ACTIVE_JOBS} requests in progress). Please wait.",
         )
-        return
+        return False
 
     # Per-user queue limit
     if not is_staff:
@@ -377,7 +404,7 @@ async def _submit_url(
                 bot, uid,
                 f"📋 You already have {u_count} song(s) queued. Wait for them to play first.",
             )
-            return
+            return False
 
     # Music request credit check (non-staff, non-priority only)
     _credit_consumed = False
@@ -392,10 +419,10 @@ async def _submit_url(
                 "❌ Out of 💿 Song Plays! Use !musicshop to buy more.\n"
                 "New players get 5 free plays. Packs from 500 🪙 or 20 🎟️",
             )
-            return
+            return False
         if not mc.consume_credit(uid, uname):
             await _w(bot, uid, "❌ Out of 💿 Song Plays! Use !musicshop.")
-            return
+            return False
         _credit_consumed = True
 
     # Price + payment
@@ -405,7 +432,7 @@ async def _submit_url(
         if _credit_consumed:
             mc.refund_credit(uid, uname)
         await _w(bot, uid, f"💸 {err}")
-        return
+        return False
 
     # Update cooldown after successful charge
     _cooldowns[uid] = time.time()
@@ -446,6 +473,7 @@ async def _submit_url(
         payment_type="paid" if price > 0 else "free",
         priority=priority,
     )
+    return True
 
 
 # ─── !request ─────────────────────────────────────────────────────────────────
@@ -1983,6 +2011,51 @@ async def handle_removefav(bot: "BaseBot", user: "User", args: list) -> None:
     await handle_removefavorite(bot, user, args)
 
 
+async def _playfav_youtube_fallback(bot: "BaseBot", user: "User", fav: dict, pos: int) -> None:
+    """
+    Rehydrate a source-less favorite by searching YouTube from saved metadata,
+    then submit through the normal request pipeline.
+    """
+    title = (fav.get("title") or "").strip()
+    artist = (fav.get("artist") or "").strip()
+    query = " ".join(p for p in (title, artist) if p).strip()
+    if not query:
+        await _w(bot, user.id, f"⚠️ Favorite #{pos} has no title to search.")
+        return
+
+    await _w(bot, user.id, f"🔍 Finding saved favorite: {query[:54]}")
+    loop = asyncio.get_running_loop()
+    try:
+        results = await loop.run_in_executor(None, rq.search_yt, query, 5)
+    except Exception as exc:
+        print(f"{_LOG} playfav fallback search error: {exc!r}")
+        await _w(bot, user.id, "❌ Could not search YouTube for that favorite.")
+        return
+
+    if not results:
+        await _w(bot, user.id, f"❌ No YouTube match found for '{title[:40]}'.")
+        return
+
+    picked = next(
+        (r for r in results if int(r.get("duration_secs") or 0) <= cs.MAX_DURATION_SECS),
+        results[0],
+    )
+    url = (picked.get("url") or "").strip()
+    if not url:
+        await _w(bot, user.id, f"❌ Search found '{title[:40]}' but no playable URL.")
+        return
+
+    ok = await _submit_url(
+        bot, user, url,
+        metadata={
+            "title": picked.get("title") or title,
+            "artist": artist,
+        },
+    )
+    if ok:
+        _fav_update_youtube_source(fav.get("id") or 0, url, artist)
+
+
 # ─── !playfav ─────────────────────────────────────────────────────────────────
 
 async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
@@ -2072,8 +2145,7 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
             queue_position=_pos,
         )
     else:
-        await _w(bot, user.id,
-            f"⚠️ #{pos} '{t}' has no playable source. Try !fav again while it plays.")
+        await _playfav_youtube_fallback(bot, user, fav, pos)
 
 
 # ─── !playmine ────────────────────────────────────────────────────────────────
