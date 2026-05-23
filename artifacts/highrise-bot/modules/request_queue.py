@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 import database as db
 import modules.radio_diagnostics as diag
-from modules.radio_status import ACTIVE_QUEUE_STATUSES
+from modules.radio_status import ACTIVE_QUEUE_STATUSES, TERMINAL_QUEUE_STATUSES
 
 if TYPE_CHECKING:
     from highrise import BaseBot
@@ -37,6 +37,8 @@ _LOG = "[RQ]"
 # All in-flight statuses used for capacity / dedup checks (full pipeline).
 _ACTIVE = ACTIVE_QUEUE_STATUSES
 _ACT_PH = ",".join("?" * len(_ACTIVE))
+_TERMINAL = TERMINAL_QUEUE_STATUSES
+_TERM_PH = ",".join("?" * len(_TERMINAL))
 
 # Statuses shown by !queue — every visible in-flight stage including playing.
 # "pending"  = job created, pipeline not yet started
@@ -93,6 +95,29 @@ def _job_user_id(job_id: int) -> str:
             return (row[0] or "") if row else ""
     except Exception:
         return ""
+
+
+def get_job_status(job_id: int) -> str:
+    """Return the current yt_request_jobs.status for a row, or empty string."""
+    if not job_id:
+        return ""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT status FROM yt_request_jobs WHERE id=?",
+                (job_id,),
+            ).fetchone()
+            return (row[0] or "") if row else ""
+    except Exception:
+        return ""
+
+
+def is_terminal_status(status: str) -> bool:
+    return (status or "").strip().lower() in _TERMINAL
+
+
+def is_terminal_job(job_id: int) -> bool:
+    return is_terminal_status(get_job_status(job_id))
 
 
 # ─── Queue writes (single DB writer facade) ──────────────────────────────────
@@ -186,6 +211,40 @@ def mark_ready(job_id: int, finished_at: "object | None" = None,
     if finished_at is not None:
         updates["finished_at"] = finished_at
     update_job_fields(job_id, **updates)
+
+
+def mark_submitted(job_id: int) -> bool:
+    """
+    Mark a ready request as queued after AzuraCast accepts submit_request().
+
+    This makes Azura submission durable across bot restarts: a queued row can
+    still be matched when it plays, but it will not be selected for submission
+    again by playback_engine.
+    """
+    if not job_id:
+        return False
+    try:
+        with db.db_conn() as conn:
+            cur = conn.execute(
+                "UPDATE yt_request_jobs "
+                "SET status='queued' "
+                "WHERE id=? AND status='ready' "
+                "AND played_at IS NULL AND cleaned_at IS NULL",
+                (job_id,),
+            )
+        changed = bool(cur.rowcount)
+        if changed:
+            diag.log_radio_event(
+                "status_transition",
+                request_id=job_id,
+                user_id=_job_user_id(job_id),
+                status_transition="ready->queued",
+                queue_event="azuracast_submit_accepted",
+            )
+        return changed
+    except Exception as exc:
+        print(f"{_LOG} mark_submitted({job_id}): {exc}")
+        return False
 
 
 def mark_playing(job_id: int, media_id: str = "", reason: str = "request_queue",
@@ -295,15 +354,15 @@ def mark_played_if_unplayed(job_id: int) -> None:
 
 
 def mark_playing_if_not_terminal(job_id: int) -> None:
-    """Set status='playing' unless the row is already playing or played."""
+    """Set status='playing' unless the row is already terminal."""
     if not job_id:
         return
     try:
         with db.db_conn() as conn:
             conn.execute(
                 "UPDATE yt_request_jobs SET status='playing'"
-                " WHERE id=? AND status NOT IN ('playing','played')",
-                (job_id,),
+                f" WHERE id=? AND status NOT IN ({_TERM_PH})",
+                (job_id, *_TERMINAL),
             )
     except Exception as exc:
         print(f"{_LOG} mark_playing_if_not_terminal({job_id}): {exc}")
@@ -315,34 +374,46 @@ def set_playback_status(job_id: int, status: str, media_id: str = "",
     if not job_id:
         return
     try:
+        changed = False
         with db.db_conn() as conn:
             if status == "played":
-                conn.execute(
+                cur = conn.execute(
                     "UPDATE yt_request_jobs "
-                    "SET status='played', played_at=datetime('now') WHERE id=?",
-                    (job_id,),
+                    f"SET status='played', played_at=COALESCE(played_at, datetime('now')) "
+                    f"WHERE id=? AND status NOT IN ({_TERM_PH})",
+                    (job_id, *_TERMINAL),
                 )
+                changed = bool(cur.rowcount)
             elif status == "playing":
                 if media_id:
-                    conn.execute(
+                    cur = conn.execute(
                         "UPDATE yt_request_jobs "
                         "SET status='playing', started_at=datetime('now'), "
                         "azura_file_id=CASE WHEN (azura_file_id IS NULL OR azura_file_id='') "
                         "THEN ? ELSE azura_file_id END "
-                        "WHERE id=?",
-                        (media_id, job_id),
+                        f"WHERE id=? AND status NOT IN ({_TERM_PH})",
+                        (media_id, job_id, *_TERMINAL),
                     )
                 else:
-                    conn.execute(
+                    cur = conn.execute(
                         "UPDATE yt_request_jobs "
-                        "SET status='playing', started_at=datetime('now') WHERE id=?",
-                        (job_id,),
+                        f"SET status='playing', started_at=datetime('now') "
+                        f"WHERE id=? AND status NOT IN ({_TERM_PH})",
+                        (job_id, *_TERMINAL),
                     )
+                changed = bool(cur.rowcount)
             else:
-                conn.execute(
+                cur = conn.execute(
                     "UPDATE yt_request_jobs SET status=? WHERE id=?",
                     (status, job_id),
                 )
+                changed = bool(cur.rowcount)
+        if not changed:
+            print(
+                f"[RADIO_STATUS] job={job_id} unchanged status={status!r}"
+                f" reason={reason}"
+            )
+            return
         print(f"[RADIO_STATUS] job={job_id} new={status!r} reason={reason}")
         diag.log_radio_event(
             "status_transition",

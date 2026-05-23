@@ -97,6 +97,7 @@ def _db_find_oldest_ready() -> "dict | None":
             row = conn.execute(
                 f"SELECT {_SEL} FROM yt_request_jobs "
                 "WHERE status='ready' AND played_at IS NULL "
+                "  AND cleaned_at IS NULL "
                 "ORDER BY id ASC LIMIT 1",
             ).fetchone()
             return _jrow(row) if row else None
@@ -621,10 +622,11 @@ def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
 # ─── Track event handlers ─────────────────────────────────────────────────────
 
 async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
-    global _cur_req_id, _live_req
+    global _cur_req_id, _live_req, _submitted_jids
     with _lock:
         _cur_req_id = 0
         _live_req   = None
+        _submitted_jids.discard(db_id)
     print(f"{_LOG} stage=request_live_clear request_id={db_id}")
 
     job = _db_get_job(db_id)
@@ -640,7 +642,7 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         )
         return
 
-    _db_set_status(db_id, "played")
+    rq.mark_played(db_id, reason="playback_engine_finished")
     if job:
         _db_backfill_playfav_source_after_play(job)
 
@@ -949,6 +951,13 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
         if job.get("status") == "playing":
             print(f"{_LOG} Job {job_id} already playing — skip task done early")
             return
+        if rq.is_terminal_status(job.get("status", "")):
+            _submitted_jids.discard(job_id)
+            print(
+                f"{_LOG} stage=request_submit_guard request_id={job_id}"
+                f" status={job.get('status')!r} terminal=true"
+            )
+            return
 
         print(
             f"{_LOG} Verified-skip started:"
@@ -966,12 +975,26 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
         if job and job.get("status") == "playing":
             print(f"{_LOG} Job {job_id} started playing during settle wait — done")
             return
+        if (not job) or rq.is_terminal_status(job.get("status", "")):
+            _submitted_jids.discard(job_id)
+            print(
+                f"{_LOG} stage=request_submit_guard request_id={job_id}"
+                f" status={(job or {}).get('status')!r} terminal=true"
+            )
+            return
 
         if _stop_flag.is_set():
             return
 
         # ── Submit request to AzuraCast queue ─────────────────────────────────
         if unique_id:
+            if rq.is_terminal_job(job_id):
+                _submitted_jids.discard(job_id)
+                print(
+                    f"{_LOG} stage=request_submit_guard request_id={job_id}"
+                    f" status={rq.get_job_status(job_id)!r} terminal=true"
+                )
+                return
             submit_ok = await loop.run_in_executor(None, azura.submit_request, unique_id)
             if not submit_ok:
                 _submitted_jids.discard(job_id)
@@ -979,6 +1002,7 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                     None, _db_fail_and_refund, job_id, "azuracast_submit_failed"
                 )
                 return
+            rq.mark_submitted(job_id)
             await asyncio.sleep(0.3)
             print(
                 f"{_LOG} stage=request_submitted_no_skip"
@@ -1148,6 +1172,13 @@ async def _poll_loop(bot: "BaseBot") -> None:
             if all_ready and not skip_task_busy:
                 next_job = _db_find_oldest_ready()
                 if next_job and next_job["id"] not in _submitted_jids:
+                    if rq.is_terminal_status(next_job.get("status", "")):
+                        print(
+                            f"{_LOG} stage=request_submit_guard"
+                            f" request_id={next_job['id']} status={next_job.get('status')!r}"
+                            f" terminal=true"
+                        )
+                        continue
                     uid = (next_job.get("azura_song_id") or "").strip()
                     if uid:
                         _submitted_jids.add(next_job["id"])
@@ -1433,15 +1464,16 @@ async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
     transitions.  Queues file cleanup (move to PlayedRequests/, rescan)
     and switches playlists back to VIBE mode if the queue is now empty.
     """
-    global _cur_req_id, _live_req
+    global _cur_req_id, _live_req, _submitted_jids
     with _lock:
         if _cur_req_id == job_id:
             _cur_req_id = 0
         _live_req = None
+        _submitted_jids.discard(job_id)
     print(f"{_LOG} stage=autodj_resume source=skip request_id={job_id}")
 
     job = _db_get_job(job_id)
-    _db_set_status(job_id, "played")
+    rq.mark_played(job_id, reason="playback_engine_skipped")
 
     fn_s  = (job.get("filename")      if job else None) or "?"
     fid_s = (job.get("azura_file_id") if job else None) or "?"
