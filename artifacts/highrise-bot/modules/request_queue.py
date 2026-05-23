@@ -40,12 +40,12 @@ _ACT_PH = ",".join("?" * len(_ACTIVE))
 _TERMINAL = TERMINAL_QUEUE_STATUSES
 _TERM_PH = ",".join("?" * len(_TERMINAL))
 
-# Statuses shown by !queue — every visible in-flight stage including playing.
+# Statuses shown by !queue — upcoming/waiting stages only.
 # "pending"  = job created, pipeline not yet started
 # "staged"   = download done, waiting for AzuraCast /Requests slot (📦)
 # "ready"    = uploaded to AzuraCast Requests playlist, awaiting playback (✅)
 # "playing"  = currently streaming — shown as ▶️ NOW PLAYING at top of !queue
-_DISPLAY_STATUSES = ACTIVE_QUEUE_STATUSES
+_DISPLAY_STATUSES = tuple(s for s in ACTIVE_QUEUE_STATUSES if s != "playing")
 _DSP_PH = ",".join("?" * len(_DISPLAY_STATUSES))
 
 # Statuses counted for queue-position / per-user limit checks.
@@ -63,13 +63,14 @@ _CLR_PH = ",".join("?" * len(_CLEAR_STATUSES))
 _COLS = (
     "id", "user_id", "username", "url", "title", "status",
     "filename", "azura_file_id", "azura_song_id", "coins_charged", "started_at",
-    "video_id", "artist", "priority",
+    "video_id", "artist", "priority", "source_type",
 )
 _SEL = (
     "id, user_id, username, url, title, status, "
     "filename, azura_file_id, azura_song_id, coins_charged, started_at, video_id, "
     "COALESCE(artist, '') AS artist, "
-    "COALESCE(priority, 0) AS priority"
+    "COALESCE(priority, 0) AS priority, "
+    "COALESCE(source_type, '') AS source_type"
 )
 
 
@@ -151,8 +152,23 @@ def create_request(job: "dict | None" = None, **fields: object) -> int:
                 "queue_event",
                 request_id=request_id,
                 user_id=data.get("user_id", ""),
+                username=data.get("username", ""),
+                title=data.get("title", ""),
+                source_type=data.get("source_type", ""),
                 status_transition=f"created->{data.get('status', 'pending')}",
                 queue_event="create_request",
+            )
+            diag.log_radio_event(
+                "request_created",
+                request_id=request_id,
+                user_id=data.get("user_id", ""),
+                username=data.get("username", ""),
+                title=data.get("title", ""),
+                source_type=data.get("source_type", ""),
+                temp_path=data.get("filename", ""),
+                source_path=data.get("url", ""),
+                azura_file_id=data.get("azura_file_id", ""),
+                azura_song_id=data.get("azura_song_id", ""),
             )
             return request_id
     except Exception as exc:
@@ -173,7 +189,7 @@ def update_job_fields(job_id: int, **kwargs: object) -> None:
         "title", "status", "error", "finished_at", "filename",
         "azura_file_id", "azura_song_id",
         "video_id", "yt_uploader", "artist",
-        "coins_charged", "payment_type", "priority",
+        "coins_charged", "payment_type", "priority", "source_type",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
@@ -225,6 +241,12 @@ def mark_submitted(job_id: int) -> bool:
         return False
     try:
         with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT user_id, username, title, filename, source_type, "
+                "azura_file_id, azura_song_id "
+                "FROM yt_request_jobs WHERE id=?",
+                (job_id,),
+            ).fetchone()
             cur = conn.execute(
                 "UPDATE yt_request_jobs "
                 "SET status='queued' "
@@ -240,6 +262,18 @@ def mark_submitted(job_id: int) -> bool:
                 user_id=_job_user_id(job_id),
                 status_transition="ready->queued",
                 queue_event="azuracast_submit_accepted",
+            )
+            diag.log_radio_event(
+                "submitted_to_azura",
+                request_id=job_id,
+                user_id=(row[0] if row else ""),
+                username=(row[1] if row else ""),
+                title=(row[2] if row else ""),
+                source_type=(row[4] if row else ""),
+                temp_path=(row[3] if row else ""),
+                source_path="",
+                azura_file_id=(row[5] if row else ""),
+                azura_song_id=(row[6] if row else ""),
             )
         return changed
     except Exception as exc:
@@ -293,10 +327,27 @@ def update_azura_ids(job_id: int, file_id: str, song_id: str) -> None:
         return
     try:
         with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT user_id, username, title, filename, source_type "
+                "FROM yt_request_jobs WHERE id=?",
+                (job_id,),
+            ).fetchone()
             conn.execute(
                 "UPDATE yt_request_jobs SET azura_file_id=?, azura_song_id=? WHERE id=?",
                 (str(file_id), song_id, job_id),
             )
+        diag.log_radio_event(
+            "file_source_ready",
+            request_id=job_id,
+            user_id=(row[0] if row else ""),
+            username=(row[1] if row else ""),
+            title=(row[2] if row else ""),
+            source_type=(row[4] if row else ""),
+            temp_path=(row[3] if row else ""),
+            source_path="",
+            azura_file_id=str(file_id),
+            azura_song_id=song_id,
+        )
     except Exception as exc:
         print(f"{_LOG} update_azura_ids({job_id}): {exc}")
 
@@ -519,6 +570,35 @@ def display_jobs() -> list:
         return []
 
 
+def render_added_to_queue_message(
+    *,
+    title: str = "",
+    artist: str = "",
+    position: int = 0,
+    priority: int = 0,
+    staff_free: bool = False,
+    plays_left: "int | None" = None,
+) -> str:
+    """Shared request acceptance whisper for YouTube and local favorites."""
+    lines = ["⭐ Priority added" if priority else "✅ Added to queue"]
+    title = (title or "").strip()[:50]
+    artist = (artist or "").strip()[:28]
+    if title:
+        lines.append(f"Title: {title}")
+    if artist:
+        lines.append(f"Artist: {artist}")
+    lines.append(f"Position: #{position or '?'}")
+    if staff_free:
+        lines.append("🛠️ Staff: Free")
+    elif priority:
+        lines.append("⭐ Priority")
+    elif plays_left is not None:
+        lines.append(f"💿 Plays left: {int(plays_left)}")
+    else:
+        lines.append("Cost: Free")
+    return "\n".join(lines)[:249]
+
+
 def mark_as_playing(job_id: int) -> None:
     """
     Mark a request as playing in the DB.
@@ -718,7 +798,7 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
                 try:
                     if "/" in fn or "\\" in fn:
                         diag.log_radio_event(
-                            "local_cleanup_safety_skip",
+                            "cleanup_safety_skip",
                             request_id=jid,
                             user_id=uid,
                             temp_path=fn,

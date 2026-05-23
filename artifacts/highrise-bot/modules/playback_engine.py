@@ -70,10 +70,12 @@ _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
 _COLS = (
     "id", "user_id", "username", "url", "title", "filename",
     "azura_file_id", "azura_song_id", "coins_charged", "status", "video_id",
+    "source_type",
 )
 _SEL = (
     "id, user_id, username, url, title, filename, "
-    "azura_file_id, azura_song_id, coins_charged, status, video_id"
+    "azura_file_id, azura_song_id, coins_charged, status, video_id, "
+    "COALESCE(source_type, '') AS source_type"
 )
 
 
@@ -565,6 +567,21 @@ def _delete_request_file(
     azura_path = f"Requests/{fn}" if fn else ""
     removed_from_azura = False
     is_local_temp = _is_local_temp_basename(fn)
+    log_user_id = ""
+    log_username = ""
+    log_source_type = ""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT user_id, username, source_type FROM yt_request_jobs WHERE id=?",
+                (db_id,),
+            ).fetchone()
+            if row:
+                log_user_id = row[0] or ""
+                log_username = row[1] or ""
+                log_source_type = row[2] or ""
+    except Exception:
+        pass
 
     def _log(action: str, result: str, **extra: str) -> None:
         extras = "".join(f" {k}={v}" for k, v in extra.items())
@@ -586,9 +603,12 @@ def _delete_request_file(
         _log("cleanup_safety_skip", "fail", reason="path_not_basename")
         if is_local_temp:
             diag.log_radio_event(
-                "local_cleanup_safety_skip",
+                "cleanup_safety_skip",
                 request_id=db_id,
+                user_id=log_user_id,
+                username=log_username,
                 title=title_s,
+                source_type=log_source_type,
                 azura_file_id=cur_fid,
                 azura_song_id=song_id,
                 temp_path=fn,
@@ -598,9 +618,12 @@ def _delete_request_file(
 
     if is_local_temp:
         diag.log_radio_event(
-            "local_cleanup_started",
+            "cleanup_started",
             request_id=db_id,
+            user_id=log_user_id,
+            username=log_username,
             title=title_s,
+            source_type=log_source_type,
             azura_file_id=cur_fid,
             azura_song_id=song_id,
             temp_path=fn,
@@ -676,18 +699,24 @@ def _delete_request_file(
         _log("cleanup_complete", "success", title=repr(title_s))
         if is_local_temp:
             diag.log_radio_event(
-                "local_removed_from_azura",
+                "removed_from_azura",
                 request_id=db_id,
+                user_id=log_user_id,
+                username=log_username,
                 title=title_s,
+                source_type=log_source_type,
                 azura_file_id=cur_fid,
                 azura_song_id=song_id,
                 temp_path=fn,
                 source_path="",
             )
             diag.log_radio_event(
-                "local_temp_deleted",
+                "temp_deleted",
                 request_id=db_id,
+                user_id=log_user_id,
+                username=log_username,
                 title=title_s,
+                source_type=log_source_type,
                 azura_file_id=cur_fid,
                 azura_song_id=song_id,
                 temp_path=fn,
@@ -805,7 +834,7 @@ async def _on_local_replay_finished(bot: "BaseBot", temp_basename: str) -> None:
 
     if not _is_local_temp_basename(temp_basename):
         print(f"{_LR} safety guard: ignored non-replay basename={temp_basename!r}")
-        diag.log_radio_event("local_cleanup_safety_skip", temp_path=temp_basename)
+        diag.log_radio_event("cleanup_safety_skip", temp_path=temp_basename)
         return
 
     # ── Fetch local_replay_jobs row ───────────────────────────────────────────
@@ -1196,9 +1225,15 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
 
                 _db_set_status(job_id, "playing", media_id=np_fid)
                 diag.log_radio_event(
-                    "playback_confirmation",
+                    "playback_confirmed",
                     request_id=job_id,
                     user_id=job.get("user_id", ""),
+                    username=job.get("username", ""),
+                    title=req_title,
+                    source_type=job.get("source_type", ""),
+                    temp_path=req_fn,
+                    azura_file_id=np_fid,
+                    azura_song_id=np_uid or unique_id,
                     status="playing",
                     queue_event="request_takeover_success",
                     match_method=match_method,

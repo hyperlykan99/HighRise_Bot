@@ -306,6 +306,7 @@ def _new_job(user_id: str, username: str, url: str,
             "coins_charged": coins_charged,
             "payment_type":  payment_type,
             "priority":      priority,
+            "source_type":   "youtube",
         }
         _jobs[jid] = job
     # Persist outside the lock (non-fatal if DB is unavailable)
@@ -1611,6 +1612,16 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         coins_c = job.get("coins_charged", 0)
         if coins_c > 0:
             _refund_coins(uid, coins_c)
+        diag.log_radio_event(
+            "request_failed_refunded",
+            request_id=job.get("db_id", 0),
+            user_id=uid,
+            username=job.get("username", ""),
+            title=job.get("title", ""),
+            source_type=job.get("source_type", "youtube"),
+            temp_path=job.get("filename", ""),
+            source_path=job.get("url", ""),
+        )
         refund_note = f" {coins_c:,} coins refunded." if coins_c > 0 else ""
         await _w(bot, uid, f"❌ Couldn't prepare that song. Try another version.{refund_note}")
 
@@ -1627,6 +1638,16 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         coins_c = job.get("coins_charged", 0)
         if coins_c > 0:
             _refund_coins(uid, coins_c)
+        diag.log_radio_event(
+            "request_failed_refunded",
+            request_id=job.get("db_id", 0),
+            user_id=uid,
+            username=job.get("username", ""),
+            title=job.get("title", ""),
+            source_type=job.get("source_type", "youtube"),
+            temp_path=job.get("filename", ""),
+            source_path=job.get("url", ""),
+        )
         refund_note = f" {coins_c:,} coins refunded." if coins_c > 0 else ""
         await _w(bot, uid, f"❌ Couldn't prepare that song. Try another version.{refund_note}")
 
@@ -1643,6 +1664,16 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         coins_c = job.get("coins_charged", 0)
         if coins_c > 0:
             _refund_coins(uid, coins_c)
+        diag.log_radio_event(
+            "request_failed_refunded",
+            request_id=job.get("db_id", 0),
+            user_id=uid,
+            username=job.get("username", ""),
+            title=job.get("title", ""),
+            source_type=job.get("source_type", "youtube"),
+            temp_path=job.get("filename", ""),
+            source_path=job.get("url", ""),
+        )
         refund_note = f" {coins_c:,} coins refunded." if coins_c > 0 else ""
         await _w(bot, uid, f"❌ Couldn't prepare that song. Try another version.{refund_note}")
 
@@ -1663,6 +1694,76 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
         with _prep_ids_lock:
             _prep_active_jids.discard(jid)
+
+
+async def process_existing_request_file(
+    bot: "BaseBot",
+    db_id: int,
+    filename: str,
+    *,
+    source_type: str = "local_replay",
+    source_path: str = "",
+) -> bool:
+    """
+    Continue the normal request pipeline after a temp MP3 already exists in
+    the AzuraCast Requests folder.
+
+    YouTube jobs differ only in their source step (download). Local favorites
+    differ only in their source step (copy). Once `filename` exists, both use
+    the same Azura post-upload indexing/playlist assignment, ready status,
+    playback confirmation, and cleanup path.
+    """
+    if not db_id or not filename:
+        return False
+
+    loop = asyncio.get_running_loop()
+    try:
+        rq.update_job_fields(db_id, status="uploading", filename=filename)
+        diag.log_radio_event(
+            "file_source_ready",
+            request_id=db_id,
+            source_type=source_type,
+            temp_path=filename,
+            source_path=source_path,
+        )
+        async with _upload_sem:
+            await loop.run_in_executor(
+                None,
+                _azura_post_upload,
+                filename,
+                db_id,
+                bot,
+                loop,
+            )
+
+        status = rq.get_job_status(db_id)
+        if rq.is_terminal_status(status):
+            return False
+
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT azura_file_id, azura_song_id FROM yt_request_jobs WHERE id=?",
+                (db_id,),
+            ).fetchone()
+        azura_file_id = (row[0] or "") if row else ""
+        azura_song_id = (row[1] or "") if row else ""
+        if not azura_file_id or not azura_song_id:
+            return False
+
+        rq.mark_ready(db_id, filename=filename, source_type=source_type)
+        diag.log_radio_event(
+            "submitted_to_azura",
+            request_id=db_id,
+            source_type=source_type,
+            temp_path=filename,
+            source_path=source_path,
+            azura_file_id=azura_file_id,
+            azura_song_id=azura_song_id,
+        )
+        return True
+    except Exception as exc:
+        print(f"[YT_REQUEST] process_existing_request_file error: {exc!r}")
+        return False
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Staged-job promotion (Option A: one active file in /Requests at a time)

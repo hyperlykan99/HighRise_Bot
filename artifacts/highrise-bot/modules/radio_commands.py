@@ -450,24 +450,22 @@ async def _submit_url(
     # Compute queue position: count only future songs, excluding currently playing
     _pos = rq.future_count() + 1
 
-    # Confirmation whisper — spec format (title/artist only when known from !pick)
+    # Confirmation whisper — shared with local favorites.
     _title  = ((metadata.get("title")  or "") if metadata else "")[:50]
     _artist = ((metadata.get("artist") or metadata.get("uploader") or "") if metadata else "")[:28]
-    _header = "⭐ Priority added" if priority else "✅ Added to queue"
-    _lines  = [_header]
-    if _title:
-        _lines.append(f"Title: {_title}")
-    if _artist:
-        _lines.append(f"Artist: {_artist}")
-    _lines.append(f"Position: #{_pos}")
-    if is_staff:
-        _lines.append("🛠️ Staff: Free")
-    elif priority:
-        _lines.append("⭐ Priority")
-    else:
-        _remaining = mc.get_credits(uid, uname)["total"]
-        _lines.append(f"💿 Plays left: {_remaining}")
-    await _w(bot, uid, "\n".join(_lines)[:249])
+    _remaining = None if (is_staff or priority) else mc.get_credits(uid, uname)["total"]
+    await _w(
+        bot,
+        uid,
+        rq.render_added_to_queue_message(
+            title=_title,
+            artist=_artist,
+            position=_pos,
+            priority=priority,
+            staff_free=is_staff,
+            plays_left=_remaining,
+        ),
+    )
 
     # Radio rewards: successful request queued
     _req_key = (_title or url)[:150]
@@ -722,10 +720,10 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
             pass
 
     if not all_jobs:
-        await _send_queue_page("DJ_DUDU QUEUE:\nempty\n!play to request a song")
+        await _send_queue_page("🎶 QUEUE\nempty\n!play to request a song")
         return
 
-    lines: list[str] = ["DJ_DUDU QUEUE:"]
+    lines: list[str] = ["🎶 QUEUE"]
     for n, j in enumerate(all_jobs, 1):
         icon   = _qicon(j.get("status", ""))
         uname  = (j.get("username") or "?").strip()[:12]
@@ -2139,6 +2137,7 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
 
         # Music request credit (mirrors _submit_url)
         _cr_consumed = False
+        _plays_left_after = None
         if not is_stf:
             if not mc.has_credits(uid, uname):
                 await _w(bot, uid,
@@ -2150,6 +2149,10 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
                     "❌ Could not consume Song Play credit. Try again.")
                 return
             _cr_consumed = True
+            try:
+                _plays_left_after = mc.get_credits(uid, uname)["total"]
+            except Exception:
+                _plays_left_after = None
 
         price = ps.request_cost_for(uname)
         ok, err = ps.charge(uid, price)
@@ -2170,6 +2173,7 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
             payment_type="paid" if price > 0 else "free",
             queue_position=_pos,
             staff_free=is_stf,
+            plays_left=_plays_left_after,
         )
     else:
         await _playfav_youtube_fallback(bot, user, fav, pos)

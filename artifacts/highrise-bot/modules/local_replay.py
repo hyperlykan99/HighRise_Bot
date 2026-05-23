@@ -481,7 +481,7 @@ def _sftp_delete_temp(temp_filename: str) -> bool:
     if not _safe_temp_filename(temp_filename):
         print(f"{_LOG} delete refused — not a temp file: {temp_filename!r}")
         _radio_event(
-            "local_cleanup_safety_skip",
+            "cleanup_safety_skip",
             temp_path=temp_filename,
             source_path="",
         )
@@ -526,7 +526,7 @@ def _cleanup_stale_temps() -> int:
     cleaned = 0
     for (tfn, fid) in rows:
         if not tfn or not _safe_temp_filename(tfn):
-            _radio_event("local_cleanup_safety_skip", temp_path=tfn or "", source_path="")
+            _radio_event("cleanup_safety_skip", temp_path=tfn or "", source_path="")
             continue
         # Remove from all playlists before SFTP delete so AutoDJ
         # cannot replay the temp file while the delete is in flight.
@@ -573,7 +573,7 @@ def queue_local_copy_sync(
 async def queue_local_fav(
     bot, user, fav: dict, pos: int, credit_consumed: bool = False,
     coins_charged: int = 0, payment_type: str = "free", queue_position: int = 0,
-    staff_free: bool = False,
+    staff_free: bool = False, plays_left: "int | None" = None,
 ) -> None:
     """
     Queue a local (non-YouTube) AzuraCast favorite as a local replay.
@@ -652,28 +652,19 @@ async def queue_local_fav(
         await _fail(f"❌ Could not add '{fav_title}' to the queue. Try again.")
         return
 
-    if int(coins_charged or 0) > 0:
-        cost_line = f"Cost: {int(coins_charged):,} coins"
-    else:
-        cost_line = "Staff: Free" if staff_free else "Cost: Free"
-    await _w(
-        f"✅ Added to queue\n"
-        f"Title: {fav_title}\n"
-        f"Position: #{queue_position or '?'}\n"
-        f"{cost_line}\n"
-        f"Status: preparing"
-    )
-    _radio_event(
-        "local_request_created",
-        request_id=request_id,
-        user_id=uid,
+    if plays_left is None and not staff_free:
+        try:
+            import modules.music_credits as _mc
+            plays_left = _mc.get_credits(uid, uname)["total"]
+        except Exception:
+            plays_left = None
+    await _w(rq.render_added_to_queue_message(
         title=fav_title,
-        azura_file_id="",
-        azura_song_id="",
-        temp_path="",
-        source_path="",
-    )
-
+        artist=fav_artist,
+        position=queue_position,
+        staff_free=staff_free,
+        plays_left=plays_left,
+    ))
     asyncio.create_task(
         _prepare_local_fav_request(
             bot=bot,
@@ -727,10 +718,12 @@ async def _prepare_local_fav_request(
             except Exception as exc:
                 print(f"{_LOG} queue_local_fav refund error: {exc!r}")
         _radio_event(
-            "local_cleanup_safety_skip" if reason == "local_cleanup_safety_skip" else "local_request_failed",
+            "cleanup_safety_skip" if reason == "local_cleanup_safety_skip" else "request_failed_refunded",
             request_id=request_id,
             user_id=uid,
+            username=uname,
             title=fav_title,
+            source_type="local_replay",
             temp_path=temp_filename,
             source_path=source_path,
         )
@@ -802,7 +795,9 @@ async def _prepare_local_fav_request(
         "local_temp_copy_started",
         request_id=request_id,
         user_id=uid,
+        username=uname,
         title=fav_title,
+        source_type="local_replay",
         azura_file_id="",
         azura_song_id="",
         temp_path=temp_filename,
@@ -827,7 +822,9 @@ async def _prepare_local_fav_request(
         "local_temp_copy_done",
         request_id=request_id,
         user_id=uid,
+        username=uname,
         title=fav_title,
+        source_type="local_replay",
         azura_file_id="",
         azura_song_id="",
         temp_path=temp_filename,
@@ -836,175 +833,49 @@ async def _prepare_local_fav_request(
 
     if _request_is_terminal():
         _radio_event(
-            "local_cleanup_started",
+            "cleanup_started",
             request_id=request_id,
             user_id=uid,
+            username=uname,
             title=fav_title,
+            source_type="local_replay",
             temp_path=temp_filename,
             source_path=azura_file_path,
         )
         if await loop.run_in_executor(None, _sftp_delete_temp, temp_filename):
             _radio_event(
-                "local_temp_deleted",
+                "temp_deleted",
                 request_id=request_id,
                 user_id=uid,
+                username=uname,
                 title=fav_title,
+                source_type="local_replay",
                 temp_path=temp_filename,
                 source_path=azura_file_path,
             )
         return
 
-    # ── Rescan + index poll ───────────────────────────────────────────────────
-    azura_unique_id   = ""
-    azura_file_id_str = ""
-    media_row: "dict | None" = None
     try:
-        from modules.azuracast_controller import rescan_requests_folder, search_media
-        await loop.run_in_executor(None, rescan_requests_folder)
-        await asyncio.sleep(2.0)
-        for attempt in range(1, 6):
-            media_row = await loop.run_in_executor(None, search_media, temp_filename)
-            if media_row:
-                azura_unique_id   = str(
-                    media_row.get("unique_id")
-                    or media_row.get("song_unique_id")
-                    or (media_row.get("song") or {}).get("id")
-                    or ""
-                )
-                azura_file_id_str = str(media_row.get("id") or "")
-                break
-            if attempt < 5:
-                try:
-                    await loop.run_in_executor(None, rescan_requests_folder)
-                except Exception:
-                    pass
-                await asyncio.sleep(2.0)
+        from modules.yt_request import process_existing_request_file
+        ok = await process_existing_request_file(
+            bot,
+            request_id,
+            temp_filename,
+            source_type="local_replay",
+            source_path=azura_file_path,
+        )
     except Exception as exc:
-        print(f"{_LOG} queue_local_fav rescan/index error: {exc!r}")
+        print(f"{_LOG} queue_local_fav post-file pipeline error: {exc!r}")
+        ok = False
 
-    if not azura_unique_id:
+    if not ok and not _request_is_terminal():
         await _fail(
-            f"❌ AzuraCast couldn't index '{fav_title}'. Try again in a moment.",
-            "local_index_failed",
+            f"❌ Couldn't prepare '{fav_title}'. Try another version.",
+            "local_post_file_pipeline_failed",
             temp_filename,
             azura_file_path,
         )
-        return
-
-    requestable = media_row.get("requestable")
-    if requestable is False:
-        await _fail(
-            f"❌ '{fav_title}' is not requestable right now.",
-            "local_requestable_false",
-            temp_filename,
-            azura_file_path,
-        )
-        return
-
-    if _request_is_terminal():
-        try:
-            from modules import azuracast_controller as azc
-            if azura_file_id_str:
-                await loop.run_in_executor(None, azc.clear_file_playlists, azura_file_id_str)
-                await loop.run_in_executor(None, azc.delete_media_file, azura_file_id_str)
-            await loop.run_in_executor(None, azc.sftp_delete_file, temp_filename)
-        except Exception:
-            pass
-        await loop.run_in_executor(None, _sftp_delete_temp, temp_filename)
-        return
-
-    # ── Assign temp file to Requests playlist ────────────────────────────────
-    _pl_assigned  = False
-    _target_pl_id = ""
-    if azura_file_id_str:
-        try:
-            import modules.config_store as _cs
-            from modules.azuracast_controller import (
-                add_file_to_playlist as _add_pl,
-                list_playlists       as _list_pl,
-                find_playlist_by_name as _find_pl,
-            )
-            _target_pl_id = _cs.requests_playlist_id()
-            if not _target_pl_id:
-                _all_pls = await loop.run_in_executor(None, _list_pl)
-                for _pname in ("Requests", "Request"):
-                    _pl_row = await loop.run_in_executor(None, _find_pl, _pname)
-                    if _pl_row:
-                        _target_pl_id = str(_pl_row.get("id") or "")
-                        break
-            if _target_pl_id:
-                _pl_assigned = await loop.run_in_executor(
-                    None, _add_pl, azura_file_id_str, _target_pl_id
-                )
-        except Exception as exc:
-            print(f"{_LOG} queue_local_fav playlist_assign error: {exc!r}")
-
-    if not _pl_assigned:
-        await _fail(
-            f"❌ Couldn't add '{fav_title}' to the request playlist. Try again.",
-            "local_playlist_assign_failed",
-            temp_filename,
-            azura_file_path,
-        )
-        return
-    _update_status(temp_filename, "queued")
-
-    try:
-        import database as _db
-        with _db.db_conn() as conn:
-            conn.execute(
-                "UPDATE local_replay_jobs "
-                "SET azura_unique_id=?, azura_file_id=?, queued_at=datetime('now') "
-                "WHERE temp_filename=?",
-                (azura_unique_id, azura_file_id_str, temp_filename),
-            )
-    except Exception as exc:
-        print(f"{_LOG} queue_local_fav metadata update error: {exc!r}")
-
-    if _request_is_terminal():
-        try:
-            from modules import azuracast_controller as azc
-            if azura_file_id_str:
-                await loop.run_in_executor(None, azc.clear_file_playlists, azura_file_id_str)
-                await loop.run_in_executor(None, azc.delete_media_file, azura_file_id_str)
-            await loop.run_in_executor(None, azc.sftp_delete_file, temp_filename)
-        except Exception:
-            pass
-        await loop.run_in_executor(None, _sftp_delete_temp, temp_filename)
-        return
-
-    try:
-        import modules.request_queue as rq
-        rq.update_azura_ids(request_id, azura_file_id_str, azura_unique_id)
-        rq.mark_ready(request_id, filename=temp_filename)
-    except Exception as exc:
-        print(f"{_LOG} queue_local_fav ready update error: {exc!r}")
-        await _fail(
-            f"❌ Could not stage '{fav_title}' in queue. Try again.",
-            "local_ready_update_failed",
-            temp_filename,
-            azura_file_path,
-        )
-        return
-
-    _radio_event(
-        "local_submitted_to_azura",
-        request_id=request_id,
-        user_id=uid,
-        title=fav_title,
-        azura_file_id=azura_file_id_str,
-        azura_song_id=azura_unique_id,
-        temp_path=temp_filename,
-        source_path=azura_file_path,
-    )
-    print(
-        f"{_LOG} queue_local_fav staged"
-        f" yt_job={request_id} uid={azura_unique_id!r}"
-        f" file_id={azura_file_id_str!r}"
-        f" temp={temp_filename!r}"
-        f" user={uname!r} title={fav_title!r}"
-    )
-
+    return
 
 # !playfavlocal / !localreplaytest
 # ---------------------------------------------------------------------------
