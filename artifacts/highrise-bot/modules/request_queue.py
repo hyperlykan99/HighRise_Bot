@@ -22,6 +22,7 @@ Write operations that need the download pipeline delegate to yt_request via
 _rq() (deferred import to break circular dependency at load time).
 """
 from __future__ import annotations
+import time
 from typing import TYPE_CHECKING
 
 import database as db
@@ -81,27 +82,39 @@ def _rq():
 
 # ─── Queue writes (single DB writer facade) ──────────────────────────────────
 
-def insert_request_job(job: dict) -> int:
+def create_request(job: "dict | None" = None, **fields: object) -> int:
     """Insert a request row into yt_request_jobs. Returns the new row id."""
+    data = dict(job or {})
+    data.update(fields)
     try:
         with db.db_conn() as conn:
             cur = conn.execute(
                 """INSERT INTO yt_request_jobs
                        (user_id, username, url, title, status, started_at,
-                        coins_charged, payment_type, priority)
-                   VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)""",
+                        filename, azura_file_id, azura_song_id,
+                        coins_charged, payment_type, priority, source_type)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    job["user_id"], job["username"], job["url"],
-                    job["title"], job["status"],
-                    job.get("coins_charged", 0),
-                    job.get("payment_type", "free"),
-                    job.get("priority", 0),
+                    data["user_id"], data["username"], data.get("url", ""),
+                    data["title"], data.get("status", "pending"),
+                    data.get("filename", ""),
+                    data.get("azura_file_id", ""),
+                    data.get("azura_song_id", ""),
+                    data.get("coins_charged", 0),
+                    data.get("payment_type", "free"),
+                    data.get("priority", 0),
+                    data.get("source_type", ""),
                 ),
             )
             return cur.lastrowid or 0
     except Exception as exc:
-        print(f"{_LOG} insert_request_job error: {exc}")
+        print(f"{_LOG} create_request error: {exc}")
         return 0
+
+
+def insert_request_job(job: dict) -> int:
+    """Backward-compatible alias for create_request()."""
+    return create_request(job)
 
 
 def update_job_fields(job_id: int, **kwargs: object) -> None:
@@ -133,6 +146,56 @@ def update_job_fields(job_id: int, **kwargs: object) -> None:
             )
     except Exception as exc:
         print(f"{_LOG} update_job_fields({job_id}): {exc}")
+
+
+def mark_ready(job_id: int, finished_at: "object | None" = None,
+               **fields: object) -> None:
+    """Mark a request ready for AzuraCast playback."""
+    updates = dict(fields)
+    updates["status"] = "ready"
+    if finished_at is not None:
+        updates["finished_at"] = finished_at
+    update_job_fields(job_id, **updates)
+
+
+def mark_playing(job_id: int, media_id: str = "", reason: str = "request_queue",
+                 idempotent: bool = False) -> None:
+    """Mark a request as currently playing."""
+    if idempotent:
+        mark_playing_if_not_terminal(job_id)
+        return
+    set_playback_status(job_id, "playing", media_id=media_id, reason=reason)
+
+
+def mark_played(job_id: int, only_if_unplayed: bool = False,
+                reason: str = "request_queue") -> None:
+    """Mark a request as played."""
+    if only_if_unplayed:
+        mark_played_if_unplayed(job_id)
+        return
+    set_playback_status(job_id, "played", reason=reason)
+
+
+def mark_failed(job_id: int, reason: str, status: str = "error",
+                finished_at: "object | None" = None,
+                refund_details: bool = False) -> "dict | None":
+    """Mark a request failed. Optionally return refund details for callers."""
+    if refund_details:
+        return mark_failed_if_unplayed(job_id, reason)
+    if finished_at is None:
+        finished_at = time.time()
+    update_job_fields(job_id, status=status, error=reason, finished_at=finished_at)
+    return None
+
+
+def mark_cancelled(job_id: int, reason: str = "cancelled_by_admin") -> None:
+    """
+    Mark a request cancelled using the table's current terminal representation.
+
+    Existing request rows use status='error' plus an error reason for cancelled
+    jobs, so this preserves behavior while providing a formal lifecycle API.
+    """
+    update_job_fields(job_id, status="error", error=reason)
 
 
 def update_azura_ids(job_id: int, file_id: str, song_id: str) -> None:
@@ -723,13 +786,10 @@ def cancel_job(jid: int, reason: str = "cancelled_by_admin") -> "dict | None":
                 f"WHERE id=? AND status IN ({_ACT_PH})",
                 (jid, *_ACTIVE),
             ).fetchone()
-            if row:
-                job = _jrow(row)
-                conn.execute(
-                    "UPDATE yt_request_jobs SET status='error', error=? WHERE id=?",
-                    (reason, jid),
-                )
-                return job
+        if row:
+            job = _jrow(row)
+            mark_cancelled(jid, reason)
+            return job
     except Exception as exc:
         print(f"{_LOG} cancel_job DB fallback error: {exc}")
     return None

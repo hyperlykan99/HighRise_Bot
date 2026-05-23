@@ -173,20 +173,20 @@ def _register_as_yt_request_job(
     Returns the new row id (0 on error).
     """
     try:
-        import database as _db
-        with _db.db_conn() as conn:
-            cur = conn.execute(
-                """INSERT INTO yt_request_jobs
-                       (user_id, username, url, title, status, started_at,
-                        filename, azura_file_id, azura_song_id, coins_charged,
-                        payment_type, source_type)
-                   VALUES (?, ?, '', ?, 'ready', datetime('now'), ?, ?, ?, ?, ?, 'local_replay')""",
-                (
-                    user_id, username, title, temp_filename, azura_file_id,
-                    azura_song_id, int(coins_charged or 0), payment_type or "free",
-                ),
-            )
-            return cur.lastrowid or 0
+        import modules.request_queue as rq
+        return rq.create_request(
+            user_id=user_id,
+            username=username,
+            url="",
+            title=title,
+            status="ready",
+            filename=temp_filename,
+            azura_file_id=azura_file_id,
+            azura_song_id=azura_song_id,
+            coins_charged=int(coins_charged or 0),
+            payment_type=payment_type or "free",
+            source_type="local_replay",
+        )
     except Exception as exc:
         print(f"{_LOG} _register_as_yt_request_job error: {exc!r}")
         return 0

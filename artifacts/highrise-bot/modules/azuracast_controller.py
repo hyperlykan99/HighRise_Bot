@@ -1012,12 +1012,8 @@ def reconcile_requests_playlist() -> dict:
         )
         if ok:
             try:
-                import database as _db2
-                with _db2.db_conn() as conn:
-                    conn.execute(
-                        "UPDATE yt_request_jobs SET cleaned_at = datetime('now') WHERE id = ?",
-                        (jid,),
-                    )
+                import modules.request_queue as rq
+                rq.mark_cleaned(jid)
             except Exception as exc2:
                 print(f"{_LOG} stage=requests_playlist_reconcile stamp_error={exc2!r} id={jid}")
             cleaned += 1

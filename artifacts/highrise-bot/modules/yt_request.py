@@ -322,11 +322,31 @@ def _update_job(jid: int, **kwargs: object) -> None:
 
 def _db_insert_job(job: dict) -> int:
     """Insert a pending job into yt_request_jobs. Returns new DB row id (0 on error)."""
-    return rq.insert_request_job(job)
+    return rq.create_request(job)
 
 
 def _db_update_job(db_id: int, **kwargs: object) -> None:
     """Update a yt_request_jobs row by DB id (non-fatal on error)."""
+    status = kwargs.get("status")
+    if status == "ready":
+        fields = {k: v for k, v in kwargs.items() if k != "status"}
+        rq.mark_ready(db_id, **fields)
+        return
+    if status in ("error", "failed_download"):
+        fields = {k: v for k, v in kwargs.items() if k not in ("status", "error")}
+        rq.mark_failed(
+            db_id,
+            str(kwargs.get("error") or status),
+            status=str(status),
+            **fields,
+        )
+        return
+    if status == "playing":
+        rq.mark_playing(db_id, idempotent=True)
+        return
+    if status == "played":
+        rq.mark_played(db_id, only_if_unplayed=True)
+        return
     rq.update_job_fields(db_id, **kwargs)
 
 
@@ -576,12 +596,12 @@ def _db_mark_cleaned(db_id: int) -> None:
 
 def _db_mark_played(db_id: int) -> None:
     """Set status='played' and played_at=now (idempotent — only fires once per job)."""
-    rq.mark_played_if_unplayed(db_id)
+    rq.mark_played(db_id, only_if_unplayed=True)
 
 
 def _db_mark_playing(db_id: int) -> None:
     """Set status='playing' when Now Playing detects the request is live."""
-    rq.mark_playing_if_not_terminal(db_id)
+    rq.mark_playing(db_id, idempotent=True)
 
 
 def _db_recent_played(limit: int = 10) -> list[dict]:
@@ -3325,7 +3345,7 @@ async def handle_radio_remove(bot: "BaseBot", user: "User", args: list[str]) -> 
     with _jobs_lock:
         if jid in _jobs:
             _jobs[jid]["status"] = "cancelled"
-    _update_job(jid, status="error", error="Removed by admin")
+    rq.mark_cancelled(jid, "Removed by admin")
 
     # Remove from presence tracking
     with _presence_lock:
@@ -3381,7 +3401,7 @@ async def handle_radio_clearqueue(bot: "BaseBot", user: "User", _args: list[str]
         uid   = j.get("user_id", "")
         coins = j.get("coins_charged", 0)
 
-        _update_job(jid, status="error", error="Cleared by admin")
+        rq.mark_cancelled(jid, "Cleared by admin")
 
         if coins > 0 and uid:
             _refund_coins(uid, coins)
@@ -3641,7 +3661,7 @@ def radio_cancel_job(jid: int, reason: str = "cancelled_by_admin") -> "dict | No
         return None
 
     if db_id_upd:
-        _db_update_job(db_id_upd, status="error", error=reason)
+        rq.mark_cancelled(db_id_upd, reason)
 
     if uid_clear:
         with _presence_lock:

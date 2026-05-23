@@ -184,7 +184,16 @@ def _db_count_active_in_requests() -> int:
 
 
 def _db_set_status(db_id: int, status: str, media_id: str = "") -> None:
-    rq.set_playback_status(db_id, status, media_id=media_id, reason="playback_engine")
+    if status == "ready":
+        rq.mark_ready(db_id)
+    elif status == "playing":
+        rq.mark_playing(db_id, media_id=media_id, reason="playback_engine")
+    elif status == "played":
+        rq.mark_played(db_id, reason="playback_engine")
+    elif status == "error":
+        rq.mark_failed(db_id, "playback_engine_error")
+    else:
+        rq.update_job_fields(db_id, status=status)
 
 
 def _db_fail_and_refund(db_id: int, reason: str) -> None:
@@ -193,7 +202,7 @@ def _db_fail_and_refund(db_id: int, reason: str) -> None:
         return
     try:
         import modules.payment_service as ps
-        row = rq.mark_failed_if_unplayed(db_id, reason)
+        row = rq.mark_failed(db_id, reason, refund_details=True)
         if not row:
             return
         uid = row.get("user_id", "")
