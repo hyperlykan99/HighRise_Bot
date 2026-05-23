@@ -868,6 +868,67 @@ def _log_replay_guard_blocked(
     )
 
 
+async def _remove_current_request_from_rotation(
+    job: "dict | None",
+    live_media_id: str = "",
+    live_song_id: str = "",
+    live_filename: str = "",
+    reason: str = "playback_confirmed",
+) -> bool:
+    """
+    Remove only the currently playing request media from playlist rotation.
+
+    The audio is already loaded by Azura/Liquidsoap at this point, so this
+    must not delete/move the file. Finish/skip cleanup still owns deletion.
+    """
+    request_id = int((job or {}).get("id") or 0)
+    title = ((job or {}).get("title") or "").strip()
+    status = (rq.get_job_status(request_id) if request_id else "") or (
+        (job or {}).get("status") or ""
+    ).strip()
+    media_id = (live_media_id or (job or {}).get("azura_file_id") or "").strip()
+    song_id = (live_song_id or (job or {}).get("azura_song_id") or "").strip()
+    filename = (live_filename or (job or {}).get("filename") or "").strip()
+    if "/" in filename:
+        temp_path = filename
+        filename_log = filename.rsplit("/", 1)[-1]
+    else:
+        temp_path = filename
+        filename_log = filename
+
+    result = "skipped_missing_media_id"
+    ok = False
+    if media_id:
+        loop = asyncio.get_running_loop()
+        try:
+            ok = await loop.run_in_executor(None, azura.clear_file_playlists, media_id)
+            result = "success" if ok else "failed"
+        except Exception as exc:
+            result = f"error:{exc!r}"
+            ok = False
+
+    diag.log_radio_event(
+        "current_request_removed_from_rotation",
+        request_id=request_id,
+        status=status,
+        title=title,
+        temp_path=temp_path,
+        azura_file_id=media_id,
+        azura_song_id=song_id,
+        reason=reason,
+        result=result,
+    )
+    print(
+        f"{_LOG} stage=current_request_removed_from_rotation"
+        f" request_id={request_id}"
+        f" media_id={media_id!r}"
+        f" song_id={song_id!r}"
+        f" filename={filename_log!r}"
+        f" result={result}"
+    )
+    return ok
+
+
 async def _force_skip_if_stale_request_current(
     db_id: int,
     fid: str,
@@ -1234,8 +1295,22 @@ async def _on_new_track(
         if match.get("status") == "playing":
             # _verified_skip_task already set status + announced — suppress duplicate.
             print(f"{_LOG} Request already announced by skip task — no duplicate announce")
+            await _remove_current_request_from_rotation(
+                match,
+                live_media_id=live_fid,
+                live_song_id=(match.get("azura_song_id") or song_uid or song_id or ""),
+                live_filename=live_fn,
+                reason="on_new_track_already_playing",
+            )
         else:
             _db_set_status(db_id, "playing", media_id=live_fid)
+            await _remove_current_request_from_rotation(
+                match,
+                live_media_id=live_fid,
+                live_song_id=(match.get("azura_song_id") or song_uid or song_id or ""),
+                live_filename=live_fn,
+                reason="on_new_track_confirmed",
+            )
             print(
                 f"{_LOG} stage=request_started"
                 f" request_id={db_id}"
@@ -1522,6 +1597,13 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                         _cur_song_id = np_id
 
                 _db_set_status(job_id, "playing", media_id=np_fid)
+                await _remove_current_request_from_rotation(
+                    job,
+                    live_media_id=(np_fid or req_fid),
+                    live_song_id=(np_uid or unique_id),
+                    live_filename=(np_path or req_fn),
+                    reason="verified_skip_takeover",
+                )
                 diag.log_radio_event(
                     "playback_confirmed",
                     request_id=job_id,
