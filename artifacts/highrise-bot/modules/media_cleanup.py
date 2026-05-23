@@ -3,13 +3,14 @@ modules/media_cleanup.py
 ------------------------
 AzuraCast file lifecycle manager and playback engine startup.
 
-Calls two background tasks:
+Starts the active cleanup owner:
   1. playback_engine.startup_playback_engine(bot)
        — bot-controlled playlist switching, song detection, track announcements,
          and immediate post-play file deletion.
-  2. startup_yt_cleanup_task(bot) from yt_request
-       — legacy safety-net that catches any stale request files the primary
-         engine may have missed (e.g. if the bot was offline during playback).
+
+The yt_request cleanup startup hook is still called for backwards-compatible
+startup wiring, but it is passive. Request played/cleaned lifecycle ownership
+belongs to playback_engine.py after a request becomes ready.
 
 Both tasks are idempotent on reconnect.
 """

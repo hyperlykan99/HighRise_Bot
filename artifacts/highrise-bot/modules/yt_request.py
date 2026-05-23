@@ -2869,40 +2869,13 @@ async def _run_history_fallback() -> None:
 
 async def _cleanup_loop(bot_inst: "BaseBot | None" = None) -> None:
     """
-    Infinite loop: poll AzuraCast Now Playing every 10 s.
-    Runs a history-based fallback sweep every ~90 s (every 9 now-playing cycles).
+    Legacy cleanup loop retained for import/backwards compatibility only.
 
-    • Now-playing path (10 s): marks requests as played the instant they start,
-      then deletes the file the moment the song transitions — prevents ALL replays.
-      Tries API delete first, falls back to SFTP delete if that fails.
-    • History fallback (90 s): safety net for songs that played while the bot
-      was offline or before azura_song_id was recorded.
-    • bot_inst is forwarded to _run_nowplaying_cycle for room announcements.
+    playback_engine.py owns request playback confirmation, played status, and
+    post-play cleanup. This loop must not mark yt_request_jobs played/cleaned.
     """
-    print(
-        f"[YT_CLEANUP] Poll loop started"
-        f" (now-playing every {_NOWPLAYING_POLL_SECS}s,"
-        f" history fallback every {_HISTORY_POLL_SECS}s)."
-    )
-    prev_song_id_ref: list[str] = [""]
-    history_cycles = _HISTORY_POLL_SECS // _NOWPLAYING_POLL_SECS
-    cycle = 0
-
-    while True:
-        try:
-            await asyncio.sleep(_NOWPLAYING_POLL_SECS)
-            db.set_room_setting("radio_worker_heartbeat_cleanup", str(time.time()))
-            await _run_nowplaying_cycle(prev_song_id_ref, bot_inst=bot_inst)
-            cycle += 1
-            if cycle >= history_cycles:
-                cycle = 0
-                if _auto_delete_enabled():
-                    await _run_history_fallback()
-        except asyncio.CancelledError:
-            print("[YT_CLEANUP] Poll loop cancelled.")
-            break
-        except Exception as exc:
-            print(f"[YT_CLEANUP] Loop error (non-fatal): {exc}")
+    print("[YT_CLEANUP] Legacy cleanup loop disabled; playback_engine owns cleanup.")
+    return
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3113,18 +3086,15 @@ async def handle_queueadmin(bot: "BaseBot", user: "User", args: list[str]) -> No
 
 async def startup_yt_cleanup_task(_bot: "BaseBot") -> None:
     """
-    Start the AzuraCast played-song auto-cleanup background loop.
+    Compatibility hook for the former yt_request cleanup background loop.
+
+    Phase 4 ownership: playback_engine.py is the single owner of request
+    lifecycle cleanup after jobs become ready. yt_request.py no longer starts
+    a loop that marks requests played/cleaned.
     Called from on_start() — DJ bot only, guarded by should_this_bot_run_module.
-    Skipped silently if REQUEST_AUTO_DELETE_AFTER_PLAY=false or AzuraCast
-    API is not configured.
     """
-    if not _auto_delete_enabled():
-        print("[YT_CLEANUP] REQUEST_AUTO_DELETE_AFTER_PLAY=false — cleanup disabled.")
-        return
-    if not _azura_api_cfg():
-        print("[YT_CLEANUP] AzuraCast API not configured — cleanup disabled.")
-        return
-    asyncio.create_task(_cleanup_loop(bot_inst=_bot))
+    print("[YT_CLEANUP] Startup skipped; playback_engine owns request cleanup.")
+    return
 
 
 # ─────────────────────────────────────────────────────────────────────────────
