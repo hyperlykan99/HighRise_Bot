@@ -467,21 +467,18 @@ def _db_match_request(
 async def _apply_vibe_playlists() -> None:
     """
     Enable the current vibe playlist; disable all other vibe playlists.
-    Requests playlist is left ALWAYS ON — never disabled here.
+    Requests playlist is kept out of AutoDJ rotation; request media is played
+    only through AzuraCast's submit_request queue.
     """
     loop   = asyncio.get_running_loop()
     v      = cs.vibe()
-    req_id = cs.requests_playlist_id()
 
-    # Requests always stays on
-    if req_id:
-        await loop.run_in_executor(None, azura.set_playlist_enabled, req_id, True)
-
-    # Enable selected vibe playlist, disable all others
+    # Enable selected vibe playlist, disable all others, and keep Requests
+    # out of rotation inside azura.switch_vibe().
     await loop.run_in_executor(None, azura.switch_vibe, v)
 
     _save("playlist_mode", "vibe")
-    print(f"{_LOG} Playlists → VIBE/{v.upper()} (Requests always ON)")
+    print(f"{_LOG} Playlists → VIBE/{v.upper()} (Requests submit-only)")
 
 
 async def _switch_to_vibe(bot: "BaseBot") -> None:
@@ -1422,6 +1419,14 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                     f" status={rq.get_job_status(job_id)!r} terminal=true"
                 )
                 return
+            diag.log_radio_event(
+                "request_submit_only_mode",
+                request_id=job_id,
+                playlist_name="Requests",
+                media_id=req_fid,
+                song_id=unique_id,
+                path=(f"Requests/{req_fn}" if req_fn else ""),
+            )
             submit_ok = await loop.run_in_executor(None, azura.submit_request, unique_id)
             if not submit_ok:
                 _submitted_jids.discard(job_id)
@@ -1988,7 +1993,7 @@ async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
 async def apply_vibe_change(bot: "BaseBot") -> None:
     """
     Called by the !vibe command after config_store.set_vibe() has been saved.
-    Always re-applies playlists immediately (vibe + requests always both ON).
+    Always re-applies playlists immediately (vibe on, Requests submit-only).
     """
     await _apply_vibe_playlists()
 
@@ -2038,12 +2043,12 @@ async def _startup_init_task(bot: "BaseBot") -> None:
         elif in_flight > 0:
             with _lock:
                 _mode = "vibe"
-            print(f"{_LOG} Recovery: {in_flight} request(s) in queue — vibe+requests both ON")
+            print(f"{_LOG} Recovery: {in_flight} request(s) in queue — vibe on, Requests submit-only")
 
         else:
             with _lock:
                 _mode = "vibe"
-            print(f"{_LOG} Startup — applying VIBE/{cs.vibe().upper()} + Requests playlists")
+            print(f"{_LOG} Startup — applying VIBE/{cs.vibe().upper()} + Requests submit-only mode")
 
         await _apply_vibe_playlists()
 

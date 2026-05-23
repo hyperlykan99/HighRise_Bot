@@ -1471,6 +1471,19 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
                 _abort_request("playlist_assign_failed")
                 return
 
+        try:
+            import modules.azuracast_controller as _azura
+            _azura.disable_requests_rotation(
+                request_id=db_id,
+                playlist_name="Requests",
+                media_id=file_id,
+                song_id="",
+                path=f"Requests/{filename}",
+            )
+        except Exception as exc:
+            _rlog("requests_rotation_disabled", "error", media_id=file_id,
+                  exception=repr(str(exc)))
+
         # ── 6. (skip removed) ─────────────────────────────────────────────────
         # Upload is complete — playback_engine's poll loop detects when this
         # request naturally becomes the current song and fires REQUEST LIVE.
