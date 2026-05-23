@@ -870,10 +870,13 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
     !skip — immediately skip the current song (admin+).
 
     After a confirmed skip:
-    - Marks the playing request as 'played' immediately (don't wait for the
-      poll loop to detect the song change).  This ensures !q shows it gone.
+    - Matches the NP response against ALL active jobs (ready OR playing) so a
+      request that hasn't yet been promoted to status='playing' by the poll loop
+      is still consumed exactly once.
+    - Falls back to rq.currently_playing() (status='playing' DB rows) if the
+      NP match finds nothing.
     - Queues file cleanup via playback engine (move to PlayedRequests/, rescan).
-    - Logs stage=request_skipped for audit trail.
+    - Logs stage=request_skipped with match_method and prior_status for audit.
     """
     if not _is_staff(user.username):
         await _w(bot, user.id, "🔒 Staff only.")
@@ -881,10 +884,8 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
 
     loop = asyncio.get_running_loop()
 
-    # Snapshot the current playing request BEFORE the skip
-    cp = rq.currently_playing()
-
-    np   = await loop.run_in_executor(None, azura.fetch_nowplaying)
+    # Fetch NP BEFORE the skip so we can match what is currently on air.
+    np = await loop.run_in_executor(None, azura.fetch_nowplaying)
     title_str = ""
     if np:
         s   = ((np.get("now_playing") or {}).get("song") or {})
@@ -892,19 +893,29 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
         ttl = (s.get("title")  or "").strip()
         title_str = (f"{art} — {ttl}" if art else ttl)[:60]
 
+    # Match NP against active jobs (status in ready/playing) using the same
+    # 5-strategy logic as the poll loop.  This catches requests whose DB status
+    # is still 'ready' (poll loop hasn't confirmed them yet).
+    # Fall back to rq.currently_playing() as a safety net.
+    np_match       = engine.match_nowplaying_to_job(np) if np else None
+    cp             = rq.currently_playing()
+    job_to_consume = np_match or cp
+
     ok = await loop.run_in_executor(None, azura.skip_current)
     if ok:
-        # Immediately mark the playing request as played so it vanishes from !q
-        # without waiting for the poll loop to detect the song transition.
-        if cp:
-            job_id = cp.get("id")
+        if job_to_consume:
+            job_id = job_to_consume.get("id")
             if job_id:
+                match_method  = (np_match.get("_match_method") or "np_unknown") if np_match else "db_cp"
+                prior_status  = (job_to_consume.get("status") or "?")
                 print(
                     f"{_LOG} stage=request_skipped"
                     f" request_id={job_id}"
-                    f" title={cp.get('title','?')!r}"
-                    f" username={cp.get('username','?')!r}"
+                    f" title={job_to_consume.get('title','?')!r}"
+                    f" username={job_to_consume.get('username','?')!r}"
                     f" skipped_by={user.username!r}"
+                    f" match_method={match_method!r}"
+                    f" prior_status={prior_status!r}"
                 )
                 asyncio.create_task(engine.on_request_skipped(bot, job_id))
         await ann.announce_skip(bot, title_str)

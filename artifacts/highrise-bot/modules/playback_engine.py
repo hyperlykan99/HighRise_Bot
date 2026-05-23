@@ -1349,6 +1349,26 @@ def match_and_recover(
     return recovered
 
 
+def match_nowplaying_to_job(np: dict) -> "dict | None":
+    """
+    Public wrapper around _db_match_request for the !skip handler.
+
+    Extracts song/media fields from a raw AzuraCast NP response and returns
+    the matching active job (status in ready/playing) or None.
+
+    Used by handle_skip so a pending/ready request is consumed even when the
+    poll loop hasn't yet promoted its status from 'ready' to 'playing'.
+    """
+    np_obj   = (np.get("now_playing") or {})
+    song     = (np_obj.get("song")    or {})
+    media    = (np_obj.get("media")   or {})
+    song_uid = (song.get("unique_id") or song.get("id") or "").strip()
+    title    = (song.get("title")     or "").strip()
+    media_id = str(media.get("id") or "").strip()
+    path     = (media.get("path")     or "").strip()
+    return _db_match_request(song_uid, title, media_id, path)
+
+
 async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
     """
     Public — called by the !skip command handler after AzuraCast confirms
