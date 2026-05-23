@@ -804,8 +804,16 @@ def _delete_request_file(
         return False
 
 
-def _nowplaying_matches_request(fid: str, song_id: str, fn: str) -> bool:
-    """Return true only when Azura still reports the finished request on-air."""
+def _nowplaying_request_state(fid: str, song_id: str, fn: str) -> dict:
+    """Return current Azura state relevant to stale Requests-media guards."""
+    state = {
+        "matches_request": False,
+        "from_requests": False,
+        "media_id": "",
+        "song_id": "",
+        "path": "",
+        "title": "",
+    }
     try:
         np = azura.fetch_nowplaying() or {}
         np_obj = np.get("now_playing") or {}
@@ -814,16 +822,29 @@ def _nowplaying_matches_request(fid: str, song_id: str, fn: str) -> bool:
         np_fid = str(np_media.get("id") or "").strip()
         np_song_id = (np_song.get("unique_id") or np_song.get("id") or "").strip()
         np_path = (np_media.get("path") or "").strip()
+        np_title = (np_song.get("title") or "").strip()
         np_fn = np_path.rsplit("/", 1)[-1].strip()
+        state.update(
+            media_id=np_fid,
+            song_id=np_song_id,
+            path=np_path,
+            title=np_title,
+            from_requests=bool(np_path and np_path.lstrip("/").lower().startswith("requests/")),
+        )
         if fid and np_fid and fid == np_fid:
-            return True
-        if song_id and np_song_id and song_id == np_song_id:
-            return True
-        if fn and np_fn and fn.lower() == np_fn.lower():
-            return True
+            state["matches_request"] = True
+        elif song_id and np_song_id and song_id == np_song_id:
+            state["matches_request"] = True
+        elif fn and np_fn and fn.lower() == np_fn.lower():
+            state["matches_request"] = True
     except Exception as exc:
         print(f"{_LOG} nowplaying request match error: {exc!r}")
-    return False
+    return state
+
+
+def _nowplaying_matches_request(fid: str, song_id: str, fn: str) -> bool:
+    """Return true only when Azura still reports the finished request on-air."""
+    return bool(_nowplaying_request_state(fid, song_id, fn).get("matches_request"))
 
 
 def _log_replay_guard_blocked(
@@ -847,13 +868,120 @@ def _log_replay_guard_blocked(
     )
 
 
+async def _force_skip_if_stale_request_current(
+    db_id: int,
+    fid: str,
+    song_id: str,
+    fn: str,
+    title: str,
+    reason: str,
+) -> bool:
+    loop = asyncio.get_running_loop()
+    state = await loop.run_in_executor(None, _nowplaying_request_state, fid, song_id, fn)
+    if not (state.get("matches_request") or state.get("from_requests")):
+        return False
+
+    skipped = await loop.run_in_executor(None, azura.skip_current)
+    diag.log_radio_event(
+        "stale_request_force_skip",
+        request_id=db_id,
+        media_id=state.get("media_id") or fid,
+        song_id=state.get("song_id") or song_id,
+        path=state.get("path") or (f"Requests/{fn}" if fn else ""),
+        title=state.get("title") or title,
+        reason=reason,
+        skipped=bool(skipped),
+    )
+    print(
+        f"{_LOG} stage=stale_request_force_skip"
+        f" request_id={db_id}"
+        f" media_id={(state.get('media_id') or fid)!r}"
+        f" song_id={(state.get('song_id') or song_id)!r}"
+        f" path={(state.get('path') or (f'Requests/{fn}' if fn else ''))!r}"
+        f" skipped={str(bool(skipped)).lower()}"
+        f" reason={reason}"
+    )
+
+    await asyncio.sleep(1.0)
+    verify = await loop.run_in_executor(None, _nowplaying_request_state, fid, song_id, fn)
+    if verify.get("matches_request") or verify.get("from_requests"):
+        diag.log_radio_event(
+            "stale_request_verify_failed",
+            request_id=db_id,
+            media_id=verify.get("media_id") or fid,
+            song_id=verify.get("song_id") or song_id,
+            path=verify.get("path") or (f"Requests/{fn}" if fn else ""),
+            title=verify.get("title") or title,
+            reason=reason,
+        )
+        print(
+            f"{_LOG} stage=stale_request_verify_failed"
+            f" request_id={db_id}"
+            f" media_id={(verify.get('media_id') or fid)!r}"
+            f" song_id={(verify.get('song_id') or song_id)!r}"
+            f" path={(verify.get('path') or (f'Requests/{fn}' if fn else ''))!r}"
+            f" reason={reason}"
+        )
+    return bool(skipped)
+
+
+async def _handle_stale_requests_media(
+    bot: "BaseBot",
+    media_id: str,
+    song_id: str,
+    media_path: str,
+    title: str,
+) -> None:
+    global _cur_req_id, _live_req
+    fn = media_path.rsplit("/", 1)[-1].strip() if media_path else ""
+    reason = "unmatched_requests_media_queue_empty"
+    with _lock:
+        _cur_req_id = 0
+        _live_req = None
+    diag.log_radio_event(
+        "stale_requests_media_guard",
+        request_id=0,
+        media_id=media_id,
+        song_id=song_id,
+        path=media_path,
+        title=title,
+        reason=reason,
+    )
+    print(
+        f"{_LOG} stage=stale_requests_media_guard"
+        f" media_id={media_id!r}"
+        f" song_id={song_id!r}"
+        f" path={media_path!r}"
+        f" title={title!r}"
+        f" reason={reason}"
+    )
+    await _force_skip_if_stale_request_current(0, media_id, song_id, fn, title, reason)
+    loop = asyncio.get_running_loop()
+    cleanup_ok = await loop.run_in_executor(
+        None, _delete_request_file, 0, media_id, fn, title or "stale Requests media", song_id
+    )
+    print(
+        f"{_LOG} stage=stale_requests_cleanup"
+        f" media_id={media_id!r}"
+        f" song_id={song_id!r}"
+        f" filename={fn!r}"
+        f" removed_from_azura={str(bool(cleanup_ok)).lower()}"
+    )
+    await _force_skip_if_stale_request_current(
+        0, media_id, song_id, fn, title, "post_cleanup_still_requests_media"
+    )
+
+
 # ─── Track event handlers ─────────────────────────────────────────────────────
 
 async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
     global _cur_req_id, _live_req, _submitted_jids, _finished_jids
-    if db_id in _finished_jids:
-        print(f"{_LOG} stage=request_finished_guard request_id={db_id} already_handled=true")
-        return
+    already_finished = db_id in _finished_jids
+    if already_finished:
+        print(
+            f"{_LOG} stage=request_finished_guard request_id={db_id}"
+            f" already_handled=true cleanup_retry=true"
+        )
     with _lock:
         _cur_req_id = 0
         _live_req   = None
@@ -866,17 +994,18 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
     # Safety net: never mark a request as played unless it was actually confirmed
     # playing. If status is still 'ready', it was queued but AzuraCast never
     # played it this cycle — leave it in the queue for the next poll.
-    if job_status != "playing":
+    if (not already_finished) and job_status != "playing":
         print(
             f"[QUEUE_GUARD] _on_request_finished: job={db_id} status={job_status!r}"
             f" — not playing, refusing to mark as played. Queue preserved."
         )
         return
 
-    _finished_jids.add(db_id)
-    rq.mark_played(db_id, reason="playback_engine_finished")
-    if job:
-        _db_backfill_playfav_source_after_play(job)
+    if not already_finished:
+        _finished_jids.add(db_id)
+        rq.mark_played(db_id, reason="playback_engine_finished")
+        if job:
+            _db_backfill_playfav_source_after_play(job)
 
     fn_s  = (job.get("filename")      if job else None) or "?"
     fid_s = (job.get("azura_file_id") if job else None) or "?"
@@ -919,11 +1048,11 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
             )
             if cleanup_ok and _db_count_active() <= 0:
                 sid = (job.get("azura_song_id") or "").strip()
-                still_current = await loop.run_in_executor(
-                    None, _nowplaying_matches_request, fid, sid, fn
+                skipped = await _force_skip_if_stale_request_current(
+                    db_id, fid, sid, fn, job.get("title", "?"),
+                    "finished_request_still_current",
                 )
-                if still_current:
-                    skipped = await loop.run_in_executor(None, azura.skip_current)
+                if skipped:
                     _log_replay_guard_blocked(
                         db_id,
                         rq.get_job_status(db_id),
@@ -932,12 +1061,6 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
                         azura_file_id=fid,
                         azura_song_id=sid,
                         reason="finished_request_still_current",
-                    )
-                    print(
-                        f"{_LOG} stage=replay_guard_blocked"
-                        f" request_id={db_id}"
-                        f" skip_current={str(bool(skipped)).lower()}"
-                        f" reason=finished_request_still_current"
                     )
 
     remaining = _db_count_active()
@@ -1153,9 +1276,17 @@ async def _on_new_track(
 
     elif from_requests:
         # NP is from Requests/ folder but no DB record matched.
-        # Keep _cur_req_id=0 and suppress AutoDJ announcement.
-        with _lock:
-            _cur_req_id = 0
+        # If the queue is empty, this is stale media buffered by Azura/Liquidsoap.
+        # Do not announce it, do not revive DB state, and force it out.
+        if _db_count_active() <= 0:
+            await _handle_stale_requests_media(
+                bot, media_id, match_uid, media_path, title
+            )
+        else:
+            # Active work still exists; suppress AutoDJ but let the next poll
+            # recover naturally if Azura has not indexed identifiers yet.
+            with _lock:
+                _cur_req_id = 0
         print(
             f"{_LOG} NP from Requests/ but no DB match — suppressing AutoDJ announce"
             f" path={media_path!r}"
@@ -1556,7 +1687,6 @@ async def _poll_loop(bot: "BaseBot") -> None:
             # fires and AzuraCast is moved back to vibe mode.
             if (
                 prev_req_id
-                and prev_req_id not in _finished_jids
                 and song_id == prev_song_id
                 and duration > 0
                 and elapsed >= duration
@@ -1572,7 +1702,6 @@ async def _poll_loop(bot: "BaseBot") -> None:
             if (
                 song_id     == prev_song_id
                 and prev_req_id
-                and prev_req_id not in _finished_jids
                 and prev_duration > 30
                 and prev_elapsed  > prev_duration * 0.75
                 and elapsed       < min(POLL_INTERVAL * 2 + 2, 14)
