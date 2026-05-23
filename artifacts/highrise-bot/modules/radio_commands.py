@@ -157,22 +157,31 @@ def _fav_get(user_id: str, limit: int = 10) -> list:
         return []
 
 
-def _fav_update_youtube_source(fav_id: int, url: str, artist: str = "") -> None:
-    """Backfill a favorite with the YouTube URL found by !playfav fallback."""
-    if not fav_id or not url:
+def _fav_remember_youtube_source(fav_id: int, user_id: str, url: str, artist: str = "") -> None:
+    """Remember a !playfav fallback URL until playback confirms it actually played."""
+    if not fav_id or not user_id or not url:
         return
     try:
         with db.db_conn() as conn:
             conn.execute(
-                "UPDATE dj_favorites "
-                "SET youtube_url=?, source_type='youtube', "
-                "    artist=CASE WHEN ?!='' THEN ? ELSE artist END "
-                "WHERE id=?",
-                (url, artist, artist, fav_id),
+                "CREATE TABLE IF NOT EXISTS playfav_fallback_sources ("
+                "fav_id INTEGER NOT NULL, "
+                "user_id TEXT NOT NULL, "
+                "url TEXT NOT NULL, "
+                "artist TEXT NOT NULL DEFAULT '', "
+                "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+                "PRIMARY KEY (fav_id, url)"
+                ")"
             )
-        print(f"{_LOG} stage=playfav_fallback_update fav_id={fav_id} url={url!r}")
+            conn.execute(
+                "INSERT OR REPLACE INTO playfav_fallback_sources "
+                "(fav_id, user_id, url, artist, created_at) "
+                "VALUES (?, ?, ?, ?, datetime('now'))",
+                (fav_id, user_id, url, artist),
+            )
+        print(f"{_LOG} stage=playfav_fallback_pending fav_id={fav_id} url={url!r}")
     except Exception as exc:
-        print(f"{_LOG} playfav fallback source update error: {exc!r}")
+        print(f"{_LOG} playfav fallback source remember error: {exc!r}")
 
 
 def _fav_add(user_id: str, username: str, title: str, url: str, artist: str = "") -> bool:
@@ -2053,7 +2062,7 @@ async def _playfav_youtube_fallback(bot: "BaseBot", user: "User", fav: dict, pos
         },
     )
     if ok:
-        _fav_update_youtube_source(fav.get("id") or 0, url, artist)
+        _fav_remember_youtube_source(fav.get("id") or 0, user.id, url, artist)
 
 
 # ─── !playfav ─────────────────────────────────────────────────────────────────

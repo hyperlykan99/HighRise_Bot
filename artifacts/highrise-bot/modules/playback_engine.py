@@ -66,11 +66,11 @@ _ACT = (
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
 
 _COLS = (
-    "id", "user_id", "username", "title", "filename",
+    "id", "user_id", "username", "url", "title", "filename",
     "azura_file_id", "azura_song_id", "coins_charged", "status", "video_id",
 )
 _SEL = (
-    "id, user_id, username, title, filename, "
+    "id, user_id, username, url, title, filename, "
     "azura_file_id, azura_song_id, coins_charged, status, video_id"
 )
 
@@ -251,6 +251,49 @@ def _db_fail_and_refund(db_id: int, reason: str) -> None:
         )
     except Exception as exc:
         print(f"{_LOG} _db_fail_and_refund({db_id},{reason!r}): {exc}")
+
+
+def _db_backfill_playfav_source_after_play(job: dict) -> None:
+    """Backfill a source-less favorite only after its fallback request played."""
+    uid = (job.get("user_id") or "").strip()
+    url = (job.get("url") or "").strip()
+    if not uid or not url:
+        return
+    try:
+        with db.db_conn() as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS playfav_fallback_sources ("
+                "fav_id INTEGER NOT NULL, "
+                "user_id TEXT NOT NULL, "
+                "url TEXT NOT NULL, "
+                "artist TEXT NOT NULL DEFAULT '', "
+                "created_at TEXT NOT NULL DEFAULT (datetime('now')), "
+                "PRIMARY KEY (fav_id, url)"
+                ")"
+            )
+            row = conn.execute(
+                "SELECT fav_id, artist FROM playfav_fallback_sources "
+                "WHERE user_id=? AND url=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (uid, url),
+            ).fetchone()
+            if not row:
+                return
+            fav_id, artist = row
+            conn.execute(
+                "UPDATE dj_favorites "
+                "SET youtube_url=?, source_type='youtube', "
+                "    artist=CASE WHEN ?!='' THEN ? ELSE artist END "
+                "WHERE id=? AND user_id=?",
+                (url, artist or "", artist or "", fav_id, uid),
+            )
+            conn.execute(
+                "DELETE FROM playfav_fallback_sources WHERE fav_id=? AND url=?",
+                (fav_id, url),
+            )
+        print(f"{_LOG} stage=playfav_fallback_backfilled fav_id={fav_id} url={url!r}")
+    except Exception as exc:
+        print(f"{_LOG} playfav fallback backfill error: {exc!r}")
 
 
 def _db_get_job(db_id: int) -> "dict | None":
@@ -643,6 +686,8 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         return
 
     _db_set_status(db_id, "played")
+    if job:
+        _db_backfill_playfav_source_after_play(job)
 
     fn_s  = (job.get("filename")      if job else None) or "?"
     fid_s = (job.get("azura_file_id") if job else None) or "?"
