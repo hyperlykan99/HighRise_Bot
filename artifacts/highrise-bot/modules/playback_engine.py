@@ -616,6 +616,23 @@ def _delete_request_file(
         )
         return False
 
+    if log_source_type in ("local", "local_copy", "local_replay") and not is_local_temp:
+        _log("cleanup_safety_skip", "fail", reason="local_source_not_protected_temp")
+        diag.log_radio_event(
+            "cleanup_safety_skip",
+            request_id=db_id,
+            user_id=log_user_id,
+            username=log_username,
+            title=title_s,
+            source_type=log_source_type,
+            azura_file_id=cur_fid,
+            azura_song_id=song_id,
+            temp_path=fn,
+            source_path="",
+            reason="local_source_not_protected_temp",
+        )
+        return False
+
     if is_local_temp:
         diag.log_radio_event(
             "cleanup_started",
@@ -787,6 +804,49 @@ def _delete_request_file(
         return False
 
 
+def _nowplaying_matches_request(fid: str, song_id: str, fn: str) -> bool:
+    """Return true only when Azura still reports the finished request on-air."""
+    try:
+        np = azura.fetch_nowplaying() or {}
+        np_obj = np.get("now_playing") or {}
+        np_song = np_obj.get("song") or {}
+        np_media = np_obj.get("media") or {}
+        np_fid = str(np_media.get("id") or "").strip()
+        np_song_id = (np_song.get("unique_id") or np_song.get("id") or "").strip()
+        np_path = (np_media.get("path") or "").strip()
+        np_fn = np_path.rsplit("/", 1)[-1].strip()
+        if fid and np_fid and fid == np_fid:
+            return True
+        if song_id and np_song_id and song_id == np_song_id:
+            return True
+        if fn and np_fn and fn.lower() == np_fn.lower():
+            return True
+    except Exception as exc:
+        print(f"{_LOG} nowplaying request match error: {exc!r}")
+    return False
+
+
+def _log_replay_guard_blocked(
+    job_id: int,
+    status: str,
+    title: str = "",
+    temp_path: str = "",
+    azura_file_id: str = "",
+    azura_song_id: str = "",
+    reason: str = "",
+) -> None:
+    diag.log_radio_event(
+        "replay_guard_blocked",
+        request_id=job_id,
+        status=status,
+        title=title,
+        temp_path=temp_path,
+        azura_file_id=azura_file_id,
+        azura_song_id=azura_song_id,
+        reason=reason,
+    )
+
+
 # ─── Track event handlers ─────────────────────────────────────────────────────
 
 async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
@@ -857,6 +917,28 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
                 f" submitted_to_azura=true"
                 f" removed_from_azura={str(bool(cleanup_ok)).lower()}"
             )
+            if cleanup_ok and _db_count_active() <= 0:
+                sid = (job.get("azura_song_id") or "").strip()
+                still_current = await loop.run_in_executor(
+                    None, _nowplaying_matches_request, fid, sid, fn
+                )
+                if still_current:
+                    skipped = await loop.run_in_executor(None, azura.skip_current)
+                    _log_replay_guard_blocked(
+                        db_id,
+                        rq.get_job_status(db_id),
+                        title=job.get("title", "?"),
+                        temp_path=fn,
+                        azura_file_id=fid,
+                        azura_song_id=sid,
+                        reason="finished_request_still_current",
+                    )
+                    print(
+                        f"{_LOG} stage=replay_guard_blocked"
+                        f" request_id={db_id}"
+                        f" skip_current={str(bool(skipped)).lower()}"
+                        f" reason=finished_request_still_current"
+                    )
 
     remaining = _db_count_active()
     print(
@@ -1140,6 +1222,15 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
             return
         if rq.is_terminal_status(job.get("status", "")):
             _submitted_jids.discard(job_id)
+            _log_replay_guard_blocked(
+                job_id,
+                job.get("status", ""),
+                title=req_title,
+                temp_path=req_fn,
+                azura_file_id=req_fid,
+                azura_song_id=unique_id,
+                reason="terminal_before_submit",
+            )
             print(
                 f"{_LOG} stage=request_submit_guard request_id={job_id}"
                 f" status={job.get('status')!r} terminal=true"
@@ -1164,6 +1255,15 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
             return
         if (not job) or rq.is_terminal_status(job.get("status", "")):
             _submitted_jids.discard(job_id)
+            _log_replay_guard_blocked(
+                job_id,
+                (job or {}).get("status", ""),
+                title=req_title,
+                temp_path=req_fn,
+                azura_file_id=req_fid,
+                azura_song_id=unique_id,
+                reason="terminal_after_settle",
+            )
             print(
                 f"{_LOG} stage=request_submit_guard request_id={job_id}"
                 f" status={(job or {}).get('status')!r} terminal=true"
@@ -1177,6 +1277,15 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
         if unique_id:
             if rq.is_terminal_job(job_id):
                 _submitted_jids.discard(job_id)
+                _log_replay_guard_blocked(
+                    job_id,
+                    rq.get_job_status(job_id),
+                    title=req_title,
+                    temp_path=req_fn,
+                    azura_file_id=req_fid,
+                    azura_song_id=unique_id,
+                    reason="terminal_pre_azura_submit",
+                )
                 print(
                     f"{_LOG} stage=request_submit_guard request_id={job_id}"
                     f" status={rq.get_job_status(job_id)!r} terminal=true"

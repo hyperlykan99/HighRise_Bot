@@ -97,6 +97,16 @@ _YT_RE = re.compile(
 def _is_youtube_url(url: str) -> bool:
     return bool(_YT_RE.match(url))
 
+
+def _is_youtube_playlist_url(url: str) -> bool:
+    u = (url or "").lower()
+    return (
+        "youtube.com/playlist" in u
+        or "list=" in u
+        or "/mix" in u
+        or "start_radio=1" in u
+    )
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Config helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1988,9 +1998,11 @@ async def handle_play(bot: "BaseBot", user: "User", args: list[str]) -> None:
         return
 
     # YouTube URL → skip search, go straight to upload
-    clean_url = query.split("&list=")[0]
-    if _is_youtube_url(clean_url):
-        await handle_ytrequest(bot, user, [args[0], clean_url])
+    if _is_youtube_playlist_url(query):
+        await _w(bot, user.id, "⚠️ Please use one YouTube song URL, not a playlist or mix.")
+        return
+    if _is_youtube_url(query):
+        await handle_ytrequest(bot, user, [args[0], query])
         return
 
     # Text search → show top 5 results
@@ -2092,7 +2104,10 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
         )
         return
 
-    url = args[1].strip().split("&list=")[0]   # strip playlist suffix
+    url = args[1].strip()
+    if _is_youtube_playlist_url(url):
+        await _w(bot, user.id, "⚠️ Please use one YouTube song URL, not a playlist or mix.")
+        return
 
     # ── Validate URL ─────────────────────────────────────────────────────────
     if not _is_youtube_url(url):
@@ -2355,9 +2370,11 @@ async def handle_request(bot: "BaseBot", user: "User", args: list[str]) -> None:
         return
 
     # If it's a YouTube URL, skip search and go straight to upload
-    clean_url = query.split("&list=")[0]
-    if _is_youtube_url(clean_url):
-        await handle_ytrequest(bot, user, [args[0], clean_url])
+    if _is_youtube_playlist_url(query):
+        await _w(bot, user.id, "⚠️ Please use one YouTube song URL, not a playlist or mix.")
+        return
+    if _is_youtube_url(query):
+        await handle_ytrequest(bot, user, [args[0], query])
         return
 
     await _w(bot, user.id, f"🔍 Searching YouTube: {query[:60]}…")

@@ -25,6 +25,7 @@ TERMINAL_QUEUE_STATUSES = (
     "played",
     "skipped",
     "failed",
+    "failed_download",
     "cancelled",
     "error",
     "cleaned",

@@ -116,12 +116,59 @@ def get_job_status(job_id: int) -> str:
         return ""
 
 
+def get_job_identity(job_id: int) -> dict:
+    if not job_id:
+        return {}
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT id, status, filename, azura_file_id, azura_song_id, source_type "
+                "FROM yt_request_jobs WHERE id=?",
+                (job_id,),
+            ).fetchone()
+        if not row:
+            return {}
+        return {
+            "id": row[0],
+            "status": row[1] or "",
+            "filename": row[2] or "",
+            "azura_file_id": row[3] or "",
+            "azura_song_id": row[4] or "",
+            "source_type": row[5] or "",
+        }
+    except Exception:
+        return {}
+
+
 def is_terminal_status(status: str) -> bool:
     return (status or "").strip().lower() in _TERMINAL
 
 
 def is_terminal_job(job_id: int) -> bool:
     return is_terminal_status(get_job_status(job_id))
+
+
+def _log_terminal_revival_block(job_id: int, attempted_status: str, job: "dict | None" = None) -> None:
+    data = job or get_job_identity(job_id)
+    status = (data.get("status") or "").strip().lower()
+    diag.log_radio_event(
+        "terminal_guard_blocked_sync",
+        request_id=job_id,
+        status=status,
+        attempted_status=attempted_status,
+        azura_file_id=data.get("azura_file_id", ""),
+        azura_song_id=data.get("azura_song_id", ""),
+        temp_path=data.get("filename", ""),
+    )
+    diag.log_radio_event(
+        "refused_terminal_revival",
+        request_id=job_id,
+        status=status,
+        attempted_status=attempted_status,
+        azura_file_id=data.get("azura_file_id", ""),
+        azura_song_id=data.get("azura_song_id", ""),
+        temp_path=data.get("filename", ""),
+    )
 
 
 # ─── Queue writes (single DB writer facade) ──────────────────────────────────
@@ -197,6 +244,12 @@ def update_job_fields(job_id: int, **kwargs: object) -> None:
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
         return
+    next_status = str(fields.get("status") or "").strip().lower()
+    if next_status and next_status in _ACTIVE:
+        current = get_job_identity(job_id)
+        if is_terminal_status(current.get("status", "")):
+            _log_terminal_revival_block(job_id, next_status, current)
+            return
     if "finished_at" in fields and isinstance(fields["finished_at"], float):
         import datetime as _dt
         fields["finished_at"] = _dt.datetime.utcfromtimestamp(
@@ -225,6 +278,10 @@ def update_job_fields(job_id: int, **kwargs: object) -> None:
 def mark_ready(job_id: int, finished_at: "object | None" = None,
                **fields: object) -> None:
     """Mark a request ready for AzuraCast playback."""
+    current = get_job_identity(job_id)
+    if is_terminal_status(current.get("status", "")):
+        _log_terminal_revival_block(job_id, "ready", current)
+        return
     updates = dict(fields)
     updates["status"] = "ready"
     if finished_at is not None:
@@ -245,11 +302,14 @@ def mark_submitted(job_id: int) -> bool:
     try:
         with db.db_conn() as conn:
             row = conn.execute(
-                "SELECT user_id, username, title, filename, source_type, "
+                "SELECT user_id, username, title, filename, source_type, status, "
                 "azura_file_id, azura_song_id "
                 "FROM yt_request_jobs WHERE id=?",
                 (job_id,),
             ).fetchone()
+            if row and is_terminal_status(row[5]):
+                _log_terminal_revival_block(job_id, "queued")
+                return False
             cur = conn.execute(
                 "UPDATE yt_request_jobs "
                 "SET status='queued' "
@@ -275,8 +335,8 @@ def mark_submitted(job_id: int) -> bool:
                 source_type=(row[4] if row else ""),
                 temp_path=(row[3] if row else ""),
                 source_path="",
-                azura_file_id=(row[5] if row else ""),
-                azura_song_id=(row[6] if row else ""),
+                azura_file_id=(row[6] if row else ""),
+                azura_song_id=(row[7] if row else ""),
             )
         return changed
     except Exception as exc:
@@ -593,12 +653,25 @@ def sync_indexed_active_statuses() -> int:
                 stuck,
             ).fetchall()
             jobs = [_jrow(r) for r in rows]
+            synced_jobs = []
             for job in jobs:
+                if is_terminal_status(job.get("status", "")):
+                    _log_terminal_revival_block(job["id"], "ready", job)
+                    continue
+                fn = (job.get("filename") or "").strip()
+                source = (job.get("source_type") or "").strip()
+                if source not in ("youtube", "local_replay", "local_copy", "local"):
+                    continue
+                if source != "youtube" and not (
+                    fn.startswith("tmp_replay_") or fn.startswith("local_request_")
+                ):
+                    continue
                 conn.execute(
                     "UPDATE yt_request_jobs SET status='ready' WHERE id=?",
                     (job["id"],),
                 )
-        for job in jobs:
+                synced_jobs.append(job)
+        for job in synced_jobs:
             diag.log_radio_event(
                 "queue_status_sync",
                 request_id=job["id"],
@@ -622,7 +695,7 @@ def sync_indexed_active_statuses() -> int:
                 azura_file_id=job.get("azura_file_id", ""),
                 azura_song_id=job.get("azura_song_id", ""),
             )
-        return len(jobs)
+        return len(synced_jobs)
     except Exception as exc:
         print(f"{_LOG} sync_indexed_active_statuses error: {exc}")
         return 0

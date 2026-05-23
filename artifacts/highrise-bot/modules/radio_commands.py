@@ -315,6 +315,16 @@ def _is_any_url(s: str) -> bool:
     return s.startswith("http://") or s.startswith("https://")
 
 
+def _is_youtube_playlist_url(url: str) -> bool:
+    u = (url or "").lower()
+    return (
+        "youtube.com/playlist" in u
+        or "list=" in u
+        or "/mix" in u
+        or "start_radio=1" in u
+    )
+
+
 def _is_staff(username: str) -> bool:
     return is_owner(username) or is_admin(username)
 
@@ -409,10 +419,12 @@ async def _submit_url(
     """
     uid      = user.id
     uname    = user.username
-    is_staff = _is_staff(uname)
 
-    # Strip playlist cruft
-    url = url.split("&list=")[0].split("?list=")[0]
+    if _is_youtube_playlist_url(url):
+        await _w(bot, uid, "⚠️ Please use one YouTube song URL, not a playlist or mix.")
+        return False
+
+    is_staff = _is_staff(uname)
 
     # Regular users: YouTube URLs only
     if not is_staff and not _is_yt_url(url):
@@ -568,6 +580,9 @@ async def handle_request(
 
     # Direct URL → skip search
     if _is_any_url(query):
+        if _is_youtube_playlist_url(query):
+            await _w(bot, user.id, "⚠️ Please use one YouTube song URL, not a playlist or mix.")
+            return
         await _submit_url(bot, user, query)
         return
 
@@ -644,6 +659,9 @@ async def handle_priority(bot: "BaseBot", user: "User", args: list) -> None:
 
     # Direct URL — charge immediately then submit with priority=1
     if _is_any_url(query):
+        if _is_youtube_playlist_url(query):
+            await _w(bot, user.id, "⚠️ Please use one YouTube song URL, not a playlist or mix.")
+            return
         if not deduct_luxe_balance(user.id, user.username, cost):
             await _w(bot, user.id, "⚠️ Could not charge luxe tickets. Try again.")
             return
@@ -2426,14 +2444,16 @@ def _pl_songs(playlist_id: int, limit: int = 25) -> list:
     try:
         with db.db_conn() as conn:
             rows = conn.execute(
-                "SELECT id, source_type, title, artist, youtube_url "
+                "SELECT id, source_type, title, artist, youtube_url, "
+                "COALESCE(video_id,''), COALESCE(azura_song_id,''), COALESCE(azura_file_id,'') "
                 "FROM radio_playlist_songs WHERE playlist_id=? "
                 "ORDER BY position ASC, added_at ASC LIMIT ?",
                 (playlist_id, limit),
             ).fetchall()
             return [
                 {"id": r[0], "source_type": r[1], "title": r[2],
-                 "artist": r[3], "youtube_url": r[4]}
+                 "artist": r[3], "youtube_url": r[4], "video_id": r[5],
+                 "azura_song_id": r[6], "azura_file_id": r[7]}
                 for r in rows
             ]
     except Exception:
@@ -2525,7 +2545,7 @@ _YT_RE_PL = re.compile(
 
 
 def _is_yt_url_pl(url: str) -> bool:
-    return bool(_YT_RE_PL.match(url.strip()))
+    return bool(_YT_RE_PL.match(url.strip())) and not _is_youtube_playlist_url(url)
 
 
 # ─── !playlist / !pl ──────────────────────────────────────────────────────────
@@ -2540,11 +2560,130 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
     uname = user.username
 
     _WRITE_SUBS = frozenset(("create", "add", "addcurrent", "rename",
-                              "remove", "delete", "del", "play"))
-    _ALL_SUBS   = _WRITE_SUBS | {"songs"}
+                              "remove", "delete", "del"))
+    _ALL_SUBS   = _WRITE_SUBS | {"songs", "play"}
+
+    async def _show_playlist(pl: dict) -> None:
+        songs = _pl_songs(pl["id"])
+        if not songs:
+            await _w(bot, uid,
+                     f"📂 {pl['name'][:22]} is empty.\n"
+                     "!playlist add <name> <YouTube URL>")
+            return
+        items = []
+        for i, s in enumerate(songs, 1):
+            t = (s.get("title") or "?")[:28]
+            src = "📺" if s.get("source_type") == "youtube" else "📻"
+            items.append(f"{i}. {src} {t}")
+        chunks = [items[i : i + 4] for i in range(0, len(items), 4)]
+        for pg, chunk in enumerate(chunks, 1):
+            hdr = (f"📂 {pl['name'][:17]} {pg}/{len(chunks)}"
+                   if len(chunks) > 1 else f"📂 {pl['name'][:24]}")
+            await _w(bot, uid, hdr + "\n" + "\n".join(chunk))
+            if pg < len(chunks):
+                await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)
+        pn = pl["name"][:16]
+        await _w(bot, uid,
+                 f"!pl {pn} <#>\n"
+                 f"!playlist addcurrent {pn}\n"
+                 f"!playlist remove {pn} <#>")
+
+    async def _queue_playlist_song(pl: dict, song_idx: int) -> None:
+        songs = _pl_songs(pl["id"])
+        if song_idx < 1 or song_idx > len(songs):
+            await _w(bot, uid, f"❌ Song #{song_idx} not found in playlist.")
+            return
+        s = songs[song_idx - 1]
+        t = (s.get("title") or "?")[:50]
+        a = (s.get("artist") or "")[:28]
+        if s.get("youtube_url"):
+            await _submit_url(
+                bot, user, s["youtube_url"],
+                metadata={"title": s.get("title", ""), "artist": s.get("artist", "")},
+            )
+            return
+        if s.get("azura_file_id"):
+            is_stf = _is_staff(uname)
+            if not is_stf:
+                cd = cs.cooldown_secs()
+                elapsed = time.time() - _cooldowns.get(uid, 0)
+                if elapsed < cd:
+                    await _w(bot, uid, f"⏳ Cooldown: {int(cd - elapsed)}s remaining. Please wait.")
+                    return
+            active_now = rq.active_count()
+            max_queue = cs.max_active_queue_limit()
+            if active_now >= max_queue:
+                await _w(bot, uid,
+                    f"📋 Queue is full ({active_now}/{max_queue} requests in progress). Please wait.")
+                return
+            if not is_stf:
+                limit = cs.per_user_queue_limit()
+                if limit > 0 and rq.user_active_count(uid) >= limit:
+                    await _w(bot, uid, f"📋 You already have {rq.user_active_count(uid)} song(s) queued.")
+                    return
+            credit_used = False
+            plays_left = None
+            if not is_stf:
+                if not mc.has_credits(uid, uname):
+                    await _w(bot, uid, "❌ Out of 💿 Song Plays! Use !musicshop to buy more.")
+                    return
+                if not mc.consume_credit(uid, uname):
+                    await _w(bot, uid, "❌ Could not consume Song Play credit. Try again.")
+                    return
+                credit_used = True
+                try:
+                    plays_left = mc.get_credits(uid, uname)["total"]
+                except Exception:
+                    plays_left = None
+            price = ps.request_cost_for(uname)
+            ok, err = ps.charge(uid, price)
+            if not ok:
+                if credit_used:
+                    mc.refund_credit(uid, uname)
+                await _w(bot, uid, f"💸 {err}")
+                return
+            _cooldowns[uid] = time.time()
+            from modules.local_replay import queue_local_fav as _ql
+            await _ql(
+                bot, user,
+                {
+                    "id": s.get("id", 0),
+                    "title": s.get("title", ""),
+                    "artist": s.get("artist", ""),
+                    "azura_file_id": s.get("azura_file_id", ""),
+                    "azura_song_id": s.get("azura_song_id", ""),
+                },
+                song_idx,
+                credit_consumed=credit_used,
+                coins_charged=price,
+                payment_type="paid" if price > 0 else "free",
+                queue_position=rq.future_count() + 1,
+                staff_free=is_stf,
+                plays_left=plays_left,
+            )
+            return
+        await _playfav_youtube_fallback(
+            bot, user,
+            {"id": 0, "title": t, "artist": a},
+            song_idx,
+        )
 
     # ── No sub / unrecognised → list playlists ───────────────────────────────
     if sub not in _ALL_SUBS:
+        if sub:
+            song_idx = None
+            name_args = args[1:]
+            if len(name_args) >= 2 and name_args[-1].isdigit():
+                song_idx = int(name_args[-1])
+                name_args = name_args[:-1]
+            pl = _pl_get(uid, " ".join(name_args))
+            if pl:
+                if song_idx is None:
+                    await _show_playlist(pl)
+                else:
+                    await _queue_playlist_song(pl, song_idx)
+                return
         playlists = _pl_list(uid)
         if not playlists:
             await _w(bot, uid,
@@ -2563,8 +2702,8 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                 await asyncio.sleep(0.1)
         await asyncio.sleep(0.05)
         await _w(bot, uid,
-                 "!playlist songs <name>\n"
-                 "!playlist play <name>\n"
+                 "!playlist <name>\n"
+                 "!pl <name> <#>\n"
                  "!playlist create <name>")
         return
 
@@ -2606,31 +2745,7 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
         if not pl:
             await _w(bot, uid, f"❌ Playlist not found: {' '.join(args[2:])[:22]}")
             return
-        songs = _pl_songs(pl["id"])
-        if not songs:
-            await _w(bot, uid,
-                     f"📂 {pl['name'][:22]} is empty.\n"
-                     "!playlist add <name> <YouTube URL>")
-            return
-        items = []
-        for i, s in enumerate(songs, 1):
-            t   = (s.get("title") or "?")[:28]
-            src = "📺" if s.get("source_type") == "youtube" else "📻"
-            items.append(f"{i}. {src} {t}")
-        chunks = [items[i : i + 4] for i in range(0, len(items), 4)]
-        for pg, chunk in enumerate(chunks, 1):
-            hdr = (f"📂 {pl['name'][:17]} {pg}/{len(chunks)}"
-                   if len(chunks) > 1 else f"📂 {pl['name'][:24]}")
-            await _w(bot, uid, hdr + "\n" + "\n".join(chunk))
-            if pg < len(chunks):
-                await asyncio.sleep(0.1)
-        await asyncio.sleep(0.05)
-        pn = pl["name"][:14]
-        await _w(bot, uid,
-                 f"!playlist play {pn}\n"
-                 f"!playlist play {pn} <#>\n"
-                 f"!playlist addcurrent {pn}\n"
-                 f"!playlist remove {pn} <#>")
+        await _show_playlist(pl)
         return
 
     # ── !playlist add <name> <YouTube URL> ───────────────────────────────────
@@ -2642,6 +2757,9 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             return
         url     = args[-1].strip()
         pl_name = " ".join(args[2:-1])
+        if _is_youtube_playlist_url(url):
+            await _w(bot, uid, "⚠️ Add one YouTube song URL, not a playlist or mix.")
+            return
         if not _is_yt_url_pl(url):
             await _w(bot, uid,
                      "⚠️ Please provide a valid YouTube URL.\n"
@@ -2763,64 +2881,13 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
 
         # ── Play specific song by index ───────────────────────────────────────
         if song_idx is not None:
-            songs = _pl_songs(pl["id"])
-            if song_idx < 1 or song_idx > len(songs):
-                await _w(bot, uid, f"❌ Song #{song_idx} not found in playlist.")
-                return
-            s  = songs[song_idx - 1]
-            t  = (s.get("title") or "?")[:34]
-            a  = (s.get("artist") or "")[:18]
-            lb = f"{song_idx}. {t}" + (f" — {a}" if a else "")
-            if s.get("youtube_url"):
-                await _w(bot, uid, f"▶️ Queued from {pl['name'][:18]}:\n{lb}"[:249])
-                await _submit_url(
-                    bot, user, s["youtube_url"],
-                    metadata={"title": s["title"], "artist": s.get("artist", "")},
-                )
-            else:
-                await _w(bot, uid,
-                         f"⚠️ Local replay not supported yet: {t}")
+            await _queue_playlist_song(pl, song_idx)
             return
 
-        # ── Play all songs in playlist ────────────────────────────────────────
-        songs      = _pl_songs(pl["id"])
-        if not songs:
-            await _w(bot, uid, f"📂 {pl['name'][:22]} is empty.")
-            return
-        yt_songs   = [s for s in songs if s.get("youtube_url")]
-        local_sngs = [s for s in songs if not s.get("youtube_url")]
-        skipped    = len(local_sngs)
-        if not yt_songs:
-            await _w(bot, uid,
-                     f"⚠️ {pl['name'][:20]} has no YouTube songs.\n"
-                     "Add via !playlist add <name> <URL>.")
-            for s in local_sngs[:3]:
-                t = (s.get("title") or "?")[:44]
-                await _w(bot, uid, f"⚠️ Local not supported yet: {t}")
-            return
-        skip_note = f"\n⚠️ Skipping {skipped} local song(s)." if skipped else ""
-        await _w(bot, uid,
-                 (f"📂 Queueing {len(yt_songs)}/{len(songs)} from "
-                  f"{pl['name'][:16]}…" + skip_note)[:249])
-        queued = 0
-        for s in yt_songs:
-            try:
-                await _submit_url(
-                    bot, user, s["youtube_url"],
-                    metadata={"title": s["title"], "artist": s.get("artist", "")},
-                )
-                queued += 1
-                await asyncio.sleep(1.5)
-            except Exception as _exc:
-                print(f"{_LOG} playlist_play song_error: {_exc!r}")
-                break
-        parts = [f"✅ Queued {queued}/{len(yt_songs)} from {pl['name'][:20]}."]
-        if skipped:
-            parts.append(f"⚠️ Skipped {skipped} local songs not supported yet.")
-        await _w(bot, uid, "\n".join(parts)[:249])
-        if queued > 0:
-            rr.record_reward(uid, uname, "playlist_play")
-            asyncio.create_task(_ra.check_radio_achievements(bot, uid, uname))
+        await _w(
+            bot, uid,
+            "⚠️ Playlist autoplay is disabled. Use !playlist <name> to view songs, then !playlist <name> <#> to queue one song.",
+        )
         return
 
 
