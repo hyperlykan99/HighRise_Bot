@@ -26,6 +26,7 @@ import re
 from typing import TYPE_CHECKING
 
 _LOG = "[DJ_RENDER]"
+_NOW_PLAYING_CTA = "!play to request a song"
 
 
 # ─── Time / progress helpers (single canonical source) ────────────────────────
@@ -87,16 +88,14 @@ def render_now_playing(track: dict, *, station: str = "") -> str:
     Falls back to "0:00 ▱▱▱▱▱▱▱▱▱▱ ?:??" when duration is unknown.
     Returns a UTF-8 string ≤249 chars.
     """
-    title    = (track.get("title")  or "Unknown")[:34]
-    artist   = (track.get("artist") or "").strip()[:24]
+    raw_title = track.get("title") or "Unknown"
+    raw_artist = (track.get("artist") or "").strip()
     likes    = int(track.get("likes",    0))
     dislikes = int(track.get("dislikes", 0))
     source   = track.get("source", "autodj")
-    requester = (track.get("requester") or "").strip()[:18]
+    raw_requester = (track.get("requester") or "").strip()
     elapsed  = int(track.get("elapsed",  0) or 0)
     duration = int(track.get("duration", 0) or 0)
-
-    artist_line = f"Artist: {artist}" if artist else "Artist: Unknown Artist"
 
     if duration > 0:
         bar_line = (
@@ -106,27 +105,51 @@ def render_now_playing(track: dict, *, station: str = "") -> str:
     else:
         bar_line = f"0:00 {'▱' * 10} ?:??"
 
-    if source == "request":
-        lines = [
-            "🎵 NOW PLAYING",
-            f"Title: {title}",
-            artist_line,
-            f"Requested by: @{requester}" if requester else "Requested by: @unknown",
-            "Source: Request",
-            bar_line,
-            f"👍 {likes} | 👎 {dislikes}",
-        ]
-    else:
-        lines = [
-            "🎵 NOW PLAYING",
-            f"Title: {title}",
-            artist_line,
-            "Source: Auto DJ",
-            bar_line,
-            f"👍 {likes} | 👎 {dislikes}",
-        ]
+    def _build(title_len: int, artist_len: int, requester_len: int) -> str:
+        title = raw_title[:title_len]
+        artist = raw_artist[:artist_len]
+        requester = raw_requester[:requester_len]
+        artist_line = f"Artist: {artist}" if artist else "Artist: Unknown Artist"
+        if source == "request":
+            lines = [
+                "🎵 NOW PLAYING",
+                f"Title: {title}",
+                artist_line,
+                f"Requested by: @{requester}" if requester else "Requested by: @unknown",
+                "Source: Request",
+                bar_line,
+                f"👍 {likes} | 👎 {dislikes}",
+                _NOW_PLAYING_CTA,
+            ]
+        else:
+            lines = [
+                "🎵 NOW PLAYING",
+                f"Title: {title}",
+                artist_line,
+                "Source: Auto DJ",
+                bar_line,
+                f"👍 {likes} | 👎 {dislikes}",
+                _NOW_PLAYING_CTA,
+            ]
+        return "\n".join(lines)
 
-    return "\n".join(lines)[:249]
+    for title_len, artist_len, requester_len in (
+        (34, 24, 18),
+        (28, 20, 16),
+        (22, 16, 14),
+        (16, 12, 12),
+    ):
+        msg = _build(title_len, artist_len, requester_len)
+        if len(msg) <= 249:
+            return msg
+
+    # Preserve the CTA as the final line even under unusually long counters.
+    msg = _build(12, 10, 10)
+    if len(msg) <= 249:
+        return msg
+    head_budget = max(0, 249 - len("\n" + _NOW_PLAYING_CTA))
+    head = msg.rsplit("\n", 1)[0][:head_budget]
+    return f"{head}\n{_NOW_PLAYING_CTA}"
 
 
 # ─── History page renderer ────────────────────────────────────────────────────
