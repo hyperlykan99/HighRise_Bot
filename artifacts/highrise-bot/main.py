@@ -7947,20 +7947,13 @@ class HangoutBot(BaseBot):
         elif await dispatch_radio_command(self, user, args, cmd):
             pass
 
-        elif cmd in ("play", "request", "sr", "req", "song", "requesy"):
-            print(f"[RADIO CMD] bot={config.BOT_USERNAME!r} mode={BOT_MODE} cmd={cmd!r}")
-            await rc_request(self, user, args)
         elif cmd in ("pick", "djpick"):
             if has_pending_yt_search(user.id):
                 await rc_pick(self, user, args)
             else:
                 await handle_dj_pick(self, user, args)
-        elif cmd in ("queue", "q", "djqueue"):
-            await rc_queue(self, user, args)
         elif cmd in ("now", "nowplaying", "np"):
             await rc_nowplaying(self, user, args)
-        elif cmd in ("skip", "djskip"):
-            await rc_skip(self, user, args)
         elif cmd in ("stopmusic", "djstop"):
             await handle_dj_clear(self, user)
         elif cmd == "clearqueue":
@@ -8023,8 +8016,6 @@ class HangoutBot(BaseBot):
             await rc_mysongs(self, user, args)
         elif cmd == "playmine":
             await rc_playmine(self, user, args)
-        elif cmd == "playfav":
-            await rc_playfav(self, user, args)
         elif cmd in ("playfavlocal", "localreplaytest"):
             try:
                 from modules.local_replay import handle_playfavlocal as _lr_play
@@ -8219,8 +8210,6 @@ class HangoutBot(BaseBot):
             await handle_unbanrequester(self, user, args)
         elif cmd == "queueadmin":
             await handle_queueadmin(self, user, args)
-        elif cmd in ("remove", "djremove", "radioremove"):
-            await rc_remove(self, user, args)
         elif cmd in ("voteskip", "skipvote"):
             await rc_voteskip(self, user, args)
         elif cmd == "vibes":
@@ -8241,8 +8230,6 @@ class HangoutBot(BaseBot):
             await rc_setqueuelimit(self, user, args)
         elif cmd == "setrequestprice":
             await rc_setrequestprice(self, user, args)
-        elif cmd == "radiohelp":
-            await rc_radiohelp(self, user, args)
         elif cmd == "webplayer":
             await handle_dj_webplayer(self, user)
         elif cmd == "setwebplayer":
@@ -8265,8 +8252,6 @@ class HangoutBot(BaseBot):
             await rc_buyrequests(self, user, args)
         elif cmd == "buyplays":
             await rc_buyplays(self, user, args)
-        elif cmd == "cancel":
-            await rc_cancel(self, user, args)
         elif cmd == "cancelrequest":
             await handle_dj_cancelrequest(self, user, args)
         elif cmd == "requeststatus":
