@@ -348,6 +348,53 @@ async def _w(bot: "BaseBot", uid: str, msg: str) -> None:
         pass
 
 
+async def _send_pages(bot: "BaseBot", uid: str, pages: list[str]) -> None:
+    for page in pages:
+        try:
+            await _safe_send_mu(bot, page[:255], whisper_target=uid, max_chars=255)
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
+
+
+def _split_search_pages(results: list[dict], max_secs: int) -> list[str]:
+    footer = "Reply: !pick 1-5"
+    body_pages: list[list[str]] = []
+    current: list[str] = []
+
+    def _line(i: int, row: dict, limit: int = 190) -> str:
+        title = (row.get("title") or "Unknown title").strip()
+        dur = row.get("duration") or "?"
+        flag = " ⚠️" if int(row.get("duration_secs") or 0) > max_secs else ""
+        line = f"{i}. {title} [{dur}]{flag}"
+        if len(line) > limit:
+            line = line[: limit - 1] + "…"
+        return line
+
+    for i, row in enumerate(results[:5], 1):
+        line = _line(i, row)
+        test = current + [line]
+        preview = "\n".join(["🎵 Search results 9/9", *test, footer])
+        if current and len(preview) > 255:
+            body_pages.append(current)
+            current = [line]
+        else:
+            current = test
+    if current:
+        body_pages.append(current)
+
+    total = max(1, len(body_pages))
+    pages: list[str] = []
+    for idx, lines in enumerate(body_pages, 1):
+        page = "\n".join([f"🎵 Search results {idx}/{total}", *lines, footer])
+        while len(page) > 255 and lines:
+            last = lines[-1]
+            lines[-1] = last[: max(20, len(last) - (len(page) - 254))] + "…"
+            page = "\n".join([f"🎵 Search results {idx}/{total}", *lines, footer])
+        pages.append(page[:255])
+    return pages
+
+
 # ─── Core request submission helper ──────────────────────────────────────────
 
 async def _submit_url(
@@ -398,10 +445,12 @@ async def _submit_url(
             return False
 
     # Queue capacity
-    if rq.active_count() >= cs.MAX_ACTIVE_JOBS:
+    active_now = rq.active_count()
+    max_queue = cs.max_active_queue_limit()
+    if active_now >= max_queue:
         await _w(
             bot, uid,
-            f"📋 Queue is full ({cs.MAX_ACTIVE_JOBS} requests in progress). Please wait.",
+            f"📋 Queue is full ({active_now}/{max_queue} requests in progress). Please wait.",
         )
         return False
 
@@ -536,14 +585,16 @@ async def handle_request(
         return
 
     rq.set_pending_search(user.id, results)
-    max_min = cs.MAX_DURATION_SECS // 60
-    lines   = ["🎵 Pick a result — reply !pick <1-5>:"]
-    for i, r in enumerate(results, 1):
-        flag  = " ⚠️" if r.get("duration_secs", 0) > cs.MAX_DURATION_SECS else ""
-        clean = _clean_title(r["title"])[:38]
-        lines.append(f"{i}. {clean} [{r.get('duration', '?')}]{flag}")
-    lines.append(f"(Max {max_min}m)")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    pages = _split_search_pages(results, cs.MAX_DURATION_SECS)
+    if len(pages) > 1:
+        diag.log_radio_event(
+            "youtube_search_paginated",
+            user_id=user.id,
+            username=user.username,
+            pages=len(pages),
+            results=len(results[:5]),
+        )
+    await _send_pages(bot, user.id, pages)
 
 
 # ─── !priority ────────────────────────────────────────────────────────────────
@@ -622,14 +673,17 @@ async def handle_priority(bot: "BaseBot", user: "User", args: list) -> None:
 
     _priority_mode.add(user.id)
     rq.set_pending_search(user.id, results)
-    max_min = cs.MAX_DURATION_SECS // 60
-    lines   = [f"⭐ Priority — pick a result (!pick <1-5>, costs {cost} tickets):"]
-    for i, r in enumerate(results, 1):
-        flag  = " ⚠️" if r.get("duration_secs", 0) > cs.MAX_DURATION_SECS else ""
-        clean = _clean_title(r["title"])[:38]
-        lines.append(f"{i}. {clean} [{r.get('duration', '?')}]{flag}")
-    lines.append(f"(Max {max_min}m)")
-    await _w(bot, user.id, "\n".join(lines)[:249])
+    pages = _split_search_pages(results, cs.MAX_DURATION_SECS)
+    pages = [p.replace("🎵 Search results", "⭐ Priority results", 1) for p in pages]
+    if len(pages) > 1:
+        diag.log_radio_event(
+            "youtube_search_paginated",
+            user_id=user.id,
+            username=user.username,
+            pages=len(pages),
+            results=len(results[:5]),
+        )
+    await _send_pages(bot, user.id, pages)
 
 
 # ─── !pick ────────────────────────────────────────────────────────────────────
@@ -699,17 +753,18 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     This handler must not repair, mutate, mark played, or clean files. Lifecycle
     transitions are owned by playback_engine.
     """
+    rq.sync_indexed_active_statuses()
     all_jobs = rq.display_jobs()
     print(f"{_LOG} stage=queue_render command=queue count={len(all_jobs)}")
 
     def _qicon(status: str) -> str:
         if status == "playing":
             return "✅"
-        if status in ("ready", "done"):
+        if status in ("ready", "queued", "submitted", "done"):
             return "✅"
         if status in ("error", "failed", "cancelled"):
             return "❌"
-        if status in ("processing", "queued", "staged"):
+        if status in ("processing", "copying", "downloading", "uploading", "indexing", "staged"):
             return "⏳"
         return "⏳"  # pending/downloading/downloaded/uploading
 
@@ -1298,31 +1353,62 @@ async def handle_vibescan(bot: "BaseBot", user: "User", _args: list) -> None:
 # ─── !queuelimit / !setqueuelimit ─────────────────────────────────────────────
 
 async def handle_queuelimit(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!queuelimit — show current per-player pending queue limit (anyone)."""
-    limit = cs.per_user_queue_limit()
-    label = f"{limit} songs per player" if limit else "unlimited"
-    await _w(bot, user.id, f"📋 Queue limit: {label}.")
+    """!queuelimit [number] — show or set room-wide active queue limit."""
+    if len(_args) >= 2:
+        await handle_setqueuelimit(bot, user, _args)
+        return
+    limit = cs.max_active_queue_limit()
+    active = rq.active_count()
+    diag.log_radio_event(
+        "queue_limit_read",
+        user_id=user.id,
+        username=user.username,
+        queue_event="queuelimit",
+        limit=limit,
+        active=active,
+    )
+    await _w(bot, user.id, f"📋 Queue limit: {active}/{limit} requests in progress.")
 
 
 async def handle_setqueuelimit(bot: "BaseBot", user: "User", args: list) -> None:
-    """!setqueuelimit <number>  — set per-player queue limit (0 = unlimited). Admin/owner only."""
+    """!setqueuelimit <number> — set room-wide active queue limit. Admin/owner only."""
     if not is_admin(user.username):
         await _w(bot, user.id, "❌ Admins only.")
         return
 
     if len(args) < 2 or not args[1].isdigit():
-        limit = cs.per_user_queue_limit()
-        label = f"{limit} songs per player" if limit else "unlimited"
+        limit = cs.max_active_queue_limit()
+        if len(args) >= 2:
+            diag.log_radio_event(
+                "queue_limit_rejected",
+                user_id=user.id,
+                username=user.username,
+                requested=args[1],
+                reason="not_numeric",
+            )
         await _w(
             bot, user.id,
-            f"📋 Queue limit: {label}.\nUsage: !setqueuelimit <number> (0 = unlimited)",
+            f"📋 Queue limit: {limit}.\nUsage: !queuelimit <1-50>",
         )
         return
 
-    n = max(0, int(args[1]))
-    cs.set_per_user_queue_limit(n)
-    label = f"{n} songs per player" if n else "unlimited"
-    await _w(bot, user.id, f"⚙️ Queue limit set to {label}.")
+    raw = int(args[1])
+    if raw < 1 or raw > 50:
+        diag.log_radio_event(
+            "queue_limit_rejected",
+            user_id=user.id,
+            username=user.username,
+            requested=raw,
+        )
+    n = cs.set_max_active_queue_limit(raw)
+    diag.log_radio_event(
+        "queue_limit_updated",
+        user_id=user.id,
+        username=user.username,
+        requested=raw,
+        limit=n,
+    )
+    await _w(bot, user.id, f"⚙️ Queue limit set to {n}.")
 
 
 # ─── !setrequestprice ─────────────────────────────────────────────────────────
@@ -2122,9 +2208,11 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
                 return
 
         # Queue capacity (mirrors _submit_url)
-        if rq.active_count() >= cs.MAX_ACTIVE_JOBS:
+        active_now = rq.active_count()
+        max_queue = cs.max_active_queue_limit()
+        if active_now >= max_queue:
             await _w(bot, uid,
-                f"📋 Queue is full ({cs.MAX_ACTIVE_JOBS} in progress). Please wait.")
+                f"📋 Queue is full ({active_now}/{max_queue} requests in progress). Please wait.")
             return
 
         # Per-user queue limit (mirrors _submit_url)
@@ -2747,6 +2835,7 @@ async def handle_radiostatus(bot: "BaseBot", user: "User", _args: list) -> None:
     """!radiostatus — lightweight radio pipeline health snapshot."""
     import modules.radio_diagnostics as diag
 
+    rq.sync_indexed_active_statuses()
     snap = await diag.snapshot(timeout_s=2.5)
     for msg in diag.format_status_messages(snap):
         await _w(bot, user.id, msg)
@@ -2824,6 +2913,8 @@ handle_vibe            = _safe(handle_vibe)
 handle_setrequestprice = _safe(handle_setrequestprice)
 handle_radiohelp       = _safe(handle_radiohelp)
 handle_radiostatus     = _safe(handle_radiostatus)
+handle_queuelimit      = _safe(handle_queuelimit)
+handle_setqueuelimit   = _safe(handle_setqueuelimit)
 handle_radiotutorial   = _safe(handle_radiotutorial)
 handle_musicshop       = _safe(handle_musicshop)
 handle_buyplays        = _safe(handle_buyplays)

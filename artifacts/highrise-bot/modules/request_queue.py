@@ -50,13 +50,16 @@ _DSP_PH = ",".join("?" * len(_DISPLAY_STATUSES))
 
 # Statuses counted for queue-position / per-user limit checks.
 # Excludes "playing" so the on-air song is not counted against a user's limit.
-_WAITING_STATUSES = ("pending", "downloading", "downloaded", "uploading", "staged", "ready")
+_WAITING_STATUSES = (
+    "pending", "processing", "downloading", "downloaded", "uploading",
+    "indexing", "staged", "ready", "queued", "submitted",
+)
 _WAI_PH = ",".join("?" * len(_WAITING_STATUSES))
 
 # Statuses cancelled by !djclear / !clearqueue.
 _CLEAR_STATUSES = (
     "pending", "downloading", "downloaded", "uploading",
-    "staged", "ready", "queued", "done",
+    "staged", "ready", "queued", "submitted", "done",
 )
 _CLR_PH = ",".join("?" * len(_CLEAR_STATUSES))
 
@@ -570,6 +573,61 @@ def display_jobs() -> list:
         return []
 
 
+def sync_indexed_active_statuses() -> int:
+    """
+    Repair rows stuck in a preparing-style status after AzuraCast identifiers
+    were already persisted. Display-only callers may run this before rendering.
+    """
+    stuck = (
+        "pending", "processing", "downloading", "downloaded",
+        "uploading", "indexing", "staged",
+    )
+    ph = ",".join("?" * len(stuck))
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {_SEL} FROM yt_request_jobs "
+                f"WHERE status IN ({ph}) AND played_at IS NULL "
+                "AND cleaned_at IS NULL "
+                "AND (COALESCE(azura_file_id,'')!='' OR COALESCE(azura_song_id,'')!='')",
+                stuck,
+            ).fetchall()
+            jobs = [_jrow(r) for r in rows]
+            for job in jobs:
+                conn.execute(
+                    "UPDATE yt_request_jobs SET status='ready' WHERE id=?",
+                    (job["id"],),
+                )
+        for job in jobs:
+            diag.log_radio_event(
+                "queue_status_sync",
+                request_id=job["id"],
+                user_id=job.get("user_id", ""),
+                username=job.get("username", ""),
+                title=job.get("title", ""),
+                source_type=job.get("source_type", ""),
+                temp_path=job.get("filename", ""),
+                azura_file_id=job.get("azura_file_id", ""),
+                azura_song_id=job.get("azura_song_id", ""),
+                status_transition=f"{job.get('status', '')}->ready",
+            )
+            diag.log_radio_event(
+                "azura_index_confirmed",
+                request_id=job["id"],
+                user_id=job.get("user_id", ""),
+                username=job.get("username", ""),
+                title=job.get("title", ""),
+                source_type=job.get("source_type", ""),
+                temp_path=job.get("filename", ""),
+                azura_file_id=job.get("azura_file_id", ""),
+                azura_song_id=job.get("azura_song_id", ""),
+            )
+        return len(jobs)
+    except Exception as exc:
+        print(f"{_LOG} sync_indexed_active_statuses error: {exc}")
+        return 0
+
+
 def render_added_to_queue_message(
     *,
     title: str = "",
@@ -847,7 +905,7 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
 
 
 def active_count() -> int:
-    """Count of all in-flight jobs (pending → playing)."""
+    """Count of real active request workload, excluding terminal rows."""
     try:
         with db.db_conn() as conn:
             row = conn.execute(

@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Callable
 
 import config as _config
 import database as db
+import modules.config_store as cs
 from modules.permissions import is_admin, is_owner, is_manager
 from modules.radio_status import ACTIVE_QUEUE_STATUSES
 import modules.request_queue as rq
@@ -101,7 +102,7 @@ def _is_youtube_url(url: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _DEFAULT_COOLDOWN  = 300   # seconds
-_MAX_ACTIVE_JOBS   = 5     # refuse new jobs when full
+_MAX_ACTIVE_JOBS   = 20    # legacy fallback; runtime limit is config_store
 _MAX_DURATION_SECS = 600   # 10 minutes — reject longer videos
 _DEDUP_WINDOW_SECS = 86400 # 24 hours  — block re-requests of same URL
 
@@ -2135,13 +2136,13 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
             return
 
     # ── Queue capacity check ──────────────────────────────────────────────────
-    with _jobs_lock:
-        active_count = sum(
-            1 for j in _jobs.values()
-            if j["status"] in ("pending", "downloading", "uploading")
+    active_count = rq.active_count()
+    max_queue = cs.max_active_queue_limit()
+    if active_count >= max_queue:
+        await _w(
+            bot, user.id,
+            f"📋 Queue is full ({active_count}/{max_queue} requests in progress). Please wait.",
         )
-    if active_count >= _MAX_ACTIVE_JOBS:
-        await _w(bot, user.id, "📋 Queue is full right now. Try again in a few minutes.")
         return
 
     # ── Payment logic ─────────────────────────────────────────────────────────

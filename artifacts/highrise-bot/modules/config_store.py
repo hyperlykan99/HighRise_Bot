@@ -111,11 +111,25 @@ def admin_requests_ignore_leave() -> bool:
 
 MAX_DURATION_SECS: int = int(os.environ.get("REQUEST_MAX_DURATION", "600") or "600")
 DEDUP_WINDOW_SECS: int = 86400
-MAX_ACTIVE_JOBS:   int = int(os.environ.get("REQUEST_MAX_QUEUE", "5") or "5")
+MAX_ACTIVE_JOBS:   int = int(os.environ.get("REQUEST_MAX_QUEUE", "20") or "20")
 MAX_PER_USER_JOBS: int = int(os.environ.get("REQUEST_MAX_PER_USER", "3") or "3")
 
 
-# ─── Per-user queue limit (DB-backed, admin-editable) ─────────────────────────
+# ─── Queue limits (DB-backed, admin-editable) ─────────────────────────────────
+
+def max_active_queue_limit() -> int:
+    """Max active room-wide request workload. Default 20, clamped 1..50."""
+    try:
+        return min(50, max(1, int(_get("max_active_queue", str(MAX_ACTIVE_JOBS)))))
+    except Exception:
+        return 20
+
+
+def set_max_active_queue_limit(n: int) -> int:
+    val = min(50, max(1, int(n)))
+    _set("max_active_queue", str(val))
+    return val
+
 
 def per_user_queue_limit() -> int:
     """Max pending songs per player (0 = unlimited). Default from env/3."""

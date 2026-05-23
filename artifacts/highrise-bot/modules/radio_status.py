@@ -16,6 +16,7 @@ ACTIVE_QUEUE_STATUSES = (
     "staged",
     "ready",
     "queued",
+    "submitted",
     "done",
     "playing",
 )

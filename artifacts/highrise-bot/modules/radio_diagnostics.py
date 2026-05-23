@@ -226,6 +226,77 @@ def _terminal_azura_candidates(limit: int = 5) -> list[dict[str, object]]:
         return []
 
 
+def _db_azura_presence_candidates(limit: int = 5) -> list[dict[str, object]]:
+    statuses = tuple(ACTIVE_QUEUE_STATUSES) + tuple(TERMINAL_QUEUE_STATUSES)
+    try:
+        placeholders = ",".join("?" * len(statuses))
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, title, status, filename, azura_file_id, azura_song_id "
+                "FROM yt_request_jobs "
+                f"WHERE status IN ({placeholders}) "
+                "AND (azura_file_id!='' OR azura_song_id!='' OR filename LIKE 'tmp_replay_%' "
+                "OR filename LIKE 'local_request_%') "
+                "ORDER BY id DESC LIMIT ?",
+                (*statuses, limit),
+            ).fetchall()
+        return [
+            {
+                "request_id": row[0],
+                "title": row[1] or "",
+                "db_status": row[2] or "",
+                "temp_path": row[3] or "",
+                "azura_file_id": row[4] or "",
+                "azura_song_id": row[5] or "",
+            }
+            for row in rows
+        ]
+    except Exception as exc:
+        if "no such table" not in str(exc).lower():
+            print(f"{_LOG} db_azura_presence_candidates_error={exc!r}")
+        return []
+
+
+def _azura_presence_report_sync(limit: int = 5) -> dict[str, object]:
+    rows = _db_azura_presence_candidates(limit=limit)
+    if not rows:
+        return {"count": 0, "items": []}
+    if not cs.azura_api_ready():
+        return {"count": len(rows), "items": rows, "azura_checked": False}
+    try:
+        import modules.azuracast_controller as azura
+
+        queue_ids = set()
+        for item in azura.fetch_queue():
+            song = item.get("song") or {}
+            uid = song.get("unique_id") or song.get("id") or item.get("song_id") or ""
+            if uid:
+                queue_ids.add(str(uid))
+
+        items = []
+        for row in rows:
+            fid = str(row.get("azura_file_id") or "")
+            sid = str(row.get("azura_song_id") or "")
+            fn = str(row.get("temp_path") or "")
+            media = azura.get_media_file(fid) if fid else None
+            if media is None and fn:
+                media = azura.search_media(fn)
+            playlists = (media or {}).get("playlists") or []
+            checked = dict(row)
+            checked.update(
+                {
+                    "media_present": media is not None,
+                    "in_queue": bool(sid and sid in queue_ids),
+                    "in_playlist": bool(playlists),
+                    "playlist_count": len(playlists),
+                }
+            )
+            items.append(checked)
+        return {"count": len(items), "items": items, "azura_checked": True}
+    except Exception as exc:
+        return {"count": len(rows), "items": rows, "azura_checked": False, "error": repr(exc)[:120]}
+
+
 def _terminal_azura_presence_sync(limit: int = 5) -> dict[str, object]:
     rows = _terminal_azura_candidates(limit=limit)
     if not rows:
@@ -288,6 +359,11 @@ async def terminal_azura_presence(limit: int = 5) -> dict[str, object]:
     return await loop.run_in_executor(None, _terminal_azura_presence_sync, limit)
 
 
+async def azura_presence_report(limit: int = 5) -> dict[str, object]:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _azura_presence_report_sync, limit)
+
+
 async def azuracast_status(timeout_s: float = 3.0) -> dict[str, object]:
     if not cs.azura_api_ready():
         return {"configured": False, "state": "unconfigured"}
@@ -315,6 +391,7 @@ async def azuracast_status(timeout_s: float = 3.0) -> dict[str, object]:
 
 async def snapshot(timeout_s: float = 3.0) -> dict[str, object]:
     terminal_presence_task = asyncio.create_task(terminal_azura_presence(limit=5))
+    presence_task = asyncio.create_task(azura_presence_report(limit=5))
     return {
         "ts": int(time.time()),
         "queue_counts": _active_queue_counts(),
@@ -326,6 +403,7 @@ async def snapshot(timeout_s: float = 3.0) -> dict[str, object]:
         "queue_lifecycle_api": _lifecycle_api_state(),
         "orphan_temp_files": _orphan_temp_file_count(),
         "terminal_azura_presence": await terminal_presence_task,
+        "azura_presence_report": await presence_task,
     }
 
 
@@ -365,6 +443,7 @@ def format_status_messages(snap: dict[str, object]) -> list[str]:
     azura = snap.get("azuracast", {})
     registry = snap.get("registry", {})
     terminal_presence = snap.get("terminal_azura_presence", {})
+    presence_report = snap.get("azura_presence_report", {})
 
     active_total = sum(
         int(v)
@@ -386,6 +465,14 @@ def format_status_messages(snap: dict[str, object]) -> list[str]:
         f"Terminal Azura presence: {(terminal_presence or {}).get('count', 0)}",
         f"Orphan tmp files: {snap.get('orphan_temp_files', 0)}",
     ]
+    for item in (presence_report or {}).get("items", [])[:3]:
+        lines.append(
+            f"#{item.get('request_id')} {str(item.get('title') or '?')[:18]} "
+            f"db={item.get('db_status')} fid={item.get('azura_file_id') or '-'} "
+            f"sid={item.get('azura_song_id') or '-'} "
+            f"azq={item.get('in_queue', '?')} media={item.get('media_present', '?')} "
+            f"pl={item.get('in_playlist', '?')} tmp={str(item.get('temp_path') or '')[:18]}"
+        )
 
     messages: list[str] = []
     current = ""

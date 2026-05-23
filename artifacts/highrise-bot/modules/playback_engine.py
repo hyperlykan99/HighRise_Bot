@@ -313,7 +313,7 @@ def _db_match_request(
     """
     active = (
         "pending", "downloading", "downloaded", "uploading",
-        "staged", "ready", "queued", "done", "playing",
+        "staged", "ready", "queued", "submitted", "done", "playing",
     )
     ph     = ",".join("?" * len(active))
 
@@ -601,19 +601,19 @@ def _delete_request_file(
     # ── 1. Lookup media_id if azura_file_id was never stored ─────────────────
     if fn and ("/" in fn or "\\" in fn):
         _log("cleanup_safety_skip", "fail", reason="path_not_basename")
-        if is_local_temp:
-            diag.log_radio_event(
-                "cleanup_safety_skip",
-                request_id=db_id,
-                user_id=log_user_id,
-                username=log_username,
-                title=title_s,
-                source_type=log_source_type,
-                azura_file_id=cur_fid,
-                azura_song_id=song_id,
-                temp_path=fn,
-                source_path="",
-            )
+        diag.log_radio_event(
+            "cleanup_safety_skip",
+            request_id=db_id,
+            user_id=log_user_id,
+            username=log_username,
+            title=title_s,
+            source_type=log_source_type,
+            azura_file_id=cur_fid,
+            azura_song_id=song_id,
+            temp_path=fn,
+            source_path="",
+            reason="path_not_basename",
+        )
         return False
 
     if is_local_temp:
@@ -650,6 +650,17 @@ def _delete_request_file(
         removed_queue = azura.remove_queue_items_for_song(song_id)
         if removed_queue:
             removed_from_azura = True
+            diag.log_radio_event(
+                "removed_from_azura_queue",
+                request_id=db_id,
+                user_id=log_user_id,
+                username=log_username,
+                title=title_s,
+                source_type=log_source_type,
+                azura_file_id=cur_fid,
+                azura_song_id=song_id,
+                temp_path=fn,
+            )
         _log("remove_from_queue", "success" if removed_queue else "none",
              removed=str(removed_queue))
 
@@ -657,7 +668,19 @@ def _delete_request_file(
     # Stops AutoDJ from re-queuing the file even before deletion completes.
     if cur_fid:
         ok_pl = azura.clear_file_playlists(cur_fid)
-        removed_from_azura = bool(ok_pl)
+        removed_from_azura = bool(removed_from_azura or ok_pl)
+        if ok_pl:
+            diag.log_radio_event(
+                "removed_from_azura_playlist",
+                request_id=db_id,
+                user_id=log_user_id,
+                username=log_username,
+                title=title_s,
+                source_type=log_source_type,
+                azura_file_id=cur_fid,
+                azura_song_id=song_id,
+                temp_path=fn,
+            )
         _log("remove_from_playlist", "success" if ok_pl else "fail")
 
     # ── 4. Delete via AzuraCast API ──────────────────────────────────────────
@@ -666,6 +689,17 @@ def _delete_request_file(
         ok_api = azura.delete_media_file(cur_fid)
         if ok_api:
             removed_from_azura = True
+            diag.log_radio_event(
+                "removed_from_azura_media",
+                request_id=db_id,
+                user_id=log_user_id,
+                username=log_username,
+                title=title_s,
+                source_type=log_source_type,
+                azura_file_id=cur_fid,
+                azura_song_id=song_id,
+                temp_path=fn,
+            )
         _log("delete_file", "success" if ok_api else "fail", method="api")
 
     # ── 5. SFTP move to PlayedRequests (Option B) ────────────────────────────
@@ -692,6 +726,19 @@ def _delete_request_file(
     # ── 7. Verify — confirm file is gone / not in any playlist ───────────────
     verify_ok = azura.verify_file_deleted(fn, wait_secs=3.0)
     _log("verify", "success" if verify_ok else "fail")
+    if not verify_ok:
+        diag.log_radio_event(
+            "cleanup_failed",
+            request_id=db_id,
+            user_id=log_user_id,
+            username=log_username,
+            title=title_s,
+            source_type=log_source_type,
+            azura_file_id=cur_fid,
+            azura_song_id=song_id,
+            temp_path=fn,
+            reason="verify_failed",
+        )
 
     # ── 8. Mark cleaned_at ───────────────────────────────────────────────────
     if ok or removed_from_azura:
@@ -726,6 +773,17 @@ def _delete_request_file(
     else:
         _log("cleanup_complete", "fail", title=repr(title_s),
              note="will_retry_on_next_cycle")
+        diag.log_radio_event(
+            "cleanup_failed",
+            request_id=db_id,
+            user_id=log_user_id,
+            username=log_username,
+            title=title_s,
+            source_type=log_source_type,
+            azura_file_id=cur_fid,
+            azura_song_id=song_id,
+            temp_path=fn,
+        )
         return False
 
 
