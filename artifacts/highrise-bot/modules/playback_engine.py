@@ -61,6 +61,7 @@ _live_req: "dict | None" = None     # In-memory cache of the currently-playing r
                                     # announcement time, cleared on finish/skip/AutoDJ
 _cur_replay_temp: str   = ""        # basename of tmp_replay_* currently playing ("" = none)
 _replay_marked:   set   = set()     # basenames already marked status='playing' in local_replay_jobs
+_finished_jids:    set   = set()     # request IDs already consumed this process
 
 _ACT = ACTIVE_QUEUE_STATUSES
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
@@ -519,7 +520,13 @@ def _db_set_cleaned(db_id: int) -> None:
     rq.mark_cleaned(db_id)
 
 
-def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
+def _delete_request_file(
+    db_id: int,
+    fid: str,
+    fn: str,
+    title: str,
+    song_id: str = "",
+) -> bool:
     """
     Blocking — MUST be called via run_in_executor.
 
@@ -545,11 +552,13 @@ def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
                             no longer in any playlist.
     7. Mark cleaned_at in DB on success.
 
-    Log fields: stage=request_cleanup  request_id=  media_id=  filename=
-                action=  result=success|fail  [error=]
+    Log fields: stage=request_cleanup request_id= media_id= song_id= path=
+                submitted_to_azura= removed_from_azura= action= result=
     """
     title_s = title[:50] if title else "?"
     cur_fid = fid   # working copy — may be updated by the lookup step
+    azura_path = f"Requests/{fn}" if fn else ""
+    removed_from_azura = False
 
     def _log(action: str, result: str, **extra: str) -> None:
         extras = "".join(f" {k}={v}" for k, v in extra.items())
@@ -557,7 +566,11 @@ def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
             f"{_LOG} stage=request_cleanup"
             f" request_id={db_id}"
             f" media_id={cur_fid!r}"
+            f" song_id={song_id!r}"
             f" filename={fn!r}"
+            f" azura_path={azura_path!r}"
+            f" submitted_to_azura=true"
+            f" removed_from_azura={str(removed_from_azura).lower()}"
             f" action={action}"
             f" result={result}{extras}"
         )
@@ -578,51 +591,71 @@ def _delete_request_file(db_id: int, fid: str, fn: str, title: str) -> None:
             _log("lookup_media_id", "error", error=repr(str(exc)))
 
     # ── 2. Remove from Requests playlist ─────────────────────────────────────
+    if song_id:
+        removed_queue = azura.remove_queue_items_for_song(song_id)
+        if removed_queue:
+            removed_from_azura = True
+        _log("remove_from_queue", "success" if removed_queue else "none",
+             removed=str(removed_queue))
+
+    # ── 3. Remove from Requests playlist ─────────────────────────────────────
     # Stops AutoDJ from re-queuing the file even before deletion completes.
     if cur_fid:
         ok_pl = azura.clear_file_playlists(cur_fid)
+        removed_from_azura = bool(ok_pl)
         _log("remove_from_playlist", "success" if ok_pl else "fail")
 
-    # ── 3. Delete via AzuraCast API ──────────────────────────────────────────
+    # ── 4. Delete via AzuraCast API ──────────────────────────────────────────
     ok_api = False
     if cur_fid:
         ok_api = azura.delete_media_file(cur_fid)
+        if ok_api:
+            removed_from_azura = True
         _log("delete_file", "success" if ok_api else "fail", method="api")
 
-    # ── 4. SFTP move to PlayedRequests (Option B) ────────────────────────────
+    # ── 5. SFTP move to PlayedRequests (Option B) ────────────────────────────
     # Move the physical file out of /Requests so AzuraCast cannot replay it.
     # Falls back to SFTP delete if the move fails (e.g. cross-filesystem server).
     ok_sftp = False
     if fn:
         ok_sftp = azura.sftp_move_to_played(fn)
+        if ok_sftp:
+            removed_from_azura = True
         _log("move_to_played", "success" if ok_sftp else "fail", method="sftp_rename_or_copy")
         if not ok_sftp:
             ok_sftp = azura.sftp_delete_file(fn)
+            if ok_sftp:
+                removed_from_azura = True
             _log("delete_file", "success" if ok_sftp else "fail", method="sftp_fallback")
 
     ok = ok_api or ok_sftp
 
-    # ── 5. Rescan — let AzuraCast update its media DB ────────────────────────
+    # ── 6. Rescan — let AzuraCast update its media DB ────────────────────────
     ok_rescan = azura.rescan_requests_folder()
     _log("rescan", "success" if ok_rescan else "fail")
 
-    # ── 6. Verify — confirm file is gone / not in any playlist ───────────────
+    # ── 7. Verify — confirm file is gone / not in any playlist ───────────────
     verify_ok = azura.verify_file_deleted(fn, wait_secs=3.0)
     _log("verify", "success" if verify_ok else "fail")
 
-    # ── 7. Mark cleaned_at ───────────────────────────────────────────────────
-    if ok:
+    # ── 8. Mark cleaned_at ───────────────────────────────────────────────────
+    if ok or removed_from_azura:
         _db_set_cleaned(db_id)
         _log("cleanup_complete", "success", title=repr(title_s))
+        return True
     else:
         _log("cleanup_complete", "fail", title=repr(title_s),
              note="will_retry_on_next_cycle")
+        return False
 
 
 # ─── Track event handlers ─────────────────────────────────────────────────────
 
 async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
-    global _cur_req_id, _live_req, _submitted_jids
+    global _cur_req_id, _live_req, _submitted_jids, _finished_jids
+    if db_id in _finished_jids:
+        print(f"{_LOG} stage=request_finished_guard request_id={db_id} already_handled=true")
+        return
     with _lock:
         _cur_req_id = 0
         _live_req   = None
@@ -642,6 +675,7 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         )
         return
 
+    _finished_jids.add(db_id)
     rq.mark_played(db_id, reason="playback_engine_finished")
     if job:
         _db_backfill_playfav_source_after_play(job)
@@ -650,11 +684,15 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
     fid_s = (job.get("azura_file_id") if job else None) or "?"
     ttl_s = (job.get("title")         if job else None) or "?"
     usr_s = (job.get("username")      if job else None) or "?"
+    sid_s = (job.get("azura_song_id") if job else None) or "?"
+    path_s = f"Requests/{fn_s}" if fn_s and fn_s != "?" else ""
     print(
         f"{_LOG} stage=request_finished"
         f" request_id={db_id}"
         f" media_id={fid_s!r}"
+        f" song_id={sid_s!r}"
         f" filename={fn_s!r}"
+        f" azura_path={path_s!r}"
         f" title={ttl_s!r}"
         f" username={usr_s!r}"
     )
@@ -667,9 +705,19 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         # Both are treated as success so cleaned_at is set.
         if fid or fn:
             loop = asyncio.get_running_loop()
-            loop.run_in_executor(
+            cleanup_ok = await loop.run_in_executor(
                 None, _delete_request_file,
                 db_id, fid, fn, job.get("title", "?"),
+                (job.get("azura_song_id") or "").strip(),
+            )
+            print(
+                f"{_LOG} stage=request_azura_consume"
+                f" request_id={db_id}"
+                f" azura_file_id={fid!r}"
+                f" azura_song_id={(job.get('azura_song_id') or '').strip()!r}"
+                f" azura_path={(f'Requests/{fn}' if fn else '')!r}"
+                f" submitted_to_azura=true"
+                f" removed_from_azura={str(bool(cleanup_ok)).lower()}"
             )
 
     remaining = _db_count_active()
@@ -1007,7 +1055,12 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
             print(
                 f"{_LOG} stage=request_submitted_no_skip"
                 f" request_id={job_id} username={req_uname!r}"
-                f" title={req_title!r} unique_id={unique_id!r}"
+                f" title={req_title!r}"
+                f" azura_file_id={req_fid!r}"
+                f" azura_song_id={unique_id!r}"
+                f" azura_path={(f'Requests/{req_fn}' if req_fn else '')!r}"
+                f" submitted_to_azura=true"
+                f" removed_from_azura=false"
                 f" — queued in AzuraCast, current song will not be interrupted"
             )
 
@@ -1248,8 +1301,24 @@ async def _poll_loop(bot: "BaseBot") -> None:
             # playing again.  Treat this as the song having finished so cleanup
             # fires and AzuraCast is moved back to vibe mode.
             if (
+                prev_req_id
+                and prev_req_id not in _finished_jids
+                and song_id == prev_song_id
+                and duration > 0
+                and elapsed >= duration
+            ):
+                print(
+                    f"{_LOG} End-of-track detected: request {prev_req_id}"
+                    f" elapsed={elapsed} dur={duration}"
+                    f" — consuming Azura request before replay"
+                )
+                await _on_request_finished(bot, prev_req_id)
+                continue
+
+            if (
                 song_id     == prev_song_id
                 and prev_req_id
+                and prev_req_id not in _finished_jids
                 and prev_duration > 30
                 and prev_elapsed  > prev_duration * 0.75
                 and elapsed       < min(POLL_INTERVAL * 2 + 2, 14)
@@ -1464,7 +1533,8 @@ async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
     transitions.  Queues file cleanup (move to PlayedRequests/, rescan)
     and switches playlists back to VIBE mode if the queue is now empty.
     """
-    global _cur_req_id, _live_req, _submitted_jids
+    global _cur_req_id, _live_req, _submitted_jids, _finished_jids
+    _finished_jids.add(job_id)
     with _lock:
         if _cur_req_id == job_id:
             _cur_req_id = 0
@@ -1479,11 +1549,15 @@ async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
     fid_s = (job.get("azura_file_id") if job else None) or "?"
     ttl_s = (job.get("title")         if job else None) or "?"
     usr_s = (job.get("username")      if job else None) or "?"
+    sid_s = (job.get("azura_song_id") if job else None) or "?"
+    path_s = f"Requests/{fn_s}" if fn_s and fn_s != "?" else ""
     print(
         f"{_LOG} stage=request_skipped"
         f" request_id={job_id}"
         f" media_id={fid_s!r}"
+        f" song_id={sid_s!r}"
         f" filename={fn_s!r}"
+        f" azura_path={path_s!r}"
         f" title={ttl_s!r}"
         f" username={usr_s!r}"
     )
@@ -1493,9 +1567,19 @@ async def on_request_skipped(bot: "BaseBot", job_id: int) -> None:
         fn  = (job.get("filename")      or "").strip()
         if fid or fn:
             loop = asyncio.get_running_loop()
-            loop.run_in_executor(
+            cleanup_ok = await loop.run_in_executor(
                 None, _delete_request_file,
                 job_id, fid, fn, job.get("title", "?"),
+                (job.get("azura_song_id") or "").strip(),
+            )
+            print(
+                f"{_LOG} stage=request_azura_consume"
+                f" request_id={job_id}"
+                f" azura_file_id={fid!r}"
+                f" azura_song_id={(job.get('azura_song_id') or '').strip()!r}"
+                f" azura_path={(f'Requests/{fn}' if fn else '')!r}"
+                f" submitted_to_azura=true"
+                f" removed_from_azura={str(bool(cleanup_ok)).lower()}"
             )
 
     remaining = _db_count_active()

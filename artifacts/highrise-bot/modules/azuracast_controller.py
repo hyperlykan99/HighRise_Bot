@@ -797,6 +797,57 @@ def fetch_queue() -> list:
     return []
 
 
+def remove_queue_items_for_song(unique_id: str) -> int:
+    """
+    Best-effort removal of queued AzuraCast request entries for a song.
+
+    AzuraCast consumes a request when it starts playing, but if a stale queued
+    entry remains after bot-side terminal cleanup, it can replay the same media.
+    This scans GET /queue and DELETEs matching queue rows when the API exposes
+    a queue item id.
+    """
+    cfg = azura_api_cfg()
+    if not cfg or not unique_id:
+        return 0
+    import requests as req_lib
+
+    removed = 0
+    for item in fetch_queue():
+        song = item.get("song") or {}
+        item_uid = (
+            song.get("unique_id")
+            or song.get("id")
+            or item.get("song_id")
+            or ""
+        )
+        if str(item_uid) != str(unique_id):
+            continue
+        queue_id = item.get("id") or item.get("queue_id")
+        if not queue_id:
+            print(
+                f"{_LOG} remove_queue_item skipped uid={unique_id!r}"
+                f" reason=no_queue_id item={str(item)[:180]!r}"
+            )
+            continue
+        try:
+            resp = req_lib.delete(
+                f"{cfg['base_url']}/api/station/{cfg['station_id']}/queue/{queue_id}",
+                headers=_headers(cfg),
+                timeout=10,
+            )
+            ok = resp.status_code in (200, 204, 404)
+            print(
+                f"{_LOG} remove_queue_item"
+                f" queue_id={queue_id!r} uid={unique_id!r}"
+                f" status={resp.status_code} ok={ok}"
+            )
+            if ok:
+                removed += 1
+        except Exception as exc:
+            print(f"{_LOG} remove_queue_item error uid={unique_id!r}: {exc!r}")
+    return removed
+
+
 def wait_for_song_in_queue(
     unique_id: str,
     max_wait: float = 20.0,
