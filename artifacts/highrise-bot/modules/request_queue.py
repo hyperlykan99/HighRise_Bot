@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import database as db
+from modules.radio_status import ACTIVE_QUEUE_STATUSES
 
 if TYPE_CHECKING:
     from highrise import BaseBot
@@ -32,10 +33,7 @@ if TYPE_CHECKING:
 _LOG = "[RQ]"
 
 # All in-flight statuses used for capacity / dedup checks (full pipeline).
-_ACTIVE = (
-    "pending", "downloading", "downloaded", "uploading",
-    "staged", "ready", "queued", "done", "playing",
-)
+_ACTIVE = ACTIVE_QUEUE_STATUSES
 _ACT_PH = ",".join("?" * len(_ACTIVE))
 
 # Statuses shown by !queue — every visible in-flight stage including playing.
@@ -43,10 +41,7 @@ _ACT_PH = ",".join("?" * len(_ACTIVE))
 # "staged"   = download done, waiting for AzuraCast /Requests slot (📦)
 # "ready"    = uploaded to AzuraCast Requests playlist, awaiting playback (✅)
 # "playing"  = currently streaming — shown as ▶️ NOW PLAYING at top of !queue
-_DISPLAY_STATUSES = (
-    "pending", "downloading", "downloaded", "uploading",
-    "staged", "ready", "queued", "done", "playing", "error",
-)
+_DISPLAY_STATUSES = ACTIVE_QUEUE_STATUSES
 _DSP_PH = ",".join("?" * len(_DISPLAY_STATUSES))
 
 # Statuses counted for queue-position / per-user limit checks.

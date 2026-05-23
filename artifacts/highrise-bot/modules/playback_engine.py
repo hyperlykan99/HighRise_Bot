@@ -32,6 +32,7 @@ import database as db
 import modules.azuracast_controller as azura
 import modules.config_store         as cs
 import modules.dj_announcer         as ann
+from modules.radio_status import ACTIVE_QUEUE_STATUSES
 
 if TYPE_CHECKING:
     from highrise import BaseBot
@@ -59,10 +60,7 @@ _live_req: "dict | None" = None     # In-memory cache of the currently-playing r
 _cur_replay_temp: str   = ""        # basename of tmp_replay_* currently playing ("" = none)
 _replay_marked:   set   = set()     # basenames already marked status='playing' in local_replay_jobs
 
-_ACT = (
-    "pending", "downloading", "downloaded", "uploading",
-    "staged", "ready", "queued", "done", "playing",
-)
+_ACT = ACTIVE_QUEUE_STATUSES
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
 
 _COLS = (

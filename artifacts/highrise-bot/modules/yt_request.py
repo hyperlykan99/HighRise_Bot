@@ -49,6 +49,7 @@ from typing import TYPE_CHECKING, Callable
 import config as _config
 import database as db
 from modules.permissions import is_admin, is_owner, is_manager
+from modules.radio_status import ACTIVE_QUEUE_STATUSES
 from modules.msg_utils import safe_send as _safe_send_mu
 
 # DB file path — config.DB_PATH reads SHARED_DB_PATH env var (default highrise_hangout.db)
@@ -3665,13 +3666,15 @@ async def radio_request_prepare_worker(
     while not stop_event.is_set():
         try:
             db.set_room_setting("radio_worker_heartbeat_prepare", str(time.time()))
-            stuck = ("pending", "downloading", "downloaded", "uploading")
+            restore_candidates = ("pending", "downloading", "downloaded", "uploading")
+            stuck = tuple(s for s in restore_candidates if s in ACTIVE_QUEUE_STATUSES)
+            restore_ph = ",".join("?" * len(stuck))
             with sqlite3.connect(_DB_PATH) as _conn:
                 rows = _conn.execute(
                     "SELECT id, user_id, username, url, title, status, "
                     "       coins_charged, payment_type "
                     "FROM yt_request_jobs "
-                    "WHERE status IN (?,?,?,?) AND played_at IS NULL "
+                    f"WHERE status IN ({restore_ph}) AND played_at IS NULL "
                     "ORDER BY id ASC LIMIT 20",
                     stuck,
                 ).fetchall()
