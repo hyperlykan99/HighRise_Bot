@@ -26,6 +26,7 @@ import time
 from typing import TYPE_CHECKING
 
 import database as db
+import modules.radio_diagnostics as diag
 from modules.radio_status import ACTIVE_QUEUE_STATUSES
 
 if TYPE_CHECKING:
@@ -80,6 +81,20 @@ def _rq():
     return _m
 
 
+def _job_user_id(job_id: int) -> str:
+    if not job_id:
+        return ""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM yt_request_jobs WHERE id=?",
+                (job_id,),
+            ).fetchone()
+            return (row[0] or "") if row else ""
+    except Exception:
+        return ""
+
+
 # ─── Queue writes (single DB writer facade) ──────────────────────────────────
 
 def create_request(job: "dict | None" = None, **fields: object) -> int:
@@ -106,7 +121,15 @@ def create_request(job: "dict | None" = None, **fields: object) -> int:
                     data.get("source_type", ""),
                 ),
             )
-            return cur.lastrowid or 0
+            request_id = cur.lastrowid or 0
+            diag.log_radio_event(
+                "queue_event",
+                request_id=request_id,
+                user_id=data.get("user_id", ""),
+                status_transition=f"created->{data.get('status', 'pending')}",
+                queue_event="create_request",
+            )
+            return request_id
     except Exception as exc:
         print(f"{_LOG} create_request error: {exc}")
         return 0
@@ -143,6 +166,13 @@ def update_job_fields(job_id: int, **kwargs: object) -> None:
             conn.execute(
                 f"UPDATE yt_request_jobs SET {set_clause} WHERE id = ?",
                 values,
+            )
+        if "status" in fields:
+            diag.log_radio_event(
+                "status_transition",
+                request_id=job_id,
+                user_id=_job_user_id(job_id),
+                status_transition=f"->{fields['status']}",
             )
     except Exception as exc:
         print(f"{_LOG} update_job_fields({job_id}): {exc}")
@@ -238,6 +268,12 @@ def mark_cleaned(job_id: int) -> None:
                 "UPDATE yt_request_jobs SET cleaned_at=datetime('now') WHERE id=?",
                 (job_id,),
             )
+        diag.log_radio_event(
+            "cleanup_event",
+            request_id=job_id,
+            user_id=_job_user_id(job_id),
+            cleanup_event="mark_cleaned",
+        )
     except Exception as exc:
         print(f"{_LOG} mark_cleaned({job_id}): {exc}")
 
@@ -308,6 +344,13 @@ def set_playback_status(job_id: int, status: str, media_id: str = "",
                     (status, job_id),
                 )
         print(f"[RADIO_STATUS] job={job_id} new={status!r} reason={reason}")
+        diag.log_radio_event(
+            "status_transition",
+            request_id=job_id,
+            user_id=_job_user_id(job_id),
+            status_transition=f"->{status}",
+            queue_event=reason,
+        )
     except Exception as exc:
         print(f"{_LOG} set_playback_status({job_id},{status!r}): {exc}")
 
@@ -336,6 +379,13 @@ def mark_failed_if_unplayed(job_id: int, reason: str) -> "dict | None":
                 "UPDATE yt_request_jobs SET status='error', error=?, finished_at=datetime('now') "
                 "WHERE id=? AND status!='played' AND played_at IS NULL",
                 (reason, job_id),
+            )
+            diag.log_radio_event(
+                "status_transition",
+                request_id=job_id,
+                user_id=uid,
+                status_transition=f"{status}->error",
+                queue_event=reason,
             )
             return {
                 "user_id": uid,
@@ -546,6 +596,13 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
             try:
                 ps.refund(uid, coins, "queue_cleared")
                 refunded_coins += coins
+                diag.log_radio_event(
+                    "refund",
+                    request_id=jid,
+                    user_id=uid,
+                    coins=coins,
+                    reason="queue_cleared",
+                )
             except Exception as exc:
                 print(
                     f"{_LOG} stage=queue_clear command={command}"
@@ -812,6 +869,13 @@ def clear_all_pending(refund: bool = True) -> list:
                 uid   = result.get("user_id", "")
                 if coins > 0 and uid:
                     ps.refund(uid, coins, "queue_cleared")
+                    diag.log_radio_event(
+                        "refund",
+                        request_id=j["id"],
+                        user_id=uid,
+                        coins=coins,
+                        reason="queue_cleared",
+                    )
             cancelled.append(result)
     return cancelled
 

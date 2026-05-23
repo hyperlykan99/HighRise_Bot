@@ -32,6 +32,7 @@ import database as db
 import modules.azuracast_controller as azura
 import modules.config_store         as cs
 import modules.dj_announcer         as ann
+import modules.radio_diagnostics   as diag
 import modules.request_queue        as rq
 from modules.radio_status import ACTIVE_QUEUE_STATUSES
 
@@ -210,6 +211,13 @@ def _db_fail_and_refund(db_id: int, reason: str) -> None:
         coins = int(row.get("coins_charged") or 0)
         if uid and int(coins or 0) > 0:
             ps.refund(uid, int(coins or 0), reason)
+            diag.log_radio_event(
+                "refund",
+                request_id=db_id,
+                user_id=uid,
+                coins=int(coins or 0),
+                reason=reason,
+            )
         print(
             f"{_LOG} stage=request_failed_refund request_id={db_id}"
             f" username={username!r} coins={int(coins or 0)} reason={reason!r}"
@@ -1058,6 +1066,14 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                         _cur_song_id = np_id
 
                 _db_set_status(job_id, "playing", media_id=np_fid)
+                diag.log_radio_event(
+                    "playback_confirmation",
+                    request_id=job_id,
+                    user_id=job.get("user_id", ""),
+                    status="playing",
+                    queue_event="request_takeover_success",
+                    match_method=match_method,
+                )
                 display_artist = req_artist or np_artist
                 await ann.announce_request_live(bot, req_title, display_artist, req_uname)
                 with _lock:
@@ -1140,7 +1156,8 @@ async def _poll_loop(bot: "BaseBot") -> None:
                             f"{next_job.get('title','?')!r} uid={uid!r}"
                         )
                         asyncio.create_task(
-                            _verified_skip_task(bot, next_job["id"], uid)
+                            _verified_skip_task(bot, next_job["id"], uid),
+                            name=f"radio_verified_submit_{next_job['id']}",
                         )
                     else:
                         print(
@@ -1231,7 +1248,8 @@ async def _poll_loop(bot: "BaseBot") -> None:
                     f" deleting temp={prev_replay_temp!r}"
                 )
                 asyncio.create_task(
-                    _on_local_replay_finished(bot, prev_replay_temp)
+                    _on_local_replay_finished(bot, prev_replay_temp),
+                    name="radio_local_replay_cleanup",
                 )
 
             if prev_req_id:
@@ -1493,7 +1511,7 @@ async def startup_playback_engine(bot: "BaseBot") -> None:
     _stop_flag.clear()   # Reset flag in case this is a reconnect cycle
     print(f"[DJ_RADIO] playback engine starting…")
     print(f"{_LOG} Playback engine scheduled ✓ (init deferred)")
-    asyncio.create_task(_startup_init_task(bot))
+    asyncio.create_task(_startup_init_task(bot), name="radio_playback_startup")
 
 
 async def _startup_init_task(bot: "BaseBot") -> None:
@@ -1530,9 +1548,9 @@ async def _startup_init_task(bot: "BaseBot") -> None:
 
         await _apply_vibe_playlists()
 
-        asyncio.create_task(_poll_loop(bot))
+        asyncio.create_task(_poll_loop(bot), name="radio_playback_poll")
         from modules.yt_request import radio_request_prepare_worker as _rpw
-        asyncio.create_task(_rpw(bot, _stop_flag))
+        asyncio.create_task(_rpw(bot, _stop_flag), name="radio_prepare_worker")
         print(f"{_LOG} Playback engine ready ✓")
         print(f"[DJ_RADIO] playback engine started")
 
@@ -1546,7 +1564,7 @@ async def _startup_init_task(bot: "BaseBot") -> None:
         traceback.print_exc()
         # Start the poll loop anyway — it may self-correct once AzuraCast is reachable
         try:
-            asyncio.create_task(_poll_loop(bot))
+            asyncio.create_task(_poll_loop(bot), name="radio_playback_poll")
             print(f"{_LOG} Poll loop started despite init error")
         except Exception as _pe:
             print(f"{_LOG} Could not start poll loop: {_pe}")

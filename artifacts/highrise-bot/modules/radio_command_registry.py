@@ -1,8 +1,5 @@
 """
 Registry-driven dispatch for radio commands.
-
-This is intentionally small in Phase 6: it covers the core radio commands first
-and leaves the existing main.py elif chain as a compatibility fallback.
 """
 from __future__ import annotations
 
@@ -85,7 +82,34 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             handler=rc.handle_radiohelp,
             module="modules.radio_commands",
         ),
+        RadioCommandEntry(
+            command="radiostatus",
+            aliases=("radiohealth",),
+            owner="dj",
+            permission="public",
+            handler=rc.handle_radiostatus,
+            module="modules.radio_commands",
+        ),
     )
+
+
+def entries() -> tuple[RadioCommandEntry, ...]:
+    """Return canonical registry entries without alias expansion."""
+    return _entries()
+
+
+def find_duplicate_commands() -> dict[str, list[str]]:
+    """Return duplicate registry command/alias mappings for diagnostics."""
+    seen: dict[str, str] = {}
+    duplicates: dict[str, list[str]] = {}
+    for entry in _entries():
+        for command in (entry.command, *entry.aliases):
+            key = command.lower().strip()
+            if key in seen:
+                duplicates.setdefault(key, [seen[key]]).append(entry.command)
+            else:
+                seen[key] = entry.command
+    return duplicates
 
 
 def registry() -> dict[str, RadioCommandEntry]:

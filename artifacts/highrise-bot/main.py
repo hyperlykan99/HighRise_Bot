@@ -498,6 +498,7 @@ if _IS_DJ_BOT:
             handle_vibescan        as rc_vibescan,
             handle_setrequestprice as rc_setrequestprice,
             handle_radiohelp       as rc_radiohelp,
+            handle_radiostatus     as rc_radiostatus,
             handle_like            as rc_like,
             handle_dislike         as rc_dislike,
             handle_favorite        as rc_favorite,
@@ -572,13 +573,13 @@ if not _IS_DJ_BOT:
     def radio_command_registry(*_a, **_k): return {}
     (rc_request, rc_pick, rc_queue, rc_skip, rc_remove, rc_clearqueue,
      rc_history, rc_voteskip, rc_nowplaying, rc_vibes, rc_vibe, rc_vibescan,
-     rc_setrequestprice, rc_radiohelp, rc_like, rc_dislike, rc_favorite,
+     rc_setrequestprice, rc_radiohelp, rc_radiostatus, rc_like, rc_dislike, rc_favorite,
      rc_unfavorite, rc_favorites, rc_removefavorite, rc_myrequests, rc_cancel,
      rc_priority, rc_save, rc_mysongs, rc_playfav, rc_playlist, rc_ratings,
      rc_removefav, rc_playmine, rc_likes, rc_voters, rc_likeslist,
      rc_dislikeslist, rc_topsongs, rc_toprequesters, rc_playedby, rc_myplayed,
      rc_queuelimit, rc_setqueuelimit, rc_radiotutorial, rc_musicshop,
-     rc_buyrequests, rc_buyplays, startup_radio) = (_S,) * 45
+     rc_buyrequests, rc_buyplays, startup_radio) = (_S,) * 46
     rr_radiostats = rr_toplisteners = rr_toprequests = rr_topliked = rr_topdisliked = _S
     ra_achievements = _S
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -1844,7 +1845,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "nowplaying", "np",
     "skip", "djskip",
     "skipvote",
-    "radio", "radiostatus",
+    "radio", "radiostatus", "radiohealth",
     "webplayer",
     "recent", "myrequests",
     "cancelrequest", "requeststatus",

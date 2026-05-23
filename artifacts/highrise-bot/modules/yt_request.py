@@ -51,6 +51,7 @@ import database as db
 from modules.permissions import is_admin, is_owner, is_manager
 from modules.radio_status import ACTIVE_QUEUE_STATUSES
 import modules.request_queue as rq
+import modules.radio_diagnostics as diag
 from modules.msg_utils import safe_send as _safe_send_mu
 
 # DB file path — config.DB_PATH reads SHARED_DB_PATH env var (default highrise_hangout.db)
@@ -169,6 +170,12 @@ def _refund_coins(user_id: str, amount: int) -> None:
         return
     try:
         db.adjust_balance(user_id, amount)
+        diag.log_radio_event(
+            "refund",
+            user_id=user_id,
+            coins=amount,
+            reason="yt_request_refund",
+        )
     except Exception as exc:
         print(f"[YT_PAY] refund error for {user_id}: {exc}")
 

@@ -43,6 +43,7 @@ import modules.music_credits        as mc
 import modules.payment_service      as ps
 import modules.request_queue        as rq
 import modules.playback_engine      as engine
+import modules.radio_diagnostics    as diag
 import modules.radio_rewards        as rr
 import modules.radio_achievements   as _ra
 from modules.permissions import is_admin, is_owner, can_moderate
@@ -873,6 +874,13 @@ async def handle_remove(bot: "BaseBot", user: "User", args: list) -> None:
     note = ""
     if coins > 0 and uid:
         ps.refund(uid, coins, "removed_by_admin")
+        diag.log_radio_event(
+            "refund",
+            request_id=jid,
+            user_id=uid,
+            coins=coins,
+            reason="removed_by_admin",
+        )
         note = f" ({coins:,} coins refunded)"
 
     # Refund music request credit if the requester was not a staff member
@@ -940,6 +948,13 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
     note = ""
     if coins > 0:
         ps.refund(uid, coins, "cancelled_by_user")
+        diag.log_radio_event(
+            "refund",
+            request_id=jid,
+            user_id=uid,
+            coins=coins,
+            reason="cancelled_by_user",
+        )
         note = f"\n💸 {coins:,} coins refunded."
 
     # Refund music request credit (non-staff, non-priority requests only)
@@ -2721,6 +2736,15 @@ async def handle_ratings(bot: "BaseBot", user: "User", args: list) -> None:
     await handle_likes(bot, user, args)
 
 
+async def handle_radiostatus(bot: "BaseBot", user: "User", _args: list) -> None:
+    """!radiostatus — lightweight radio pipeline health snapshot."""
+    import modules.radio_diagnostics as diag
+
+    snap = await diag.snapshot(timeout_s=2.5)
+    for msg in diag.format_status_messages(snap):
+        await _w(bot, user.id, msg)
+
+
 # ─── Startup ──────────────────────────────────────────────────────────────────
 
 async def _cleanup_poll_task() -> None:
@@ -2744,9 +2768,12 @@ async def startup_radio(bot: "BaseBot") -> None:
     Starts the bot-controlled playback engine + legacy file cleanup safety-net.
     """
     from modules.media_cleanup import start as _start_cleanup
+    import modules.radio_diagnostics as diag
+
     print(f"{_LOG} Starting radio / playback engine…")
     await _start_cleanup(bot)
-    asyncio.create_task(_cleanup_poll_task())
+    asyncio.create_task(_cleanup_poll_task(), name="radio_cleanup_poll")
+    asyncio.create_task(diag.log_startup_health(bot), name="radio_startup_health")
     print(f"[DJ_RADIO] radio startup complete")
 
 
@@ -2789,6 +2816,7 @@ handle_vibes           = _safe(handle_vibes)
 handle_vibe            = _safe(handle_vibe)
 handle_setrequestprice = _safe(handle_setrequestprice)
 handle_radiohelp       = _safe(handle_radiohelp)
+handle_radiostatus     = _safe(handle_radiostatus)
 handle_radiotutorial   = _safe(handle_radiotutorial)
 handle_musicshop       = _safe(handle_musicshop)
 handle_buyplays        = _safe(handle_buyplays)
