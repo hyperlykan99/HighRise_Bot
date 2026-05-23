@@ -716,12 +716,25 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
                     )
             if not ok and fn:
                 try:
-                    ok2 = azura.sftp_delete_file(fn)
-                    print(
-                        f"{_LOG} stage=queue_clear command={command}"
-                        f" sftp_delete={'ok' if ok2 else 'fail'}"
-                        f" jid={jid} fn={fn!r}"
-                    )
+                    if "/" in fn or "\\" in fn:
+                        diag.log_radio_event(
+                            "local_cleanup_safety_skip",
+                            request_id=jid,
+                            user_id=uid,
+                            temp_path=fn,
+                            source_path="",
+                        )
+                        print(
+                            f"{_LOG} stage=queue_clear command={command}"
+                            f" sftp_delete=skipped_safety jid={jid} fn={fn!r}"
+                        )
+                    else:
+                        ok2 = azura.sftp_delete_file(fn)
+                        print(
+                            f"{_LOG} stage=queue_clear command={command}"
+                            f" sftp_delete={'ok' if ok2 else 'fail'}"
+                            f" jid={jid} fn={fn!r}"
+                        )
                 except Exception as exc:
                     print(
                         f"{_LOG} stage=queue_clear command={command}"

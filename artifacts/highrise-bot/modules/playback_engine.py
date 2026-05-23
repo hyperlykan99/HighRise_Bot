@@ -62,6 +62,7 @@ _live_req: "dict | None" = None     # In-memory cache of the currently-playing r
 _cur_replay_temp: str   = ""        # basename of tmp_replay_* currently playing ("" = none)
 _replay_marked:   set   = set()     # basenames already marked status='playing' in local_replay_jobs
 _finished_jids:    set   = set()     # request IDs already consumed this process
+_LOCAL_TEMP_PREFIXES = ("tmp_replay_", "local_request_")
 
 _ACT = ACTIVE_QUEUE_STATUSES
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
@@ -78,6 +79,10 @@ _SEL = (
 
 def _jrow(row) -> dict:
     return dict(zip(_COLS, row))
+
+
+def _is_local_temp_basename(name: str) -> bool:
+    return bool(name and name == name.rsplit("/", 1)[-1] and name.startswith(_LOCAL_TEMP_PREFIXES))
 
 
 # ─── Persistent state ─────────────────────────────────────────────────────────
@@ -559,6 +564,7 @@ def _delete_request_file(
     cur_fid = fid   # working copy — may be updated by the lookup step
     azura_path = f"Requests/{fn}" if fn else ""
     removed_from_azura = False
+    is_local_temp = _is_local_temp_basename(fn)
 
     def _log(action: str, result: str, **extra: str) -> None:
         extras = "".join(f" {k}={v}" for k, v in extra.items())
@@ -573,6 +579,32 @@ def _delete_request_file(
             f" removed_from_azura={str(removed_from_azura).lower()}"
             f" action={action}"
             f" result={result}{extras}"
+        )
+
+    # ── 1. Lookup media_id if azura_file_id was never stored ─────────────────
+    if fn and ("/" in fn or "\\" in fn):
+        _log("cleanup_safety_skip", "fail", reason="path_not_basename")
+        if is_local_temp:
+            diag.log_radio_event(
+                "local_cleanup_safety_skip",
+                request_id=db_id,
+                title=title_s,
+                azura_file_id=cur_fid,
+                azura_song_id=song_id,
+                temp_path=fn,
+                source_path="",
+            )
+        return False
+
+    if is_local_temp:
+        diag.log_radio_event(
+            "local_cleanup_started",
+            request_id=db_id,
+            title=title_s,
+            azura_file_id=cur_fid,
+            azura_song_id=song_id,
+            temp_path=fn,
+            source_path="",
         )
 
     # ── 1. Lookup media_id if azura_file_id was never stored ─────────────────
@@ -642,6 +674,25 @@ def _delete_request_file(
     if ok or removed_from_azura:
         _db_set_cleaned(db_id)
         _log("cleanup_complete", "success", title=repr(title_s))
+        if is_local_temp:
+            diag.log_radio_event(
+                "local_removed_from_azura",
+                request_id=db_id,
+                title=title_s,
+                azura_file_id=cur_fid,
+                azura_song_id=song_id,
+                temp_path=fn,
+                source_path="",
+            )
+            diag.log_radio_event(
+                "local_temp_deleted",
+                request_id=db_id,
+                title=title_s,
+                azura_file_id=cur_fid,
+                azura_song_id=song_id,
+                temp_path=fn,
+                source_path="",
+            )
         return True
     else:
         _log("cleanup_complete", "fail", title=repr(title_s),
@@ -752,8 +803,9 @@ async def _on_local_replay_finished(bot: "BaseBot", temp_basename: str) -> None:
     _LR  = "[LOCAL_REPLAY_CLEANUP]"
     loop = asyncio.get_running_loop()
 
-    if not temp_basename.startswith("tmp_replay_"):
+    if not _is_local_temp_basename(temp_basename):
         print(f"{_LR} safety guard: ignored non-replay basename={temp_basename!r}")
+        diag.log_radio_event("local_cleanup_safety_skip", temp_path=temp_basename)
         return
 
     # ── Fetch local_replay_jobs row ───────────────────────────────────────────
@@ -1266,7 +1318,7 @@ async def _poll_loop(bot: "BaseBot") -> None:
             # Local-replay path detection — media.path basename starts with tmp_replay_
             np_mpath = (media.get("path") or "").strip()
             np_mbase = np_mpath.rsplit("/", 1)[-1] if np_mpath else ""
-            np_is_lr = np_mbase.startswith("tmp_replay_")
+            np_is_lr = _is_local_temp_basename(np_mbase)
 
             if not song_id:
                 continue
@@ -1342,7 +1394,7 @@ async def _poll_loop(bot: "BaseBot") -> None:
             # Local-replay cleanup: previous song was a tmp_replay_ file.
             # Runs independently of _db_match_request / prev_req_id so that
             # cleanup fires even when azura_song_id matching fails.
-            if prev_replay_temp and prev_replay_temp.startswith("tmp_replay_"):
+            if prev_replay_temp and _is_local_temp_basename(prev_replay_temp):
                 print(
                     f"[LOCAL_REPLAY_CLEANUP] song changed,"
                     f" deleting temp={prev_replay_temp!r}"

@@ -706,11 +706,13 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
 
     def _qicon(status: str) -> str:
         if status == "playing":
-            return "▶️"
-        if status in ("ready", "queued", "done", "staged"):
             return "✅"
-        if status == "error":
+        if status in ("ready", "done"):
+            return "✅"
+        if status in ("error", "failed", "cancelled"):
             return "❌"
+        if status in ("processing", "queued", "staged"):
+            return "⏳"
         return "⏳"  # pending/downloading/downloaded/uploading
 
     async def _send_queue_page(msg: str) -> None:
@@ -2167,6 +2169,7 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
             coins_charged=price,
             payment_type="paid" if price > 0 else "free",
             queue_position=_pos,
+            staff_free=is_stf,
         )
     else:
         await _playfav_youtube_fallback(bot, user, fav, pos)
