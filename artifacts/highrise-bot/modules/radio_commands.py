@@ -801,46 +801,56 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         f" vibe={vibe_raw!r}"
     )
 
-    if playing_jobs:
-        # Live request currently on-air
-        lines = ["🎧 Radio Status", "NOW PLAYING: Live Request"]
-        if pending > 0:
-            nj = waiting_jobs[0]
-            nt = (nj.get("title")    or "…").strip()[:24]
-            nu = (nj.get("username") or "?").strip()[:12]
-            lines.append(f"📜 Requests: {pending} pending")
-            lines.append(f"Next: @\u200b{nu} — {nt}")
-        else:
-            lines.append("📜 Requests: none")
-        lines.append("Auto DJ resumes after queue.")
-        lines.append("💿 !play to request a song")
-        await _w(bot, user.id, "\n".join(lines)[:249])
-        return
+    def _qicon(status: str) -> str:
+        if status == "playing":
+            return "▶️"
+        if status in ("ready", "staged"):
+            return "✅"
+        if status == "error":
+            return "❌"
+        return "⏳"  # pending/downloading/downloaded/uploading
 
-    if pending == 0:
-        # Pure Auto DJ, nothing queued
+    if not playing_jobs and not waiting_jobs:
         await _w(
             bot, user.id,
-            f"🎧 Radio Status\n"
-            f"Auto DJ: ON\n"
-            f"📀 Vibe: {vibe_label}\n"
-            f"📜 Requests: none\n"
-            f"💿 !play to request a song",
+            f"QUEUE: empty\n"
+            f"Auto DJ: ON • Vibe: {vibe_label}\n"
+            "!play to request a song",
         )
         return
 
-    # Auto DJ playing, requests are queued
-    nj = waiting_jobs[0]
-    nt = (nj.get("title")    or "…").strip()[:28]
-    nu = (nj.get("username") or "?").strip()[:12]
-    await _w(
-        bot, user.id,
-        f"🎧 Radio Status\n"
-        f"Auto DJ: ON • Vibe: {vibe_label}\n"
-        f"📜 Requests: {pending} pending\n"
-        f"Next: @\u200b{nu} — {nt}\n"
-        f"💿 !play to request a song",
-    )
+    # Build numbered lines: playing first, then waiting
+    lines: list[str] = ["QUEUE:"]
+    n = 0
+    for j in (playing_jobs + waiting_jobs):
+        n += 1
+        icon   = _qicon(j.get("status", ""))
+        uname  = (j.get("username") or "?").strip()[:12]
+        title  = (j.get("title")    or "…").strip()
+        artist = (j.get("artist")   or "").strip()
+        # Truncate title to leave room for other fields within a sane line length
+        max_t  = 28 if artist else 36
+        label  = title[:max_t] + (f" - {artist[:14]}" if artist else "")
+        lines.append(f"{n}. @{uname} - {label} {icon}")
+
+    lines.append("!play to request a song")
+
+    # Paginate: flush page when adding next line would exceed 249 chars
+    page = ""
+    pages: list[str] = []
+    for ln in lines:
+        candidate = (page + "\n" + ln) if page else ln
+        if len(candidate) > 249:
+            if page:
+                pages.append(page)
+            page = ln
+        else:
+            page = candidate
+    if page:
+        pages.append(page)
+
+    for p in pages:
+        await _w(bot, user.id, p[:249])
 
 
 # ─── !nowplaying ──────────────────────────────────────────────────────────────
@@ -966,6 +976,16 @@ async def handle_remove(bot: "BaseBot", user: "User", args: list) -> None:
     if coins > 0 and uid:
         ps.refund(uid, coins, "removed_by_admin")
         note = f" ({coins:,} coins refunded)"
+
+    # Refund music request credit if the requester was not a staff member
+    # (staff requests bypass the credit system, so no credit to refund).
+    req_uname = (job.get("username") or "").strip()
+    if req_uname and not _is_staff(req_uname):
+        try:
+            mc.refund_credit(uid, req_uname)
+            note += " + 1 play refunded"
+        except Exception as _mce:
+            print(f"{_LOG} handle_remove mc.refund_credit error: {_mce!r}")
 
     # Best-effort file cleanup
     loop = asyncio.get_running_loop()
@@ -2130,8 +2150,56 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
             bot, user, url,
             metadata={"title": fav["title"], "artist": fav.get("artist", "")},
         )
+    elif fav.get("azura_file_id"):
+        # Local AzuraCast file — run through local replay pipeline with same
+        # credit/cooldown/capacity rules as a YouTube request.
+        uid    = user.id
+        uname  = user.username
+        is_stf = _is_staff(uname)
+
+        # Cooldown (mirrors _submit_url)
+        if not is_stf:
+            cd      = cs.cooldown_secs()
+            elapsed = time.time() - _cooldowns.get(uid, 0)
+            if elapsed < cd:
+                await _w(bot, uid,
+                    f"⏳ Cooldown: {int(cd - elapsed)}s remaining. Please wait.")
+                return
+
+        # Queue capacity (mirrors _submit_url)
+        if rq.active_count() >= cs.MAX_ACTIVE_JOBS:
+            await _w(bot, uid,
+                f"📋 Queue is full ({cs.MAX_ACTIVE_JOBS} in progress). Please wait.")
+            return
+
+        # Per-user queue limit (mirrors _submit_url)
+        if not is_stf:
+            limit = cs.per_user_queue_limit()
+            if limit > 0 and rq.user_active_count(uid) >= limit:
+                await _w(bot, uid,
+                    f"📋 You already have {rq.user_active_count(uid)} song(s) queued.")
+                return
+
+        # Music request credit (mirrors _submit_url)
+        _cr_consumed = False
+        if not is_stf:
+            if not mc.has_credits(uid, uname):
+                await _w(bot, uid,
+                    "❌ Out of 💿 Song Plays! Use !musicshop to buy more.\n"
+                    "New players get 5 free plays. Packs from 500 🪙 or 20 🎟️")
+                return
+            if not mc.consume_credit(uid, uname):
+                await _w(bot, uid,
+                    "❌ Could not consume Song Play credit. Try again.")
+                return
+            _cr_consumed = True
+            _cooldowns[uid] = time.time()
+
+        from modules.local_replay import queue_local_fav as _ql
+        await _ql(bot, user, fav, pos, credit_consumed=_cr_consumed)
     else:
-        await _w(bot, user.id, f"⚠️ Local replay not supported yet: {t}")
+        await _w(bot, user.id,
+            f"⚠️ #{pos} '{t}' has no playable source. Try !fav again while it plays.")
 
 
 # ─── !playmine ────────────────────────────────────────────────────────────────

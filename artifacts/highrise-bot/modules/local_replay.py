@@ -539,6 +539,212 @@ def queue_local_copy_sync(
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# queue_local_fav — called from handle_playfav for local AzuraCast favorites
+# ---------------------------------------------------------------------------
+
+async def queue_local_fav(
+    bot, user, fav: dict, pos: int, credit_consumed: bool = False,
+) -> None:
+    """
+    Queue a local (non-YouTube) AzuraCast favorite as a local replay.
+
+    Called from handle_playfav after credit/cooldown/capacity checks are done.
+    Runs the full SFTP-copy → rescan → playlist-assign → yt_request_jobs pipeline
+    silently (no debug whispers).
+
+    On any failure: refunds music request credit if credit_consumed=True, then
+    whispers a clean error to the user.
+    On success: whispers "✅ Added to queue: title" — identical to YouTube path.
+    """
+    import asyncio
+
+    uid   = user.id
+    uname = user.username
+
+    async def _w(msg: str) -> None:
+        try:
+            await bot.highrise.send_whisper(uid, msg[:249])
+        except Exception:
+            pass
+
+    async def _fail(msg: str) -> None:
+        if credit_consumed:
+            try:
+                import modules.media_credits as _mc2
+                _mc2.refund_credit(uid, uname)
+            except Exception:
+                pass
+        await _w(msg)
+
+    ok, _reason = _flags_enabled()
+    if not ok:
+        await _fail("🔒 Local replay is currently unavailable.")
+        return
+
+    fav_title  = (fav.get("title")         or "?")[:40]
+    fav_artist = (fav.get("artist")        or "").strip()
+    azura_fid  = (fav.get("azura_file_id") or "").strip()
+
+    if not azura_fid:
+        await _fail(f"❌ No library file linked to '{fav_title}'. Resave with !fav.")
+        return
+
+    loop = asyncio.get_running_loop()
+    azura_file_rec: dict = {}
+
+    # ── Get AzuraCast file record ─────────────────────────────────────────────
+    try:
+        from modules.azuracast_controller import get_media_file
+        azura_file_rec = await loop.run_in_executor(None, get_media_file, azura_fid) or {}
+    except Exception as exc:
+        print(f"{_LOG} queue_local_fav get_media_file error: {exc!r}")
+
+    # Fallback: local_media_map search
+    if not azura_file_rec:
+        try:
+            from modules.local_media_map import match_from_map, _fav_backfill
+            map_row, map_status = match_from_map(fav_title, fav_artist)
+            if map_status == "ok" and map_row:
+                _fav_backfill(fav["id"], map_row["azura_file_id"], map_row["unique_id"])
+                azura_file_rec = {
+                    "path":      map_row["path"],
+                    "unique_id": map_row["unique_id"],
+                    "id":        map_row["azura_file_id"],
+                }
+        except Exception as exc:
+            print(f"{_LOG} queue_local_fav map_search error: {exc!r}")
+
+    if not azura_file_rec:
+        await _fail(f"❌ '{fav_title}' not found in library. It may have been removed.")
+        return
+
+    azura_file_path = (azura_file_rec.get("path") or "").strip()
+    if not azura_file_path:
+        await _fail(f"❌ AzuraCast record has no path for '{fav_title}'.")
+        return
+
+    # ── Stale cleanup + SFTP copy ─────────────────────────────────────────────
+    try:
+        await loop.run_in_executor(None, _cleanup_stale_temps)
+    except Exception:
+        pass
+
+    temp_filename = f"tmp_replay_{uuid.uuid4().hex[:12]}.mp3"
+    copy_ok = False
+    try:
+        copy_ok = await loop.run_in_executor(None, _sftp_copy_to_temp, azura_file_path, temp_filename)
+    except Exception as exc:
+        print(f"{_LOG} queue_local_fav copy error: {exc!r}")
+
+    if not copy_ok:
+        await _fail(f"❌ Could not prepare '{fav_title}'. Check SFTP config.")
+        return
+
+    # ── Rescan + index poll ───────────────────────────────────────────────────
+    azura_unique_id   = ""
+    azura_file_id_str = ""
+    media_row: "dict | None" = None
+    try:
+        from modules.azuracast_controller import rescan_requests_folder, search_media
+        await loop.run_in_executor(None, rescan_requests_folder)
+        await asyncio.sleep(2.0)
+        for attempt in range(1, 6):
+            media_row = await loop.run_in_executor(None, search_media, temp_filename)
+            if media_row:
+                azura_unique_id   = str(
+                    media_row.get("unique_id")
+                    or media_row.get("song_unique_id")
+                    or (media_row.get("song") or {}).get("id")
+                    or ""
+                )
+                azura_file_id_str = str(media_row.get("id") or "")
+                break
+            if attempt < 5:
+                try:
+                    await loop.run_in_executor(None, rescan_requests_folder)
+                except Exception:
+                    pass
+                await asyncio.sleep(2.0)
+    except Exception as exc:
+        print(f"{_LOG} queue_local_fav rescan/index error: {exc!r}")
+
+    if not azura_unique_id:
+        # Indexed but no unique_id — clean up temp
+        try:
+            from modules.azuracast_controller import sftp_delete_file
+            await loop.run_in_executor(None, sftp_delete_file, temp_filename)
+        except Exception:
+            pass
+        await _fail(f"❌ AzuraCast couldn't index '{fav_title}'. Try again in a moment.")
+        return
+
+    # ── Assign temp file to Requests playlist ────────────────────────────────
+    _pl_assigned  = False
+    _target_pl_id = ""
+    if azura_file_id_str:
+        try:
+            import modules.config_store as _cs
+            from modules.azuracast_controller import (
+                add_file_to_playlist as _add_pl,
+                list_playlists       as _list_pl,
+                find_playlist_by_name as _find_pl,
+            )
+            _target_pl_id = _cs.requests_playlist_id()
+            if not _target_pl_id:
+                _all_pls = await loop.run_in_executor(None, _list_pl)
+                for _pname in ("Requests", "Request"):
+                    _pl_row = await loop.run_in_executor(None, _find_pl, _pname)
+                    if _pl_row:
+                        _target_pl_id = str(_pl_row.get("id") or "")
+                        break
+            if _target_pl_id:
+                _pl_assigned = await loop.run_in_executor(
+                    None, _add_pl, azura_file_id_str, _target_pl_id
+                )
+        except Exception as exc:
+            print(f"{_LOG} queue_local_fav playlist_assign error: {exc!r}")
+
+    if not _pl_assigned:
+        try:
+            from modules.azuracast_controller import delete_media_file
+            await loop.run_in_executor(None, delete_media_file, azura_file_id_str)
+        except Exception:
+            pass
+        await _fail(f"❌ Couldn't add '{fav_title}' to the request playlist. Try again.")
+        return
+
+    # ── Track in local_replay_jobs DB ─────────────────────────────────────────
+    _insert_job(
+        user_id=uid, username=uname,
+        fav_title=fav_title, source_path=azura_file_path,
+        temp_filename=temp_filename,
+        azura_unique_id=azura_unique_id, azura_file_id=azura_file_id_str,
+    )
+
+    # ── Stage in yt_request_jobs for playback_engine ─────────────────────────
+    _yt_job_id = _register_as_yt_request_job(
+        user_id=uid, username=uname,
+        title=fav_title, temp_filename=temp_filename,
+        azura_file_id=azura_file_id_str, azura_song_id=azura_unique_id,
+    )
+    if _yt_job_id:
+        _link_yt_job(temp_filename, _yt_job_id)
+        print(
+            f"{_LOG} queue_local_fav staged"
+            f" yt_job={_yt_job_id} uid={azura_unique_id!r}"
+            f" user={uname!r} title={fav_title!r}"
+        )
+        await _w(f"✅ Added to queue: {fav_title}"[:249])
+    else:
+        try:
+            from modules.azuracast_controller import delete_media_file
+            await loop.run_in_executor(None, delete_media_file, azura_file_id_str)
+        except Exception:
+            pass
+        await _fail(f"❌ Could not stage '{fav_title}' in queue. Try again.")
+
+
 # !playfavlocal / !localreplaytest
 # ---------------------------------------------------------------------------
 
