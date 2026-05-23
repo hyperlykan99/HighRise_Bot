@@ -163,6 +163,7 @@ def _list_jobs(limit: int = 10) -> list[dict]:
 def _register_as_yt_request_job(
     user_id: str, username: str, title: str,
     temp_filename: str, azura_file_id: str, azura_song_id: str,
+    coins_charged: int = 0, payment_type: str = "free",
 ) -> int:
     """
     Insert a yt_request_jobs row (status='ready', source_type='local_replay')
@@ -177,9 +178,13 @@ def _register_as_yt_request_job(
             cur = conn.execute(
                 """INSERT INTO yt_request_jobs
                        (user_id, username, url, title, status, started_at,
-                        filename, azura_file_id, azura_song_id, source_type)
-                   VALUES (?, ?, '', ?, 'ready', datetime('now'), ?, ?, ?, 'local_replay')""",
-                (user_id, username, title, temp_filename, azura_file_id, azura_song_id),
+                        filename, azura_file_id, azura_song_id, coins_charged,
+                        payment_type, source_type)
+                   VALUES (?, ?, '', ?, 'ready', datetime('now'), ?, ?, ?, ?, ?, 'local_replay')""",
+                (
+                    user_id, username, title, temp_filename, azura_file_id,
+                    azura_song_id, int(coins_charged or 0), payment_type or "free",
+                ),
             )
             return cur.lastrowid or 0
     except Exception as exc:
@@ -477,8 +482,8 @@ def _sftp_delete_temp(temp_filename: str) -> bool:
 
 def _cleanup_stale_temps() -> int:
     """
-    Find local_replay_jobs older than 2 h that are not yet in a terminal
-    state, delete their SFTP temp file (safety-checked), mark them done.
+    Find old local_replay_jobs whose playback was confirmed and cleanup was
+    requested, delete their SFTP temp file (safety-checked), mark them done.
 
     Returns count of entries cleaned.  Never raises.
     """
@@ -489,8 +494,9 @@ def _cleanup_stale_temps() -> int:
             rows = conn.execute(
                 "SELECT temp_filename, COALESCE(azura_file_id,'') "
                 "FROM local_replay_jobs "
-                "WHERE status IN ('queued','playing','cleanup_pending') "
+                "WHERE status IN ('cleanup_pending') "
                 "  AND (cleanup_complete IS NULL OR cleanup_complete='') "
+                "  AND playback_started IS NOT NULL "
                 "  AND created_at < datetime('now','-2 hours')",
             ).fetchall()
     except Exception as exc:
@@ -545,6 +551,7 @@ def queue_local_copy_sync(
 
 async def queue_local_fav(
     bot, user, fav: dict, pos: int, credit_consumed: bool = False,
+    coins_charged: int = 0, payment_type: str = "free", queue_position: int = 0,
 ) -> None:
     """
     Queue a local (non-YouTube) AzuraCast favorite as a local replay.
@@ -553,9 +560,9 @@ async def queue_local_fav(
     Runs the full SFTP-copy → rescan → playlist-assign → yt_request_jobs pipeline
     silently (no debug whispers).
 
-    On any failure: refunds music request credit if credit_consumed=True, then
+    On any failure: refunds music request credit and coins already charged, then
     whispers a clean error to the user.
-    On success: whispers "✅ Added to queue: title" — identical to YouTube path.
+    On success: whispers the same "Added to queue" shape as YouTube requests.
     """
     import asyncio
 
@@ -571,10 +578,16 @@ async def queue_local_fav(
     async def _fail(msg: str) -> None:
         if credit_consumed:
             try:
-                import modules.media_credits as _mc2
+                import modules.music_credits as _mc2
                 _mc2.refund_credit(uid, uname)
             except Exception:
                 pass
+        if coins_charged > 0:
+            try:
+                import modules.payment_service as _ps
+                _ps.refund(uid, coins_charged, "local_replay_failed")
+            except Exception as exc:
+                print(f"{_LOG} queue_local_fav refund error: {exc!r}")
         await _w(msg)
 
     ok, _reason = _flags_enabled()
@@ -631,6 +644,12 @@ async def queue_local_fav(
         pass
 
     temp_filename = f"tmp_replay_{uuid.uuid4().hex[:12]}.mp3"
+    _insert_job(
+        user_id=uid, username=uname,
+        fav_title=fav_title, source_path=azura_file_path,
+        temp_filename=temp_filename,
+    )
+    _update_status(temp_filename, "processing")
     copy_ok = False
     try:
         copy_ok = await loop.run_in_executor(None, _sftp_copy_to_temp, azura_file_path, temp_filename)
@@ -638,8 +657,10 @@ async def queue_local_fav(
         print(f"{_LOG} queue_local_fav copy error: {exc!r}")
 
     if not copy_ok:
+        _update_status(temp_filename, "failed")
         await _fail(f"❌ Could not prepare '{fav_title}'. Check SFTP config.")
         return
+    _update_status(temp_filename, "uploaded")
 
     # ── Rescan + index poll ───────────────────────────────────────────────────
     azura_unique_id   = ""
@@ -670,13 +691,14 @@ async def queue_local_fav(
         print(f"{_LOG} queue_local_fav rescan/index error: {exc!r}")
 
     if not azura_unique_id:
-        # Indexed but no unique_id — clean up temp
-        try:
-            from modules.azuracast_controller import sftp_delete_file
-            await loop.run_in_executor(None, sftp_delete_file, temp_filename)
-        except Exception:
-            pass
+        _update_status(temp_filename, "failed")
         await _fail(f"❌ AzuraCast couldn't index '{fav_title}'. Try again in a moment.")
+        return
+
+    requestable = media_row.get("requestable")
+    if requestable is False:
+        _update_status(temp_filename, "failed")
+        await _fail(f"❌ '{fav_title}' is not requestable right now.")
         return
 
     # ── Assign temp file to Requests playlist ────────────────────────────────
@@ -706,27 +728,29 @@ async def queue_local_fav(
             print(f"{_LOG} queue_local_fav playlist_assign error: {exc!r}")
 
     if not _pl_assigned:
-        try:
-            from modules.azuracast_controller import delete_media_file
-            await loop.run_in_executor(None, delete_media_file, azura_file_id_str)
-        except Exception:
-            pass
+        _update_status(temp_filename, "failed")
         await _fail(f"❌ Couldn't add '{fav_title}' to the request playlist. Try again.")
         return
+    _update_status(temp_filename, "queued")
 
-    # ── Track in local_replay_jobs DB ─────────────────────────────────────────
-    _insert_job(
-        user_id=uid, username=uname,
-        fav_title=fav_title, source_path=azura_file_path,
-        temp_filename=temp_filename,
-        azura_unique_id=azura_unique_id, azura_file_id=azura_file_id_str,
-    )
+    try:
+        import database as _db
+        with _db.db_conn() as conn:
+            conn.execute(
+                "UPDATE local_replay_jobs "
+                "SET azura_unique_id=?, azura_file_id=?, queued_at=datetime('now') "
+                "WHERE temp_filename=?",
+                (azura_unique_id, azura_file_id_str, temp_filename),
+            )
+    except Exception as exc:
+        print(f"{_LOG} queue_local_fav metadata update error: {exc!r}")
 
     # ── Stage in yt_request_jobs for playback_engine ─────────────────────────
     _yt_job_id = _register_as_yt_request_job(
         user_id=uid, username=uname,
         title=fav_title, temp_filename=temp_filename,
         azura_file_id=azura_file_id_str, azura_song_id=azura_unique_id,
+        coins_charged=coins_charged, payment_type=payment_type,
     )
     if _yt_job_id:
         _link_yt_job(temp_filename, _yt_job_id)
@@ -735,13 +759,10 @@ async def queue_local_fav(
             f" yt_job={_yt_job_id} uid={azura_unique_id!r}"
             f" user={uname!r} title={fav_title!r}"
         )
-        await _w(f"✅ Added to queue: {fav_title}"[:249])
+        msg = f"✅ Added to queue\nTitle: {fav_title}\nPosition: #{queue_position or '?'}"
+        await _w(msg[:249])
     else:
-        try:
-            from modules.azuracast_controller import delete_media_file
-            await loop.run_in_executor(None, delete_media_file, azura_file_id_str)
-        except Exception:
-            pass
+        _update_status(temp_filename, "failed")
         await _fail(f"❌ Could not stage '{fav_title}' in queue. Try again.")
 
 

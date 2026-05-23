@@ -59,7 +59,10 @@ _live_req: "dict | None" = None     # In-memory cache of the currently-playing r
 _cur_replay_temp: str   = ""        # basename of tmp_replay_* currently playing ("" = none)
 _replay_marked:   set   = set()     # basenames already marked status='playing' in local_replay_jobs
 
-_ACT = ("pending", "downloading", "downloaded", "uploading", "ready", "playing")
+_ACT = (
+    "pending", "downloading", "downloaded", "uploading",
+    "staged", "ready", "queued", "done", "playing",
+)
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
 
 _COLS = (
@@ -218,6 +221,38 @@ def _db_set_status(db_id: int, status: str, media_id: str = "") -> None:
         print(f"{_LOG} _db_set_status({db_id},{status!r}): {exc}")
 
 
+def _db_fail_and_refund(db_id: int, reason: str) -> None:
+    """Mark an unplayed request failed and refund its coin charge once."""
+    if not db_id:
+        return
+    try:
+        import modules.payment_service as ps
+        with db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT user_id, username, coins_charged, status, played_at "
+                "FROM yt_request_jobs WHERE id=?",
+                (db_id,),
+            ).fetchone()
+            if not row:
+                return
+            uid, username, coins, status, played_at = row
+            if played_at or status == "played":
+                return
+            conn.execute(
+                "UPDATE yt_request_jobs SET status='error', error=?, finished_at=datetime('now') "
+                "WHERE id=? AND status!='played' AND played_at IS NULL",
+                (reason, db_id),
+            )
+        if uid and int(coins or 0) > 0:
+            ps.refund(uid, int(coins or 0), reason)
+        print(
+            f"{_LOG} stage=request_failed_refund request_id={db_id}"
+            f" username={username!r} coins={int(coins or 0)} reason={reason!r}"
+        )
+    except Exception as exc:
+        print(f"{_LOG} _db_fail_and_refund({db_id},{reason!r}): {exc}")
+
+
 def _db_get_job(db_id: int) -> "dict | None":
     try:
         with db.db_conn() as conn:
@@ -251,7 +286,10 @@ def _db_match_request(
     Strategy 4: video_id substring in media path or song hash.
     Strategy 5: title substring match (last fallback — only without reliable path info).
     """
-    active = ("ready", "playing")
+    active = (
+        "pending", "downloading", "downloaded", "uploading",
+        "staged", "ready", "queued", "done", "playing",
+    )
     ph     = ",".join("?" * len(active))
 
     # Strategy 0: match by numeric azura_file_id (= media.id from NP API)
@@ -934,7 +972,13 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
 
         # ── Submit request to AzuraCast queue ─────────────────────────────────
         if unique_id:
-            await loop.run_in_executor(None, azura.submit_request, unique_id)
+            submit_ok = await loop.run_in_executor(None, azura.submit_request, unique_id)
+            if not submit_ok:
+                _submitted_jids.discard(job_id)
+                await loop.run_in_executor(
+                    None, _db_fail_and_refund, job_id, "azuracast_submit_failed"
+                )
+                return
             await asyncio.sleep(0.3)
             print(
                 f"{_LOG} stage=request_submitted_no_skip"

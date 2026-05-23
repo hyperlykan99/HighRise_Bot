@@ -45,7 +45,7 @@ _ACT_PH = ",".join("?" * len(_ACTIVE))
 # "playing"  = currently streaming — shown as ▶️ NOW PLAYING at top of !queue
 _DISPLAY_STATUSES = (
     "pending", "downloading", "downloaded", "uploading",
-    "staged", "ready", "playing",
+    "staged", "ready", "queued", "done", "playing", "error",
 )
 _DSP_PH = ",".join("?" * len(_DISPLAY_STATUSES))
 

@@ -658,189 +658,50 @@ async def handle_pick(bot: "BaseBot", user: "User", args: list) -> None:
 
 async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
     """
-    !queue / !q — preparing/ready requests (downloading/uploaded/ready), compact ≤249 chars.
+    !queue / !q — display-only queue board.
 
-    Fetches AzuraCast Now Playing first to filter out any request that is
-    currently streaming.  Ensures the same song never appears in both
-    NOW PLAYING and UP NEXT.  If a display-list item matches NP, its DB
-    status is immediately updated to 'playing'.
+    This handler must not repair, mutate, mark played, or clean files. Lifecycle
+    transitions are owned by playback_engine.
     """
-    from modules.track_resolver import resolve_current_track
-    loop = asyncio.get_running_loop()
-
-    # ── Fetch NP to build current-song identifier set ─────────────────────────
-    np       = await loop.run_in_executor(None, azura.fetch_nowplaying)
-    np_obj   = (np or {}).get("now_playing") or {}
-
-    # ── Resolve current track — populates _live_req as a side-effect ──────────
-    # This ensures match_and_recover() runs and marks the playing request before
-    # the queue filter below, so !q never shows the current song in UP NEXT.
-    if np:
-        resolve_current_track(np)
-    np_song  = np_obj.get("song")  or {}
-    np_media = np_obj.get("media") or {}
-    np_sid    = (np_song.get("id")        or "").strip()
-    np_uid    = (np_song.get("unique_id") or "").strip()
-    np_title  = (np_song.get("title")     or "").strip().lower()
-    np_artist = (np_song.get("artist")    or "").strip().lower()
-    np_text   = (np_song.get("text")      or "").strip().lower()  # "Artist - Title"
-    np_fid    = str(np_media.get("id") or "").strip()
-    np_path   = (np_media.get("path") or "").strip()
-    np_fn     = np_path.rsplit("/", 1)[-1].lower() if np_path else ""
-
-    def _np_title_hit(jt: str) -> bool:
-        """True if job title matches any NP title variant (title, text, artist)."""
-        if not jt or len(jt) < 5:
-            return False
-        for ref in (np_title, np_text):
-            if ref and (jt in ref or ref in jt or jt[:30] == ref[:30]):
-                return True
-        return False
-
-    # ── Queue audit: fix stale 'playing' rows before reading display queue ─────
-    # Jobs can get stuck as status='playing' if the bot restarted between the
-    # song starting and the poll loop detecting the song change.  Check each
-    # one against NP — if it no longer matches, mark it played immediately.
-    stale = rq.stale_playing_jobs()
-    audit_fixed = 0
-    for sp in stale:
-        jfid   = (sp.get("azura_file_id") or "").strip()
-        jsid   = (sp.get("azura_song_id") or "").strip()
-        jfn    = (sp.get("filename")      or "").lower()
-        jvid   = (sp.get("video_id")      or "").strip()
-        jtitle = (sp.get("title")         or "").lower().strip()
-
-        still_np = bool(
-            (np_fid and jfid and np_fid == jfid)
-            or (np_sid and jsid and (np_sid == jsid or np_uid == jsid))
-            or (np_fn and jfn and (jfn == np_fn or jfn in np_fn or np_fn in jfn))
-            or (jvid and np_path and jvid in np_path)
-            or _np_title_hit(jtitle)
-        )
-        if not still_np:
-            rq.mark_as_played(sp["id"])
-            audit_fixed += 1
-            print(
-                f"{_LOG} stage=queue_status_fix"
-                f" request_id={sp['id']}"
-                f" old_status=playing new_status=played"
-                f" title={sp.get('title','?')!r}"
-                f" reason=np_mismatch"
-            )
-
-    print(
-        f"{_LOG} stage=queue_audit"
-        f" playing_rows_checked={len(stale)}"
-        f" fixed={audit_fixed}"
-        f" np_title={np_title!r}"
-    )
-
-    # ── Load display queue (all visible in-flight stages incl. playing) ─────────
     all_jobs = rq.display_jobs()
-
-    # ── Classify: playing (now-on-air) vs waiting (everything else) ──────────
-    playing_jobs: list = []
-    waiting_jobs: list = []
-
-    for j in all_jobs:
-        jfid   = (j.get("azura_file_id") or "").strip()
-        jsid   = (j.get("azura_song_id") or "").strip()
-        jfn    = (j.get("filename")      or "").lower()
-        jvid   = (j.get("video_id")      or "").strip()
-        jtitle = (j.get("title")         or "").lower().strip()
-        jst    = j.get("status", "")
-
-        match_method: "str | None" = None
-        if jst == "playing":
-            match_method = "status_playing"
-        elif np_fid and jfid and np_fid == jfid:
-            match_method = "media_id"
-        elif np_sid and jsid and (np_sid == jsid or np_uid == jsid):
-            match_method = "song_id"
-        elif np_fn and jfn and (jfn == np_fn or jfn in np_fn or np_fn in jfn):
-            match_method = "filename"
-        elif jvid and np_path and jvid in np_path:
-            match_method = "video_id"
-        elif _np_title_hit(jtitle):
-            match_method = "title_fuzzy"
-
-        if match_method:
-            if jst != "playing":
-                rq.mark_as_playing(j["id"])
-                print(
-                    f"{_LOG} stage=nowplaying_match"
-                    f" request_id={j['id']}"
-                    f" match_method={match_method!r}"
-                    f" old_status={jst!r} new_status=playing"
-                    f" title={j.get('title','?')!r}"
-                    f" nowplaying_title={np_title!r}"
-                )
-                print(
-                    f"[RADIO_STATUS] job={j['id']} old={jst!r} new=playing"
-                    f" reason=nowplaying_match"
-                )
-            playing_jobs.append(j)
-        else:
-            waiting_jobs.append(j)
-
-    print(
-        f"{_LOG} stage=queue_read command=queue"
-        f" playing={len(playing_jobs)} waiting={len(waiting_jobs)}"
-        f" np_title={np_title!r}"
-    )
-
-    # ── Source-aware status card ──────────────────────────────────────────────
-    from modules.dj_announcer import _VIBE_LABELS
-    vibe_raw   = (cs.vibe() or "").strip()
-    vibe_label = _VIBE_LABELS.get(vibe_raw.lower(), vibe_raw.title() if vibe_raw else "Auto DJ")
-    pending    = len(waiting_jobs)
-
-    print(
-        f"{_LOG} stage=queue_render"
-        f" playing={len(playing_jobs)} pending={pending}"
-        f" vibe={vibe_raw!r}"
-    )
+    print(f"{_LOG} stage=queue_render command=queue count={len(all_jobs)}")
 
     def _qicon(status: str) -> str:
         if status == "playing":
             return "▶️"
-        if status in ("ready", "staged"):
+        if status in ("ready", "queued", "done", "staged"):
             return "✅"
         if status == "error":
             return "❌"
         return "⏳"  # pending/downloading/downloaded/uploading
 
-    if not playing_jobs and not waiting_jobs:
-        await _w(
-            bot, user.id,
-            f"QUEUE: empty\n"
-            f"Auto DJ: ON • Vibe: {vibe_label}\n"
-            "!play to request a song",
-        )
+    async def _send_queue_page(msg: str) -> None:
+        try:
+            await _safe_send_mu(bot, msg, whisper_target=user.id, max_chars=255)
+        except Exception:
+            pass
+
+    if not all_jobs:
+        await _send_queue_page("DJ_DUDU QUEUE:\nempty\n!play to request a song")
         return
 
-    # Build numbered lines: playing first, then waiting
-    lines: list[str] = ["QUEUE:"]
-    n = 0
-    for j in (playing_jobs + waiting_jobs):
-        n += 1
+    lines: list[str] = ["DJ_DUDU QUEUE:"]
+    for n, j in enumerate(all_jobs, 1):
         icon   = _qicon(j.get("status", ""))
         uname  = (j.get("username") or "?").strip()[:12]
         title  = (j.get("title")    or "…").strip()
         artist = (j.get("artist")   or "").strip()
-        # Truncate title to leave room for other fields within a sane line length
-        max_t  = 28 if artist else 36
-        label  = title[:max_t] + (f" - {artist[:14]}" if artist else "")
+        label  = title[:30] + (f" - {artist[:16]}" if artist else "")
         lines.append(f"{n}. @{uname} - {label} {icon}")
 
     lines.append("!play to request a song")
 
-    # Paginate: flush page when adding next line would exceed 249 chars
+    # Paginate: flush page when adding next line would exceed 255 chars.
     page = ""
     pages: list[str] = []
     for ln in lines:
         candidate = (page + "\n" + ln) if page else ln
-        if len(candidate) > 249:
+        if len(candidate) > 255:
             if page:
                 pages.append(page)
             page = ln
@@ -850,7 +711,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         pages.append(page)
 
     for p in pages:
-        await _w(bot, user.id, p[:249])
+        await _send_queue_page(p[:255])
 
 
 # ─── !nowplaying ──────────────────────────────────────────────────────────────
@@ -2141,11 +2002,8 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
         return
     fav = rows[pos - 1]
     t   = (fav.get("title") or "?")[:34]
-    a   = (fav.get("artist") or "")[:18]
-    lb  = f"{pos}. {t}" + (f" — {a}" if a else "")
     url = (fav.get("url") or "").strip()
     if url:
-        await _w(bot, user.id, f"▶️ Queued favorite:\n{lb}"[:249])
         await _submit_url(
             bot, user, url,
             metadata={"title": fav["title"], "artist": fav.get("artist", "")},
@@ -2193,10 +2051,26 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
                     "❌ Could not consume Song Play credit. Try again.")
                 return
             _cr_consumed = True
-            _cooldowns[uid] = time.time()
+
+        price = ps.request_cost_for(uname)
+        ok, err = ps.charge(uid, price)
+        if not ok:
+            if _cr_consumed:
+                mc.refund_credit(uid, uname)
+            await _w(bot, uid, f"💸 {err}")
+            return
+
+        _cooldowns[uid] = time.time()
+        _pos = rq.future_count() + 1
 
         from modules.local_replay import queue_local_fav as _ql
-        await _ql(bot, user, fav, pos, credit_consumed=_cr_consumed)
+        await _ql(
+            bot, user, fav, pos,
+            credit_consumed=_cr_consumed,
+            coins_charged=price,
+            payment_type="paid" if price > 0 else "free",
+            queue_position=_pos,
+        )
     else:
         await _w(bot, user.id,
             f"⚠️ #{pos} '{t}' has no playable source. Try !fav again while it plays.")
