@@ -122,7 +122,15 @@ def test_radio_registry_aliases_are_dj_owned(monkeypatch, tmp_path):
         for command in (entry.command, *entry.aliases):
             assert f'"{command}": "dj"' in source
     assert "radiohealth" in registry.registry()
+    assert registry.command_names() == frozenset(registry.registry().keys())
     assert not registry.find_duplicate_commands()
+
+
+def test_main_dj_commands_include_radio_registry_aliases():
+    main_source = (APP / "main.py").read_text()
+
+    assert "RADIO_REGISTRY_COMMANDS: frozenset[str] = radio_command_names()" in main_source
+    assert "DJ_COMMANDS = DJ_COMMANDS | RADIO_REGISTRY_COMMANDS" in main_source
 
 
 def test_blackjack_setting_handlers_reject_normal_users(monkeypatch, tmp_path):

@@ -129,6 +129,11 @@ def registry() -> dict[str, RadioCommandEntry]:
     return commands
 
 
+def command_names() -> frozenset[str]:
+    """Return every radio command and alias handled by this registry."""
+    return frozenset(registry().keys())
+
+
 def lookup(command: str) -> "RadioCommandEntry | None":
     return registry().get((command or "").lower().strip())
 

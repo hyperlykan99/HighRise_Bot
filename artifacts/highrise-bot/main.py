@@ -542,6 +542,7 @@ if _IS_DJ_BOT:
             handle_radioachievements as ra_achievements,
         )
         from modules.radio_command_registry import (
+            command_names as radio_command_names,
             dispatch_radio_command,
             lookup as lookup_radio_command,
             registry as radio_command_registry,
@@ -571,6 +572,7 @@ if not _IS_DJ_BOT:
     async def dispatch_radio_command(*_a, **_k): return False
     def lookup_radio_command(*_a, **_k): return None
     def radio_command_registry(*_a, **_k): return {}
+    def radio_command_names(*_a, **_k): return frozenset()
     (rc_request, rc_pick, rc_queue, rc_skip, rc_remove, rc_clearqueue,
      rc_history, rc_voteskip, rc_nowplaying, rc_vibes, rc_vibe, rc_vibescan,
      rc_setrequestprice, rc_radiohelp, rc_radiostatus, rc_like, rc_dislike, rc_favorite,
@@ -1835,6 +1837,7 @@ STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS | {"syncdebug"}
 ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 
 # ── DJ Music commands (owned by DJ_DUDU, BOT_MODE=dj) ────────────────────────
+RADIO_REGISTRY_COMMANDS: frozenset[str] = radio_command_names()
 DJ_COMMANDS: frozenset[str] = frozenset({
     # Player-facing (public)
     "play",
@@ -1932,6 +1935,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "djresetstate", "djbackup",
     "djtestall",
 })
+DJ_COMMANDS = DJ_COMMANDS | RADIO_REGISTRY_COMMANDS
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS
 
 # Commands that are strictly DJ_DUDU-only — any other bot mode must silently
