@@ -237,3 +237,19 @@ def test_azura_request_cleanup_filename_guard(monkeypatch, tmp_path):
 
     assert azura.sftp_delete_file("../song.mp3") is False
     assert azura.sftp_move_to_played("Requests/song.mp3") is False
+
+
+def test_permission_alias_helpers_delegate_to_role_hierarchy(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path)
+    permissions = importlib.import_module("modules.permissions")
+
+    monkeypatch.setattr(permissions, "is_admin", lambda username: username == "admin")
+    monkeypatch.setattr(permissions, "is_manager", lambda username: username == "manager")
+    monkeypatch.setattr(permissions, "can_moderate", lambda username: username == "staff")
+
+    assert permissions.is_admin_or_owner("admin") is True
+    assert permissions.is_admin_or_owner("player") is False
+    assert permissions.is_manager_or_higher("manager") is True
+    assert permissions.is_manager_or_higher("player") is False
+    assert permissions.is_staff("staff") is True
+    assert permissions.is_staff("player") is False

@@ -45,6 +45,21 @@ def can_moderate(username: str) -> bool:
     return is_manager(username) or is_moderator(username)
 
 
+def is_admin_or_owner(username: str) -> bool:
+    """Admin or owner. Owners inherit admin permissions."""
+    return is_admin(username)
+
+
+def is_manager_or_higher(username: str) -> bool:
+    """Manager, admin, or owner."""
+    return is_manager(username)
+
+
+def is_staff(username: str) -> bool:
+    """Moderator, manager, admin, or owner."""
+    return can_moderate(username)
+
+
 def can_manage_games(username: str) -> bool:
     """Manager, admin, or owner — can control casino/game settings."""
     return is_manager(username)

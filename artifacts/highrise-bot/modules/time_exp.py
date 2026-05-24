@@ -20,7 +20,9 @@ import time
 from datetime import datetime, timezone
 
 import database as db
-from modules.permissions import is_owner, is_admin, is_manager
+from modules.permissions import (
+    is_admin_or_owner, is_manager_or_higher,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -237,11 +239,11 @@ async def _w(bot, uid: str, msg: str) -> None:
 
 
 def _is_manager_plus(username: str) -> bool:
-    return is_manager(username) or is_admin(username) or is_owner(username)
+    return is_manager_or_higher(username)
 
 
 def _is_admin_plus(username: str) -> bool:
-    return is_admin(username) or is_owner(username)
+    return is_admin_or_owner(username)
 
 
 # ---------------------------------------------------------------------------

@@ -29,7 +29,8 @@ import database as db
 from highrise import BaseBot, User
 from modules.notifications import send_notification
 from modules.permissions import (
-    is_owner, is_admin, can_moderate, is_manager, is_moderator,
+    is_owner, is_admin, can_moderate, is_manager,
+    is_admin_or_owner, is_staff as permission_is_staff,
 )
 
 # ---------------------------------------------------------------------------
@@ -132,12 +133,12 @@ async def send_dm(bot: BaseBot, conversation_id: str, message: str) -> bool:
 
 
 def _is_admin_or_owner(username: str) -> bool:
-    return is_owner(username) or is_admin(username)
+    return is_admin_or_owner(username)
 
 
 def _is_staff(username: str) -> bool:
     """True for any staff tier (owner/admin/manager/mod)."""
-    return can_moderate(username)
+    return permission_is_staff(username)
 
 
 # ── Pending subscriber message delivery ───────────────────────────────────────

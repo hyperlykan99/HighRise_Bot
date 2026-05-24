@@ -27,7 +27,8 @@ import time
 import database as db
 from highrise import BaseBot, User
 from modules.permissions import (
-    is_owner, is_admin, can_moderate, can_manage_economy,
+    is_owner, can_moderate, can_manage_economy,
+    is_admin_or_owner,
 )
 
 
@@ -50,7 +51,7 @@ async def _chat(bot: BaseBot, msg: str) -> None:
 
 
 def _is_admin_or_owner(username: str) -> bool:
-    return is_admin(username) or is_owner(username)
+    return is_admin_or_owner(username)
 
 
 # ---------------------------------------------------------------------------
