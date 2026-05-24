@@ -18,7 +18,11 @@ if TYPE_CHECKING:
 
 import database as db
 from modules.admin_cmds import is_admin, is_owner, can_moderate
-from modules.emote_targeting import send_targeted_emote
+from modules.emote_targeting import (
+    resolve_send_emote_target_style,
+    send_emote_capabilities,
+    send_targeted_emote,
+)
 from data.hardcoded_emotes import (
     BOT_SELF_EMOTES,
     PLAYER_EMOTES,
@@ -1315,8 +1319,61 @@ async def handle_emotemode(bot: "BaseBot", user: "User",
 
 async def handle_emotediag(bot: "BaseBot", user: "User",
                             args: list) -> None:
-    await _w(bot, user.id,
-             "Emote diagnostics removed. Use !emoteid <name> or !testplayeremote <raw-id>.")
+    if not _is_admin(user.username):
+        await _w(bot, user.id, "Admin only.")
+        return
+
+    try:
+        import highrise as _highrise  # type: ignore
+        sdk_version = getattr(_highrise, "__version__", "unknown")
+    except Exception as exc:
+        sdk_version = f"unavailable:{type(exc).__name__}"
+
+    style, signature = resolve_send_emote_target_style(bot)
+    caps = send_emote_capabilities(bot)
+    cap_line = (
+        f"target_user_id={caps.get('target_user_id')} "
+        f"user_id={caps.get('user_id')} "
+        f"receiver_id={caps.get('receiver_id')} "
+        f"target={caps.get('target')} "
+        f"positional={caps.get('positional_second')}"
+    )
+    print(
+        "[EMOTE_DIAG] "
+        f"sdk_version={sdk_version!r} style={style!r} "
+        f"signature={signature!r} {cap_line}"
+    )
+
+    await _w(bot, user.id, f"EMOTE DIAG sdk={sdk_version} style={style}")
+    await _w(bot, user.id, f"send_emote: {signature}")
+    await _w(bot, user.id, cap_line)
+
+    if len(args) >= 2 and str(args[1]).lower() in {"test", "send"}:
+        emote_id = str(args[2]).strip() if len(args) >= 3 else "emote-wave"
+        if not emote_id:
+            emote_id = "emote-wave"
+        try:
+            await send_targeted_emote(
+                bot,
+                emote_id,
+                user.id,
+                command="emotediag",
+                sender_id=user.id,
+            )
+            print(
+                "[EMOTE_DIAG] test_send "
+                f"style={style!r} target={user.id!r} emote={emote_id!r} result='ok'"
+            )
+            await _w(bot, user.id,
+                     "Sent one targeted test. Watch whether you or the bot moves.")
+        except Exception as exc:
+            print(
+                "[EMOTE_DIAG] test_send "
+                f"style={style!r} target={user.id!r} emote={emote_id!r} "
+                f"result='error' error={exc!r}"
+            )
+            await _w(bot, user.id,
+                     f"Targeted test failed: {type(exc).__name__}: {exc}")
 
 
 async def handle_unsupportedemotes(bot: "BaseBot", user: "User",

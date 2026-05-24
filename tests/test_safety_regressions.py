@@ -212,8 +212,8 @@ def test_targeted_emote_uses_keyword_target(monkeypatch, tmp_path, capsys):
     calls = []
 
     class FakeHighriseEmotes:
-        async def send_emote(self, emote_id, **kwargs):
-            calls.append((emote_id, kwargs))
+        async def send_emote(self, emote_id, target_user_id=None):
+            calls.append((emote_id, target_user_id))
 
     class FakeEmoteBot:
         highrise = FakeHighriseEmotes()
@@ -229,11 +229,37 @@ def test_targeted_emote_uses_keyword_target(monkeypatch, tmp_path, capsys):
 
     asyncio.run(run_test())
 
-    assert calls == [("emote-wave", {"target_user_id": "user-123"})]
+    assert calls == [("emote-wave", "user-123")]
     assert (
         "[EMOTE_TARGET] command=wave sender=user-123 "
-        "target=user-123 emote=emote-wave"
+        "target=user-123 emote=emote-wave style=target_user_id"
     ) in capsys.readouterr().out
+
+
+def test_targeted_emote_uses_runtime_signature(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path, bot_mode="dj")
+    targeting = importlib.import_module("modules.emote_targeting")
+    calls = []
+
+    class FakeHighriseEmotes:
+        async def send_emote(self, emote_id, user_id=None):
+            calls.append((emote_id, user_id))
+
+    class FakeEmoteBot:
+        highrise = FakeHighriseEmotes()
+
+    async def run_test():
+        await targeting.send_targeted_emote(
+            FakeEmoteBot(),
+            "emote-wave",
+            "user-456",
+            command="wave",
+            sender_id="user-456",
+        )
+
+    asyncio.run(run_test())
+
+    assert calls == [("emote-wave", "user-456")]
 
 
 def test_host_dm_queue_rows_are_claimed_once(monkeypatch, tmp_path):
