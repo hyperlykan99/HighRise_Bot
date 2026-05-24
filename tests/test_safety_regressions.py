@@ -206,6 +206,36 @@ def test_guarded_startup_task_contains_failures(monkeypatch, tmp_path, capsys):
     assert "[TASK ERROR] failing_startup failed: RuntimeError('boom')" in captured.out
 
 
+def test_targeted_emote_uses_keyword_target(monkeypatch, tmp_path, capsys):
+    _install_env(monkeypatch, tmp_path, bot_mode="dj")
+    targeting = importlib.import_module("modules.emote_targeting")
+    calls = []
+
+    class FakeHighriseEmotes:
+        async def send_emote(self, emote_id, **kwargs):
+            calls.append((emote_id, kwargs))
+
+    class FakeEmoteBot:
+        highrise = FakeHighriseEmotes()
+
+    async def run_test():
+        await targeting.send_targeted_emote(
+            FakeEmoteBot(),
+            "emote-wave",
+            "user-123",
+            command="wave",
+            sender_id="user-123",
+        )
+
+    asyncio.run(run_test())
+
+    assert calls == [("emote-wave", {"target_user_id": "user-123"})]
+    assert (
+        "[EMOTE_TARGET] command=wave sender=user-123 "
+        "target=user-123 emote=emote-wave"
+    ) in capsys.readouterr().out
+
+
 def test_host_dm_queue_rows_are_claimed_once(monkeypatch, tmp_path):
     _install_env(monkeypatch, tmp_path, bot_mode="host")
     dmq = importlib.import_module("modules.dm_queue")

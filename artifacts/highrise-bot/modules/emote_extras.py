@@ -23,6 +23,7 @@ import time
 from typing import TYPE_CHECKING
 
 import database as db
+from modules.emote_targeting import send_targeted_emote
 from modules.permissions import (
     is_owner, is_admin, is_manager, is_moderator, can_moderate,
 )
@@ -321,13 +322,16 @@ async def _do_target_social(bot: "BaseBot", user: "User",
 
     # Send attacker emote, then target reaction
     try:
-        await bot.highrise.send_emote(a_eid, uid)
+        await send_targeted_emote(
+            bot, a_eid, uid, command=kind, sender_id=uid)
     except Exception as exc:
         print(f"[EMOTE_EXTRAS] {kind} attacker send err: {exc!r}")
     if t_eid:
         await asyncio.sleep(0.3)
         try:
-            await bot.highrise.send_emote(t_eid, target_user.id)
+            await send_targeted_emote(
+                bot, t_eid, target_user.id,
+                command=f"{kind}_target", sender_id=uid)
         except Exception as exc:
             print(f"[EMOTE_EXTRAS] {kind} target send err: {exc!r}")
 
@@ -1108,7 +1112,9 @@ async def handle_emote_all(bot: "BaseBot", user: "User", args: list) -> None:
         if u.username.lower() in bot_names:
             continue
         try:
-            await bot.highrise.send_emote(eid, u.id)
+            await send_targeted_emote(
+                bot, eid, u.id,
+                command="room_emote_once", sender_id=user.id)
             count += 1
         except Exception:
             pass

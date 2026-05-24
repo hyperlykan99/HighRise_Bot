@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 import database as db
 from modules.admin_cmds import is_admin, is_owner, can_moderate
+from modules.emote_targeting import send_targeted_emote
 from data.hardcoded_emotes import (
     BOT_SELF_EMOTES,
     PLAYER_EMOTES,
@@ -306,10 +307,18 @@ def set_cancel_loop_hook(fn: "Callable") -> None:
     _cancel_loop_hook = fn
 
 
-async def _send_player(bot: "BaseBot", eid: str, uid: str) -> bool:
+async def _send_player(
+    bot: "BaseBot",
+    eid: str,
+    uid: str,
+    *,
+    command: str = "player_emote",
+    sender_id: str = "",
+) -> bool:
     """send_emote(eid, uid) — player directed."""
     try:
-        await bot.highrise.send_emote(eid, uid)
+        await send_targeted_emote(
+            bot, eid, uid, command=command, sender_id=sender_id or uid)
         return True
     except asyncio.CancelledError:
         raise
@@ -339,7 +348,8 @@ async def _run_player_loop(bot: "BaseBot", uid: str, eid: str) -> None:
         print(f"[PLAYER_EMOTE_LOOP] uid={uid} eid={eid} sleep={sleep_time}")
         await asyncio.sleep(sleep_time)
         try:
-            await bot.highrise.send_emote(eid, uid)
+            await send_targeted_emote(
+                bot, eid, uid, command="player_emote_loop", sender_id=uid)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -382,7 +392,8 @@ async def _start_player_loop(
         except Exception:
             pass
     if not leader_sent:
-        ok = await _send_player(bot, eid, uid)
+        ok = await _send_player(
+            bot, eid, uid, command=display_name, sender_id=uid)
         if not ok:
             await _w(bot, uid, f"Could not send emote '{display_name}'.")
             return False
@@ -636,7 +647,9 @@ async def handle_testplayeremote(bot: "BaseBot", user: "User",
             return
         target_user, _ = pair
         try:
-            await bot.highrise.send_emote(raw_id, target_user.id)
+            await send_targeted_emote(
+                bot, raw_id, target_user.id,
+                command="testplayeremote", sender_id=uid)
             await _w(bot, uid,
                      f"✅ Sent {raw_id!r} to @{target_user.username}")
         except Exception as exc:
@@ -645,7 +658,8 @@ async def handle_testplayeremote(bot: "BaseBot", user: "User",
     else:
         raw_id = args[1]
         try:
-            await bot.highrise.send_emote(raw_id, uid)
+            await send_targeted_emote(
+                bot, raw_id, uid, command="testplayeremote", sender_id=uid)
             await _w(bot, uid, f"✅ Sent {raw_id!r}")
         except Exception as exc:
             await _w(bot, uid,

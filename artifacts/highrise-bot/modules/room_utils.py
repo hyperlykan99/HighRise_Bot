@@ -17,6 +17,7 @@ from highrise import BaseBot, User
 from highrise.models import Position
 
 import database as db
+from modules.emote_targeting import send_targeted_emote
 from modules.permissions import (
     is_owner, is_admin, is_manager, is_moderator, can_moderate,
 )
@@ -575,7 +576,10 @@ async def handle_emote(bot: BaseBot, user: User, args: list[str]) -> None:
     if not eid.startswith("emote-"):
         eid = "emote-" + eid
     try:
-        await bot.highrise.send_emote(eid, user.id)
+        await send_targeted_emote(
+            bot, eid, user.id,
+            command=args[0].lstrip("!/") or "emote",
+            sender_id=user.id)
         await _w(bot, user.id, "💃 Emote started.")
     except Exception:
         await _w(bot, user.id, "Emote control not supported by current API.")
@@ -583,7 +587,9 @@ async def handle_emote(bot: BaseBot, user: User, args: list[str]) -> None:
 
 async def handle_stopemote(bot: BaseBot, user: User) -> None:
     try:
-        await bot.highrise.send_emote("emote-idle_loop", user.id)
+        await send_targeted_emote(
+            bot, "emote-idle_loop", user.id,
+            command="stopemote", sender_id=user.id)
         await _w(bot, user.id, "Emote stopped.")
     except Exception:
         await _w(bot, user.id, "Emote control not supported by current API.")
@@ -625,7 +631,9 @@ async def handle_forceemote(bot: BaseBot, user: User, args: list[str]) -> None:
     if not eid.startswith("emote-"):
         eid = "emote-" + eid
     try:
-        await bot.highrise.send_emote(eid, target_user.id)
+        await send_targeted_emote(
+            bot, eid, target_user.id,
+            command="forceemote", sender_id=user.id)
         db.log_room_action(user.username, target_user.username, "forceemote", eid)
         await _w(bot, user.id, f"✅ Emote sent to @{target_user.username}.")
     except Exception:
@@ -646,7 +654,9 @@ async def handle_forceemoteall(bot: BaseBot, user: User, args: list[str]) -> Non
     count = 0
     for u, _ in users:
         try:
-            await bot.highrise.send_emote(eid, u.id)
+            await send_targeted_emote(
+                bot, eid, u.id,
+                command="forceemoteall", sender_id=user.id)
             count += 1
         except Exception:
             pass
@@ -691,7 +701,9 @@ async def handle_loopemote(bot: BaseBot, user: User, args: list[str]) -> None:
     async def _loop():
         while True:
             try:
-                await bot.highrise.send_emote(eid, target_id)
+                await send_targeted_emote(
+                    bot, eid, target_id,
+                    command="loopemote", sender_id=user.id)
             except Exception:
                 pass
             await asyncio.sleep(interval)
