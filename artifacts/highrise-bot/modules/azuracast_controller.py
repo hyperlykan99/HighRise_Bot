@@ -26,6 +26,20 @@ from modules.config_store import (
 _LOG = "[AZURA]"
 
 
+def _safe_request_basename(filename: str) -> bool:
+    """True only for a plain filename inside the configured Requests folder."""
+    if not filename:
+        return False
+    name = str(filename).strip()
+    return (
+        name == os.path.basename(name)
+        and "/" not in name
+        and "\\" not in name
+        and name not in (".", "..")
+        and ".." not in name.split(os.sep)
+    )
+
+
 def _headers(cfg: dict) -> dict:
     return {
         "X-API-Key":    cfg["api_key"],
@@ -296,6 +310,9 @@ def sftp_move_to_played(filename: str) -> bool:
 
     Returns True on success or source-already-gone; False on unrecoverable error.
     """
+    if not _safe_request_basename(filename):
+        print(f"{_LOG} sftp_move_to_played refused unsafe filename={filename!r}")
+        return False
     import paramiko
     cfg = sftp_cfg()
     if not cfg["host"] or not cfg["user"]:
@@ -375,6 +392,9 @@ def sftp_delete_file(filename: str) -> bool:
     Remove a file from the SFTP Requests folder by filename.
     FileNotFoundError (errno 2) is treated as success — already deleted.
     """
+    if not _safe_request_basename(filename):
+        print(f"{_LOG} sftp_delete refused unsafe filename={filename!r}")
+        return False
     import paramiko
     cfg = sftp_cfg()
     if not cfg["host"] or not cfg["user"]:
