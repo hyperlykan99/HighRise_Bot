@@ -105,6 +105,10 @@ async def process_host_dm_queue(bot: "BaseBot", limit: int = 20) -> None:
         dm_type = row["dm_type"]
         msg     = row["message"]
 
+        if not _claim_queue_row(row_id):
+            print(f"[DM HOST SEND] row={row_id} skipped=already_claimed")
+            continue
+
         # Resolve conversation_id from notify_users if not stored
         if not conv_id:
             try:
@@ -172,5 +176,24 @@ def _mark_queue_row(row_id: int, status: str, error: str = "") -> None:
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[DM HOST SEND] row={row_id} mark_status={status} error={exc!r}")
+
+
+def _claim_queue_row(row_id: int) -> bool:
+    """Atomically claim a pending DM row so duplicate host loops cannot resend it."""
+    try:
+        conn = db.get_connection()
+        cur = conn.execute(
+            """UPDATE host_dm_queue
+               SET status='sending', error=''
+               WHERE id=? AND status='pending'""",
+            (row_id,),
+        )
+        conn.commit()
+        claimed = cur.rowcount == 1
+        conn.close()
+        return claimed
+    except Exception as exc:
+        print(f"[DM HOST SEND] row={row_id} claim error={exc!r}")
+        return False
