@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from highrise import BaseBot, User
 
 _LOG = "[RADIO_CMD]"
+_cleanup_poll_task_handle: asyncio.Task | None = None
 
 # ─── Bot-mode guard (same pattern as dj_music.py) ─────────────────────────────
 try:
@@ -2925,17 +2926,40 @@ async def _cleanup_poll_task() -> None:
             print(f"{_LOG} cleanup_poll error: {exc}")
 
 
+def _on_cleanup_poll_done(task: asyncio.Task) -> None:
+    """Reset the startup guard if the cleanup poll task exits unexpectedly."""
+    global _cleanup_poll_task_handle
+    if _cleanup_poll_task_handle is task:
+        _cleanup_poll_task_handle = None
+    if task.cancelled():
+        return
+    try:
+        exc = task.exception()
+    except Exception as err:
+        print(f"{_LOG} cleanup_poll task status error: {err}")
+        return
+    if exc:
+        print(f"{_LOG} cleanup_poll task exited: {exc}")
+
+
 async def startup_radio(bot: "BaseBot") -> None:
     """
     Called from on_start for the DJ bot.
     Starts the bot-controlled playback engine + legacy file cleanup safety-net.
     """
+    global _cleanup_poll_task_handle
     from modules.media_cleanup import start as _start_cleanup
     import modules.radio_diagnostics as diag
 
     print(f"{_LOG} Starting radio / playback engine…")
     await _start_cleanup(bot)
-    asyncio.create_task(_cleanup_poll_task(), name="radio_cleanup_poll")
+    if _cleanup_poll_task_handle is None or _cleanup_poll_task_handle.done():
+        _cleanup_poll_task_handle = asyncio.create_task(
+            _cleanup_poll_task(), name="radio_cleanup_poll"
+        )
+        _cleanup_poll_task_handle.add_done_callback(_on_cleanup_poll_done)
+    else:
+        print(f"{_LOG} radio_cleanup_poll already running — skipping duplicate")
     asyncio.create_task(diag.log_startup_health(bot), name="radio_startup_health")
     print(f"[DJ_RADIO] radio startup complete")
 
