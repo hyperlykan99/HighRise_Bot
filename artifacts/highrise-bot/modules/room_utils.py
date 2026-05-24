@@ -52,6 +52,22 @@ _emote_loops: dict[str, asyncio.Task] = {}
 # Startup bot spawn restore task by bot username/mode.
 _bot_spawn_restore_tasks: dict[str, asyncio.Task] = {}
 
+# Fallback keys used when upgraded-room startup cannot resolve the live bot
+# username before spawn restore runs. Exact username rows still win first.
+_BOT_SPAWN_MODE_ALIASES: dict[str, tuple[str, ...]] = {
+    "all": ("chilltopiamc", "chilltopia"),
+    "host": ("chilltopiamc", "chilltopia"),
+    "eventhost": ("chilltopiamc", "chilltopia"),
+    "banker": ("bankingbot",),
+    "shopkeeper": ("bankingbot",),
+    "blackjack": ("acesinatra",),
+    "poker": ("chipsoprano",),
+    "miner": ("greatestprospector",),
+    "fisher": ("masterangler",),
+    "security": ("keanushield",),
+    "dj": ("dj_dudu",),
+}
+
 # Follow task
 _follow_task: asyncio.Task | None = None
 
@@ -106,6 +122,21 @@ def _pos_close(actual: object | None, expected: Position, threshold: float = 1.2
         return (dx * dx + dy * dy + dz * dz) ** 0.5 <= threshold
     except Exception:
         return False
+
+
+def _spawn_lookup_candidates(username: str, mode: str) -> list[str]:
+    candidates: list[str] = []
+    for raw in (username, mode):
+        key = (raw or "").strip().lower()
+        if key and key not in candidates:
+            candidates.append(key)
+    for alias in _BOT_SPAWN_MODE_ALIASES.get((mode or "").strip().lower(), ()):
+        key = alias.strip().lower()
+        if key and key not in candidates:
+            candidates.append(key)
+    if "default" not in candidates:
+        candidates.append("default")
+    return candidates
 
 
 async def _get_bot_position(bot: BaseBot, bot_uid: str) -> Position | None:
@@ -2437,20 +2468,23 @@ async def teleport_bot_to_saved_spawn(
     _mode     = bot_mode     or getattr(_cfg, "BOT_MODE", "main")
     bot_uid   = get_bot_user_id()
 
-    # Priority lookup: exact username → mode name → "default"
+    # Priority lookup: exact username → mode name → known mode alias → "default"
     row: dict | None = None
-    for key in filter(None, [_username, _mode, "default"]):
+    saved_key = ""
+    candidates = _spawn_lookup_candidates(_username, _mode)
+    for key in candidates:
         row = db.get_bot_spawn(key)
         if row:
+            saved_key = key
             print(f"[BOT SPAWN] bot={_username!r} lookup_key={key!r} spawn_found=true")
             break
 
     if not row:
         print(
             f"[BOT SPAWN] bot={_username!r} spawn_found=false "
-            f"tried=[{_username},{_mode},default]"
+            f"tried={candidates!r}"
         )
-        return (False, None, None, "no_saved_spawn") if return_details else False
+        return (False, None, None, "no_saved_spawn", "") if return_details else False
 
     x, y, z    = row["x"], row["y"], row["z"]
     facing     = row.get("facing", "FrontRight")
@@ -2467,7 +2501,7 @@ async def teleport_bot_to_saved_spawn(
         try:
             await bot.highrise.teleport(bot_uid, pos)
             print("[BOT SPAWN] teleport_success=true fallback_walk=false")
-            return (True, pos, row, "teleport") if return_details else True
+            return (True, pos, row, "teleport", saved_key) if return_details else True
         except Exception as exc:
             print(f"[BOT SPAWN] teleport_success=false error={exc!r}")
     else:
@@ -2478,13 +2512,13 @@ async def teleport_bot_to_saved_spawn(
         try:
             await bot.highrise.walk_to(pos)
             print("[BOT SPAWN] walk_success=true")
-            return (True, pos, row, "walk") if return_details else True
+            return (True, pos, row, "walk", saved_key) if return_details else True
         except Exception as exc:
             print(f"[BOT SPAWN] walk_success=false error={exc!r}")
     else:
         print("[BOT SPAWN] fallback_walk=false")
 
-    return (False, pos, row, "teleport_failed") if return_details else False
+    return (False, pos, row, "teleport_failed", saved_key) if return_details else False
 
 
 async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
@@ -2505,18 +2539,23 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
         for attempt, delay in enumerate(delays, 1):
             if delay:
                 await asyncio.sleep(delay)
-            ok, expected, _row, reason = await teleport_bot_to_saved_spawn(
+            details = await teleport_bot_to_saved_spawn(
                 bot,
                 bot_username=bot_username,
                 fallback_walk=True,
                 return_details=True,
             )
+            if isinstance(details, tuple) and len(details) >= 5:
+                ok, expected, _row, reason, saved_key = details[:5]
+            else:
+                ok, expected, _row, reason = details  # type: ignore[misc]
+                saved_key = str((_row or {}).get("bot_username", "")) if isinstance(_row, dict) else ""
             bot_uid = get_bot_user_id()
             await asyncio.sleep(0.75)
             actual = await _get_bot_position(bot, bot_uid)
             success = bool(ok and expected is not None and _pos_close(actual, expected))
             print(
-                f"[SPAWN_RESTORE] bot={key} attempt={attempt} "
+                f"[SPAWN_RESTORE] bot={key} saved_key={saved_key or 'none'} attempt={attempt} "
                 f"expected={_format_pos(expected)} actual={_format_pos(actual)} "
                 f"success={success} reason={reason}"
             )

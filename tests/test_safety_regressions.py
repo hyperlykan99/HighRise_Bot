@@ -320,6 +320,63 @@ def test_bot_spawn_restore_stops_after_max_attempts(monkeypatch, tmp_path):
     assert attempts == [1, 2, 3]
 
 
+def test_host_spawn_restore_falls_back_to_chilltopiamc_key(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    _install_highrise_stub(monkeypatch)
+
+    class Pos:
+        def __init__(self, x, y, z, facing="FrontRight"):
+            self.x = x
+            self.y = y
+            self.z = z
+            self.facing = facing
+
+    sys.modules["highrise.models"].Position = Pos
+    room = importlib.import_module("modules.room_utils")
+    gold = importlib.import_module("modules.gold")
+    gold.set_bot_identity("bot-1")
+    seen_keys = []
+
+    def fake_get_bot_spawn(key):
+        seen_keys.append(key)
+        if key == "chilltopiamc":
+            return {
+                "bot_username": "chilltopiamc",
+                "spawn_name": "custom",
+                "x": 12.5,
+                "y": 1.0,
+                "z": 4.0,
+                "facing": "FrontRight",
+            }
+        return None
+
+    class Highrise:
+        def __init__(self):
+            self.teleports = []
+
+        async def teleport(self, uid, pos):
+            self.teleports.append((uid, pos))
+
+    class Bot:
+        def __init__(self):
+            self.highrise = Highrise()
+
+    monkeypatch.setattr(room.db, "get_bot_spawn", fake_get_bot_spawn)
+    bot = Bot()
+
+    ok, expected, row, reason, saved_key = asyncio.run(
+        room.teleport_bot_to_saved_spawn(bot, bot_username="", return_details=True)
+    )
+
+    assert ok is True
+    assert reason == "teleport"
+    assert saved_key == "chilltopiamc"
+    assert row["bot_username"] == "chilltopiamc"
+    assert (expected.x, expected.y, expected.z) == (12.5, 1.0, 4.0)
+    assert seen_keys[:2] == ["host", "chilltopiamc"]
+    assert bot.highrise.teleports[0][0] == "bot-1"
+
+
 def test_multibot_supervisor_prevents_duplicate_mode_tasks(monkeypatch, tmp_path):
     _install_env(monkeypatch, tmp_path, bot_mode="host")
     sys.modules.pop("bot", None)
