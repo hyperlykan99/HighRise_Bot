@@ -793,29 +793,43 @@ async def handle_announceadmin(bot: BaseBot, user: User, args: list[str]) -> Non
 # ---------------------------------------------------------------------------
 
 _rotating_index = 0
+_rotating_announcement_task: asyncio.Task | None = None
 
 
 async def rotating_announcement_loop(bot: BaseBot) -> None:
     """Send rotating announcements on a configurable interval (default 30 min)."""
-    global _rotating_index
-    while True:
-        try:
-            enabled  = _get("rotating_enabled", "0") == "1"
-            interval = max(10, int(_get("rotating_interval", "30")))
-        except Exception:
-            enabled  = False
-            interval = 30
-
-        if enabled:
+    global _rotating_index, _rotating_announcement_task
+    current = asyncio.current_task()
+    if (
+        _rotating_announcement_task is not None
+        and not _rotating_announcement_task.done()
+        and _rotating_announcement_task is not current
+    ):
+        print("[ANNOUNCE] Rotating loop already running — skipping duplicate")
+        return
+    _rotating_announcement_task = current
+    try:
+        while True:
             try:
-                msgs = db.get_rotating_announcements()
-                if msgs:
-                    _rotating_index = _rotating_index % len(msgs)
-                    msg = str(msgs[_rotating_index].get("message", ""))[:200]
-                    if msg:
-                        await _chat(bot, f"📢 {msg}")
-                    _rotating_index += 1
+                enabled  = _get("rotating_enabled", "0") == "1"
+                interval = max(10, int(_get("rotating_interval", "30")))
             except Exception:
-                pass
+                enabled  = False
+                interval = 30
 
-        await asyncio.sleep(interval * 60)
+            if enabled:
+                try:
+                    msgs = db.get_rotating_announcements()
+                    if msgs:
+                        _rotating_index = _rotating_index % len(msgs)
+                        msg = str(msgs[_rotating_index].get("message", ""))[:200]
+                        if msg:
+                            await _chat(bot, f"📢 {msg}")
+                        _rotating_index += 1
+                except Exception:
+                    pass
+
+            await asyncio.sleep(interval * 60)
+    finally:
+        if _rotating_announcement_task is current:
+            _rotating_announcement_task = None

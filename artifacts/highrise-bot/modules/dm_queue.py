@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from main import BaseBot
 
 _IS_HOST: bool = _cfg.BOT_MODE in ("host", "all")
+_host_dm_queue_task: asyncio.Task | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -136,14 +137,28 @@ async def startup_host_dm_queue_loop(bot: "BaseBot") -> None:
     if not _IS_HOST:
         print("[DM BLOCKED] startup_host_dm_queue_loop skipped — not host bot")
         return
+    global _host_dm_queue_task
+    current = asyncio.current_task()
+    if (
+        _host_dm_queue_task is not None
+        and not _host_dm_queue_task.done()
+        and _host_dm_queue_task is not current
+    ):
+        print("[DM HOST QUEUE] Loop already running — skipping duplicate")
+        return
+    _host_dm_queue_task = current
     print("[DM HOST QUEUE] Loop started — draining every 10s")
-    await asyncio.sleep(8)
-    while True:
-        try:
-            await process_host_dm_queue(bot)
-        except Exception as exc:
-            print(f"[DM HOST QUEUE] loop error: {exc!r}")
-        await asyncio.sleep(10)
+    try:
+        await asyncio.sleep(8)
+        while True:
+            try:
+                await process_host_dm_queue(bot)
+            except Exception as exc:
+                print(f"[DM HOST QUEUE] loop error: {exc!r}")
+            await asyncio.sleep(10)
+    finally:
+        if _host_dm_queue_task is current:
+            _host_dm_queue_task = None
 
 
 def _mark_queue_row(row_id: int, status: str, error: str = "") -> None:

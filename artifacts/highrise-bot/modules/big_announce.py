@@ -308,21 +308,38 @@ async def send_big_fish_announce(bot, rarity: str, username: str,
 # Background reaction poller (runs in each non-announcing bot)
 # ---------------------------------------------------------------------------
 
+_big_announce_reactor_task: asyncio.Task | None = None
+
+
 async def startup_big_announce_reactor(bot) -> None:
     """
     Background task: polls big_announcement_logs for pending entries
     and sends the full detail message from this bot if it is enabled.
     Miner/fisher bots skip reactions for their own category.
     """
-    await asyncio.sleep(12)
-    bot_mode = _cfg.BOT_MODE
-    friendly = _MODE_TO_FRIENDLY.get(bot_mode, bot_mode.lower() + "bot")
-    while True:
-        try:
-            await _poll_react(bot, bot_mode, friendly)
-        except Exception as exc:
-            print(f"[BIG_REACT] poll error bot={bot_mode}: {exc}")
-        await asyncio.sleep(_BIG_REACT_POLL_INTERVAL)
+    global _big_announce_reactor_task
+    current = asyncio.current_task()
+    if (
+        _big_announce_reactor_task is not None
+        and not _big_announce_reactor_task.done()
+        and _big_announce_reactor_task is not current
+    ):
+        print("[BIG_REACT] reactor already running — skipping duplicate")
+        return
+    _big_announce_reactor_task = current
+    try:
+        await asyncio.sleep(12)
+        bot_mode = _cfg.BOT_MODE
+        friendly = _MODE_TO_FRIENDLY.get(bot_mode, bot_mode.lower() + "bot")
+        while True:
+            try:
+                await _poll_react(bot, bot_mode, friendly)
+            except Exception as exc:
+                print(f"[BIG_REACT] poll error bot={bot_mode}: {exc}")
+            await asyncio.sleep(_BIG_REACT_POLL_INTERVAL)
+    finally:
+        if _big_announce_reactor_task is current:
+            _big_announce_reactor_task = None
 
 
 async def _poll_react(bot, bot_mode: str, friendly: str) -> None:
