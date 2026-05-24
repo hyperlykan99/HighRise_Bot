@@ -90,6 +90,66 @@ class _BotSpec(NamedTuple):
     extra_modes:  tuple[str, ...] = ()  # extra modes merged from duplicate-token bots
 
 
+_bot_supervisor_tasks: dict[str, asyncio.Task] = {}
+_BOT_TASK_RESTART_DELAY = 10.0
+
+
+def _bot_task_key(spec: _BotSpec) -> str:
+    return (spec.bot_mode or spec.bot_id or spec.label).strip().lower()
+
+
+def _log_lifecycle(spec: _BotSpec, event: str, **fields: object) -> None:
+    extra = " ".join(f"{k}={v!r}" for k, v in fields.items() if v is not None)
+    suffix = f" {extra}" if extra else ""
+    print(f"[BOT_LIFECYCLE] mode={spec.bot_mode} event={event}{suffix}", flush=True)
+
+
+def _log_task_exit(spec: _BotSpec, task: asyncio.Task) -> None:
+    if task.cancelled():
+        print(
+            f"[BOT_TASK_EXIT] mode={spec.bot_mode} exception=CancelledError message=cancelled",
+            flush=True,
+        )
+        return
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        print(
+            f"[BOT_TASK_EXIT] mode={spec.bot_mode} exception=CancelledError message=cancelled",
+            flush=True,
+        )
+        return
+    if exc is None:
+        print(
+            f"[BOT_TASK_EXIT] mode={spec.bot_mode} exception=None message=completed",
+            flush=True,
+        )
+        return
+    print(
+        f"[BOT_TASK_EXIT] mode={spec.bot_mode} exception={type(exc).__name__} "
+        f"message={str(exc)[:160]!r}",
+        flush=True,
+    )
+
+
+def _start_bot_supervisor_task(
+    spec: _BotSpec,
+    startup_delay: float = 0.0,
+) -> tuple[asyncio.Task, bool]:
+    """Start one per-mode supervisor task, or return the existing live task."""
+    key = _bot_task_key(spec)
+    current = _bot_supervisor_tasks.get(key)
+    if current and not current.done():
+        print(f"[BOT_WATCHDOG] mode={spec.bot_mode} state=alive duplicate_skipped=true")
+        return current, False
+    task = asyncio.create_task(
+        _run_bot_forever(spec, startup_delay=startup_delay),
+        name=f"bot:{spec.bot_mode}",
+    )
+    _bot_supervisor_tasks[key] = task
+    return task, True
+
+
 # Ordered list of all supported split bots.
 # (token_env, label, id_env, default_id, mode_env, default_mode, user_env)
 _SPLIT_BOTS = [
@@ -412,6 +472,7 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
         await asyncio.sleep(startup_delay)
 
     print(f"[BOT_START] starting {spec.label} mode={spec.bot_mode}")
+    _log_lifecycle(spec, "start", label=spec.label, bot_id=spec.bot_id)
     print(f"[BOT_GUARD] launching {spec.label}"
           f" username={spec.bot_username!r} mode={spec.bot_mode!r}")
 
@@ -453,6 +514,13 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
             _conn_start_wall: float = time.time()   # reset each subprocess spawn
             _ts = _utc_ts()
             print(f"[BOT_START] connected {spec.label} id={spec.bot_id} @ {_ts}")
+            _log_lifecycle(
+                spec,
+                "connect",
+                label=spec.label,
+                bot_id=spec.bot_id,
+                reconnect_attempt=_reconnect_count,
+            )
             try:
                 from modules import bot_logger as _blog
                 _blog.bot_log(
@@ -513,6 +581,13 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     "SIGKILL"          if code == -9   else
                     f"signal {-code}"  if code and code < 0 else
                     f"code {code}"
+                )
+                _log_lifecycle(
+                    spec,
+                    "disconnect",
+                    reason=_last_reason,
+                    uptime=f"{uptime:.0f}s",
+                    returncode=code,
                 )
 
                 if uptime >= 300:
@@ -620,6 +695,7 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     pass
 
             except asyncio.CancelledError:
+                _log_lifecycle(spec, "cancelled", reason="parent_cancelled")
                 if proc and proc.returncode is None:
                     proc.terminate()
                     try:
@@ -632,6 +708,12 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                 _last_reason = str(exc)[:80]
                 delay = _BACKOFF[min(_reconnect_count - 1, len(_BACKOFF) - 1)]
                 _ts2 = _utc_ts()
+                _log_lifecycle(
+                    spec,
+                    "error",
+                    exception=type(exc).__name__,
+                    message=_last_reason,
+                )
                 print(
                     f"[RECONNECT] {spec.label} mode={spec.bot_mode}"
                     f" reason={_last_reason} attempt={_reconnect_count}"
@@ -652,6 +734,8 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
 
             print(f"[WATCHDOG] {spec.label} mode={spec.bot_mode}"
                   f" reconnect_attempt={_reconnect_count} delay={delay}s")
+            print(f"[BOT_WATCHDOG] mode={spec.bot_mode} state=restarting delay={delay}s")
+            _log_lifecycle(spec, "restart", delay=f"{delay}s", reason=_last_reason)
             await asyncio.sleep(delay)
 
     finally:
@@ -664,6 +748,7 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
 
 async def _run_all(specs: list[_BotSpec]) -> None:
     loop = asyncio.get_running_loop()
+    shutting_down = False
 
     # Stagger bot logins 12 s apart to prevent simultaneous session collisions.
     if len(specs) > 1:
@@ -671,20 +756,21 @@ async def _run_all(specs: list[_BotSpec]) -> None:
             f"[BOT_START] {len(specs)} bots will start 12s apart "
             f"to prevent simultaneous session collisions."
         )
-    tasks = [
-        asyncio.create_task(
-            _run_bot_forever(s, startup_delay=float(i * 12)),
-            name=s.label,
-        )
-        for i, s in enumerate(specs)
-    ]
+    _bot_supervisor_tasks.clear()
+    spec_by_key = {_bot_task_key(s): s for s in specs}
+    for i, s in enumerate(specs):
+        _start_bot_supervisor_task(s, startup_delay=float(i * 12))
 
+    dashboard_tasks: list[asyncio.Task] = []
     if _ENABLE_WEB_DASHBOARD:
-        tasks.append(asyncio.create_task(_run_web_dashboard(), name="web-dashboard"))
+        dashboard_tasks.append(asyncio.create_task(_run_web_dashboard(), name="web-dashboard"))
     else:
         print("[DASHBOARD] stage=dashboard_startup enabled=false")
 
     def _shutdown(sig: int) -> None:
+        nonlocal shutting_down
+        shutting_down = True
+        tasks = list(_bot_supervisor_tasks.values()) + dashboard_tasks
         alive = sum(1 for t in tasks if not t.done())
         print(f"[SHUTDOWN] {signal.Signals(sig).name} received — "
               f"cancelling {alive}/{len(tasks)} bot task(s)...")
@@ -699,8 +785,54 @@ async def _run_all(specs: list[_BotSpec]) -> None:
         pass  # Windows / restricted env fallback
 
     try:
-        await asyncio.gather(*tasks)
+        while True:
+            tasks = list(_bot_supervisor_tasks.values()) + dashboard_tasks
+            if not tasks:
+                print("[BOT_WATCHDOG] mode=all state=missing no_supervisor_tasks=true")
+                return
+            done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                if task in dashboard_tasks:
+                    dashboard_tasks.remove(task)
+                    if task.cancelled():
+                        print("[BOT_TASK_EXIT] mode=dashboard exception=CancelledError message=cancelled")
+                    else:
+                        exc = task.exception()
+                        if exc:
+                            print(
+                                f"[BOT_TASK_EXIT] mode=dashboard exception={type(exc).__name__} "
+                                f"message={str(exc)[:160]!r}"
+                            )
+                        else:
+                            print("[BOT_TASK_EXIT] mode=dashboard exception=None message=completed")
+                    continue
+
+                finished_key = None
+                finished_spec = None
+                for key, candidate in list(_bot_supervisor_tasks.items()):
+                    if candidate is task:
+                        finished_key = key
+                        finished_spec = spec_by_key.get(key)
+                        break
+                if finished_key is None or finished_spec is None:
+                    continue
+
+                _bot_supervisor_tasks.pop(finished_key, None)
+                _log_task_exit(finished_spec, task)
+                if shutting_down or task.cancelled():
+                    _log_lifecycle(finished_spec, "cancelled", reason="shutdown")
+                    continue
+
+                print(f"[BOT_WATCHDOG] mode={finished_spec.bot_mode} state=missing")
+                await asyncio.sleep(_BOT_TASK_RESTART_DELAY)
+                if shutting_down:
+                    continue
+                print(f"[BOT_WATCHDOG] mode={finished_spec.bot_mode} state=restarting")
+                _log_lifecycle(finished_spec, "restart", reason="supervisor_task_exit")
+                _start_bot_supervisor_task(finished_spec, startup_delay=0.0)
     except asyncio.CancelledError:
+        shutting_down = True
+        tasks = list(_bot_supervisor_tasks.values()) + dashboard_tasks
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

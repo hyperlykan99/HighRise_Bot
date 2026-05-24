@@ -3767,6 +3767,10 @@ class HangoutBot(BaseBot):
         """Called once when the bot successfully connects to the room."""
         _ROOM_DIAG_STATE["last_start"] = time.time()
         print(f"[SDK] bot mode={BOT_MODE} ready")
+        print(
+            f"[BOT_LIFECYCLE] mode={BOT_MODE} event=connect "
+            f"bot={config.BOT_USERNAME or BOT_MODE!r} room={config.ROOM_ID!r}"
+        )
         if BOT_MODE == "dj":
             print(f"[DJ MODE ACTIVE] mode={BOT_MODE} — music/radio commands enabled")
         print(f"[HangoutBot] Connected — room {config.ROOM_ID} | DB: {config.DB_PATH}")
@@ -9263,8 +9267,32 @@ def run():
             )])
         )
 
+        def _log_main_task_exit(done_task: asyncio.Task) -> None:
+            if done_task.cancelled():
+                print(
+                    f"[BOT_TASK_EXIT] mode={_bot_mode} "
+                    "exception=CancelledError message=cancelled",
+                    flush=True,
+                )
+                return
+            exc = done_task.exception()
+            if exc is None:
+                print(
+                    f"[BOT_TASK_EXIT] mode={_bot_mode} exception=None message=completed",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[BOT_TASK_EXIT] mode={_bot_mode} exception={type(exc).__name__} "
+                    f"message={str(exc)[:160]!r}",
+                    flush=True,
+                )
+
+        task.add_done_callback(_log_main_task_exit)
+
         def _shutdown(sig: int) -> None:
             print(f"[SHUTDOWN] {_signal.Signals(sig).name} — stopping bot...")
+            print(f"[BOT_LIFECYCLE] mode={_bot_mode} event=cancelled reason=signal")
             task.cancel()
 
         try:
@@ -9277,6 +9305,13 @@ def run():
             await task
         except asyncio.CancelledError:
             print("[SHUTDOWN] Bot stopped cleanly.")
+        except Exception as exc:
+            print(
+                f"[BOT_LIFECYCLE] mode={_bot_mode} event=error "
+                f"exception={type(exc).__name__} message={str(exc)[:160]!r}",
+                flush=True,
+            )
+            raise
 
     asyncio.run(_main())
 

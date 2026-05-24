@@ -320,6 +320,75 @@ def test_bot_spawn_restore_stops_after_max_attempts(monkeypatch, tmp_path):
     assert attempts == [1, 2, 3]
 
 
+def test_multibot_supervisor_prevents_duplicate_mode_tasks(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    sys.modules.pop("bot", None)
+    runner = importlib.import_module("bot")
+    runner._bot_supervisor_tasks.clear()
+    spec = runner._BotSpec("HOST_BOT_TOKEN", "Host Bot", "token", "host", "host", "HostBot")
+
+    async def run_test():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_run(_spec, startup_delay=0.0):
+            started.set()
+            await release.wait()
+
+        monkeypatch.setattr(runner, "_run_bot_forever", fake_run)
+        first, first_created = runner._start_bot_supervisor_task(spec)
+        await started.wait()
+        second, second_created = runner._start_bot_supervisor_task(spec)
+        release.set()
+        await first
+        assert first is second
+        assert first_created is True
+        assert second_created is False
+
+    try:
+        asyncio.run(run_test())
+    finally:
+        runner._bot_supervisor_tasks.clear()
+
+
+def test_multibot_supervisor_restarts_finished_task(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    sys.modules.pop("bot", None)
+    runner = importlib.import_module("bot")
+    runner._bot_supervisor_tasks.clear()
+    monkeypatch.setattr(runner, "_ENABLE_WEB_DASHBOARD", False)
+    monkeypatch.setattr(runner, "_BOT_TASK_RESTART_DELAY", 0.0)
+    spec = runner._BotSpec("HOST_BOT_TOKEN", "Host Bot", "token", "host", "host", "HostBot")
+    calls = []
+
+    async def run_test():
+        restarted = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_run(_spec, startup_delay=0.0):
+            calls.append(startup_delay)
+            if len(calls) == 1:
+                return
+            restarted.set()
+            await release.wait()
+
+        monkeypatch.setattr(runner, "_run_bot_forever", fake_run)
+        supervisor = asyncio.create_task(runner._run_all([spec]))
+        await asyncio.wait_for(restarted.wait(), timeout=1)
+        release.set()
+        supervisor.cancel()
+        await supervisor
+
+    try:
+        asyncio.run(run_test())
+    finally:
+        runner._bot_supervisor_tasks.clear()
+
+    assert len(calls) >= 2
+    assert calls[0] == 0.0
+    assert calls[1] == 0.0
+
+
 def test_targeted_emote_uses_keyword_target(monkeypatch, tmp_path, capsys):
     _install_env(monkeypatch, tmp_path, bot_mode="dj")
     targeting = importlib.import_module("modules.emote_targeting")
