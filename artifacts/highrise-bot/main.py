@@ -30,6 +30,7 @@ Future bot layout (example):
 import asyncio
 import os
 import sys
+import time
 import modules.bot_state as bot_state
 from highrise import BaseBot, User
 from highrise.__main__ import BotDefinition, main as highrise_main
@@ -1258,7 +1259,7 @@ TIP_ADMIN_CMDS = {"settiprate", "settipcap", "settiptier", "settipautosub", "set
 ADMIN_ONLY_CMDS = {
     "setrules",
     # ── Bot health repair (admin+) ────────────────────────────────────────────
-    "dblockcheck", "clearstalebotlocks", "fixbotowners",
+    "dblockcheck", "roomdiag", "clearstalebotlocks", "fixbotowners",
     # ── Coins ────────────────────────────────────────────────────────────────
     "addcoins", "removecoins",
     "setcoins", "editcoins", "resetcoins",
@@ -3635,6 +3636,95 @@ async def _deliver_pending_bank_notifications(bot, user: User) -> None:
 print(f"[BOOT] mode={config.BOT_MODE} id={config.BOT_ID}"
       f" ts={bot_state.PROC_START.strftime('%H:%M:%S UTC')}")
 
+_ROOM_DIAG_STATE: dict[str, float | None] = {
+    "last_start": None,
+    "last_join": None,
+    "last_move": None,
+    "last_emote": None,
+}
+
+
+def _diag_age(key: str) -> str:
+    ts = _ROOM_DIAG_STATE.get(key)
+    if not ts:
+        return "never"
+    return f"{int(time.time() - ts)}s ago"
+
+
+async def _room_api_probe(bot) -> dict[str, object]:
+    diag: dict[str, object] = {
+        "ok": False,
+        "count": 0,
+        "first_item": "none",
+        "first_pos": "none",
+        "bot_pos_known": False,
+        "error": "",
+    }
+    try:
+        resp = await bot.highrise.get_room_users()
+        content = list(resp.content) if hasattr(resp, "content") else []
+        diag["ok"] = True
+        diag["count"] = len(content)
+        if content:
+            first = content[0]
+            diag["first_item"] = f"{type(first).__name__}:{repr(first)[:120]}"
+            try:
+                first_user, first_pos = first
+                diag["first_pos"] = f"{type(first_pos).__name__}:{repr(first_pos)[:120]}"
+            except Exception as unpack_exc:
+                diag["first_pos"] = f"unpack_failed:{unpack_exc!r}"
+        bot_uid = get_bot_user_id()
+        if bot_uid:
+            for item in content:
+                try:
+                    room_user, pos = item
+                    if room_user.id == bot_uid:
+                        diag["bot_pos_known"] = pos is not None
+                        diag["bot_position"] = f"{type(pos).__name__}:{repr(pos)[:120]}"
+                        break
+                except Exception:
+                    continue
+    except Exception as exc:
+        diag["error"] = f"{type(exc).__name__}: {exc}"
+    return diag
+
+
+async def _log_upgraded_room_diag(bot, label: str) -> None:
+    room_id = getattr(config, "ROOM_ID", "")
+    print(
+        f"[ROOM_DIAG] stage={label} sdk={_TIP_SDK_VERSION!r} mode={BOT_MODE!r} "
+        f"bot_id={config.BOT_ID!r} room_id_present={bool(room_id)} "
+        f"room_id_type={type(room_id).__name__} room_id={room_id!r}"
+    )
+    diag = await _room_api_probe(bot)
+    print(
+        f"[ROOM_DIAG] stage={label} get_room_users_ok={diag['ok']} "
+        f"count={diag['count']} error={diag['error']!r}"
+    )
+    print(
+        f"[ROOM_DIAG] stage={label} first_item={diag['first_item']!r} "
+        f"first_pos={diag['first_pos']!r} "
+        f"bot_pos_known={diag['bot_pos_known']} "
+        f"bot_position={diag.get('bot_position', 'none')!r}"
+    )
+
+
+async def _handle_roomdiag(bot, user: User) -> None:
+    diag = await _room_api_probe(bot)
+    room_id = getattr(config, "ROOM_ID", "")
+    lines = [
+        "ROOM DIAG",
+        f"Mode: {BOT_MODE} | SDK: {_TIP_SDK_VERSION}",
+        f"Room ID: {room_id!r} ({type(room_id).__name__})",
+        f"get_room_users: {'OK' if diag['ok'] else 'FAIL'} | count={diag['count']}",
+        f"Bot position known: {'YES' if diag['bot_pos_known'] else 'NO'}",
+        f"Events: join={_diag_age('last_join')} move={_diag_age('last_move')} emote={_diag_age('last_emote')}",
+    ]
+    if diag["error"]:
+        lines.append(f"Error: {diag['error']}"[:249])
+    for line in lines:
+        await bot.highrise.send_whisper(user.id, line[:249])
+
 
 def _install_task_exception_handler() -> None:
     """Route all unhandled background-task exceptions to the console."""
@@ -3673,6 +3763,7 @@ class HangoutBot(BaseBot):
 
     async def on_start(self, session_metadata) -> None:
         """Called once when the bot successfully connects to the room."""
+        _ROOM_DIAG_STATE["last_start"] = time.time()
         print(f"[SDK] bot mode={BOT_MODE} ready")
         if BOT_MODE == "dj":
             print(f"[DJ MODE ACTIVE] mode={BOT_MODE} — music/radio commands enabled")
@@ -3684,6 +3775,11 @@ class HangoutBot(BaseBot):
         except Exception:
             pass
         print(f"[HangoutBot] SDK version: {_TIP_SDK_VERSION}")
+        print(
+            f"[ROOM_DIAG] on_start_success=true sdk={_TIP_SDK_VERSION!r} "
+            f"mode={BOT_MODE!r} room_id_present={bool(config.ROOM_ID)} "
+            f"room_id_type={type(config.ROOM_ID).__name__} room_id={config.ROOM_ID!r}"
+        )
         print(f"[HangoutBot] Run command: cd artifacts/highrise-bot && python3 bot.py")
         # Store bot identity so gold rain / tip receiver-check can use it
         set_bot_identity(session_metadata.user_id)
@@ -3722,12 +3818,37 @@ class HangoutBot(BaseBot):
         try:
             _ru_resp = await self.highrise.get_room_users()
             if hasattr(_ru_resp, "content"):
-                for _ru, _ in _ru_resp.content:
+                _content = list(_ru_resp.content)
+                _first = _content[0] if _content else None
+                _first_pos = None
+                if _first:
+                    try:
+                        _, _first_pos = _first
+                    except Exception:
+                        _first_pos = None
+                print(
+                    f"[ROOM_DIAG] startup_get_room_users ok=true "
+                    f"count={len(_content)} first_item_type={type(_first).__name__ if _first else 'none'} "
+                    f"first_item={repr(_first)[:120]} "
+                    f"first_pos_type={type(_first_pos).__name__ if _first_pos else 'none'} "
+                    f"first_pos={repr(_first_pos)[:120]}"
+                )
+                for _ru, _ in _content:
                     if _ru.id == session_metadata.user_id:
                         set_bot_identity(session_metadata.user_id, _ru.username)
                         print(f"[HangoutBot] Bot username: {_ru.username}")
                         break
+            else:
+                print(
+                    f"[ROOM_DIAG] startup_get_room_users ok=false "
+                    f"reason=no_content_attr response_type={type(_ru_resp).__name__} "
+                    f"response={repr(_ru_resp)[:160]}"
+                )
         except Exception as _e:
+            print(
+                f"[ROOM_DIAG] startup_get_room_users ok=false "
+                f"error_type={type(_e).__name__} error={_e!r}"
+            )
             print(f"[HangoutBot] Could not resolve bot username at startup: {_e}")
 
         # Log which events this session is subscribed to (only overridden hooks)
@@ -3736,6 +3857,7 @@ class HangoutBot(BaseBot):
             from highrise import BaseBot as _BaseBot
             subs = gather_subscriptions(self)
             print(f"[HangoutBot] Event subscriptions: {subs or '(all)'}")
+            print(f"[ROOM_DIAG] event_subscriptions={subs or '(all)'}")
             _emote_ovr = type(self).on_emote is not _BaseBot.on_emote
             _emote_sub = "emote" in subs
             print(f"[HangoutBot] on_emote overridden={_emote_ovr} emote_subscribed={_emote_sub}")
@@ -3753,6 +3875,8 @@ class HangoutBot(BaseBot):
                   f" reconnect #{bot_state.RESTART_COUNT - 1} @ {_now_ts}")
         _join_type = "first_connect" if bot_state.RESTART_COUNT == 1 else f"reconnect #{bot_state.RESTART_COUNT - 1}"
         print(f"[ROOM JOIN SUCCESS] bot={BOT_MODE} room={config.ROOM_ID} type={_join_type} @ {_now_ts}")
+        _safe_task = create_guarded_startup_task
+        _safe_task(_log_upgraded_room_diag(self, "on_start"), "room_diag_startup")
         _install_task_exception_handler()
         # Health-check: log when this subprocess exits (disconnect / crash / kick)
         # atexit fires on both normal and exception exits (not SIGKILL).
@@ -3789,8 +3913,6 @@ class HangoutBot(BaseBot):
                 _aio.get_event_loop().set_exception_handler(_loop_exc_handler)
             except Exception:
                 pass
-
-        _safe_task = create_guarded_startup_task
 
         # Seed the room user cache from the live room list
         _safe_task(refresh_room_cache(self), "refresh_room_cache")
@@ -4169,6 +4291,8 @@ class HangoutBot(BaseBot):
                 await _handle_staff_cmd(self, user, cmd, args)
             elif cmd == "admins":
                 await _cmd_admins(self, user)
+            elif cmd == "roomdiag":
+                await _handle_roomdiag(self, user)
             elif cmd == "allstaff":
                 await _cmd_allstaff(self, user, args)
             elif cmd == "allcommands":
@@ -8638,6 +8762,12 @@ class HangoutBot(BaseBot):
 
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""
+        _ROOM_DIAG_STATE["last_join"] = time.time()
+        print(
+            f"[ROOM_DIAG] event=on_user_join user={user.username!r} "
+            f"user_id={user.id!r} position_type={type(position).__name__} "
+            f"position={repr(position)[:120]}"
+        )
         try:
             db.ensure_user(user.id, user.username)
             add_to_room_cache(user.id, user.username)
@@ -8772,6 +8902,7 @@ class HangoutBot(BaseBot):
 
     async def on_user_move(self, user: User, position) -> None:
         """Update position cache for teleport / follow features."""
+        _ROOM_DIAG_STATE["last_move"] = time.time()
         try:
             from highrise.models import Position as _Pos
             if isinstance(position, _Pos):
@@ -8869,6 +9000,7 @@ class HangoutBot(BaseBot):
         on_emote must NEVER raise — all exceptions are caught and printed.
         """
         import traceback as _tb
+        _ROOM_DIAG_STATE["last_emote"] = time.time()
         try:
             # Safe receiver extraction — receiver is User | None
             _rcv_name = receiver.username if receiver is not None else None

@@ -89,7 +89,8 @@ async def _get_all_room_users(bot: BaseBot) -> list[tuple[User, Position]]:
         resp = await bot.highrise.get_room_users()
         content = resp.content if hasattr(resp, "content") else []
         return list(content)
-    except Exception:
+    except Exception as exc:
+        print(f"[ROOM_DIAG] get_room_users_failed helper=_get_all_room_users error={exc!r}")
         return []
 
 
@@ -164,6 +165,11 @@ async def handle_tphere(bot: BaseBot, user: User, args: list[str]) -> None:
         db.log_room_action(user.username, target_user.username, "tphere", "")
         await _w(bot, user.id, f"✅ Brought @{target_user.username} to you.")
     except Exception as e:
+        print(
+            f"[ROOM_DIAG] teleport_failed cmd=tphere actor={user.username!r} "
+            f"target={target_user.username!r} target_id={target_user.id!r} "
+            f"position={repr(my_pos)[:120]} error={e!r}"
+        )
         await _w(bot, user.id, f"Teleport failed: {e!s}"[:249])
 
 
@@ -185,6 +191,11 @@ async def handle_goto(bot: BaseBot, user: User, args: list[str]) -> None:
         db.log_room_action(user.username, target_user.username, "goto", "")
         await _w(bot, user.id, f"✅ Teleported you to @{target_user.username}.")
     except Exception as e:
+        print(
+            f"[ROOM_DIAG] teleport_failed cmd=goto actor={user.username!r} "
+            f"target={target_user.username!r} user_id={user.id!r} "
+            f"position={repr(target_pos)[:120]} error={e!r}"
+        )
         await _w(bot, user.id, f"Teleport failed: {e!s}"[:249])
 
 
@@ -211,8 +222,12 @@ async def handle_bringall(bot: BaseBot, user: User) -> None:
         try:
             await bot.highrise.teleport(u.id, my_pos)
             count += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            print(
+                f"[ROOM_DIAG] teleport_failed cmd=bringall actor={user.username!r} "
+                f"target={u.username!r} target_id={u.id!r} "
+                f"position={repr(my_pos)[:120]} error={exc!r}"
+            )
     db.log_room_action(user.username, "all", "bringall", f"count={count}")
     await _w(bot, user.id, f"✅ Brought {count} players to you.")
 
@@ -239,8 +254,12 @@ async def handle_tpall(bot: BaseBot, user: User, args: list[str]) -> None:
         try:
             await bot.highrise.teleport(u.id, pos)
             count += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            print(
+                f"[ROOM_DIAG] teleport_failed cmd=tpall actor={user.username!r} "
+                f"target={u.username!r} target_id={u.id!r} spawn={spawn_name!r} "
+                f"position={repr(pos)[:120]} error={exc!r}"
+            )
     db.log_room_action(user.username, "all", "tpall", f"spawn={spawn_name} count={count}")
     await _w(bot, user.id, f"✅ Sent {count} players to {spawn_name}.")
 
@@ -257,6 +276,11 @@ async def _teleport_to_spawn(bot: BaseBot, actor: User, target_name: str,
         db.log_room_action(actor.username, target_name, "teleport", f"spawn={spawn_name}")
         await _w(bot, actor.id, f"✅ Teleported @{target_name} to {spawn_name}.")
     except Exception as e:
+        print(
+            f"[ROOM_DIAG] teleport_failed cmd=tp actor={actor.username!r} "
+            f"target={target_name!r} target_id={target_id!r} spawn={spawn_name!r} "
+            f"position={repr(pos)[:120]} error={e!r}"
+        )
         await _w(bot, actor.id, f"Teleport failed: {e!s}"[:249])
 
 
@@ -2250,8 +2274,11 @@ async def handle_setbotspawnhere(bot: BaseBot, user: User, args: list[str]) -> N
             target_user, _ = result
             await bot.highrise.teleport(target_user.id, pos)
             moved = "YES"
-    except Exception:
-        pass
+    except Exception as exc:
+        print(
+            f"[ROOM_DIAG] teleport_failed cmd=setbotspawnhere "
+            f"target={bot_username!r} position={repr(pos)[:120]} error={exc!r}"
+        )
 
     msg = (
         f"🤖 Bot Spawn Saved\n"
@@ -2473,6 +2500,11 @@ async def ai_teleport_to_spawn(bot: BaseBot, user: User, spawn_name: str) -> Non
                            f"spawn={spawn_name}")
         await _w(bot, user.id, f"✅ Teleported to {spawn_name}!")
     except Exception as e:
+        print(
+            f"[ROOM_DIAG] teleport_failed cmd=ai_teleport actor={user.username!r} "
+            f"user_id={user.id!r} spawn={spawn_name!r} "
+            f"position={repr(pos)[:120]} error={e!r}"
+        )
         await _w(bot, user.id, f"Teleport failed: {str(e)[:60]}")
 
 

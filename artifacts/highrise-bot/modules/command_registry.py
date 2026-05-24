@@ -942,6 +942,7 @@ REGISTRY: dict[str, Cmd] = {
     # ── Notification / room debug (host) ──────────────────────────────────────
     "notifydebug":      Cmd("host",    "help",    False, True,  False, perm="manager"),
     "roomusers":        Cmd("host",    "help",    False, True,  False, perm="manager"),
+    "roomdiag":         Cmd("host",    "status",  False, True,  False, perm="admin"),
     "testwhisper":      Cmd("host",    "help",    False, False, True,  perm="manager"),
     "notifrefresh":     Cmd("host",    "help",    False, False, True,  perm="manager"),
 

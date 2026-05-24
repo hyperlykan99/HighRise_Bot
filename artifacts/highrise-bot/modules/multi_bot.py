@@ -515,7 +515,7 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "modulehealth": "host", "botheartbeat": "host",
     "botstatus": "host", "botstatus_cluster": "host",
     # ── Notification / room debug ─────────────────────────────────────────────
-    "notifydebug": "host", "roomusers": "host",
+    "notifydebug": "host", "roomusers": "host", "roomdiag": "host",
     "testwhisper": "host", "notifrefresh": "host",
     # ── QoL / player support ─────────────────────────────────────────────────
     "quicktest": "host", "playercheck": "security",
