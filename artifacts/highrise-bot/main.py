@@ -3637,9 +3637,15 @@ def _install_task_exception_handler() -> None:
 
     def _handler(loop, ctx):
         exc  = ctx.get("exception")
-        task = ctx.get("task")
-        name = task.get_name() if task else ctx.get("message", "?")
-        print(f"[TASK ERROR] {name} mode={config.BOT_MODE}")
+        task = ctx.get("task") or ctx.get("future")
+        msg  = ctx.get("message", "?")
+        name = task.get_name() if hasattr(task, "get_name") else str(task or "?")
+        print(
+            f"[TASK ERROR] task={name!r}"
+            f" mode={config.BOT_MODE}"
+            f" bot_id={config.BOT_ID}"
+            f" message={msg!r}"
+        )
         if exc:
             _tb.print_exception(type(exc), exc, exc.__traceback__)
             bot_state.LAST_ERROR = f"task:{name[:28]}"
@@ -3788,7 +3794,7 @@ class HangoutBot(BaseBot):
                     import traceback as _tb
                     print(f"[TASK ERROR] {label} failed: {_e!r}")
                     _tb.print_exc()
-            return asyncio.create_task(_guarded())
+            return asyncio.create_task(_guarded(), name=f"startup:{label}")
 
         # Seed the room user cache from the live room list
         _safe_task(refresh_room_cache(self), "refresh_room_cache")
@@ -4053,8 +4059,14 @@ class HangoutBot(BaseBot):
         # ── Deliver queued bank/subscriber notifications on first command ──
         _uname = user.username.lower().strip()
         if _uname not in _notif_delivered_this_session:
-            asyncio.create_task(_deliver_pending_bank_notifications(self, user))
-            asyncio.create_task(deliver_pending_subscriber_messages(self, _uname))
+            asyncio.create_task(
+                _deliver_pending_bank_notifications(self, user),
+                name=f"bank_notifications:{user.id}",
+            )
+            asyncio.create_task(
+                deliver_pending_subscriber_messages(self, _uname),
+                name=f"subscriber_notifications:{user.id}",
+            )
 
         # ── Early owner-only routes (bypass STAFF_CMDS block) ────────────────
         if cmd == "previewannounce":
