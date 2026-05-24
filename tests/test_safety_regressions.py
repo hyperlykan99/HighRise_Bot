@@ -185,6 +185,27 @@ def test_background_loop_startup_guards(monkeypatch, tmp_path):
     asyncio.run(run_test())
 
 
+def test_guarded_startup_task_contains_failures(monkeypatch, tmp_path, capsys):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    startup_tasks = importlib.import_module("modules.startup_tasks")
+
+    async def failing_startup():
+        raise RuntimeError("boom")
+
+    async def run_test():
+        task = startup_tasks.create_guarded_startup_task(
+            failing_startup(),
+            "failing_startup",
+        )
+        assert task.get_name() == "startup:failing_startup"
+        await task
+
+    asyncio.run(run_test())
+
+    captured = capsys.readouterr()
+    assert "[TASK ERROR] failing_startup failed: RuntimeError('boom')" in captured.out
+
+
 def test_host_dm_queue_rows_are_claimed_once(monkeypatch, tmp_path):
     _install_env(monkeypatch, tmp_path, bot_mode="host")
     dmq = importlib.import_module("modules.dm_queue")

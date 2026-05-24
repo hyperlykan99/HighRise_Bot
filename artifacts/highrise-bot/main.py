@@ -585,6 +585,7 @@ if not _IS_DJ_BOT:
     rr_radiostats = rr_toplisteners = rr_toprequests = rr_topliked = rr_topdisliked = _S
     ra_achievements = _S
 from modules.dm_queue import startup_host_dm_queue_loop
+from modules.startup_tasks import create_guarded_startup_task
 from modules.autosummary import (
     handle_autosummary, handle_minesummary, handle_fishsummary,
 )
@@ -3789,16 +3790,7 @@ class HangoutBot(BaseBot):
             except Exception:
                 pass
 
-        def _safe_task(coro, label: str):
-            """Wrap a startup coroutine so one failure never kills the bot."""
-            async def _guarded():
-                try:
-                    await coro
-                except Exception as _e:
-                    import traceback as _tb
-                    print(f"[TASK ERROR] {label} failed: {_e!r}")
-                    _tb.print_exc()
-            return asyncio.create_task(_guarded(), name=f"startup:{label}")
+        _safe_task = create_guarded_startup_task
 
         # Seed the room user cache from the live room list
         _safe_task(refresh_room_cache(self), "refresh_room_cache")
