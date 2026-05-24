@@ -206,6 +206,120 @@ def test_guarded_startup_task_contains_failures(monkeypatch, tmp_path, capsys):
     assert "[TASK ERROR] failing_startup failed: RuntimeError('boom')" in captured.out
 
 
+def test_bot_spawn_restore_retries_until_verified(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    _install_highrise_stub(monkeypatch)
+    room = importlib.import_module("modules.room_utils")
+    gold = importlib.import_module("modules.gold")
+    gold.set_bot_identity("bot-1", "DJ_DUDU")
+
+    class Pos:
+        def __init__(self, x, y, z, facing="FrontRight"):
+            self.x = x
+            self.y = y
+            self.z = z
+            self.facing = facing
+
+    positions = [Pos(0, 0, 0), Pos(9, 0, 9)]
+    attempts = []
+
+    async def fake_sleep(_seconds):
+        return None
+
+    async def fake_teleport(_bot, **_kwargs):
+        attempts.append(len(attempts) + 1)
+        return True, Pos(9, 0, 9), {"spawn_name": "custom"}, "teleport"
+
+    async def fake_get_position(_bot, _uid):
+        return positions.pop(0)
+
+    monkeypatch.setattr(room.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(room, "teleport_bot_to_saved_spawn", fake_teleport)
+    monkeypatch.setattr(room, "_get_bot_position", fake_get_position)
+
+    asyncio.run(room.apply_bot_spawn(FakeBot(), "DJ_DUDU"))
+
+    assert attempts == [1, 2]
+
+
+def test_bot_spawn_restore_duplicate_task_guard(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    _install_highrise_stub(monkeypatch)
+    room = importlib.import_module("modules.room_utils")
+    gold = importlib.import_module("modules.gold")
+    gold.set_bot_identity("bot-1", "DJ_DUDU")
+    started = asyncio.Event()
+    release = asyncio.Event()
+    attempts = []
+
+    class Pos:
+        x = 9
+        y = 0
+        z = 9
+        facing = "FrontRight"
+
+    async def fake_sleep(_seconds):
+        return None
+
+    async def fake_teleport(_bot, **_kwargs):
+        attempts.append(len(attempts) + 1)
+        started.set()
+        await release.wait()
+        return True, Pos(), {"spawn_name": "custom"}, "teleport"
+
+    async def fake_get_position(_bot, _uid):
+        return Pos()
+
+    monkeypatch.setattr(room.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(room, "teleport_bot_to_saved_spawn", fake_teleport)
+    monkeypatch.setattr(room, "_get_bot_position", fake_get_position)
+
+    async def run_test():
+        first = asyncio.create_task(room.apply_bot_spawn(FakeBot(), "DJ_DUDU"))
+        await started.wait()
+        await room.apply_bot_spawn(FakeBot(), "DJ_DUDU")
+        release.set()
+        await first
+
+    asyncio.run(run_test())
+
+    assert attempts == [1]
+
+
+def test_bot_spawn_restore_stops_after_max_attempts(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    _install_highrise_stub(monkeypatch)
+    room = importlib.import_module("modules.room_utils")
+    gold = importlib.import_module("modules.gold")
+    gold.set_bot_identity("bot-1", "DJ_DUDU")
+    attempts = []
+
+    class Pos:
+        def __init__(self, x, y, z, facing="FrontRight"):
+            self.x = x
+            self.y = y
+            self.z = z
+            self.facing = facing
+
+    async def fake_sleep(_seconds):
+        return None
+
+    async def fake_teleport(_bot, **_kwargs):
+        attempts.append(len(attempts) + 1)
+        return True, Pos(9, 0, 9), {"spawn_name": "custom"}, "teleport"
+
+    async def fake_get_position(_bot, _uid):
+        return Pos(0, 0, 0)
+
+    monkeypatch.setattr(room.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(room, "teleport_bot_to_saved_spawn", fake_teleport)
+    monkeypatch.setattr(room, "_get_bot_position", fake_get_position)
+
+    asyncio.run(room.apply_bot_spawn(FakeBot(), "DJ_DUDU"))
+
+    assert attempts == [1, 2, 3]
+
+
 def test_targeted_emote_uses_keyword_target(monkeypatch, tmp_path, capsys):
     _install_env(monkeypatch, tmp_path, bot_mode="dj")
     targeting = importlib.import_module("modules.emote_targeting")

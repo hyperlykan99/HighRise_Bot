@@ -49,6 +49,9 @@ _user_position_times: dict[str, float] = {}
 # Active emote loop tasks: username.lower() → asyncio.Task
 _emote_loops: dict[str, asyncio.Task] = {}
 
+# Startup bot spawn restore task by bot username/mode.
+_bot_spawn_restore_tasks: dict[str, asyncio.Task] = {}
+
 # Follow task
 _follow_task: asyncio.Task | None = None
 
@@ -77,6 +80,51 @@ def update_user_position(user_id: str, position: Position) -> None:
     """Called from on_user_move / on_user_join in main.py to keep position cache fresh."""
     _user_positions[user_id] = position
     _user_position_times[user_id] = time.time()
+
+
+def _format_pos(pos: object | None) -> str:
+    if pos is None:
+        return "none"
+    try:
+        return (
+            f"({float(getattr(pos, 'x')):.2f},"
+            f"{float(getattr(pos, 'y')):.2f},"
+            f"{float(getattr(pos, 'z')):.2f},"
+            f"{getattr(pos, 'facing', '')})"
+        )
+    except Exception:
+        return repr(pos)[:120]
+
+
+def _pos_close(actual: object | None, expected: Position, threshold: float = 1.25) -> bool:
+    if actual is None:
+        return False
+    try:
+        dx = float(getattr(actual, "x")) - float(expected.x)
+        dy = float(getattr(actual, "y")) - float(expected.y)
+        dz = float(getattr(actual, "z")) - float(expected.z)
+        return (dx * dx + dy * dy + dz * dz) ** 0.5 <= threshold
+    except Exception:
+        return False
+
+
+async def _get_bot_position(bot: BaseBot, bot_uid: str) -> Position | None:
+    if not bot_uid:
+        return None
+    cached = _user_positions.get(bot_uid)
+    if cached is not None:
+        return cached
+    try:
+        resp = await bot.highrise.get_room_users()
+        pairs = list(resp.content) if hasattr(resp, "content") else []
+        for room_user, pos in pairs:
+            if getattr(room_user, "id", "") == bot_uid:
+                if pos is not None:
+                    update_user_position(bot_uid, pos)
+                return pos
+    except Exception as exc:
+        print(f"[SPAWN_RESTORE] get_room_users_failed error={exc!r}")
+    return None
 
 
 def _get_room_users_cached() -> dict[str, tuple[str, Position]]:
@@ -2370,6 +2418,7 @@ async def teleport_bot_to_saved_spawn(
     bot_username:  str | None = None,
     bot_mode:      str | None = None,
     fallback_walk: bool       = True,
+    return_details: bool      = False,
 ) -> bool:
     """
     Teleport the bot to its saved spawn using priority lookup:
@@ -2401,7 +2450,7 @@ async def teleport_bot_to_saved_spawn(
             f"[BOT SPAWN] bot={_username!r} spawn_found=false "
             f"tried=[{_username},{_mode},default]"
         )
-        return False
+        return (False, None, None, "no_saved_spawn") if return_details else False
 
     x, y, z    = row["x"], row["y"], row["z"]
     facing     = row.get("facing", "FrontRight")
@@ -2418,7 +2467,7 @@ async def teleport_bot_to_saved_spawn(
         try:
             await bot.highrise.teleport(bot_uid, pos)
             print("[BOT SPAWN] teleport_success=true fallback_walk=false")
-            return True
+            return (True, pos, row, "teleport") if return_details else True
         except Exception as exc:
             print(f"[BOT SPAWN] teleport_success=false error={exc!r}")
     else:
@@ -2429,18 +2478,58 @@ async def teleport_bot_to_saved_spawn(
         try:
             await bot.highrise.walk_to(pos)
             print("[BOT SPAWN] walk_success=true")
-            return True
+            return (True, pos, row, "walk") if return_details else True
         except Exception as exc:
             print(f"[BOT SPAWN] walk_success=false error={exc!r}")
     else:
         print("[BOT SPAWN] fallback_walk=false")
 
-    return False
+    return (False, pos, row, "teleport_failed") if return_details else False
 
 
 async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
-    """Teleport the bot to its saved spawn on startup. Wraps teleport_bot_to_saved_spawn."""
-    await teleport_bot_to_saved_spawn(bot, bot_username=bot_username, fallback_walk=True)
+    """Teleport the bot to its saved spawn on startup with bounded verification retries."""
+    from modules.gold import get_bot_user_id
+    import config as _cfg
+
+    key = (bot_username or getattr(_cfg, "BOT_MODE", "main") or "main").strip().lower()
+    current = _bot_spawn_restore_tasks.get(key)
+    if current and not current.done() and current is not asyncio.current_task():
+        print(f"[SPAWN_RESTORE] bot={key} duplicate_skipped=true")
+        return
+    _bot_spawn_restore_tasks[key] = asyncio.current_task()  # type: ignore[assignment]
+
+    delays = (0.0, 2.0, 5.0)
+    expected: Position | None = None
+    try:
+        for attempt, delay in enumerate(delays, 1):
+            if delay:
+                await asyncio.sleep(delay)
+            ok, expected, _row, reason = await teleport_bot_to_saved_spawn(
+                bot,
+                bot_username=bot_username,
+                fallback_walk=True,
+                return_details=True,
+            )
+            bot_uid = get_bot_user_id()
+            await asyncio.sleep(0.75)
+            actual = await _get_bot_position(bot, bot_uid)
+            success = bool(ok and expected is not None and _pos_close(actual, expected))
+            print(
+                f"[SPAWN_RESTORE] bot={key} attempt={attempt} "
+                f"expected={_format_pos(expected)} actual={_format_pos(actual)} "
+                f"success={success} reason={reason}"
+            )
+            if success or expected is None:
+                return
+        print(
+            f"[SPAWN_RESTORE] bot={key} attempt=max "
+            f"expected={_format_pos(expected)} actual=unknown "
+            "success=false reason=max_attempts"
+        )
+    finally:
+        if _bot_spawn_restore_tasks.get(key) is asyncio.current_task():
+            _bot_spawn_restore_tasks.pop(key, None)
 
 
 async def handle_returnbots(bot: BaseBot, user: User, args: list[str]) -> None:
