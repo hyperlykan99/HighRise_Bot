@@ -103,15 +103,32 @@ def log_emote_command_received(
     raw: str,
     user: object,
     handler_name: str,
+    **extra: object,
 ) -> None:
     user_id = _safe_attr(user, "id")
     username = _safe_attr(user, "username")
+    extra_text = " ".join(f"{k}={v!r}" for k, v in extra.items())
     print(
         "[EMOTE_CMD] "
         f"raw={raw!r} user={username!r} id={user_id!r} "
         f"handler={handler_name!r} sender_type={type(user).__name__!r} "
         f"sender_repr={repr(user)[:240]!r} "
-        f"user.id={user_id!r} user.username={username!r}"
+        f"user.id={user_id!r} user.username={username!r} {extra_text}"
+    )
+
+
+def warn_raw_player_emote_send(
+    *,
+    context: str,
+    emote_id: str,
+    target_id: str = "",
+    sender_id: str = "",
+) -> None:
+    print(
+        "[EMOTE_FATAL_RAW_SEND] "
+        f"context={context!r} emote_id={emote_id!r} "
+        f"target_id={target_id!r} sender_id={sender_id!r} "
+        "message='player-facing emotes must use send_targeted_emote()'"
     )
 
 

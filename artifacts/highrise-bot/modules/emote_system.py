@@ -499,9 +499,15 @@ async def start_player_emote(bot: "BaseBot", user: "User",
     """
     uid = user.id
     if _cd_remaining(_emote_cd, uid, _EMOTE_CD) > 0:
+        log_emote_command_received(
+            emote_name, user, "emote_system.start_player_emote.cooldown_skip",
+            cooldown_seconds=round(_cd_remaining(_emote_cd, uid, _EMOTE_CD), 2),
+        )
         return
     eid = ALL_PLAYER_EMOTES.get(_norm(emote_name))
     if not eid:
+        log_emote_command_received(
+            emote_name, user, "emote_system.start_player_emote.no_match")
         return
     _cd_set(_emote_cd, uid)
     await _start_player_loop(

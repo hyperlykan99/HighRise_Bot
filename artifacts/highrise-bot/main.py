@@ -863,6 +863,7 @@ from modules.control_panel import (
 from modules.multi_bot import (
     should_this_bot_handle, should_this_bot_run_module,
     BOT_MODE,
+    _resolve_command_owner,
     start_heartbeat_loop as start_multibot_heartbeat,
     get_offline_message, send_startup_announce,
     check_startup_safety,
@@ -4124,6 +4125,22 @@ class HangoutBot(BaseBot):
         # Track activity for time-EXP active bonus (any chat = active player)
         time_exp_record_activity(user.id)
 
+        # ── Plain-text emote dispatch (DJ bot only) ───────────────────────
+        # Must run before direct outfit / AI interceptors so normal emote names
+        # always reach start_player_emote() and the targeted emote pipeline.
+        if not (message.startswith("/") or message.startswith("!")) and BOT_MODE == "dj":
+            _msg_low = message.strip().lower()
+            if _msg_low == "stop":
+                log_emote_command_received(
+                    message, user, "main.plain_text_stop_player_emote")
+                await stop_player_emote(self, user)
+                return
+            if is_plain_emote(_msg_low):
+                log_emote_command_received(
+                    message, user, "main.plain_text_start_player_emote")
+                await start_player_emote(self, user, _msg_low)
+                return
+
         # ── Direct bot outfit listener — runs first for non-host bots ──────────
         # Handles "BotUsername, copy my outfit" etc. without AI delegation.
         # Host/eventhost bots skip this and use the full AI path below.
@@ -4143,18 +4160,6 @@ class HangoutBot(BaseBot):
                     return
             elif _msg_low in ("cancel", "no"):
                 if await handle_jail_cancel(self, user):
-                    return
-            # ── Plain-text emote dispatch (DJ bot only) ───────────────────────
-            if BOT_MODE == "dj":
-                if _msg_low == "stop":
-                    log_emote_command_received(
-                        message, user, "main.plain_text_stop_player_emote")
-                    await stop_player_emote(self, user)
-                    return
-                if is_plain_emote(_msg_low):
-                    log_emote_command_received(
-                        message, user, "main.plain_text_start_player_emote")
-                    await start_player_emote(self, user, _msg_low)
                     return
             # Room assistant — greetings + Q&A (host bot only, with cooldowns)
             if await handle_room_assistant_chat(self, user, message):
@@ -4196,6 +4201,14 @@ class HangoutBot(BaseBot):
 
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
         if not should_this_bot_handle(cmd):
+            if _emote_cmd_logged:
+                log_emote_command_received(
+                    message,
+                    user,
+                    "main.multibot_gate_skip",
+                    bot_mode=BOT_MODE,
+                    owner_mode=_resolve_command_owner(cmd),
+                )
             offline_msg = get_offline_message(cmd)
             if offline_msg:
                 await self.highrise.send_whisper(user.id, offline_msg)
