@@ -1817,6 +1817,9 @@ async def _cmd_bj_forcefinish(bot: BaseBot, user: User):
 # ─── Admin setting commands (/setbjXXX) ───────────────────────────────────────
 
 async def handle_bj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
     try:
         if len(args) < 2:
             await bot.highrise.send_whisper(user.id, f"Usage: /{cmd} <value>")

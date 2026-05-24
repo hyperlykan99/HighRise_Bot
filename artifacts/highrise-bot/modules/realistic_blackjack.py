@@ -2349,6 +2349,9 @@ async def _cmd_bj_force(bot: BaseBot, user: User, sub: str, args: list[str]) -> 
 
 
 async def handle_rbj_set(bot: BaseBot, user: User, cmd: str, args: list[str]):
+    if not can_manage_games(user.username):
+        await bot.highrise.send_whisper(user.id, "Manager/admin/owner only.")
+        return
     try:
         if len(args) < 2:
             await bot.highrise.send_whisper(user.id, f"Usage: /{cmd} <value>")
