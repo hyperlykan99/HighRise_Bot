@@ -99,6 +99,22 @@ def _room_context(bot: "BaseBot") -> str:
     return " ".join(fields)
 
 
+def log_emote_command_received(
+    raw: str,
+    user: object,
+    handler_name: str,
+) -> None:
+    user_id = _safe_attr(user, "id")
+    username = _safe_attr(user, "username")
+    print(
+        "[EMOTE_CMD] "
+        f"raw={raw!r} user={username!r} id={user_id!r} "
+        f"handler={handler_name!r} sender_type={type(user).__name__!r} "
+        f"sender_repr={repr(user)[:240]!r} "
+        f"user.id={user_id!r} user.username={username!r}"
+    )
+
+
 def _log_emote_debug(
     bot: "BaseBot",
     *,

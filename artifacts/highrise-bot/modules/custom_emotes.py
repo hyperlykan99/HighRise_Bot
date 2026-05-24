@@ -44,6 +44,7 @@ import json
 from typing import TYPE_CHECKING
 
 import database as db
+from modules.emote_targeting import log_emote_command_received
 
 if TYPE_CHECKING:
     from highrise import BaseBot
@@ -591,6 +592,8 @@ def _steps_from_pack(pack: dict) -> tuple[list[tuple[str, str, float]], list[str
 
 async def handle_customemote(bot: "BaseBot", user: "User", args: list) -> None:
     """!customemote <e1> <e2> ... — start an instant simple loop."""
+    log_emote_command_received(
+        " ".join(str(a) for a in args), user, "custom_emotes.handle_customemote")
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !customemote <emote1> <emote2> ...")
         return
@@ -610,6 +613,8 @@ async def handle_customemote(bot: "BaseBot", user: "User", args: list) -> None:
 
 async def handle_customtimed(bot: "BaseBot", user: "User", args: list) -> None:
     """!customtimed <e1> <s1> <e2> <s2> ... — start an instant timed loop."""
+    log_emote_command_received(
+        " ".join(str(a) for a in args), user, "custom_emotes.handle_customtimed")
     if len(args) < 3:
         await _w(bot, user.id,
                  "Usage: !customtimed <emote1> <secs1> <emote2> <secs2> ...")
@@ -688,6 +693,8 @@ async def handle_savecustomtimed(bot: "BaseBot", user: "User",
 
 async def handle_playcustom(bot: "BaseBot", user: "User", args: list) -> None:
     """!playcustom <name> — loop a saved pack (re-resolves emotes fresh)."""
+    log_emote_command_received(
+        " ".join(str(a) for a in args), user, "custom_emotes.handle_playcustom")
     if len(args) < 2:
         await _w(bot, user.id, "Usage: !playcustom <packname>")
         return

@@ -18,6 +18,7 @@ from highrise.models import Position
 
 import database as db
 from modules.emote_targeting import send_targeted_emote
+from modules.emote_targeting import log_emote_command_received
 from modules.permissions import (
     is_owner, is_admin, is_manager, is_moderator, can_moderate,
 )
@@ -566,6 +567,8 @@ async def handle_emotes(bot: BaseBot, user: User, args: list[str] | None = None)
 
 
 async def handle_emote(bot: BaseBot, user: User, args: list[str]) -> None:
+    log_emote_command_received(
+        " ".join(str(a) for a in args), user, "room_utils.handle_emote")
     if _rs("public_emotes_enabled", "true") != "true":
         await _w(bot, user.id, "Public emotes are OFF.")
         return
@@ -600,18 +603,22 @@ async def handle_stopemote(bot: BaseBot, user: User) -> None:
 
 
 async def handle_dance(bot: BaseBot, user: User) -> None:
+    log_emote_command_received("!dance", user, "room_utils.handle_dance")
     await handle_emote(bot, user, ["/emote", "dance"])
 
 
 async def handle_wave(bot: BaseBot, user: User) -> None:
+    log_emote_command_received("!wave", user, "room_utils.handle_wave")
     await handle_emote(bot, user, ["/emote", "wave"])
 
 
 async def handle_sit(bot: BaseBot, user: User) -> None:
+    log_emote_command_received("!sit", user, "room_utils.handle_sit")
     await handle_emote(bot, user, ["/emote", "sit"])
 
 
 async def handle_clap(bot: BaseBot, user: User) -> None:
+    log_emote_command_received("!clap", user, "room_utils.handle_clap")
     await handle_emote(bot, user, ["/emote", "clap"])
 
 

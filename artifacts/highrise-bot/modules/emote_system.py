@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 import database as db
 from modules.admin_cmds import is_admin, is_owner, can_moderate
 from modules.emote_targeting import (
+    log_emote_command_received,
     resolve_send_emote_target_style,
     send_emote_capabilities,
     send_targeted_emote,
@@ -370,6 +371,7 @@ async def _start_player_loop(
     display_name: str,
     *,
     username: str = "",
+    sender_obj: object | None = None,
     log_event: str = "emote_start",
 ) -> bool:
     """Canonical single path for starting a player emote loop.
@@ -401,7 +403,7 @@ async def _start_player_loop(
     if not leader_sent:
         ok = await _send_player(
             bot, eid, uid, command=display_name, sender_id=uid,
-            sender_username=username)
+            sender_username=username, sender_obj=sender_obj)
         if not ok:
             await _w(bot, uid, f"Could not send emote '{display_name}'.")
             return False
@@ -504,7 +506,7 @@ async def start_player_emote(bot: "BaseBot", user: "User",
     _cd_set(_emote_cd, uid)
     await _start_player_loop(
         bot, uid, eid, emote_name,
-        username=user.username, log_event="emote_start",
+        username=user.username, sender_obj=user, log_event="emote_start",
     )
 
 
@@ -539,6 +541,8 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
     """!emote <name|list|stop|count> — player self-emote command."""
     uid   = user.id
     uname = user.username
+    log_emote_command_received(
+        " ".join(str(a) for a in args), user, "emote_system.handle_emote_cmd")
 
     if len(args) < 2:
         n = len(ALL_PLAYER_EMOTES)
@@ -567,7 +571,7 @@ async def handle_emote_cmd(bot: "BaseBot", user: "User", args: list) -> None:
         # Delegate entirely to the canonical helper — identical to plain-chat path.
         await _start_player_loop(
             bot, uid, eid, sub,
-            username=uname, log_event="emote_start_cmd",
+            username=uname, sender_obj=user, log_event="emote_start_cmd",
         )
 
 

@@ -1042,6 +1042,7 @@ from modules.emote_system import (   # re-open for remaining symbols
     reload_emote_registry,
     apply_saved_emote_timings,
 )
+from modules.emote_targeting import log_emote_command_received
 from modules.custom_emote_manager import (
     handle_missingtimings,
     handle_addbotemote,
@@ -4146,9 +4147,13 @@ class HangoutBot(BaseBot):
             # ── Plain-text emote dispatch (DJ bot only) ───────────────────────
             if BOT_MODE == "dj":
                 if _msg_low == "stop":
+                    log_emote_command_received(
+                        message, user, "main.plain_text_stop_player_emote")
                     await stop_player_emote(self, user)
                     return
                 if is_plain_emote(_msg_low):
+                    log_emote_command_received(
+                        message, user, "main.plain_text_start_player_emote")
                     await start_player_emote(self, user, _msg_low)
                     return
             # Room assistant — greetings + Q&A (host bot only, with cooldowns)
@@ -4166,6 +4171,28 @@ class HangoutBot(BaseBot):
         cmd  = parts[0].lower()
         args = parts
         print(f"[RX] mode={BOT_MODE} user={user.username} text={message}")
+
+        _emote_cmd_logged = False
+        if (
+            cmd in {
+                "emote", "dance", "wave", "sit", "clap", "stopemote",
+                "testplayeremote", "customemote", "customtimed",
+                "playcustom", "stopcustom", "forceemote", "forceemoteall",
+                "loopemote",
+            }
+            or (BOT_MODE == "dj" and is_plain_emote(cmd))
+        ):
+            log_emote_command_received(message, user, "main.command_router")
+            _emote_cmd_logged = True
+
+        # Direct bang aliases such as !justvibing should use the same player
+        # emote path as plain "justvibing" and !emote justvibing.
+        if BOT_MODE == "dj" and is_plain_emote(cmd):
+            if not _emote_cmd_logged:
+                log_emote_command_received(message, user, "main.direct_emote_alias")
+            reload_emote_registry()
+            await start_player_emote(self, user, cmd)
+            return
 
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
         if not should_this_bot_handle(cmd):
