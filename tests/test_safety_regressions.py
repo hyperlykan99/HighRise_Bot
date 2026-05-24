@@ -233,15 +233,8 @@ def test_targeted_emote_uses_keyword_target(monkeypatch, tmp_path, capsys):
 
     assert calls == [("emote-wave", "user-123")]
     out = capsys.readouterr().out
-    assert (
-        "[EMOTE_DEBUG] cmd='wave' sender_id='user-123' "
-        "sender_username='' target_id='user-123' bot_id='bot-999' "
-        "same_as_bot=False"
-    ) in out
-    assert (
-        "[EMOTE_TARGET] command=wave sender=user-123 "
-        "target=user-123 emote=emote-wave style=target_user_id"
-    ) in out
+    assert "[EMOTE_DEBUG]" not in out
+    assert "[EMOTE_TARGET]" not in out
 
 
 def test_targeted_emote_uses_runtime_signature(monkeypatch, tmp_path):

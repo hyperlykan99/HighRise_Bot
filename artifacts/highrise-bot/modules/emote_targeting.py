@@ -13,6 +13,10 @@ if TYPE_CHECKING:
     from highrise import BaseBot
 
 _TARGET_PARAM_CANDIDATES = ("target_user_id", "user_id", "receiver_id", "target")
+UPGRADED_ROOM_EMOTE_NOTICE = (
+    "Upgraded rooms no longer allow bots to force your avatar to emote. "
+    "I can only perform the emote toward you."
+)
 
 
 def send_emote_signature(bot: "BaseBot") -> str:
@@ -105,16 +109,9 @@ def log_emote_command_received(
     handler_name: str,
     **extra: object,
 ) -> None:
-    user_id = _safe_attr(user, "id")
-    username = _safe_attr(user, "username")
-    extra_text = " ".join(f"{k}={v!r}" for k, v in extra.items())
-    print(
-        "[EMOTE_CMD] "
-        f"raw={raw!r} user={username!r} id={user_id!r} "
-        f"handler={handler_name!r} sender_type={type(user).__name__!r} "
-        f"sender_repr={repr(user)[:240]!r} "
-        f"user.id={user_id!r} user.username={username!r} {extra_text}"
-    )
+    # Temporary route tracing is intentionally disabled now that upgraded-room
+    # behavior is confirmed. Keep the call sites for cheap future reactivation.
+    return
 
 
 def warn_raw_player_emote_send(
@@ -132,33 +129,6 @@ def warn_raw_player_emote_send(
     )
 
 
-def _log_emote_debug(
-    bot: "BaseBot",
-    *,
-    command: str,
-    emote_id: str,
-    target_id: str,
-    sender_id: str,
-    sender_username: str,
-    sender_obj: object | None,
-) -> None:
-    bot_id = _get_bot_user_id()
-    same_as_bot = bool(bot_id and target_id == bot_id)
-    obj_type = type(sender_obj).__name__ if sender_obj is not None else "None"
-    obj_repr = repr(sender_obj)[:240] if sender_obj is not None else "None"
-    user_id = _safe_attr(sender_obj, "id")
-    user_username = _safe_attr(sender_obj, "username")
-    print(
-        "[EMOTE_DEBUG] "
-        f"cmd={command!r} sender_id={sender_id!r} "
-        f"sender_username={sender_username!r} target_id={target_id!r} "
-        f"bot_id={bot_id!r} same_as_bot={same_as_bot} "
-        f"emote_id={emote_id!r} sender_type={obj_type!r} "
-        f"sender_repr={obj_repr!r} user.id={user_id!r} "
-        f"user.username={user_username!r} {_room_context(bot)}"
-    )
-
-
 async def send_targeted_emote(
     bot: "BaseBot",
     emote_id: str,
@@ -170,20 +140,6 @@ async def send_targeted_emote(
     sender_obj: object | None = None,
 ) -> None:
     style, signature = resolve_send_emote_target_style(bot)
-    _log_emote_debug(
-        bot,
-        command=command,
-        emote_id=emote_id,
-        target_id=target_id,
-        sender_id=sender_id,
-        sender_username=sender_username,
-        sender_obj=sender_obj,
-    )
-    print(
-        f"[EMOTE_TARGET] command={command} sender={sender_id} "
-        f"target={target_id} emote={emote_id} style={style} "
-        f"signature={signature!r}"
-    )
 
     if style == "target_user_id":
         await bot.highrise.send_emote(emote_id, target_user_id=target_id)

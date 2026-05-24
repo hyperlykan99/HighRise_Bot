@@ -44,7 +44,7 @@ import json
 from typing import TYPE_CHECKING
 
 import database as db
-from modules.emote_targeting import log_emote_command_received
+from modules.emote_targeting import UPGRADED_ROOM_EMOTE_NOTICE, log_emote_command_received
 
 if TYPE_CHECKING:
     from highrise import BaseBot
@@ -346,62 +346,29 @@ def on_custom_user_leave(uid: str) -> None:
 
 
 async def on_custom_user_join(bot: "BaseBot", user: "User") -> None:
-    """User rejoined — resume their custom loop from saved step if active."""
+    """User rejoined — clear legacy custom loops that implied avatar control."""
     if is_in_custom_loop(user.id):
         return  # already running (same session)
     sess = _get_active_session(user.id)
     if not sess:
         return
-    steps, bad = _steps_from_seq(sess["mode"], sess["sequence"])
-    if bad or not steps:
-        print(f"[CUSTOM_LOOP_RESUME_JOIN] user={user.id} "
-              f"skipped — invalid emotes: {bad}")
-        return
-    step = sess["current_step"]
-    print(f"[CUSTOM_LOOP_RESUME_JOIN] user={user.id} step={step}")
-    task = asyncio.create_task(
-        _run_custom_loop(bot, user.id, steps, step))
-    _custom_loops[user.id] = task
+    stop_custom_permanent(user.id, "upgraded_room_no_force_emotes")
+    await _w(bot, user.id, UPGRADED_ROOM_EMOTE_NOTICE)
+    print(f"[CUSTOM_LOOP_RESUME_JOIN] user={user.id} disabled=upgraded_room")
 
 
 async def startup_custom_loop_recovery(bot: "BaseBot") -> None:
-    """On bot restart: reload all active sessions; resume for users in room.
-
-    Users not currently in the room are left in DB (is_active=1) and will
-    resume automatically when they next join via on_custom_user_join().
-    """
+    """On bot restart: deactivate legacy custom loops that implied avatar control."""
     await asyncio.sleep(6)  # let room stabilise after startup
     sessions = _get_all_active_sessions()
     if not sessions:
         return
-    # Fetch current room occupants
-    try:
-        resp = await bot.highrise.get_room_users()
-        in_room: set[str] = {
-            u.id for u, _ in (resp.content if hasattr(resp, "content") else [])
-        }
-    except Exception as exc:
-        print(f"[CUSTOM_LOOP_RECOVER] get_room_users err: {exc!r}")
-        in_room = set()
-
     for sess in sessions:
         uid = sess["user_id"]
         if is_in_custom_loop(uid):
             continue  # already running
-        steps, bad = _steps_from_seq(sess["mode"], sess["sequence"])
-        if bad or not steps:
-            print(f"[CUSTOM_LOOP_RECOVER] user={uid} skipped — "
-                  f"invalid emotes: {bad}")
-            continue
-        step = sess["current_step"]
-        if uid in in_room:
-            print(f"[CUSTOM_LOOP_RECOVER] user={uid} step={step} (in room)")
-            task = asyncio.create_task(
-                _run_custom_loop(bot, uid, steps, step))
-            _custom_loops[uid] = task
-        else:
-            print(f"[CUSTOM_LOOP_RECOVER] user={uid} offline — "
-                  f"will resume on join")
+        stop_custom_permanent(uid, "upgraded_room_startup_no_force_emotes")
+        print(f"[CUSTOM_LOOP_RECOVER] user={uid} disabled=upgraded_room")
 
 
 # ---------------------------------------------------------------------------
@@ -605,10 +572,12 @@ async def handle_customemote(bot: "BaseBot", user: "User", args: list) -> None:
     if err:
         await _w(bot, user.id, f"❌ {err}")
         return
-    await _start_custom_loop(bot, user.id, steps, "simple",
-                              username=user.username)
-    names = " → ".join(a for a, _, _ in steps)
-    await _w(bot, user.id, f"🔄 Looping: {names}"[:249])
+    from modules.emote_system import _send_player
+    alias, eid, _duration = steps[0]
+    await _send_player(bot, eid, user.id, command=f"customemote:{alias}",
+                       sender_id=user.id, sender_username=user.username,
+                       sender_obj=user)
+    await _w(bot, user.id, UPGRADED_ROOM_EMOTE_NOTICE)
 
 
 async def handle_customtimed(bot: "BaseBot", user: "User", args: list) -> None:
@@ -627,10 +596,12 @@ async def handle_customtimed(bot: "BaseBot", user: "User", args: list) -> None:
     if err:
         await _w(bot, user.id, f"❌ {err}")
         return
-    await _start_custom_loop(bot, user.id, steps, "timed",
-                              username=user.username)
-    names = " → ".join(f"{a}({s:.0f}s)" for a, _, s in steps)
-    await _w(bot, user.id, f"🔄 Timed loop: {names}"[:249])
+    from modules.emote_system import _send_player
+    alias, eid, _duration = steps[0]
+    await _send_player(bot, eid, user.id, command=f"customtimed:{alias}",
+                       sender_id=user.id, sender_username=user.username,
+                       sender_obj=user)
+    await _w(bot, user.id, UPGRADED_ROOM_EMOTE_NOTICE)
 
 
 async def handle_stopcustom(bot: "BaseBot", user: "User",
@@ -711,11 +682,13 @@ async def handle_playcustom(bot: "BaseBot", user: "User", args: list) -> None:
     if not steps:
         await _w(bot, user.id, "Pack is empty.")
         return
-    print(f"[CUSTOM_PACK_PLAY] user={user.id} pack={pack_name}")
-    await _start_custom_loop(bot, user.id, steps, pack["mode"],
-                              username=user.username)
-    names = " → ".join(a for a, _, _ in steps)
-    await _w(bot, user.id, f"▶ Playing '{pack_name}': {names}"[:249])
+    print(f"[CUSTOM_PACK_PLAY] user={user.id} pack={pack_name} upgraded_single_send=true")
+    from modules.emote_system import _send_player
+    alias, eid, _duration = steps[0]
+    await _send_player(bot, eid, user.id, command=f"playcustom:{pack_name}:{alias}",
+                       sender_id=user.id, sender_username=user.username,
+                       sender_obj=user)
+    await _w(bot, user.id, UPGRADED_ROOM_EMOTE_NOTICE)
 
 
 async def handle_custompacks(bot: "BaseBot", user: "User",

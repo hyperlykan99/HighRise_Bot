@@ -3,7 +3,7 @@
 Clean two-catalog emote system.
 
 BOT_SELF_EMOTES  → !botemote / bot loops  → send_emote(eid)           [NO user_id]
-PLAYER_EMOTES    → player chat trigger    → send_emote(eid, user.id)   [WITH user_id]
+PLAYER_EMOTES    → player chat trigger    → bot emotes toward user     [WITH user_id]
 
 All IDs exact — no auto-prefix, no SDK scan, no guessing.
 """
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 import database as db
 from modules.admin_cmds import is_admin, is_owner, can_moderate
 from modules.emote_targeting import (
+    UPGRADED_ROOM_EMOTE_NOTICE,
     log_emote_command_received,
     resolve_send_emote_target_style,
     send_emote_capabilities,
@@ -374,48 +375,16 @@ async def _start_player_loop(
     sender_obj: object | None = None,
     log_event: str = "emote_start",
 ) -> bool:
-    """Canonical single path for starting a player emote loop.
-
-    BOTH plain-chat triggers AND !emote command MUST call this function.
-    No other code may create _player_loops entries directly.
-
-    Steps:
-      1. Cancel any existing loop for uid
-      2. Send first emote immediately (before the loop task)
-      3. Read timing from registry via get_emote_time(eid) — no cache
-      4. Whisper "✅ Looping <name> every <t>s" to the player
-      5. Create _run_player_loop task (which also re-reads timing each cycle)
-      6. Save task in _player_loops / _player_emotes
-
-    Returns True if started (or one-shot), False if the initial send failed.
-    Callers are responsible for cooldown gating.
-    """
+    """Perform a bot emote toward a player and avoid claiming avatar control."""
     _cancel_player_loop(uid)
-    # If a group-sync hook is registered and uid is a leader with followers,
-    # let it handle the initial send to leader + followers together.
-    # Returns True → skip individual _send_player (hook already sent to leader).
-    leader_sent = False
-    if _group_start_hook is not None:
-        try:
-            leader_sent = bool(await _group_start_hook(bot, uid, eid, display_name))
-        except Exception:
-            pass
-    if not leader_sent:
-        ok = await _send_player(
-            bot, eid, uid, command=display_name, sender_id=uid,
-            sender_username=username, sender_obj=sender_obj)
-        if not ok:
-            await _w(bot, uid, f"Could not send emote '{display_name}'.")
-            return False
-    interval = get_emote_time(eid)
-    if interval <= 0:
-        _log(log_event, user_id=uid, username=username, emote=eid, oneshot=True)
-        return True
-    await _w(bot, uid, f"✅ Looping {display_name} every {interval}s")
-    task = asyncio.create_task(_run_player_loop(bot, uid, eid))
-    _player_loops[uid]  = task
-    _player_emotes[uid] = eid
-    _log(log_event, user_id=uid, username=username, emote=eid)
+    ok = await _send_player(
+        bot, eid, uid, command=display_name, sender_id=uid,
+        sender_username=username, sender_obj=sender_obj)
+    if not ok:
+        await _w(bot, uid, f"Could not perform emote '{display_name}' toward you.")
+        return False
+    await _w(bot, uid, UPGRADED_ROOM_EMOTE_NOTICE)
+    _log(log_event, user_id=uid, username=username, emote=eid, bot_performs=True)
     return True
 
 
@@ -492,11 +461,7 @@ def is_plain_emote(text: str) -> bool:
 
 async def start_player_emote(bot: "BaseBot", user: "User",
                               emote_name: str) -> None:
-    """Start (or replace) a looping player emote from a plain chat trigger.
-
-    Plain-chat path — always delegates to _start_player_loop so the startup
-    logic is identical to the !emote command path.
-    """
+    """Perform a bot emote toward the user for a player-facing emote command."""
     uid = user.id
     if _cd_remaining(_emote_cd, uid, _EMOTE_CD) > 0:
         log_emote_command_received(
@@ -670,7 +635,7 @@ async def handle_testplayeremote(bot: "BaseBot", user: "User",
                 command="testplayeremote", sender_id=uid,
                 sender_username=user.username, sender_obj=user)
             await _w(bot, uid,
-                     f"✅ Sent {raw_id!r} to @{target_user.username}")
+                     f"✅ Bot performed {raw_id!r} toward @{target_user.username}")
         except Exception as exc:
             await _w(bot, uid,
                      f"❌ Rejected: {raw_id!r} → {str(exc)}"[:249])
@@ -680,7 +645,7 @@ async def handle_testplayeremote(bot: "BaseBot", user: "User",
             await send_targeted_emote(
                 bot, raw_id, uid, command="testplayeremote", sender_id=uid,
                 sender_username=user.username, sender_obj=user)
-            await _w(bot, uid, f"✅ Sent {raw_id!r}")
+            await _w(bot, uid, f"✅ Bot performed {raw_id!r} toward you")
         except Exception as exc:
             await _w(bot, uid,
                      f"❌ Rejected: {raw_id!r} → {str(exc)}"[:249])

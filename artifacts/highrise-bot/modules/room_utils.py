@@ -17,8 +17,11 @@ from highrise import BaseBot, User
 from highrise.models import Position
 
 import database as db
-from modules.emote_targeting import send_targeted_emote
-from modules.emote_targeting import log_emote_command_received
+from modules.emote_targeting import (
+    UPGRADED_ROOM_EMOTE_NOTICE,
+    log_emote_command_received,
+    send_targeted_emote,
+)
 from modules.permissions import (
     is_owner, is_admin, is_manager, is_moderator, can_moderate,
 )
@@ -585,21 +588,13 @@ async def handle_emote(bot: BaseBot, user: User, args: list[str]) -> None:
             sender_id=user.id,
             sender_username=user.username,
             sender_obj=user)
-        await _w(bot, user.id, "💃 Emote started.")
+        await _w(bot, user.id, UPGRADED_ROOM_EMOTE_NOTICE)
     except Exception:
         await _w(bot, user.id, "Emote control not supported by current API.")
 
 
 async def handle_stopemote(bot: BaseBot, user: User) -> None:
-    try:
-        await send_targeted_emote(
-            bot, "emote-idle_loop", user.id,
-            command="stopemote", sender_id=user.id,
-            sender_username=user.username,
-            sender_obj=user)
-        await _w(bot, user.id, "Emote stopped.")
-    except Exception:
-        await _w(bot, user.id, "Emote control not supported by current API.")
+    await _w(bot, user.id, "There is no player-avatar emote loop to stop in upgraded rooms.")
 
 
 async def handle_dance(bot: BaseBot, user: User) -> None:
@@ -648,7 +643,8 @@ async def handle_forceemote(bot: BaseBot, user: User, args: list[str]) -> None:
             sender_username=user.username,
             sender_obj=user)
         db.log_room_action(user.username, target_user.username, "forceemote", eid)
-        await _w(bot, user.id, f"✅ Emote sent to @{target_user.username}.")
+        await _w(bot, user.id,
+                 f"✅ Bot performed {eid} toward @{target_user.username}.")
     except Exception:
         await _w(bot, user.id, "Emote control not supported by current API.")
 
@@ -675,7 +671,7 @@ async def handle_forceemoteall(bot: BaseBot, user: User, args: list[str]) -> Non
             count += 1
         except Exception:
             pass
-    await _w(bot, user.id, f"✅ Emote sent to {count} players.")
+    await _w(bot, user.id, f"✅ Bot performed {eid} toward {count} player(s).")
 
 
 async def handle_loopemote(bot: BaseBot, user: User, args: list[str]) -> None:
@@ -707,27 +703,19 @@ async def handle_loopemote(bot: BaseBot, user: User, args: list[str]) -> None:
     if not eid.startswith("emote-"):
         eid = "emote-" + eid
 
-    interval = int(_rs("emote_loop_interval_seconds", "8"))
-
-    # Cancel existing loop
     if loop_key in _emote_loops and not _emote_loops[loop_key].done():
         _emote_loops[loop_key].cancel()
-
-    async def _loop():
-        while True:
-            try:
-                await send_targeted_emote(
-                    bot, eid, target_id,
-                    command="loopemote", sender_id=user.id,
-                    sender_username=user.username,
-                    sender_obj=user)
-            except Exception:
-                pass
-            await asyncio.sleep(interval)
-
-    _emote_loops[loop_key] = asyncio.create_task(_loop())
+    try:
+        await send_targeted_emote(
+            bot, eid, target_id,
+            command="loopemote", sender_id=user.id,
+            sender_username=user.username,
+            sender_obj=user)
+    except Exception:
+        await _w(bot, user.id, "Emote control not supported by current API.")
+        return
     db.log_room_action(user.username, loop_key, "loopemote", eid)
-    await _w(bot, user.id, f"🔁 Looping {eid}. Stop: /stoploop.")
+    await _w(bot, user.id, UPGRADED_ROOM_EMOTE_NOTICE)
 
 
 async def handle_stoploop(bot: BaseBot, user: User, args: list[str]) -> None:
