@@ -323,7 +323,8 @@ async def _do_target_social(bot: "BaseBot", user: "User",
     # Send attacker emote, then target reaction
     try:
         await send_targeted_emote(
-            bot, a_eid, uid, command=kind, sender_id=uid)
+            bot, a_eid, uid, command=kind, sender_id=uid,
+            sender_username=user.username, sender_obj=user)
     except Exception as exc:
         print(f"[EMOTE_EXTRAS] {kind} attacker send err: {exc!r}")
     if t_eid:
@@ -331,7 +332,8 @@ async def _do_target_social(bot: "BaseBot", user: "User",
         try:
             await send_targeted_emote(
                 bot, t_eid, target_user.id,
-                command=f"{kind}_target", sender_id=uid)
+                command=f"{kind}_target", sender_id=uid,
+                sender_username=user.username, sender_obj=user)
         except Exception as exc:
             print(f"[EMOTE_EXTRAS] {kind} target send err: {exc!r}")
 
@@ -1114,7 +1116,8 @@ async def handle_emote_all(bot: "BaseBot", user: "User", args: list) -> None:
         try:
             await send_targeted_emote(
                 bot, eid, u.id,
-                command="room_emote_once", sender_id=user.id)
+                command="room_emote_once", sender_id=user.id,
+                sender_username=user.username, sender_obj=user)
             count += 1
         except Exception:
             pass

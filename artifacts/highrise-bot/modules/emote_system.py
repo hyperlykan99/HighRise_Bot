@@ -318,11 +318,14 @@ async def _send_player(
     *,
     command: str = "player_emote",
     sender_id: str = "",
+    sender_username: str = "",
+    sender_obj: object | None = None,
 ) -> bool:
     """send_emote(eid, uid) — player directed."""
     try:
         await send_targeted_emote(
-            bot, eid, uid, command=command, sender_id=sender_id or uid)
+            bot, eid, uid, command=command, sender_id=sender_id or uid,
+            sender_username=sender_username, sender_obj=sender_obj)
         return True
     except asyncio.CancelledError:
         raise
@@ -397,7 +400,8 @@ async def _start_player_loop(
             pass
     if not leader_sent:
         ok = await _send_player(
-            bot, eid, uid, command=display_name, sender_id=uid)
+            bot, eid, uid, command=display_name, sender_id=uid,
+            sender_username=username)
         if not ok:
             await _w(bot, uid, f"Could not send emote '{display_name}'.")
             return False
@@ -653,7 +657,8 @@ async def handle_testplayeremote(bot: "BaseBot", user: "User",
         try:
             await send_targeted_emote(
                 bot, raw_id, target_user.id,
-                command="testplayeremote", sender_id=uid)
+                command="testplayeremote", sender_id=uid,
+                sender_username=user.username, sender_obj=user)
             await _w(bot, uid,
                      f"✅ Sent {raw_id!r} to @{target_user.username}")
         except Exception as exc:
@@ -663,7 +668,8 @@ async def handle_testplayeremote(bot: "BaseBot", user: "User",
         raw_id = args[1]
         try:
             await send_targeted_emote(
-                bot, raw_id, uid, command="testplayeremote", sender_id=uid)
+                bot, raw_id, uid, command="testplayeremote", sender_id=uid,
+                sender_username=user.username, sender_obj=user)
             await _w(bot, uid, f"✅ Sent {raw_id!r}")
         except Exception as exc:
             await _w(bot, uid,
@@ -1359,6 +1365,8 @@ async def handle_emotediag(bot: "BaseBot", user: "User",
                 user.id,
                 command="emotediag",
                 sender_id=user.id,
+                sender_username=user.username,
+                sender_obj=user,
             )
             print(
                 "[EMOTE_DIAG] test_send "

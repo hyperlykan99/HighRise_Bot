@@ -69,6 +69,63 @@ def resolve_send_emote_target_style(bot: "BaseBot") -> tuple[str, str]:
     return "unsupported", signature
 
 
+def _get_bot_user_id() -> str:
+    try:
+        from modules.gold import get_bot_user_id
+        return str(get_bot_user_id() or "")
+    except Exception:
+        return ""
+
+
+def _safe_attr(obj: object, name: str) -> str:
+    try:
+        return str(getattr(obj, name, "") or "")
+    except Exception:
+        return ""
+
+
+def _room_context(bot: "BaseBot") -> str:
+    fields: list[str] = []
+    try:
+        import config
+        fields.append(f"room_id={getattr(config, 'ROOM_ID', '')!r}")
+        fields.append(f"bot_mode={getattr(config, 'BOT_MODE', '')!r}")
+    except Exception:
+        pass
+    for name in ("room_type", "is_upgraded_room", "upgraded_room"):
+        value = getattr(bot, name, None)
+        if value is not None:
+            fields.append(f"{name}={value!r}")
+    return " ".join(fields)
+
+
+def _log_emote_debug(
+    bot: "BaseBot",
+    *,
+    command: str,
+    emote_id: str,
+    target_id: str,
+    sender_id: str,
+    sender_username: str,
+    sender_obj: object | None,
+) -> None:
+    bot_id = _get_bot_user_id()
+    same_as_bot = bool(bot_id and target_id == bot_id)
+    obj_type = type(sender_obj).__name__ if sender_obj is not None else "None"
+    obj_repr = repr(sender_obj)[:240] if sender_obj is not None else "None"
+    user_id = _safe_attr(sender_obj, "id")
+    user_username = _safe_attr(sender_obj, "username")
+    print(
+        "[EMOTE_DEBUG] "
+        f"cmd={command!r} sender_id={sender_id!r} "
+        f"sender_username={sender_username!r} target_id={target_id!r} "
+        f"bot_id={bot_id!r} same_as_bot={same_as_bot} "
+        f"emote_id={emote_id!r} sender_type={obj_type!r} "
+        f"sender_repr={obj_repr!r} user.id={user_id!r} "
+        f"user.username={user_username!r} {_room_context(bot)}"
+    )
+
+
 async def send_targeted_emote(
     bot: "BaseBot",
     emote_id: str,
@@ -76,8 +133,19 @@ async def send_targeted_emote(
     *,
     command: str,
     sender_id: str = "",
+    sender_username: str = "",
+    sender_obj: object | None = None,
 ) -> None:
     style, signature = resolve_send_emote_target_style(bot)
+    _log_emote_debug(
+        bot,
+        command=command,
+        emote_id=emote_id,
+        target_id=target_id,
+        sender_id=sender_id,
+        sender_username=sender_username,
+        sender_obj=sender_obj,
+    )
     print(
         f"[EMOTE_TARGET] command={command} sender={sender_id} "
         f"target={target_id} emote={emote_id} style={style} "

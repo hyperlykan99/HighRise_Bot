@@ -209,6 +209,8 @@ def test_guarded_startup_task_contains_failures(monkeypatch, tmp_path, capsys):
 def test_targeted_emote_uses_keyword_target(monkeypatch, tmp_path, capsys):
     _install_env(monkeypatch, tmp_path, bot_mode="dj")
     targeting = importlib.import_module("modules.emote_targeting")
+    gold = importlib.import_module("modules.gold")
+    gold.set_bot_identity("bot-999")
     calls = []
 
     class FakeHighriseEmotes:
@@ -230,10 +232,16 @@ def test_targeted_emote_uses_keyword_target(monkeypatch, tmp_path, capsys):
     asyncio.run(run_test())
 
     assert calls == [("emote-wave", "user-123")]
+    out = capsys.readouterr().out
+    assert (
+        "[EMOTE_DEBUG] cmd='wave' sender_id='user-123' "
+        "sender_username='' target_id='user-123' bot_id='bot-999' "
+        "same_as_bot=False"
+    ) in out
     assert (
         "[EMOTE_TARGET] command=wave sender=user-123 "
         "target=user-123 emote=emote-wave style=target_user_id"
-    ) in capsys.readouterr().out
+    ) in out
 
 
 def test_targeted_emote_uses_runtime_signature(monkeypatch, tmp_path):

@@ -579,7 +579,9 @@ async def handle_emote(bot: BaseBot, user: User, args: list[str]) -> None:
         await send_targeted_emote(
             bot, eid, user.id,
             command=args[0].lstrip("!/") or "emote",
-            sender_id=user.id)
+            sender_id=user.id,
+            sender_username=user.username,
+            sender_obj=user)
         await _w(bot, user.id, "💃 Emote started.")
     except Exception:
         await _w(bot, user.id, "Emote control not supported by current API.")
@@ -589,7 +591,9 @@ async def handle_stopemote(bot: BaseBot, user: User) -> None:
     try:
         await send_targeted_emote(
             bot, "emote-idle_loop", user.id,
-            command="stopemote", sender_id=user.id)
+            command="stopemote", sender_id=user.id,
+            sender_username=user.username,
+            sender_obj=user)
         await _w(bot, user.id, "Emote stopped.")
     except Exception:
         await _w(bot, user.id, "Emote control not supported by current API.")
@@ -633,7 +637,9 @@ async def handle_forceemote(bot: BaseBot, user: User, args: list[str]) -> None:
     try:
         await send_targeted_emote(
             bot, eid, target_user.id,
-            command="forceemote", sender_id=user.id)
+            command="forceemote", sender_id=user.id,
+            sender_username=user.username,
+            sender_obj=user)
         db.log_room_action(user.username, target_user.username, "forceemote", eid)
         await _w(bot, user.id, f"✅ Emote sent to @{target_user.username}.")
     except Exception:
@@ -656,7 +662,9 @@ async def handle_forceemoteall(bot: BaseBot, user: User, args: list[str]) -> Non
         try:
             await send_targeted_emote(
                 bot, eid, u.id,
-                command="forceemoteall", sender_id=user.id)
+                command="forceemoteall", sender_id=user.id,
+                sender_username=user.username,
+                sender_obj=user)
             count += 1
         except Exception:
             pass
@@ -703,7 +711,9 @@ async def handle_loopemote(bot: BaseBot, user: User, args: list[str]) -> None:
             try:
                 await send_targeted_emote(
                     bot, eid, target_id,
-                    command="loopemote", sender_id=user.id)
+                    command="loopemote", sender_id=user.id,
+                    sender_username=user.username,
+                    sender_obj=user)
             except Exception:
                 pass
             await asyncio.sleep(interval)
