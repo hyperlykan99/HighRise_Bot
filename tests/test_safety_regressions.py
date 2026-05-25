@@ -377,6 +377,35 @@ def test_host_spawn_restore_falls_back_to_chilltopiamc_key(monkeypatch, tmp_path
     assert bot.highrise.teleports[0][0] == "bot-1"
 
 
+def test_radio_nowplaying_vote_counts_use_canonical_title_key(monkeypatch, tmp_path, capsys):
+    _install_env(monkeypatch, tmp_path, bot_mode="dj")
+    resolver = importlib.import_module("modules.track_resolver")
+    seen_keys = []
+
+    def fake_get_ratings(key):
+        seen_keys.append(key)
+        return {"likes": 7, "dislikes": 2}
+
+    monkeypatch.setattr(resolver, "_get_ratings", fake_get_ratings)
+    room_track = resolver.attach_vote_counts(
+        {"title": "Song Title", "artist": "Artist Name"},
+        source="room",
+    )
+    whisper_track = resolver.attach_vote_counts(
+        {"title": "Song Title", "artist": "Artist Name"},
+        source="whisper",
+    )
+
+    assert room_track["vote_key"] == "song title"
+    assert whisper_track["vote_key"] == "song title"
+    assert room_track["likes"] == whisper_track["likes"] == 7
+    assert room_track["dislikes"] == whisper_track["dislikes"] == 2
+    assert seen_keys == ["song title", "song title"]
+    out = capsys.readouterr().out
+    assert "[RADIO_VOTE] source=room likes=7 dislikes=2 track='song title'" in out
+    assert "[RADIO_VOTE] source=whisper likes=7 dislikes=2 track='song title'" in out
+
+
 def test_multibot_supervisor_prevents_duplicate_mode_tasks(monkeypatch, tmp_path):
     _install_env(monkeypatch, tmp_path, bot_mode="host")
     sys.modules.pop("bot", None)

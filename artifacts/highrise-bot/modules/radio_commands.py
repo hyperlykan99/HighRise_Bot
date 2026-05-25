@@ -95,6 +95,8 @@ def _priority_cost_tickets() -> int:
 
 def _azura_track() -> "dict | None":
     """Return {title, artist, key} for the current AzuraCast track, or None."""
+    from modules.track_resolver import vote_key
+
     np = azura.fetch_nowplaying()
     if not np:
         return None
@@ -105,7 +107,7 @@ def _azura_track() -> "dict | None":
     return {
         "title":  title,
         "artist": (song.get("artist") or "").strip(),
-        "key":    title.lower()[:150],
+        "key":    vote_key(title, song.get("artist") or ""),
     }
 
 
@@ -830,7 +832,7 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
 
 async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
     """!nowplaying / !now / !np — compact vertical now-playing card."""
-    from modules.track_resolver import resolve_current_track, render_now_playing
+    from modules.track_resolver import attach_vote_counts, resolve_current_track, render_now_playing
 
     loop = asyncio.get_running_loop()
     np   = await loop.run_in_executor(None, azura.fetch_nowplaying)
@@ -842,7 +844,7 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
         )
         return
 
-    track = resolve_current_track(np)
+    track = attach_vote_counts(resolve_current_track(np), source="whisper")
     await _w(bot, user.id, render_now_playing(track))
 
 

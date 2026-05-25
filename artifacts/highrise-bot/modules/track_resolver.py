@@ -39,6 +39,11 @@ if TYPE_CHECKING:
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
 
+def vote_key(title: str, artist: str = "") -> str:
+    """Canonical active-song vote key used by !like, room NP, and whisper NP."""
+    return (title or "").strip().lower()[:150]
+
+
 def _get_ratings(song_key: str) -> dict:
     """Return {'likes': N, 'dislikes': N} for a song_key from dj_ratings."""
     if not song_key:
@@ -58,6 +63,21 @@ def _get_ratings(song_key: str) -> dict:
         return result
     except Exception:
         return {"likes": 0, "dislikes": 0}
+
+
+def attach_vote_counts(track: dict, *, source: str) -> dict:
+    """Return a copy of track with canonical, freshly-read vote counts attached."""
+    out = dict(track or {})
+    key = (out.get("vote_key") or vote_key(out.get("title", ""), out.get("artist", ""))).strip()
+    counts = _get_ratings(key)
+    out["vote_key"] = key
+    out["likes"] = counts["likes"]
+    out["dislikes"] = counts["dislikes"]
+    print(
+        f"[RADIO_VOTE] source={source} likes={counts['likes']} "
+        f"dislikes={counts['dislikes']} track={key!r}"
+    )
+    return out
 
 
 def _db_playing_sweep() -> "dict | None":
@@ -245,7 +265,7 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
         req_uname  = (cp.get("username") or "").strip()
         job_id     = cp.get("job_id") or cp.get("id")
         started    = float(cp.get("started_at") or 0.0)
-        song_key   = req_title.lower()[:150]
+        song_key   = vote_key(req_title, req_artist)
         counts     = _get_ratings(song_key)
 
         print(f"[NOW_RESOLVE] matched_request=True")
@@ -267,12 +287,13 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
             "request_id": job_id,
             "vibe":       "",
             "started_at": started,
+            "vote_key":   song_key,
             "likes":      counts["likes"],
             "dislikes":   counts["dislikes"],
         }
     else:
         vibe     = _resolve_vibe(cs.vibe(), playlist)
-        song_key = title.lower()[:150] if title != "Unknown" else ""
+        song_key = vote_key(title, artist) if title != "Unknown" else ""
         counts   = _get_ratings(song_key)
         started  = (time.time() - elapsed) if elapsed > 0 else 0.0
 
@@ -295,6 +316,7 @@ def resolve_current_track(np_data: "dict | None" = None) -> dict:
             "request_id": None,
             "vibe":       vibe,
             "started_at": started,
+            "vote_key":   song_key,
             "likes":      counts["likes"],
             "dislikes":   counts["dislikes"],
         }

@@ -105,9 +105,9 @@ async def announce_now_playing(
     _last_ann_song_key = song_key
     _last_ann_ts       = now
 
-    from modules.track_resolver  import render_now_playing, _get_ratings
+    from modules.track_resolver  import attach_vote_counts, render_now_playing, vote_key
     from modules.playback_engine import get_cur_duration, get_cur_elapsed
-    counts   = _get_ratings(song_key)
+    song_key = vote_key(title, artist)
     track = {
         "source":    "autodj",
         "title":     title,
@@ -115,9 +115,9 @@ async def announce_now_playing(
         "vibe":      vibe,
         "elapsed":   get_cur_elapsed(),
         "duration":  get_cur_duration(),
-        "likes":     counts["likes"],
-        "dislikes":  counts["dislikes"],
+        "vote_key":  song_key,
     }
+    track = attach_vote_counts(track, source="room")
     await _say(bot, render_now_playing(track))
 
 
@@ -147,9 +147,9 @@ async def announce_request_live(
     _last_ann_song_key = song_key
     _last_ann_ts       = now
 
-    from modules.track_resolver  import render_now_playing, _get_ratings
+    from modules.track_resolver  import attach_vote_counts, render_now_playing, vote_key
     from modules.playback_engine import get_cur_duration, get_cur_elapsed
-    counts   = _get_ratings(song_key)
+    song_key = vote_key(title, artist)
     track = {
         "source":    "request",
         "title":     title,
@@ -157,9 +157,9 @@ async def announce_request_live(
         "requester": requester,
         "elapsed":   get_cur_elapsed(),
         "duration":  get_cur_duration(),
-        "likes":     counts["likes"],
-        "dislikes":  counts["dislikes"],
+        "vote_key":  song_key,
     }
+    track = attach_vote_counts(track, source="room")
     await _say(bot, render_now_playing(track))
 
 
