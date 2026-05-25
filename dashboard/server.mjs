@@ -52,6 +52,8 @@ const ACTIVE_REQUEST_STATUSES = [
 ];
 const UPCOMING_REQUEST_STATUSES = ACTIVE_REQUEST_STATUSES.filter((s) => s !== "playing");
 const TERMINAL_REQUEST_STATUSES = ["played", "cleaned", "skipped", "failed", "cancelled", "error"];
+const SAFE_SETTING_KEY = /^[A-Za-z0-9_.:-]{1,120}$/;
+const RATE_LIMITS = new Map();
 
 let DatabaseCtor = null;
 async function Database() {
@@ -84,6 +86,11 @@ function safeJsonParse(text, fallback) {
 
 function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function csrfForToken(token) {
+  const secret = process.env.DASHBOARD_CSRF_SECRET || `local:${DB_PATH}`;
+  return crypto.createHmac("sha256", secret).update(token).digest("hex");
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex"), iterations = 210000) {
@@ -123,6 +130,22 @@ function clearSessionCookie(res) {
     "Set-Cookie",
     "dashboard_session=; HttpOnly; SameSite=Lax; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
   );
+}
+
+function rateLimit({ key = "global", windowMs = 60_000, max = 120 } = {}) {
+  return (req, res, next) => {
+    const ident = `${key}:${req.ip || "unknown"}`;
+    const now = Date.now();
+    const bucket = RATE_LIMITS.get(ident) || { start: now, count: 0 };
+    if (now - bucket.start > windowMs) {
+      bucket.start = now;
+      bucket.count = 0;
+    }
+    bucket.count += 1;
+    RATE_LIMITS.set(ident, bucket);
+    if (bucket.count > max) return json(res, { error: "rate_limited" }, 429);
+    return next();
+  };
 }
 
 async function openDb({ readonly = false } = {}) {
@@ -319,6 +342,10 @@ function publicUser(db, user) {
   };
 }
 
+function validSettingKey(key) {
+  return SAFE_SETTING_KEY.test(String(key || ""));
+}
+
 async function requireAuth(req, res, next) {
   let db = null;
   try {
@@ -333,9 +360,16 @@ async function requireAuth(req, res, next) {
       )
       .get(tokenHash);
     if (!row) return json(res, { error: "login_required" }, 401);
+    if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      const csrf = String(req.get("x-csrf-token") || "");
+      if (!csrf || csrf !== csrfForToken(token)) {
+        return json(res, { error: "csrf_failed" }, 403);
+      }
+    }
     req.db = db;
     req.user = row;
     req.permissions = readUserPermissions(db, row);
+    req.csrfToken = csrfForToken(token);
     let closed = false;
     const close = () => {
       if (closed) return;
@@ -364,6 +398,13 @@ function requirePermission(permission) {
   };
 }
 
+function requireAnyPermission(...permissions) {
+  return (req, res, next) => {
+    if (req.user?.role === "owner" || permissions.some((p) => req.permissions?.[p])) return next();
+    return json(res, { error: "forbidden", permission: permissions.join("|") }, 403);
+  };
+}
+
 function getSetting(db, key, fallback = "") {
   try {
     const row = db.prepare("SELECT value FROM room_settings WHERE key=? LIMIT 1").get(key);
@@ -379,6 +420,10 @@ function setRoomSetting(db, key, value) {
 
 function getDashboardSetting(db, key) {
   return db.prepare("SELECT * FROM bot_settings WHERE key=? LIMIT 1").get(key) ?? null;
+}
+
+function getDashboardSettingValue(db, key, fallback = "") {
+  return getDashboardSetting(db, key)?.value ?? fallback;
 }
 
 function upsertDashboardSetting(db, key, value, moduleName, actor, description = "") {
@@ -450,7 +495,7 @@ function readLocalRadioStatus(db) {
     recent,
     counts,
     terminal_statuses: TERMINAL_REQUEST_STATUSES,
-    queue_open: getSetting(db, "requests_enabled", "true") !== "false",
+    queue_open: getDashboardSettingValue(db, "requests_enabled", getSetting(db, "requests_enabled", "true")) !== "false",
     radio_url: radioUrl || null,
     updated_at: nowIso(),
   };
@@ -478,6 +523,13 @@ function oneOrNull(db, table, sql, ...params) {
 
 const app = express();
 app.disable("x-powered-by");
+app.use(rateLimit({ key: "dashboard", windowMs: 60_000, max: 180 }));
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
 app.use(express.json({ limit: "128kb" }));
 
 app.get("/api/healthz", (_req, res) => {
@@ -491,7 +543,7 @@ app.get("/api/healthz", (_req, res) => {
   });
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", rateLimit({ key: "login", windowMs: 60_000, max: 12 }), async (req, res) => {
   let db = null;
   try {
     const username = String(req.body?.username ?? "").trim();
@@ -517,7 +569,7 @@ app.post("/api/auth/login", async (req, res) => {
     db.prepare("UPDATE dashboard_users SET last_login_at=CURRENT_TIMESTAMP WHERE id=?").run(user.id);
     audit(db, user.username, "login", "dashboard_user", user.username, "", "success", req.ip);
     setSessionCookie(res, token, expiresAt);
-    return json(res, { user: publicUser(db, user) });
+    return json(res, { user: publicUser(db, user), csrf_token: csrfForToken(token) });
   } catch (err) {
     console.error("[DASHBOARD_AUTH] login failed:", err.message);
     return json(res, { error: "login_failed" }, 500);
@@ -535,7 +587,7 @@ app.post("/api/auth/logout", requireAuth, (req, res) => {
 }, closeDb);
 
 app.get("/api/auth/me", requireAuth, (req, res) => {
-  json(res, { user: publicUser(req.db, req.user) });
+  json(res, { user: publicUser(req.db, req.user), csrf_token: req.csrfToken });
 }, closeDb);
 
 app.get("/api/dj/status", async (_req, res) => {
@@ -556,18 +608,46 @@ app.get("/api/overview", requireAuth, (req, res) => {
     "SELECT bot_id, bot_mode, bot_username, status, enabled, last_heartbeat_at, last_error, current_room_id FROM bot_instances ORDER BY bot_mode, bot_username",
   );
   const flags = db.prepare("SELECT * FROM module_flags ORDER BY module").all();
+  const onlineBots = bots.filter((b) => String(b.status || "").toLowerCase() === "online").length;
+  const roomIds = [...new Set(bots.map((b) => b.current_room_id).filter(Boolean))];
   const commandErrors = rowsOrEmpty(
     db,
     "command_error_logs",
     "SELECT * FROM command_error_logs ORDER BY id DESC LIMIT 10",
   );
   json(res, {
+    metrics: {
+      online_bots: onlineBots,
+      total_bots: bots.length,
+      current_room_users: oneOrNull(db, "live_status", "SELECT value FROM live_status WHERE key='room_user_count'")?.value ?? null,
+      queue_count: tableExists(db, "yt_request_jobs")
+        ? db.prepare(`SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status IN (${UPCOMING_REQUEST_STATUSES.map(() => "?").join(",")})`).get(...UPCOMING_REQUEST_STATUSES).n
+        : 0,
+      active_games: flags.filter((f) => ["games", "casino"].includes(f.module) && Number(f.enabled) === 1).length,
+      staff_online: oneOrNull(db, "live_status", "SELECT value FROM live_status WHERE key='staff_online_count'")?.value ?? null,
+      room_ids: roomIds,
+    },
     bots,
     module_flags: flags,
     command_errors: commandErrors,
     radio: readLocalRadioStatus(db),
     updated_at: nowIso(),
   });
+}, closeDb);
+
+app.get("/api/live", requireAuth, (req, res) => {
+  const bots = rowsOrEmpty(
+    req.db,
+    "bot_instances",
+    "SELECT bot_id, bot_mode, bot_username, status, enabled, last_heartbeat_at, last_error, current_room_id FROM bot_instances ORDER BY bot_mode, bot_username",
+  );
+  const liveRows = req.db.prepare("SELECT key, value, updated_at FROM live_status ORDER BY key").all();
+  const commands = rowsOrEmpty(
+    req.db,
+    "command_error_logs",
+    "SELECT * FROM command_error_logs ORDER BY id DESC LIMIT 25",
+  );
+  json(res, { bots, live_status: liveRows, recent_commands_or_errors: commands, updated_at: nowIso() });
 }, closeDb);
 
 app.get("/api/settings", requireAuth, requirePermission("emergency_controls"), (req, res) => {
@@ -586,7 +666,8 @@ app.put("/api/settings/:key", requireAuth, requirePermission("emergency_controls
   const value = String(req.body?.value ?? "");
   const source = String(req.body?.source ?? "bot_settings");
   const moduleName = String(req.body?.module ?? "");
-  if (!key || key.length > 120) return json(res, { error: "bad_key" }, 400);
+  if (!validSettingKey(key)) return json(res, { error: "bad_key" }, 400);
+  if (value.length > 2000) return json(res, { error: "value_too_long" }, 400);
   if (source === "room_settings") {
     const old = getSetting(req.db, key, "");
     setRoomSetting(req.db, key, value);
@@ -597,8 +678,15 @@ app.put("/api/settings/:key", requireAuth, requirePermission("emergency_controls
   json(res, { ok: true });
 }, closeDb);
 
-app.put("/api/modules/:module", requireAuth, requirePermission("emergency_controls"), (req, res) => {
+app.put("/api/modules/:module", requireAuth, requireAnyPermission("emergency_controls", "manage_radio", "manage_casino", "manage_games"), (req, res) => {
   const moduleName = req.params.module.trim().toLowerCase();
+  if (!/^[a-z0-9_-]{1,50}$/.test(moduleName)) return json(res, { error: "bad_module" }, 400);
+  const modulePermission = { radio: "manage_radio", casino: "manage_casino", games: "manage_games" }[moduleName];
+  if (req.user?.role !== "owner" && !req.permissions?.emergency_controls) {
+    if (!modulePermission || !req.permissions?.[modulePermission]) {
+      return json(res, { error: "forbidden", permission: modulePermission || "emergency_controls" }, 403);
+    }
+  }
   const enabled = req.body?.enabled ? 1 : 0;
   const reason = String(req.body?.reason ?? "");
   const old = req.db.prepare("SELECT * FROM module_flags WHERE module=?").get(moduleName) ?? null;
@@ -665,6 +753,17 @@ app.put("/api/staff/:id", requireAuth, requirePermission("manage_staff"), (req, 
   );
   for (const perm of PERMISSIONS) setPerm.run(id, perm, permissions[perm] ? 1 : 0);
   audit(req.db, req.user.username, "dashboard_user_update", "dashboard_user", old.username, old, { role, disabled, permissions }, req.ip);
+  json(res, { ok: true });
+}, closeDb);
+
+app.delete("/api/staff/:id", requireAuth, requirePermission("manage_staff"), (req, res) => {
+  const id = Number(req.params.id);
+  const old = req.db.prepare("SELECT * FROM dashboard_users WHERE id=?").get(id);
+  if (!old) return json(res, { error: "not_found" }, 404);
+  if (old.id === req.user.id) return json(res, { error: "cannot_remove_self" }, 409);
+  req.db.prepare("UPDATE dashboard_users SET disabled=1, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
+  req.db.prepare("DELETE FROM dashboard_sessions WHERE user_id=?").run(id);
+  audit(req.db, req.user.username, "dashboard_user_remove", "dashboard_user", old.username, old, "disabled", req.ip);
   json(res, { ok: true });
 }, closeDb);
 
@@ -740,20 +839,53 @@ app.post("/api/radio/skip", requireAuth, requirePermission("manage_radio"), (req
   json(res, { ok: true, note: "skip request stored in bot_settings; radio bot must consume radio.skip_requested" });
 }, closeDb);
 
+app.put("/api/radio/requests-enabled", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const enabled = req.body?.enabled ? "true" : "false";
+  upsertDashboardSetting(req.db, "requests_enabled", enabled, "radio", req.user.username, "Dashboard radio request gate consumed by bot modules.");
+  json(res, { ok: true, enabled: enabled === "true" });
+}, closeDb);
+
 app.get("/api/casino", requireAuth, requirePermission("manage_casino"), (req, res) => {
-  const keys = rowsOrEmpty(
+  const roomKeys = rowsOrEmpty(
     req.db,
     "room_settings",
     "SELECT key, value FROM room_settings WHERE key LIKE 'casino%' OR key LIKE 'bj_%' OR key LIKE 'rbj_%' OR key LIKE 'poker%' OR key LIKE 'daily_%' ORDER BY key",
   );
-  json(res, { settings: keys, module_flag: req.db.prepare("SELECT * FROM module_flags WHERE module='casino'").get() ?? null });
+  const botKeys = req.db
+    .prepare("SELECT * FROM bot_settings WHERE module='casino' OR key LIKE 'casino%' OR key LIKE 'bj_%' OR key LIKE 'rbj_%' OR key LIKE 'poker%' OR key LIKE 'daily_%' ORDER BY key")
+    .all();
+  const seen = new Set();
+  const settings = [...botKeys, ...roomKeys.map((r) => ({ ...r, source: "room_settings", module: "casino" }))]
+    .filter((row) => {
+      if (seen.has(row.key)) return false;
+      seen.add(row.key);
+      return true;
+    });
+  json(res, { settings, module_flag: req.db.prepare("SELECT * FROM module_flags WHERE module='casino'").get() ?? null });
 }, closeDb);
 
 app.put("/api/casino/:key", requireAuth, requirePermission("manage_casino"), (req, res) => {
   const key = req.params.key.trim();
   const value = String(req.body?.value ?? "");
-  if (!/^(casino|bj_|rbj_|poker|daily_)/.test(key)) return json(res, { error: "unsupported_casino_key" }, 400);
+  if (!validSettingKey(key) || !/^(casino|bj_|rbj_|poker|daily_)/.test(key)) return json(res, { error: "unsupported_casino_key" }, 400);
+  if (value.length > 2000) return json(res, { error: "value_too_long" }, 400);
   upsertDashboardSetting(req.db, key, value, "casino", req.user.username, "Dashboard casino/game setting. Bot modules should read from bot_settings before room_settings.");
+  json(res, { ok: true });
+}, closeDb);
+
+app.get("/api/games", requireAuth, requirePermission("manage_games"), (req, res) => {
+  const settings = req.db
+    .prepare("SELECT * FROM bot_settings WHERE module='games' OR key LIKE 'games.%' OR key LIKE 'trivia.%' OR key LIKE 'scramble.%' OR key LIKE 'riddle.%' ORDER BY key")
+    .all();
+  json(res, { settings, module_flag: req.db.prepare("SELECT * FROM module_flags WHERE module='games'").get() ?? null });
+}, closeDb);
+
+app.put("/api/games/:key", requireAuth, requirePermission("manage_games"), (req, res) => {
+  const key = req.params.key.trim();
+  const value = String(req.body?.value ?? "");
+  if (!validSettingKey(key) || !/^(games\.|trivia\.|scramble\.|riddle\.)/.test(key)) return json(res, { error: "unsupported_games_key" }, 400);
+  if (value.length > 2000) return json(res, { error: "value_too_long" }, 400);
+  upsertDashboardSetting(req.db, key, value, "games", req.user.username, "Dashboard game setting. Bot modules should read from bot_settings.");
   json(res, { ok: true });
 }, closeDb);
 
@@ -784,10 +916,27 @@ app.post("/api/titles/assign", requireAuth, requirePermission("manage_titles"), 
 }, closeDb);
 
 app.get("/api/logs", requireAuth, requirePermission("view_logs"), (req, res) => {
-  const auditRows = req.db.prepare("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 250").all();
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit || "50"), 10) || 50, 1), 250);
+  const offset = Math.min(Math.max(parseInt(String(req.query.offset || "0"), 10) || 0, 0), 10_000);
+  const where = [];
+  const params = [];
+  for (const [field, value] of [
+    ["action_type", req.query.action_type],
+    ["actor", req.query.user],
+    ["target_type", req.query.module],
+  ]) {
+    const text = String(value || "").trim();
+    if (!text) continue;
+    where.push(`${field} LIKE ?`);
+    params.push(`%${text.slice(0, 80)}%`);
+  }
+  const sqlWhere = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const auditRows = req.db
+    .prepare(`SELECT * FROM audit_logs ${sqlWhere} ORDER BY id DESC LIMIT ? OFFSET ?`)
+    .all(...params, limit, offset);
   const adminRows = rowsOrEmpty(req.db, "admin_action_logs", "SELECT * FROM admin_action_logs ORDER BY id DESC LIMIT 100");
   const commandErrors = rowsOrEmpty(req.db, "command_error_logs", "SELECT * FROM command_error_logs ORDER BY id DESC LIMIT 100");
-  json(res, { audit_logs: auditRows, admin_action_logs: adminRows, command_error_logs: commandErrors });
+  json(res, { audit_logs: auditRows, admin_action_logs: adminRows, command_error_logs: commandErrors, limit, offset });
 }, closeDb);
 
 app.post("/api/emergency", requireAuth, requirePermission("emergency_controls"), (req, res) => {
@@ -924,6 +1073,8 @@ const DASHBOARD_HTML = `<!doctype html>
 </html>`;
 
 app.get("/", (_req, res) => {
+  const index = path.join(PUBLIC_DIR, "index.html");
+  if (fs.existsSync(index)) return res.sendFile(index);
   res.type("html").send(DASHBOARD_HTML);
 });
 

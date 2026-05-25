@@ -15,6 +15,8 @@ dashboard setting from `bot_settings` or `module_flags`.
 
 - Owner/staff login with PBKDF2 password hashing
 - HttpOnly session cookie auth
+- CSRF token checks for authenticated write APIs
+- Lightweight in-memory rate limiting and security headers
 - Role and permission flags:
   - `manage_radio`
   - `manage_casino`
@@ -31,6 +33,22 @@ dashboard setting from `bot_settings` or `module_flags`.
 - Bot live tracker using existing `bot_instances`
 - Audit logs for every dashboard write
 - Emergency controls that write DB flags only
+
+## Admin Panel Pages
+
+The browser UI is served from `dashboard/public/` and polls the backend every few
+seconds on live pages. It includes:
+
+- Overview
+- Radio
+- Casino
+- Games
+- Titles
+- Staff
+- Settings
+- Live Tracker
+- Logs
+- Emergency
 
 ## Required Environment Variables
 
