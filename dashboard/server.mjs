@@ -23,9 +23,35 @@ const AZURACAST_STREAM_URL = process.env.AZURACAST_STREAM_URL?.trim() || null;
 const REMOTE_TIMEOUT_MS = parseInt(process.env.REMOTE_TIMEOUT_MS ?? "8000", 10);
 const SESSION_DAYS = parseInt(process.env.DASHBOARD_SESSION_DAYS ?? "7", 10);
 const PUBLIC_DIR = path.join(__dirname, "public");
-const DB_PATH = process.env.DB_PATH
-  ? path.resolve(process.env.DB_PATH)
-  : path.join(__dirname, "..", "artifacts", "highrise-bot", "highrise_hangout.db");
+const APP_MODE = process.env.NODE_ENV || process.env.APP_MODE || "production";
+const VPS_ENV_PATH = "/opt/highrise-bots/.env";
+
+function readEnvFileValue(filePath, key) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq === -1 || trimmed.slice(0, eq).trim() !== key) continue;
+      return trimmed.slice(eq + 1).trim().replace(/^['"]|['"]$/g, "") || null;
+    }
+  } catch (err) {
+    console.error(`[DASHBOARD_CONFIG] env_file_read_failed path=${filePath} error=${err.message}`);
+  }
+  return null;
+}
+
+function resolveDbPath() {
+  const configured =
+    process.env.DB_PATH?.trim() ||
+    process.env.SHARED_DB_PATH?.trim() ||
+    readEnvFileValue(VPS_ENV_PATH, "SHARED_DB_PATH") ||
+    path.join(__dirname, "..", "artifacts", "highrise-bot", "highrise_hangout.db");
+  return path.resolve(configured);
+}
+
+const DB_PATH = resolveDbPath();
 
 const PERMISSIONS = [
   "manage_radio",
@@ -54,6 +80,42 @@ const UPCOMING_REQUEST_STATUSES = ACTIVE_REQUEST_STATUSES.filter((s) => s !== "p
 const TERMINAL_REQUEST_STATUSES = ["played", "cleaned", "skipped", "failed", "cancelled", "error"];
 const SAFE_SETTING_KEY = /^[A-Za-z0-9_.:-]{1,120}$/;
 const RATE_LIMITS = new Map();
+const IMPORTANT_TABLES = [
+  "schema_version",
+  "dashboard_users",
+  "dashboard_roles",
+  "dashboard_permissions",
+  "dashboard_sessions",
+  "bot_settings",
+  "module_flags",
+  "audit_logs",
+  "player_titles",
+  "live_status",
+  "bot_instances",
+  "bot_spawns",
+  "bot_command_queue",
+  "jail_sentences",
+  "first_find_announce_pending",
+  "host_dm_queue",
+  "yt_request_jobs",
+  "room_settings",
+  "title_catalog",
+  "user_titles",
+  "owner_users",
+  "admin_users",
+  "moderators",
+  "managers",
+  "owned_items",
+  "admin_action_logs",
+  "command_error_logs",
+];
+let LAST_MIGRATION_STATUS = {
+  ok: false,
+  ran_at: null,
+  created_tables: [],
+  added_columns: [],
+  error: null,
+};
 
 let DatabaseCtor = null;
 async function Database() {
@@ -74,6 +136,62 @@ function tableExists(db, name) {
     .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
     .get(name);
   return !!row;
+}
+
+function sqlIdent(name) {
+  return `"${String(name).replaceAll('"', '""')}"`;
+}
+
+function tableNames(db) {
+  return db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+    .all()
+    .map((row) => row.name);
+}
+
+function tableColumns(db, name) {
+  if (!tableExists(db, name)) return [];
+  return db.prepare(`PRAGMA table_info(${sqlIdent(name)})`).all().map((row) => row.name);
+}
+
+function columnExists(db, table, column) {
+  return tableColumns(db, table).includes(column);
+}
+
+function addColumnIfMissing(db, table, column, definition, status) {
+  if (!tableExists(db, table) || columnExists(db, table, column)) return;
+  db.prepare(`ALTER TABLE ${sqlIdent(table)} ADD COLUMN ${sqlIdent(column)} ${definition}`).run();
+  status.added_columns.push(`${table}.${column}`);
+}
+
+function selectColumns(db, table, desired) {
+  const cols = tableColumns(db, table);
+  return desired.filter((col) => cols.includes(col));
+}
+
+function normalizeRows(rows, desired) {
+  return rows.map((row) => {
+    const out = {};
+    for (const col of desired) out[col] = Object.prototype.hasOwnProperty.call(row, col) ? row[col] : null;
+    return out;
+  });
+}
+
+function safeRows(db, table, desired, { where = "", params = [], orderBy = "", limit = "" } = {}) {
+  try {
+    if (!tableExists(db, table)) return [];
+    const selected = selectColumns(db, table, desired);
+    if (!selected.length) return [];
+    const sql = `SELECT ${selected.map(sqlIdent).join(", ")} FROM ${sqlIdent(table)}${where ? ` WHERE ${where}` : ""}${orderBy ? ` ORDER BY ${orderBy}` : ""}${limit ? ` LIMIT ${limit}` : ""}`;
+    return normalizeRows(db.prepare(sql).all(...params), desired);
+  } catch (err) {
+    console.error(`[DASHBOARD_DB] safeRows table=${table} error=${err.message}`);
+    return [];
+  }
+}
+
+function safeOne(db, table, desired, options = {}) {
+  return safeRows(db, table, desired, { ...options, limit: "1" })[0] ?? null;
 }
 
 function safeJsonParse(text, fallback) {
@@ -166,9 +284,17 @@ function execOptional(db, sql) {
 }
 
 function ensureDashboardSchema(db) {
+  const migration = { ok: false, ran_at: nowIso(), created_tables: [], added_columns: [], error: null };
+  const beforeTables = new Set(tableNames(db));
   execOptional(
     db,
     `
+    CREATE TABLE IF NOT EXISTS schema_version (
+      component TEXT PRIMARY KEY,
+      version INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS dashboard_roles (
       role TEXT PRIMARY KEY,
       description TEXT NOT NULL DEFAULT '',
@@ -253,6 +379,8 @@ function ensureDashboardSchema(db) {
     );
     `,
   );
+  const afterTables = tableNames(db);
+  migration.created_tables = afterTables.filter((name) => !beforeTables.has(name) && IMPORTANT_TABLES.includes(name));
 
   const seedRole = db.prepare(
     "INSERT OR IGNORE INTO dashboard_roles (role, description) VALUES (?, ?)",
@@ -260,26 +388,82 @@ function ensureDashboardSchema(db) {
   seedRole.run("owner", "Full dashboard access");
   seedRole.run("staff", "Limited staff access controlled by permission flags");
 
-  for (const sql of [
-    "ALTER TABLE bot_settings ADD COLUMN scope TEXT NOT NULL DEFAULT 'global'",
-    "ALTER TABLE bot_settings ADD COLUMN module TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE bot_settings ADD COLUMN description TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE bot_settings ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE bot_settings ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
-  ]) {
-    try {
-      db.prepare(sql).run();
-    } catch (err) {
-      if (!String(err.message || "").includes("duplicate column")) throw err;
+  addColumnIfMissing(db, "dashboard_users", "username", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_users", "password_hash", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_users", "salt", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_users", "iterations", "INTEGER NOT NULL DEFAULT 210000", migration);
+  addColumnIfMissing(db, "dashboard_users", "role", "TEXT NOT NULL DEFAULT 'staff'", migration);
+  addColumnIfMissing(db, "dashboard_users", "flags_json", "TEXT NOT NULL DEFAULT '{}'", migration);
+  addColumnIfMissing(db, "dashboard_users", "disabled", "INTEGER NOT NULL DEFAULT 0", migration);
+  addColumnIfMissing(db, "dashboard_users", "created_at", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_users", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_users", "last_login_at", "TEXT", migration);
+
+  addColumnIfMissing(db, "dashboard_permissions", "user_id", "INTEGER NOT NULL DEFAULT 0", migration);
+  addColumnIfMissing(db, "dashboard_permissions", "permission", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_permissions", "allowed", "INTEGER NOT NULL DEFAULT 0", migration);
+  addColumnIfMissing(db, "dashboard_permissions", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "dashboard_sessions", "token_hash", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_sessions", "user_id", "INTEGER NOT NULL DEFAULT 0", migration);
+  addColumnIfMissing(db, "dashboard_sessions", "created_at", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_sessions", "expires_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "bot_settings", "key", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "bot_settings", "value", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "bot_settings", "scope", "TEXT NOT NULL DEFAULT 'global'", migration);
+  addColumnIfMissing(db, "bot_settings", "module", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "bot_settings", "description", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "bot_settings", "updated_by", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "bot_settings", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "module_flags", "module", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "module_flags", "enabled", "INTEGER NOT NULL DEFAULT 1", migration);
+  addColumnIfMissing(db, "module_flags", "reason", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "module_flags", "updated_by", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "module_flags", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "audit_logs", "actor", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "audit_logs", "action_type", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "audit_logs", "target_type", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "audit_logs", "target_id", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "audit_logs", "old_value", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "audit_logs", "new_value", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "audit_logs", "ip_address", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "audit_logs", "created_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "player_titles", "user_id", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "player_titles", "username", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "player_titles", "title_id", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "player_titles", "display", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "player_titles", "color", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "player_titles", "source", "TEXT NOT NULL DEFAULT 'dashboard'", migration);
+  addColumnIfMissing(db, "player_titles", "created_by", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "player_titles", "created_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "live_status", "key", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "live_status", "value", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "live_status", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "schema_version", "component", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "schema_version", "version", "INTEGER NOT NULL DEFAULT 1", migration);
+  addColumnIfMissing(db, "schema_version", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  for (const moduleName of ["radio", "casino", "games", "titles", "staff", "settings"]) {
+    const existingFlag = db.prepare("SELECT module FROM module_flags WHERE module=? LIMIT 1").get(moduleName);
+    if (!existingFlag) {
+      db.prepare("INSERT INTO module_flags (module, enabled, reason, updated_by) VALUES (?, 1, '', 'system')").run(moduleName);
     }
   }
-
-  const seedFlag = db.prepare(
-    "INSERT OR IGNORE INTO module_flags (module, enabled, reason, updated_by) VALUES (?, 1, '', 'system')",
-  );
-  for (const moduleName of ["radio", "casino", "games", "titles", "staff", "settings"]) {
-    seedFlag.run(moduleName);
+  const existingVersion = db.prepare("SELECT component FROM schema_version WHERE component='dashboard' LIMIT 1").get();
+  if (existingVersion) {
+    db.prepare("UPDATE schema_version SET version=1, updated_at=CURRENT_TIMESTAMP WHERE component='dashboard'").run();
+  } else {
+    db.prepare("INSERT INTO schema_version (component, version, updated_at) VALUES ('dashboard', 1, CURRENT_TIMESTAMP)").run();
   }
+  migration.ok = true;
+  LAST_MIGRATION_STATUS = migration;
+  return migration;
 }
 
 function bootstrapOwner(db) {
@@ -428,10 +612,19 @@ function getDashboardSettingValue(db, key, fallback = "") {
 
 function upsertDashboardSetting(db, key, value, moduleName, actor, description = "") {
   const old = getDashboardSetting(db, key);
-  db.prepare(
-    "INSERT INTO bot_settings (key, value, scope, module, description, updated_by, updated_at) VALUES (?, ?, 'global', ?, ?, ?, CURRENT_TIMESTAMP) " +
-      "ON CONFLICT(key) DO UPDATE SET value=excluded.value, module=excluded.module, description=excluded.description, updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP",
-  ).run(key, String(value), moduleName || "", description, actor);
+  if (old) {
+    db.prepare("UPDATE bot_settings SET value=?, module=?, description=?, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE key=?").run(
+      String(value),
+      moduleName || "",
+      description,
+      actor,
+      key,
+    );
+  } else {
+    db.prepare(
+      "INSERT INTO bot_settings (key, value, scope, module, description, updated_by, updated_at) VALUES (?, ?, 'global', ?, ?, ?, CURRENT_TIMESTAMP)",
+    ).run(key, String(value), moduleName || "", description, actor);
+  }
   audit(db, actor, "setting_update", "bot_settings", key, old?.value ?? "", String(value), "");
 }
 
@@ -455,38 +648,40 @@ async function fetchRemoteStatus() {
 }
 
 function readLocalRadioStatus(db) {
-  const hasYtJobs = tableExists(db, "yt_request_jobs");
+  const hasYtJobs = tableExists(db, "yt_request_jobs") && columnExists(db, "yt_request_jobs", "status");
   let nowPlaying = null;
   let queue = [];
   let recent = [];
   let counts = {};
   if (hasYtJobs) {
-    nowPlaying =
-      db
-        .prepare(
-          "SELECT id, title, COALESCE(artist,'') AS artist, username, user_id, status, azura_file_id, azura_song_id, filename, source_type, started_at, played_at " +
-            "FROM yt_request_jobs WHERE status='playing' ORDER BY id DESC LIMIT 1",
-        )
-        .get() ?? null;
+    const desired = ["id", "title", "artist", "username", "user_id", "status", "azura_file_id", "azura_song_id", "filename", "source_type", "started_at", "played_at", "cleaned_at"];
+    const orderId = columnExists(db, "yt_request_jobs", "id") ? "id DESC" : "rowid DESC";
+    nowPlaying = safeOne(db, "yt_request_jobs", desired, { where: "status='playing'", orderBy: orderId });
     const ph = UPCOMING_REQUEST_STATUSES.map(() => "?").join(",");
-    queue = db
-      .prepare(
-        `SELECT id, title, COALESCE(artist,'') AS artist, username, user_id, status, azura_file_id, azura_song_id, filename, source_type, started_at ` +
-          `FROM yt_request_jobs WHERE status IN (${ph}) ORDER BY priority DESC, id ASC LIMIT 50`,
-      )
-      .all(...UPCOMING_REQUEST_STATUSES)
-      .map((row, i) => ({ ...row, pos: i + 1 }));
-    recent = db
-      .prepare(
-        "SELECT id, title, username, status, played_at, cleaned_at FROM yt_request_jobs WHERE status IN ('played','cleaned','skipped') ORDER BY COALESCE(played_at, cleaned_at, started_at) DESC LIMIT 20",
-      )
-      .all();
-    counts = Object.fromEntries(
-      db
-        .prepare("SELECT status, COUNT(*) AS n FROM yt_request_jobs GROUP BY status")
-        .all()
-        .map((r) => [r.status, r.n]),
-    );
+    const orderBy = columnExists(db, "yt_request_jobs", "priority")
+      ? `priority DESC, ${columnExists(db, "yt_request_jobs", "id") ? "id ASC" : "rowid ASC"}`
+      : `${columnExists(db, "yt_request_jobs", "id") ? "id ASC" : "rowid ASC"}`;
+    queue = safeRows(db, "yt_request_jobs", desired, {
+      where: `status IN (${ph})`,
+      params: UPCOMING_REQUEST_STATUSES,
+      orderBy,
+      limit: "50",
+    }).map((row, i) => ({ ...row, artist: row.artist || "", pos: i + 1 }));
+    recent = safeRows(db, "yt_request_jobs", desired, {
+      where: "status IN ('played','cleaned','skipped')",
+      orderBy: orderId,
+      limit: "20",
+    });
+    try {
+      counts = Object.fromEntries(
+        db
+          .prepare("SELECT status, COUNT(*) AS n FROM yt_request_jobs GROUP BY status")
+          .all()
+          .map((r) => [r.status, r.n]),
+      );
+    } catch (err) {
+      console.error(`[DASHBOARD_DB] radio_counts_failed error=${err.message}`);
+    }
   }
   const radioUrl = AZURACAST_STREAM_URL ?? getSetting(db, "dj_radio_url", "");
   return {
@@ -512,13 +707,23 @@ async function readStatusForPublicEndpoint() {
 }
 
 function rowsOrEmpty(db, table, sql, ...params) {
-  if (!tableExists(db, table)) return [];
-  return db.prepare(sql).all(...params);
+  try {
+    if (!tableExists(db, table)) return [];
+    return db.prepare(sql).all(...params);
+  } catch (err) {
+    console.error(`[DASHBOARD_DB] rowsOrEmpty table=${table} error=${err.message}`);
+    return [];
+  }
 }
 
 function oneOrNull(db, table, sql, ...params) {
-  if (!tableExists(db, table)) return null;
-  return db.prepare(sql).get(...params) ?? null;
+  try {
+    if (!tableExists(db, table)) return null;
+    return db.prepare(sql).get(...params) ?? null;
+  } catch (err) {
+    console.error(`[DASHBOARD_DB] oneOrNull table=${table} error=${err.message}`);
+    return null;
+  }
 }
 
 const app = express();
@@ -532,15 +737,33 @@ app.use((_req, res, next) => {
 });
 app.use(express.json({ limit: "128kb" }));
 
-app.get("/api/healthz", (_req, res) => {
-  res.json({
-    status: "ok",
+app.get("/api/healthz", async (_req, res) => {
+  const dbExists = fs.existsSync(DB_PATH);
+  const body = {
+    status: dbExists ? "ok" : "db_missing",
     service: "chilltopia-owner-dashboard",
+    app_mode: APP_MODE,
     port: PORT,
-    db_path: DB_PATH,
-    db_path_present: !!DB_PATH,
+    resolved_db_path: DB_PATH,
+    db_exists: dbExists,
+    migration_status: LAST_MIGRATION_STATUS,
+    known_tables: Object.fromEntries(IMPORTANT_TABLES.map((name) => [name, false])),
     remote_status: !!REMOTE_STATUS_URL,
-  });
+  };
+  if (!dbExists) return json(res, body, 503);
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const present = new Set(tableNames(db));
+    body.known_tables = Object.fromEntries(IMPORTANT_TABLES.map((name) => [name, present.has(name)]));
+    return json(res, body);
+  } catch (err) {
+    body.status = "db_error";
+    body.error = err.message;
+    return json(res, body, 503);
+  } finally {
+    db?.close();
+  }
 });
 
 app.post("/api/auth/login", rateLimit({ key: "login", windowMs: 60_000, max: 12 }), async (req, res) => {
@@ -590,6 +813,31 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
   json(res, { user: publicUser(req.db, req.user), csrf_token: req.csrfToken });
 }, closeDb);
 
+app.get("/api/db/inspect", requireAuth, (req, res) => {
+  if (req.user?.role !== "owner") return json(res, { error: "forbidden", permission: "owner" }, 403);
+  const tables = tableNames(req.db);
+  const inspect = {};
+  for (const table of tables) {
+    let count = null;
+    try {
+      count = req.db.prepare(`SELECT COUNT(*) AS n FROM ${sqlIdent(table)}`).get().n;
+    } catch (err) {
+      count = `error:${err.message}`;
+    }
+    inspect[table] = {
+      columns: tableColumns(req.db, table),
+      row_count: count,
+      important: IMPORTANT_TABLES.includes(table),
+    };
+  }
+  json(res, {
+    resolved_db_path: DB_PATH,
+    db_exists: fs.existsSync(DB_PATH),
+    migration_status: LAST_MIGRATION_STATUS,
+    tables: inspect,
+  });
+}, closeDb);
+
 app.get("/api/dj/status", async (_req, res) => {
   try {
     res.setHeader("Cache-Control", "no-store");
@@ -602,12 +850,13 @@ app.get("/api/dj/status", async (_req, res) => {
 
 app.get("/api/overview", requireAuth, (req, res) => {
   const db = req.db;
-  const bots = rowsOrEmpty(
+  const bots = safeRows(
     db,
     "bot_instances",
-    "SELECT bot_id, bot_mode, bot_username, status, enabled, last_heartbeat_at, last_error, current_room_id FROM bot_instances ORDER BY bot_mode, bot_username",
+    ["bot_id", "bot_mode", "bot_username", "status", "enabled", "last_heartbeat_at", "last_error", "current_room_id"],
+    { orderBy: columnExists(db, "bot_instances", "bot_mode") && columnExists(db, "bot_instances", "bot_username") ? "bot_mode, bot_username" : "" },
   );
-  const flags = db.prepare("SELECT * FROM module_flags ORDER BY module").all();
+  const flags = safeRows(db, "module_flags", ["module", "enabled", "reason", "updated_by", "updated_at"], { orderBy: "module" });
   const onlineBots = bots.filter((b) => String(b.status || "").toLowerCase() === "online").length;
   const roomIds = [...new Set(bots.map((b) => b.current_room_id).filter(Boolean))];
   const commandErrors = rowsOrEmpty(
@@ -620,7 +869,7 @@ app.get("/api/overview", requireAuth, (req, res) => {
       online_bots: onlineBots,
       total_bots: bots.length,
       current_room_users: oneOrNull(db, "live_status", "SELECT value FROM live_status WHERE key='room_user_count'")?.value ?? null,
-      queue_count: tableExists(db, "yt_request_jobs")
+      queue_count: tableExists(db, "yt_request_jobs") && columnExists(db, "yt_request_jobs", "status")
         ? db.prepare(`SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status IN (${UPCOMING_REQUEST_STATUSES.map(() => "?").join(",")})`).get(...UPCOMING_REQUEST_STATUSES).n
         : 0,
       active_games: flags.filter((f) => ["games", "casino"].includes(f.module) && Number(f.enabled) === 1).length,
@@ -636,12 +885,13 @@ app.get("/api/overview", requireAuth, (req, res) => {
 }, closeDb);
 
 app.get("/api/live", requireAuth, (req, res) => {
-  const bots = rowsOrEmpty(
+  const bots = safeRows(
     req.db,
     "bot_instances",
-    "SELECT bot_id, bot_mode, bot_username, status, enabled, last_heartbeat_at, last_error, current_room_id FROM bot_instances ORDER BY bot_mode, bot_username",
+    ["bot_id", "bot_mode", "bot_username", "status", "enabled", "last_heartbeat_at", "last_error", "current_room_id"],
+    { orderBy: columnExists(req.db, "bot_instances", "bot_mode") && columnExists(req.db, "bot_instances", "bot_username") ? "bot_mode, bot_username" : "" },
   );
-  const liveRows = req.db.prepare("SELECT key, value, updated_at FROM live_status ORDER BY key").all();
+  const liveRows = safeRows(req.db, "live_status", ["key", "value", "updated_at"], { orderBy: "key" });
   const commands = rowsOrEmpty(
     req.db,
     "command_error_logs",
@@ -690,12 +940,15 @@ app.put("/api/modules/:module", requireAuth, requireAnyPermission("emergency_con
   const enabled = req.body?.enabled ? 1 : 0;
   const reason = String(req.body?.reason ?? "");
   const old = req.db.prepare("SELECT * FROM module_flags WHERE module=?").get(moduleName) ?? null;
-  req.db
-    .prepare(
-      "INSERT INTO module_flags (module, enabled, reason, updated_by, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) " +
-        "ON CONFLICT(module) DO UPDATE SET enabled=excluded.enabled, reason=excluded.reason, updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP",
-    )
-    .run(moduleName, enabled, reason, req.user.username);
+  if (old) {
+    req.db
+      .prepare("UPDATE module_flags SET enabled=?, reason=?, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE module=?")
+      .run(enabled, reason, req.user.username, moduleName);
+  } else {
+    req.db
+      .prepare("INSERT INTO module_flags (module, enabled, reason, updated_by, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)")
+      .run(moduleName, enabled, reason, req.user.username);
+  }
   audit(req.db, req.user.username, "module_flag_update", "module_flags", moduleName, old, { enabled, reason }, req.ip);
   json(res, { ok: true });
 }, closeDb);
@@ -951,10 +1204,16 @@ app.post("/api/emergency", requireAuth, requirePermission("emergency_controls"),
     if (!flags[flag]) continue;
     const [moduleName, key, value] = payload;
     upsertDashboardSetting(req.db, key, value, moduleName, req.user.username, "Emergency dashboard flag; bot modules should refuse new work while false.");
-    req.db.prepare(
-      "INSERT INTO module_flags (module, enabled, reason, updated_by, updated_at) VALUES (?, 0, ?, ?, CURRENT_TIMESTAMP) " +
-        "ON CONFLICT(module) DO UPDATE SET enabled=0, reason=excluded.reason, updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP",
-    ).run(moduleName, "dashboard emergency", req.user.username);
+    const oldFlag = req.db.prepare("SELECT module FROM module_flags WHERE module=? LIMIT 1").get(moduleName);
+    if (oldFlag) {
+      req.db
+        .prepare("UPDATE module_flags SET enabled=0, reason=?, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE module=?")
+        .run("dashboard emergency", req.user.username, moduleName);
+    } else {
+      req.db
+        .prepare("INSERT INTO module_flags (module, enabled, reason, updated_by, updated_at) VALUES (?, 0, ?, ?, CURRENT_TIMESTAMP)")
+        .run(moduleName, "dashboard emergency", req.user.username);
+    }
     applied.push(flag);
   }
   if (flags.clear_queue && tableExists(req.db, "yt_request_jobs")) {
@@ -1095,12 +1354,19 @@ app.get(/.*/, (_req, res) => {
     bootstrapOwner(db);
     db.close();
   } catch (err) {
+    LAST_MIGRATION_STATUS = {
+      ok: false,
+      ran_at: nowIso(),
+      created_tables: [],
+      added_columns: [],
+      error: err.message,
+    };
     console.error("[DASHBOARD_DB] startup schema check failed:", err.message);
     console.error("[DASHBOARD_DB] Set DB_PATH to the shared bot SQLite file before using control APIs.");
   }
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[DASHBOARD] stage=dashboard_startup mode=owner_staff port=${PORT}`);
-    console.log(`[DASHBOARD_CONFIG] db_path=${DB_PATH} port=${PORT}`);
+    console.log(`[DASHBOARD_CONFIG] resolved_db_path=${DB_PATH} db_exists=${fs.existsSync(DB_PATH)} port=${PORT} app_mode=${APP_MODE}`);
     if (REMOTE_STATUS_URL) console.log(`[DASHBOARD] remote_status_url=${REMOTE_STATUS_URL}`);
     console.log(`[DASHBOARD] Open: http://localhost:${PORT}`);
   });

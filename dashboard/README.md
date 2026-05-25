@@ -76,6 +76,24 @@ AZURACAST_STREAM_URL=https://public-stream-url.example/radio.mp3
 Do not put `BOT_TOKEN`, `AZURA_API_KEY`, room passwords, or other bot secrets in
 frontend code. The dashboard never sends those values to the browser.
 
+## Production DB Path
+
+The VPS bot stack uses one shared SQLite database:
+
+```env
+SHARED_DB_PATH=/opt/highrise-bots/artifacts/highrise-bot/highrise_hangout.db
+```
+
+The dashboard resolves its database path in this order:
+
+1. `DB_PATH` from the dashboard process environment.
+2. `SHARED_DB_PATH` from the dashboard process environment.
+3. `SHARED_DB_PATH` from `/opt/highrise-bots/.env`.
+4. `artifacts/highrise-bot/highrise_hangout.db` in this repo checkout.
+
+Do not point the dashboard at `casino_bot.db`, `highrise_hangout_WORKING_*.db`,
+or backup databases. Those are not the live shared DB.
+
 ## First Owner Creation
 
 The first owner can be created safely from environment variables:
@@ -183,7 +201,7 @@ files or secrets.
 VPS deployment steps:
 
 ```bash
-cd /srv/HighRise_Bot
+cd /opt/highrise-bots
 git pull --rebase origin main
 cd dashboard
 npm install
@@ -193,11 +211,22 @@ nano .env
 npm start
 ```
 
+Direct one-shot VPS start command:
+
+```bash
+cd /opt/highrise-bots/dashboard
+DB_PATH=/opt/highrise-bots/artifacts/highrise-bot/highrise_hangout.db \
+DASHBOARD_BOOTSTRAP_OWNER=Marion \
+DASHBOARD_BOOTSTRAP_PASSWORD='change-this' \
+PORT=3000 \
+npm start
+```
+
 Minimum `.env`:
 
 ```env
 PORT=3000
-DB_PATH=/absolute/path/to/the/same/highrise_hangout.db/used/by/the/bots
+DB_PATH=/opt/highrise-bots/artifacts/highrise-bot/highrise_hangout.db
 DASHBOARD_BOOTSTRAP_OWNER=YourOwnerUsername
 DASHBOARD_BOOTSTRAP_PASSWORD=UseALongTemporaryPassword
 DASHBOARD_COOKIE_SECURE=1
@@ -217,6 +246,15 @@ npm start
 ```
 
 The second `grep` should not find DJ status UI files in `dashboard/public/`.
+
+Runtime health checks:
+
+```bash
+curl -s http://127.0.0.1:3000/api/healthz | python3 -m json.tool
+```
+
+Owner-only DB inspection is available at `/api/db/inspect` after login. It lists
+tables, columns, and row counts only; it does not expose bot tokens or secrets.
 
 Example systemd unit:
 
