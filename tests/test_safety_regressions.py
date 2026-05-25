@@ -761,3 +761,23 @@ def test_economy_phase_two_sink_price_targets(monkeypatch, tmp_path):
     }
     assert all(len(page) <= 249 for page in vip._VIP_PERK_PAGES)
     assert len(vip._vip_price_page()) <= 249
+
+
+def test_shop_root_fallback_is_real_shop_menu(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    _install_highrise_stub(monkeypatch)
+    multi_bot = importlib.import_module("modules.multi_bot")
+    shop = importlib.import_module("modules.shop")
+
+    monkeypatch.setattr(multi_bot, "_is_mode_online", lambda mode: False)
+    assert multi_bot.should_this_bot_handle("shop") is True
+
+    bot = FakeBot()
+    user = FakeUser()
+    asyncio.run(shop.handle_shop(bot, user, ["shop"]))
+
+    assert bot.highrise.whispers
+    msg = bot.highrise.whispers[-1][1]
+    assert msg.startswith("🛍️ ChillTopia Shop")
+    assert "ct:" not in msg
+    assert "route=YES" not in msg

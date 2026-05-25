@@ -5130,10 +5130,20 @@ class HangoutBot(BaseBot):
         # ── Shop commands ─────────────────────────────────────────────────────
         elif cmd == "shop":
             sub = args[1].lower() if len(args) > 1 else ""
+            _shop_owner = _resolve_command_owner("shop") or "unknown"
+            _shop_fallback = _shop_owner not in (BOT_MODE, "all")
             if sub == "badges":
+                print(
+                    f"[SHOP_ROUTE] command=shop handler=handle_badges_cmd_router "
+                    f"owner={_shop_owner} fallback={str(_shop_fallback).lower()}"
+                )
                 await handle_badges_cmd_router(self, user, args[1:])
             elif sub == "titles":
                 # Redirect !shop titles to Title V2 shop
+                print(
+                    f"[SHOP_ROUTE] command=shop handler=handle_titleshop "
+                    f"owner={_shop_owner} fallback={str(_shop_fallback).lower()}"
+                )
                 await handle_titleshop(self, user, args[1:])
             elif sub in ("next", "prev", "page"):
                 # If the active session is badges, redirect to category browsing
@@ -5145,10 +5155,18 @@ class HangoutBot(BaseBot):
                         "!badges animals 2\n"
                         "!badges rare 1\n"
                         "!badges search crown"
-                    )
+                        )
                 else:
+                    print(
+                        f"[SHOP_ROUTE] command=shop handler=handle_shop_nav "
+                        f"owner={_shop_owner} fallback={str(_shop_fallback).lower()}"
+                    )
                     await handle_shop_nav(self, user, args)
             else:
+                print(
+                    f"[SHOP_ROUTE] command=shop handler=handle_shop "
+                    f"owner={_shop_owner} fallback={str(_shop_fallback).lower()}"
+                )
                 await handle_shop(self, user, args)
             asyncio.create_task(check_tutorial_step(self, user, "shop"))
 

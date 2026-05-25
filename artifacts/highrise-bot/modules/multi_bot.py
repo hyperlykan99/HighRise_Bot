@@ -1330,6 +1330,7 @@ _HOST_SAFE_FALLBACK_CMDS: frozenset[str] = frozenset({
 _HARD_OWNER_SAFE_HELP_CMDS: frozenset[str] = frozenset({
     "coinhelp", "bankhelp", "bankerhelp",   # banker bot offline
     "minehelp",                              # miner bot offline
+    "shop",                                  # root/read-only shop display
 })
 
 
