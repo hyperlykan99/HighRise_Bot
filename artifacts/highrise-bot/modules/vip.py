@@ -23,13 +23,29 @@ _w = lambda bot, uid, msg: bot.highrise.send_whisper(uid, msg[:249])
 # VIP perks text (centralised so !vip / !vipperks / !perks all share it)
 # ---------------------------------------------------------------------------
 
-_VIP_PERKS = (
-    "💎 VIP Perks:\n"
-    "• Longer !automine sessions (up to 60m)\n"
-    "• Longer !autofish sessions (up to 60m)\n"
-    "• VIP badge & status in room\n"
-    "• Supports ChillTopia upgrades\n"
-    "Buy: !buyvip 1d | !buyvip 7d | !buyvip 30d"
+_VIP_PERK_PAGES = (
+    (
+        "💎 VIP FEATURES\n"
+        "• VIP status badge\n"
+        "• Longer auto sessions\n"
+        "• Faster grind flow\n"
+        "• Supporter visibility\n"
+        "Buy: !buyvip 1d | 7d | 30d"
+    ),
+    (
+        "⚡ VIP PERKS\n"
+        "• !automine up to 60m\n"
+        "• !autofish up to 60m\n"
+        "• VIP boost stack in titles\n"
+        "• VIP members can use !giftvip"
+    ),
+    (
+        "🎟️ VIP DURATION\n"
+        "• 1d: quick room flex\n"
+        "• 7d: weekly grinder pass\n"
+        "• 30d: monthly elite status\n"
+        "Status: !myvip"
+    ),
 )
 
 # Duration options: key → (days, display_label)
@@ -43,6 +59,30 @@ _VIP_DURATIONS: dict[str, tuple[int, str]] = {
 _VIP_DEFAULT_PRICES: dict[str, int] = {
     "1d": 15_000, "7d": 75_000, "30d": 250_000,
 }
+
+
+def _vip_coin_prices() -> dict[str, str]:
+    return {
+        dur: db.get_room_setting(f"vip_price_{dur}", str(default))
+        for dur, default in _VIP_DEFAULT_PRICES.items()
+    }
+
+
+def _vip_price_page() -> str:
+    prices = _vip_coin_prices()
+    return (
+        "💰 VIP PRICE\n"
+        f"• 1d: {prices['1d']} coins\n"
+        f"• 7d: {prices['7d']} coins\n"
+        f"• 30d: {prices['30d']} coins\n"
+        "Luxe option: !vip"
+    )
+
+
+async def _send_vip_perks(bot: "BaseBot", uid: str) -> None:
+    for page in _VIP_PERK_PAGES:
+        await _w(bot, uid, page)
+    await _w(bot, uid, _vip_price_page())
 
 _SUPPORTER_PERKS = (
     "🌟 Supporter Perks:\n"
@@ -63,24 +103,30 @@ async def handle_vip(bot: "BaseBot", user: "User", args: list[str]) -> None:
     from modules.luxe import get_luxe_price, get_vip_luxe_duration
     is_vip  = db.owns_item(user.id, "vip")
     expires = db.get_room_setting(f"vip_expires_{user.id}", "")
+    prices = _vip_coin_prices()
     if is_vip:
         rem = _calc_vip_remaining(expires)
-        lines = ["👑 VIP Status", "Status: Active"]
+        lines = ["💎 VIP STATUS", "Status: Active"]
         if rem and rem != "Expired":
             lines.append(f"Remaining: {rem}")
         if expires:
             lines.append(f"Expires: {expires}")
-        lines.append("Perks: luck, speed, longer auto")
+        lines.append("Perks: longer auto, VIP boost, flex badge")
+        lines.append("Full list: !vipperks")
         await _w(bot, user.id, "\n".join(lines)[:249])
     else:
-        price = get_luxe_price("vip")
+        luxe_price = get_luxe_price("vip")
         dur   = get_vip_luxe_duration()
         await _w(bot, user.id,
-                 f"👑 VIP Status\n"
+                 f"💎 VIP STATUS\n"
                  f"Status: Inactive\n"
-                 f"Price: {price:,} 🎫\n"
-                 f"Duration: {dur}d\n"
-                 f"Buy: !buyluxe 1")
+                 f"Coins: {prices['1d']}c/1d | {prices['7d']}c/7d\n"
+                 f"Monthly: {prices['30d']}c/30d\n"
+                 f"Luxe: {luxe_price:,}🎫 for {dur}d")
+        await _w(bot, user.id,
+                 "VIP unlocks longer automine/autofish,\n"
+                 "VIP status, boosts, and gifting.\n"
+                 "Buy: !buyvip 30d  Perks: !vipperks")
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +135,7 @@ async def handle_vip(bot: "BaseBot", user: "User", args: list[str]) -> None:
 
 async def handle_vipperks(bot: "BaseBot", user: "User") -> None:
     """!vipperks  — show all VIP perks."""
-    await _w(bot, user.id, _VIP_PERKS)
+    await _send_vip_perks(bot, user.id)
 
 
 # ---------------------------------------------------------------------------
@@ -130,11 +176,12 @@ async def handle_myvip(bot: "BaseBot", user: "User") -> None:
         else:
             exp_line = "Active (staff-granted)"
         await _w(bot, user.id,
-                 f"💎 VIP Status: Active\n"
+                 f"💎 VIP STATUS: Active\n"
                  f"Expires: {exp_line}\n"
-                 f"Perks: longer AutoMine/AutoFish, VIP badge")
+                 f"Perks: longer auto, VIP boost, flex badge\n"
+                 f"Full list: !vipperks")
     else:
-        p1  = db.get_room_setting("vip_price_1d",  str(_VIP_DEFAULT_PRICES["1d"]))
+        prices = _vip_coin_prices()
         try:
             from modules.luxe import get_luxe_price as _glp, get_vip_luxe_duration as _gvd
             p_lx  = _glp("vip")
@@ -143,8 +190,8 @@ async def handle_myvip(bot: "BaseBot", user: "User") -> None:
         except Exception:
             luxe_line = ""
         await _w(bot, user.id,
-                 f"💎 VIP Status: Inactive\n"
-                 f"🪙 Coins: !buyvip 1d ({p1}c) | 7d | 30d{luxe_line}\n"
+                 f"💎 VIP STATUS: Inactive\n"
+                 f"🪙 Coins: 1d {prices['1d']}c | 7d {prices['7d']}c | 30d {prices['30d']}c{luxe_line}\n"
                  f"!vipperks — view perks")
 
 
@@ -157,14 +204,13 @@ import datetime as _dt
 async def handle_buyvip(bot: "BaseBot", user: "User", args: list[str]) -> None:
     """!buyvip <1d|7d|30d>  — buy VIP with coins."""
     if len(args) < 2:
-        p1  = db.get_room_setting("vip_price_1d",  str(_VIP_DEFAULT_PRICES["1d"]))
-        p7  = db.get_room_setting("vip_price_7d",  str(_VIP_DEFAULT_PRICES["7d"]))
-        p30 = db.get_room_setting("vip_price_30d", str(_VIP_DEFAULT_PRICES["30d"]))
+        prices = _vip_coin_prices()
         await _w(bot, user.id,
-                 f"💎 Buy VIP:\n"
-                 f"!buyvip 1d — {p1} coins\n"
-                 f"!buyvip 7d — {p7} coins\n"
-                 f"!buyvip 30d — {p30} coins")
+                 f"💎 BUY VIP\n"
+                 f"1d: {prices['1d']} coins\n"
+                 f"7d: {prices['7d']} coins\n"
+                 f"30d: {prices['30d']} coins\n"
+                 f"Perks: !vipperks")
         return
 
     dur = args[1].lower().strip()

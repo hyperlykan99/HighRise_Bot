@@ -731,6 +731,8 @@ def test_economy_phase_two_sink_price_targets(monkeypatch, tmp_path):
     assert shop.BADGES["trophy_badge"]["price"] == 125_000
     assert shop.TITLES["rookie"]["price"] == 10_000
     assert shop.TITLES["immortal"]["price"] == 1_500_000
+    assert shop.TITLES["rookie"]["display"] == "[Lounge Rookie]"
+    assert shop.TITLES["immortal"]["display"] == "[Metaverse Legend]"
 
     buyable_titles = {
         title_id: data
@@ -742,6 +744,14 @@ def test_economy_phase_two_sink_price_targets(monkeypatch, tmp_path):
     assert buyable_titles["elite"]["price"] == 750_000
     assert buyable_titles["immortal"]["price"] == 1_500_000
     assert buyable_titles["chilltopia_royalty"]["price"] == 5_000_000
+    assert title_system.SHOP_TITLE_ORDER[:4] == (
+        "rookie",
+        "lucky",
+        "grinder",
+        "regular",
+    )
+    assert buyable_titles["elite"]["display"] == "[Penthouse Elite]"
+    assert buyable_titles["chilltopia_royalty"]["display"] == "[ChillTopia Royalty]"
     assert all(data["price"] >= 5_000 for data in buyable_titles.values())
 
     assert vip._VIP_DEFAULT_PRICES == {
@@ -749,3 +759,5 @@ def test_economy_phase_two_sink_price_targets(monkeypatch, tmp_path):
         "7d": 75_000,
         "30d": 250_000,
     }
+    assert all(len(page) <= 249 for page in vip._VIP_PERK_PAGES)
+    assert len(vip._vip_price_page()) <= 249

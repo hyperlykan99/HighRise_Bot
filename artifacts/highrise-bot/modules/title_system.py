@@ -49,35 +49,48 @@ SHOP_TITLE_PRICES: dict[str, int] = {
     "chilltopia_royalty": 5_000_000,
 }
 
+SHOP_TITLE_ORDER: tuple[str, ...] = (
+    "rookie",
+    "lucky",
+    "grinder",
+    "regular",
+    "vip_player",
+    "casino_regular",
+    "chill_elite",
+    "elite",
+    "immortal",
+    "chilltopia_royalty",
+)
+
 TITLE_CATALOG: dict[str, dict] = {
     # ── Shop titles ──────────────────────────────────────────────────────────
     "rookie": {
-        "display": "[Rookie]", "tier": "Common", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["rookie"], "buyable": True,
+        "display": "[Lounge Rookie]", "tier": "Common", "source": "Shop",
+        "category": "social", "price": SHOP_TITLE_PRICES["rookie"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"daily_coins_bonus": 5},
-        "description": "+5 daily coins",
+        "description": "Fresh face in the ChillTopia lounge | +5 daily coins",
     },
     "lucky": {
-        "display": "[Lucky]", "tier": "Common", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["lucky"], "buyable": True,
+        "display": "[Lucky Vibe]", "tier": "Common", "source": "Shop",
+        "category": "social", "price": SHOP_TITLE_PRICES["lucky"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 2.0},
-        "description": "+2% game rewards",
+        "description": "Good energy follows you into every room | +2% game rewards",
     },
     "grinder": {
-        "display": "[Grinder]", "tier": "Rare", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["grinder"], "buyable": True,
+        "display": "[Rising Regular]", "tier": "Rare", "source": "Shop",
+        "category": "social", "price": SHOP_TITLE_PRICES["grinder"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 3.0},
-        "description": "+3% game rewards",
+        "description": "Known face, steady grind, better wins | +3% game rewards",
     },
     "regular": {
-        "display": "[Regular]", "tier": "Rare", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["regular"], "buyable": True,
+        "display": "[Chill Regular]", "tier": "Rare", "source": "Shop",
+        "category": "social", "price": SHOP_TITLE_PRICES["regular"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"daily_coins_bonus": 10},
-        "description": "+10 daily coins",
+        "description": "A familiar name in the room | +10 daily coins",
     },
     "trivia_king": {
         "display": "[Trivia King]", "tier": "Epic", "source": "Achievement",
@@ -125,46 +138,46 @@ TITLE_CATALOG: dict[str, dict] = {
         "description": "Hold 1M ChillCoins balance | +25 daily, +3% game",
     },
     "elite": {
-        "display": "[Elite]", "tier": "Legendary", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["elite"], "buyable": True,
+        "display": "[Penthouse Elite]", "tier": "Legendary", "source": "Shop",
+        "category": "wealth", "price": SHOP_TITLE_PRICES["elite"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 8.0},
-        "description": "+8% game rewards",
+        "description": "Top-floor status with room-wide presence | +8% game rewards",
     },
     "immortal": {
-        "display": "[Immortal]", "tier": "Mythic", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["immortal"], "buyable": True,
+        "display": "[Metaverse Legend]", "tier": "Mythic", "source": "Shop",
+        "category": "wealth", "price": SHOP_TITLE_PRICES["immortal"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 12.0, "daily_coins_bonus": 50},
-        "description": "+12% game rewards, +50 daily coins",
+        "description": "A name the whole room recognizes | +12% game, +50 daily",
     },
     "chilltopia_royalty": {
         "display": "[ChillTopia Royalty]", "tier": "Mythic", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["chilltopia_royalty"], "buyable": True,
+        "category": "wealth", "price": SHOP_TITLE_PRICES["chilltopia_royalty"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 15.0, "daily_coins_bonus": 100},
-        "description": "+15% game rewards, +100 daily coins",
+        "description": "The ultimate ChillTopia flex | +15% game, +100 daily",
     },
     "vip_player": {
-        "display": "[VIP Player]", "tier": "Epic", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["vip_player"], "buyable": True,
+        "display": "[VIP Guest]", "tier": "Epic", "source": "Shop",
+        "category": "supporter", "price": SHOP_TITLE_PRICES["vip_player"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"shop_discount_pct": 3.0},
-        "description": "+3% shop discount",
+        "description": "Velvet-rope energy | +3% shop discount",
     },
     "casino_regular": {
-        "display": "[Casino Regular]", "tier": "Epic", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["casino_regular"], "buyable": True,
+        "display": "[Lucky Lounge]", "tier": "Epic", "source": "Shop",
+        "category": "casino", "price": SHOP_TITLE_PRICES["casino_regular"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"casino_reward_pct": 3.0},
-        "description": "+3% casino rewards",
+        "description": "Casino-table confidence | +3% casino rewards",
     },
     "chill_elite": {
-        "display": "[Chill Elite]", "tier": "Legendary", "source": "Shop",
-        "category": "shop", "price": SHOP_TITLE_PRICES["chill_elite"], "buyable": True,
+        "display": "[Nightlife Icon]", "tier": "Legendary", "source": "Shop",
+        "category": "social", "price": SHOP_TITLE_PRICES["chill_elite"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 5.0, "daily_coins_bonus": 25},
-        "description": "+5% game rewards, +25 daily coins",
+        "description": "The party notices when you arrive | +5% game, +25 daily",
     },
     # ── Fishing achievement ───────────────────────────────────────────────────
     "new_angler": {
@@ -1128,8 +1141,10 @@ async def handle_titleshop(bot: BaseBot, user: User, args: list[str]) -> None:
     """!titleshop [page] — shop titles."""
     page = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
     _mirror_old_titles(user.id, user.username)
+    order = {tid: i for i, tid in enumerate(SHOP_TITLE_ORDER)}
     shop_titles = [(tid, t) for tid, t in TITLE_CATALOG.items()
                    if t.get("source") == "Shop"]
+    shop_titles.sort(key=lambda item: order.get(item[0], len(order)))
     PAGE = 5
     total = (len(shop_titles) + PAGE - 1) // PAGE
     page  = max(1, min(page, total))
@@ -1140,7 +1155,7 @@ async def handle_titleshop(bot: BaseBot, user: User, args: list[str]) -> None:
     perks    = get_combined_perks(user.id)
     disc_pct = perks.get("shop_discount_pct", 0.0)
 
-    lines = [f"🏷️ Title Shop {page}/{total}"]
+    lines = [f"🏷️ Flex Titles {page}/{total}"]
     for tid, t in chunk:
         owned = _user_owns(user.id, tid)
         eq    = _user_equipped_title(user.id) == tid
@@ -1149,7 +1164,7 @@ async def handle_titleshop(bot: BaseBot, user: User, args: list[str]) -> None:
             price = int(price * (1 - disc_pct / 100))
         tag  = " [EQUIPPED]" if eq else (" [OWNED]" if owned else "")
         lines.append(f"ID: {tid} {t['display']} — {_fmt(price)}c{tag}")
-    lines.append(f"Buy: !buytitle <id>  Info: !titleinfo <id>")
+    lines.append("Buy: !buytitle <id>  Info: !titleinfo <id>")
     if page < total:
         lines.append(f"Next: !titleshop {page + 1}")
     await _w(bot, user.id, "\n".join(lines)[:249])

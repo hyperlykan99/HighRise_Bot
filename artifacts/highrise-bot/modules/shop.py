@@ -81,20 +81,20 @@ BADGES: dict[str, dict] = {
 
 TITLES: dict[str, dict] = {
     # ── Entry tier ──────────────────────────────────────────────────────────
-    "rookie":      {"display": "[Rookie]",       "price": TITLE_PRICE_BEGINNER, "description": "+5 daily coins",                          "benefits": {"daily_coins_bonus": 5}},
-    "lucky":       {"display": "[Lucky]",         "price": TITLE_PRICE_ENTRY,   "description": "+2% coinflip win bonus payout",           "benefits": {"coinflip_payout_pct": 2.0}},
-    "grinder":     {"display": "[Grinder]",       "price": TITLE_PRICE_EARLY,   "description": "+10 XP bonus from game wins",             "benefits": {"xp_bonus": 10}},
+    "rookie":      {"display": "[Lounge Rookie]", "price": TITLE_PRICE_BEGINNER, "description": "Fresh face in the ChillTopia lounge | +5 daily coins",             "benefits": {"daily_coins_bonus": 5}},
+    "lucky":       {"display": "[Lucky Vibe]",    "price": TITLE_PRICE_ENTRY,   "description": "Good energy follows you into every room | +2% coinflip payout",      "benefits": {"coinflip_payout_pct": 2.0}},
+    "grinder":     {"display": "[Rising Regular]","price": TITLE_PRICE_EARLY,   "description": "Known face, steady grind, better wins | +10 XP from game wins",     "benefits": {"xp_bonus": 10}},
     # ── Mid tier — game-specific prestige ───────────────────────────────────
-    "trivia_king": {"display": "[Trivia King]",   "price": TITLE_PRICE_MID,     "description": "+10 coins per trivia win",                "benefits": {"trivia_bonus": 10}},
-    "word_master": {"display": "[Word Master]",   "price": TITLE_PRICE_MID,     "description": "+10 coins per scramble win",              "benefits": {"scramble_bonus": 10}},
-    "riddle_lord": {"display": "[Riddle Lord]",   "price": TITLE_PRICE_MID,     "description": "+10 coins per riddle win",                "benefits": {"riddle_bonus": 10}},
-    "casino_rat":  {"display": "[Casino Rat]",    "price": TITLE_PRICE_ADVANCED,"description": "+5% casino payout bonus",                 "benefits": {"coinflip_payout_pct": 5.0}},
+    "trivia_king": {"display": "[Trivia Icon]",   "price": TITLE_PRICE_MID,     "description": "The answer everyone waits for | +10 trivia coins",                "benefits": {"trivia_bonus": 10}},
+    "word_master": {"display": "[Wordplay Star]", "price": TITLE_PRICE_MID,     "description": "Quick with letters, quicker with wins | +10 scramble coins",       "benefits": {"scramble_bonus": 10}},
+    "riddle_lord": {"display": "[Mystery Maven]", "price": TITLE_PRICE_MID,     "description": "Puzzle-room reputation | +10 riddle coins",                     "benefits": {"riddle_bonus": 10}},
+    "casino_rat":  {"display": "[Lucky Lounge]",  "price": TITLE_PRICE_ADVANCED,"description": "Casino-table confidence | +5% casino payout",                   "benefits": {"coinflip_payout_pct": 5.0}},
     # ── Upper tier — high-commitment goals ──────────────────────────────────
-    "high_roller": {"display": "[High Roller]",   "price": TITLE_PRICE_UPPER,   "description": "+10% casino payout bonus",                "benefits": {"coinflip_payout_pct": 10.0}},
-    "millionaire": {"display": "[Millionaire]",   "price": TITLE_PRICE_HIGH,    "description": "+25 daily coins and +25 XP from daily",   "benefits": {"daily_coins_bonus": 25, "daily_xp_bonus": 25}},
+    "high_roller": {"display": "[Velvet VIP]",    "price": TITLE_PRICE_UPPER,   "description": "High-stakes lounge energy | +10% casino payout",                 "benefits": {"coinflip_payout_pct": 10.0}},
+    "millionaire": {"display": "[Penthouse Flex]","price": TITLE_PRICE_HIGH,    "description": "Wealthy room presence | +25 daily coins and +25 daily XP",       "benefits": {"daily_coins_bonus": 25, "daily_xp_bonus": 25}},
     # ── Endgame tier — long-term prestige ───────────────────────────────────
-    "elite":       {"display": "[Elite]",         "price": TITLE_PRICE_PREMIUM, "description": "+15% all game coin rewards",              "benefits": {"game_reward_pct": 15.0}},
-    "immortal":    {"display": "[Immortal]",      "price": TITLE_PRICE_PRESTIGE,"description": "+20% all game coin rewards +50 daily",    "benefits": {"game_reward_pct": 20.0, "daily_coins_bonus": 50}},
+    "elite":       {"display": "[Penthouse Elite]","price": TITLE_PRICE_PREMIUM, "description": "Top-floor status | +15% all game coin rewards",                  "benefits": {"game_reward_pct": 15.0}},
+    "immortal":    {"display": "[Metaverse Legend]","price": TITLE_PRICE_PRESTIGE,"description": "A name the whole room recognizes | +20% game coins, +50 daily",  "benefits": {"game_reward_pct": 20.0, "daily_coins_bonus": 50}},
 }
 
 
@@ -277,11 +277,11 @@ async def handle_shop(bot: BaseBot, user: User, args: list[str]):
         try:
             await bot.highrise.send_whisper(user.id,
                 "🛍️ ChillTopia Shop\n"
-                "🏷️ Titles: !titleshop\n"
+                "🏷️ Titles/Flex: !titleshop\n"
                 "🎖️ Badges: !badgeshop\n"
-                "🎟️ Luxe Tickets: !luxe\n"
-                "💎 VIP: !vip\n"
-                "🎒 My Items: !myitems"
+                "💎 VIP perks: !vip\n"
+                "🎟️ Luxe: !luxe\n"
+                "🎒 Owned: !myitems"
             )
         except Exception as exc:
             print(f"[SHOP] /shop help error for {user.username}: {exc}")
