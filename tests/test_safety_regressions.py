@@ -718,3 +718,34 @@ def test_economy_phase_one_reward_targets(monkeypatch, tmp_path):
     assert 100_000 <= weekly_coin_total <= 150_000
     assert 100_000 <= weekly_fallback_total <= 150_000
     assert streak_week_total == 8_600
+
+
+def test_economy_phase_two_sink_price_targets(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path)
+    _install_highrise_stub(monkeypatch)
+    shop = importlib.import_module("modules.shop")
+    title_system = importlib.import_module("modules.title_system")
+    vip = importlib.import_module("modules.vip")
+
+    assert shop.BADGES["star_badge"]["price"] == 5_000
+    assert shop.BADGES["trophy_badge"]["price"] == 125_000
+    assert shop.TITLES["rookie"]["price"] == 10_000
+    assert shop.TITLES["immortal"]["price"] == 1_500_000
+
+    buyable_titles = {
+        title_id: data
+        for title_id, data in title_system.TITLE_CATALOG.items()
+        if data.get("buyable") and data.get("source") == "Shop"
+    }
+    assert {"rookie", "elite", "immortal", "chilltopia_royalty"} <= set(buyable_titles)
+    assert buyable_titles["rookie"]["price"] == 10_000
+    assert buyable_titles["elite"]["price"] == 750_000
+    assert buyable_titles["immortal"]["price"] == 1_500_000
+    assert buyable_titles["chilltopia_royalty"]["price"] == 5_000_000
+    assert all(data["price"] >= 5_000 for data in buyable_titles.values())
+
+    assert vip._VIP_DEFAULT_PRICES == {
+        "1d": 15_000,
+        "7d": 75_000,
+        "30d": 250_000,
+    }

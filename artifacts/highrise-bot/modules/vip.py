@@ -38,8 +38,10 @@ _VIP_DURATIONS: dict[str, tuple[int, str]] = {
     "7d":  (7,  "7 days"),
     "30d": (30, "30 days"),
 }
+# Coin VIP is a recurring prestige sink. Existing room-setting overrides still
+# win; these defaults only apply when no custom vip_price_* setting exists.
 _VIP_DEFAULT_PRICES: dict[str, int] = {
-    "1d": 10_000, "7d": 50_000, "30d": 150_000,
+    "1d": 15_000, "7d": 75_000, "30d": 250_000,
 }
 
 _SUPPORTER_PERKS = (
@@ -192,6 +194,12 @@ async def handle_buyvip(bot: "BaseBot", user: "User", args: list[str]) -> None:
     expires_dt  = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=days)
     expires_str = expires_dt.strftime("%Y-%m-%d")
     db.set_room_setting(f"vip_expires_{user.id}", expires_str)
+    print(
+        "[ECON_SINK] "
+        f"source=vip_purchase user_id={user.id} username={user.username} "
+        f"duration={dur} days={days} amount={price} "
+        f"balance_after={db.get_balance(user.id)}"
+    )
     await _w(bot, user.id,
              f"✅ VIP Activated!\n"
              f"Duration: {label}\n"

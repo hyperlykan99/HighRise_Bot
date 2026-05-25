@@ -38,50 +38,63 @@ from modules.achievements import check_achievements
 # Shop catalog
 # Each item may include a "benefits" dict with any subset of benefit keys.
 # Items without "benefits" (or with an empty dict) are cosmetic-only.
+# Phase 2 sink pacing: starter cosmetics are 5k-25k, mid-tier flex goals
+# are 50k-250k, and prestige titles start at 750k+.
 # ---------------------------------------------------------------------------
 
+BADGE_PRICE_STARTER = 5_000
+BADGE_PRICE_ENTRY = 7_500
+BADGE_PRICE_EARLY = 12_500
+BADGE_PRICE_MID = 25_000
+BADGE_PRICE_PREMIUM = 75_000
+BADGE_PRICE_PRESTIGE = 125_000
+
+TITLE_PRICE_BEGINNER = 10_000
+TITLE_PRICE_ENTRY = 20_000
+TITLE_PRICE_EARLY = 25_000
+TITLE_PRICE_MID = 50_000
+TITLE_PRICE_ADVANCED = 75_000
+TITLE_PRICE_UPPER = 150_000
+TITLE_PRICE_HIGH = 250_000
+TITLE_PRICE_PREMIUM = 750_000
+TITLE_PRICE_PRESTIGE = 1_500_000
+
 BADGES: dict[str, dict] = {
-    # ── Entry tier (~0–0.1 days of mining) ──────────────────────────────────
-    # Instantly affordable. First-session purchases for any new player.
-    # Cosmetic badges (no benefits) priced equal to minor-benefit badges at
-    # this level since 250–750c is effectively free either way.
-    "star_badge":      {"display": "⭐", "price": 250,    "description": "+1 XP/win",              "benefits": {"xp_bonus": 1}},
-    "heart_badge":     {"display": "💖", "price": 250,    "description": "Cosmetic only"},
-    "music_badge":     {"display": "🎵", "price": 500,    "description": "Cosmetic only"},
-    "fire_badge":      {"display": "🔥", "price": 500,    "description": "+2 XP/win",              "benefits": {"xp_bonus": 2}},
-    "dice_badge":      {"display": "🎲", "price": 750,    "description": "+2% coinflip payout",    "benefits": {"coinflip_payout_pct": 2.0}},
-    # ── Early grind tier (~0.2–0.5 days) ────────────────────────────────────
-    # Require saving up for 1–3 mining sessions. Real first upgrades.
-    "skull_badge":     {"display": "💀", "price": 1_500,  "description": "+3 XP/win",              "benefits": {"xp_bonus": 3}},
-    "lightning_badge": {"display": "⚡", "price": 2_000,  "description": "-5s coinflip cooldown",  "benefits": {"cooldown_reduction": 5}},
-    "gem_badge":       {"display": "💎", "price": 3_000,  "description": "+5 daily coins",         "benefits": {"daily_coins_bonus": 5}},
-    # ── Mid-game tier (~0.75–1.5 days) ──────────────────────────────────────
-    # Multi-day goals for established players. Noticeable benefit step-ups.
-    "crown_badge":     {"display": "👑", "price": 5_000,  "description": "+5 XP/win",              "benefits": {"xp_bonus": 5}},
-    "angel_badge":     {"display": "😇", "price": 8_000,  "description": "+10 daily coins",        "benefits": {"daily_coins_bonus": 10}},
-    "dragon_badge":    {"display": "🐉", "price": 10_000, "description": "+10 XP/win",             "benefits": {"xp_bonus": 10}},
-    # ── Upper tier (~2.25–3.75 days) ────────────────────────────────────────
-    # Week-long goals. Meaningful prestige and strongest per-badge bonuses.
-    "demon_badge":     {"display": "😈", "price": 15_000, "description": "+5% coinflip payout",    "benefits": {"coinflip_payout_pct": 5.0}},
-    "trophy_badge":    {"display": "🏆", "price": 25_000, "description": "+15 XP/win",             "benefits": {"xp_bonus": 15}},
+    # ── Beginner tier ───────────────────────────────────────────────────────
+    "star_badge":      {"display": "⭐", "price": BADGE_PRICE_STARTER,  "description": "+1 XP/win",              "benefits": {"xp_bonus": 1}},
+    "heart_badge":     {"display": "💖", "price": BADGE_PRICE_STARTER,  "description": "Cosmetic only"},
+    "music_badge":     {"display": "🎵", "price": BADGE_PRICE_ENTRY,    "description": "Cosmetic only"},
+    "fire_badge":      {"display": "🔥", "price": BADGE_PRICE_ENTRY,    "description": "+2 XP/win",              "benefits": {"xp_bonus": 2}},
+    "dice_badge":      {"display": "🎲", "price": TITLE_PRICE_BEGINNER, "description": "+2% coinflip payout",    "benefits": {"coinflip_payout_pct": 2.0}},
+    # ── Early grind tier ────────────────────────────────────────────────────
+    "skull_badge":     {"display": "💀", "price": BADGE_PRICE_EARLY,    "description": "+3 XP/win",              "benefits": {"xp_bonus": 3}},
+    "lightning_badge": {"display": "⚡", "price": 15_000,               "description": "-5s coinflip cooldown",  "benefits": {"cooldown_reduction": 5}},
+    "gem_badge":       {"display": "💎", "price": 20_000,               "description": "+5 daily coins",         "benefits": {"daily_coins_bonus": 5}},
+    # ── Mid-game tier ───────────────────────────────────────────────────────
+    "crown_badge":     {"display": "👑", "price": BADGE_PRICE_MID,      "description": "+5 XP/win",              "benefits": {"xp_bonus": 5}},
+    "angel_badge":     {"display": "😇", "price": 35_000,               "description": "+10 daily coins",        "benefits": {"daily_coins_bonus": 10}},
+    "dragon_badge":    {"display": "🐉", "price": TITLE_PRICE_MID,      "description": "+10 XP/win",             "benefits": {"xp_bonus": 10}},
+    # ── Upper cosmetic/prestige tier ────────────────────────────────────────
+    "demon_badge":     {"display": "😈", "price": BADGE_PRICE_PREMIUM,  "description": "+5% coinflip payout",    "benefits": {"coinflip_payout_pct": 5.0}},
+    "trophy_badge":    {"display": "🏆", "price": BADGE_PRICE_PRESTIGE, "description": "+15 XP/win",             "benefits": {"xp_bonus": 15}},
 }
 
 TITLES: dict[str, dict] = {
-    # ── Entry tier (1–3 days of active play) ────────────────────────────────
-    "rookie":      {"display": "[Rookie]",       "price": 3_000,   "description": "+5 daily coins",                          "benefits": {"daily_coins_bonus": 5}},
-    "lucky":       {"display": "[Lucky]",         "price": 7_500,   "description": "+2% coinflip win bonus payout",           "benefits": {"coinflip_payout_pct": 2.0}},
-    "grinder":     {"display": "[Grinder]",       "price": 12_000,  "description": "+10 XP bonus from game wins",             "benefits": {"xp_bonus": 10}},
-    # ── Mid tier — game-specific prestige (3–6 days) ────────────────────────
-    "trivia_king": {"display": "[Trivia King]",   "price": 25_000,  "description": "+10 coins per trivia win",                "benefits": {"trivia_bonus": 10}},
-    "word_master": {"display": "[Word Master]",   "price": 25_000,  "description": "+10 coins per scramble win",              "benefits": {"scramble_bonus": 10}},
-    "riddle_lord": {"display": "[Riddle Lord]",   "price": 25_000,  "description": "+10 coins per riddle win",                "benefits": {"riddle_bonus": 10}},
-    "casino_rat":  {"display": "[Casino Rat]",    "price": 35_000,  "description": "+5% casino payout bonus",                 "benefits": {"coinflip_payout_pct": 5.0}},
-    # ── Upper tier — high-commitment goals (12–16 days) ─────────────────────
-    "high_roller": {"display": "[High Roller]",   "price": 75_000,  "description": "+10% casino payout bonus",                "benefits": {"coinflip_payout_pct": 10.0}},
-    "millionaire": {"display": "[Millionaire]",   "price": 100_000, "description": "+25 daily coins and +25 XP from daily",   "benefits": {"daily_coins_bonus": 25, "daily_xp_bonus": 25}},
-    # ── Endgame tier — long-term prestige (5+ weeks) ────────────────────────
-    "elite":       {"display": "[Elite]",         "price": 250_000, "description": "+15% all game coin rewards",              "benefits": {"game_reward_pct": 15.0}},
-    "immortal":    {"display": "[Immortal]",      "price": 500_000, "description": "+20% all game coin rewards +50 daily",    "benefits": {"game_reward_pct": 20.0, "daily_coins_bonus": 50}},
+    # ── Entry tier ──────────────────────────────────────────────────────────
+    "rookie":      {"display": "[Rookie]",       "price": TITLE_PRICE_BEGINNER, "description": "+5 daily coins",                          "benefits": {"daily_coins_bonus": 5}},
+    "lucky":       {"display": "[Lucky]",         "price": TITLE_PRICE_ENTRY,   "description": "+2% coinflip win bonus payout",           "benefits": {"coinflip_payout_pct": 2.0}},
+    "grinder":     {"display": "[Grinder]",       "price": TITLE_PRICE_EARLY,   "description": "+10 XP bonus from game wins",             "benefits": {"xp_bonus": 10}},
+    # ── Mid tier — game-specific prestige ───────────────────────────────────
+    "trivia_king": {"display": "[Trivia King]",   "price": TITLE_PRICE_MID,     "description": "+10 coins per trivia win",                "benefits": {"trivia_bonus": 10}},
+    "word_master": {"display": "[Word Master]",   "price": TITLE_PRICE_MID,     "description": "+10 coins per scramble win",              "benefits": {"scramble_bonus": 10}},
+    "riddle_lord": {"display": "[Riddle Lord]",   "price": TITLE_PRICE_MID,     "description": "+10 coins per riddle win",                "benefits": {"riddle_bonus": 10}},
+    "casino_rat":  {"display": "[Casino Rat]",    "price": TITLE_PRICE_ADVANCED,"description": "+5% casino payout bonus",                 "benefits": {"coinflip_payout_pct": 5.0}},
+    # ── Upper tier — high-commitment goals ──────────────────────────────────
+    "high_roller": {"display": "[High Roller]",   "price": TITLE_PRICE_UPPER,   "description": "+10% casino payout bonus",                "benefits": {"coinflip_payout_pct": 10.0}},
+    "millionaire": {"display": "[Millionaire]",   "price": TITLE_PRICE_HIGH,    "description": "+25 daily coins and +25 XP from daily",   "benefits": {"daily_coins_bonus": 25, "daily_xp_bonus": 25}},
+    # ── Endgame tier — long-term prestige ───────────────────────────────────
+    "elite":       {"display": "[Elite]",         "price": TITLE_PRICE_PREMIUM, "description": "+15% all game coin rewards",              "benefits": {"game_reward_pct": 15.0}},
+    "immortal":    {"display": "[Immortal]",      "price": TITLE_PRICE_PRESTIGE,"description": "+20% all game coin rewards +50 daily",    "benefits": {"game_reward_pct": 20.0, "daily_coins_bonus": 50}},
 }
 
 
@@ -341,6 +354,13 @@ async def handle_buy(bot: BaseBot, user: User, args: list[str]):
     if success:
         new_balance   = db.get_balance(user.id)
         discount_note = f" 🏷️ {int(_ev['shop_discount']*100)}% sale!" if _ev["shop_discount"] > 0 else ""
+        print(
+            "[ECON_SINK] "
+            f"source=shop_purchase user_id={user.id} username={user.username} "
+            f"item_type={item_type} item_id={item_id} amount={price} "
+            f"raw_price={raw_price} discount_pct={_ev['shop_discount'] * 100:.0f} "
+            f"balance_after={new_balance}"
+        )
         await bot.highrise.send_whisper(
             user.id,
             f"✅ Purchased {item['display']}  {item_id}!{discount_note}\n"

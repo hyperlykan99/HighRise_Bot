@@ -32,34 +32,49 @@ import database as db
 # Title catalog
 # Each entry: display, tier, source, category, price, buyable, secret,
 #             req_type, req_val, perks, description, announce (bool)
+# Phase 2 sink pacing keeps starter titles reachable while moving premium and
+# prestige cosmetics into longer-term goals under the reduced mission income.
 # ---------------------------------------------------------------------------
+
+SHOP_TITLE_PRICES: dict[str, int] = {
+    "rookie": 10_000,
+    "lucky": 20_000,
+    "grinder": 25_000,
+    "regular": 50_000,
+    "vip_player": 100_000,
+    "casino_regular": 150_000,
+    "chill_elite": 250_000,
+    "elite": 750_000,
+    "immortal": 1_500_000,
+    "chilltopia_royalty": 5_000_000,
+}
 
 TITLE_CATALOG: dict[str, dict] = {
     # ── Shop titles ──────────────────────────────────────────────────────────
     "rookie": {
         "display": "[Rookie]", "tier": "Common", "source": "Shop",
-        "category": "shop", "price": 3_000, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["rookie"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"daily_coins_bonus": 5},
         "description": "+5 daily coins",
     },
     "lucky": {
         "display": "[Lucky]", "tier": "Common", "source": "Shop",
-        "category": "shop", "price": 7_500, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["lucky"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 2.0},
         "description": "+2% game rewards",
     },
     "grinder": {
         "display": "[Grinder]", "tier": "Rare", "source": "Shop",
-        "category": "shop", "price": 12_000, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["grinder"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 3.0},
         "description": "+3% game rewards",
     },
     "regular": {
         "display": "[Regular]", "tier": "Rare", "source": "Shop",
-        "category": "shop", "price": 25_000, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["regular"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"daily_coins_bonus": 10},
         "description": "+10 daily coins",
@@ -111,42 +126,42 @@ TITLE_CATALOG: dict[str, dict] = {
     },
     "elite": {
         "display": "[Elite]", "tier": "Legendary", "source": "Shop",
-        "category": "shop", "price": 300_000, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["elite"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 8.0},
         "description": "+8% game rewards",
     },
     "immortal": {
         "display": "[Immortal]", "tier": "Mythic", "source": "Shop",
-        "category": "shop", "price": 750_000, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["immortal"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 12.0, "daily_coins_bonus": 50},
         "description": "+12% game rewards, +50 daily coins",
     },
     "chilltopia_royalty": {
         "display": "[ChillTopia Royalty]", "tier": "Mythic", "source": "Shop",
-        "category": "shop", "price": 1_500_000, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["chilltopia_royalty"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 15.0, "daily_coins_bonus": 100},
         "description": "+15% game rewards, +100 daily coins",
     },
     "vip_player": {
         "display": "[VIP Player]", "tier": "Epic", "source": "Shop",
-        "category": "shop", "price": 50_000, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["vip_player"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"shop_discount_pct": 3.0},
         "description": "+3% shop discount",
     },
     "casino_regular": {
         "display": "[Casino Regular]", "tier": "Epic", "source": "Shop",
-        "category": "shop", "price": 75_000, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["casino_regular"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"casino_reward_pct": 3.0},
         "description": "+3% casino rewards",
     },
     "chill_elite": {
         "display": "[Chill Elite]", "tier": "Legendary", "source": "Shop",
-        "category": "shop", "price": 150_000, "buyable": True,
+        "category": "shop", "price": SHOP_TITLE_PRICES["chill_elite"], "buyable": True,
         "req_type": "", "req_val": 0,
         "perks": {"game_reward_pct": 5.0, "daily_coins_bonus": 25},
         "description": "+5% game rewards, +25 daily coins",
@@ -1330,6 +1345,12 @@ async def handle_buytitle(bot: BaseBot, user: User, args: list[str]) -> None:
     db.add_user_title(user.id, user.username, tid, "Shop")
     db.log_title_action("title_bought", user.id, user.username, tid,
                          details=f"price={price}")
+    print(
+        "[ECON_SINK] "
+        f"source=title_purchase user_id={user.id} username={user.username} "
+        f"title_id={tid} amount={price} raw_price={t['price']} "
+        f"discount_pct={disc_pct:.0f} balance_after={db.get_balance(user.id)}"
+    )
     # Track spend stat
     increment_title_stat(user.id, user.username,
                           "lifetime_chillcoins_spent", price)
