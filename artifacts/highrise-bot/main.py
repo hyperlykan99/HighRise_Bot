@@ -1551,7 +1551,7 @@ ALL_KNOWN_COMMANDS = (
         # ── Emote extensions ──────────────────────────────────────────────────
         "emoteinfo",
         # ── Bot spawns ────────────────────────────────────────────────────────
-        "setbotspawn", "setbotspawnhere", "botspawns", "clearbotspawn",
+        "setbotspawn", "setbotspawnhere", "botspawnhere", "botspawns", "clearbotspawn",
         "returnbots", "botshome",
         "mypos", "positiondebug",
         # ── Events (new) ──────────────────────────────────────────────────────
@@ -7688,7 +7688,7 @@ class HangoutBot(BaseBot):
         # ── Bot spawns ────────────────────────────────────────────────────────
         elif cmd == "setbotspawn":
             await handle_setbotspawn(self, user, args)
-        elif cmd == "setbotspawnhere":
+        elif cmd in ("setbotspawnhere", "botspawnhere"):
             await handle_setbotspawnhere(self, user, args)
         elif cmd == "botspawns":
             await handle_botspawns(self, user)

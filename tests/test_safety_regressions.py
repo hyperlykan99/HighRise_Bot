@@ -377,6 +377,85 @@ def test_host_spawn_restore_falls_back_to_chilltopiamc_key(monkeypatch, tmp_path
     assert bot.highrise.teleports[0][0] == "bot-1"
 
 
+def test_bot_spawn_facing_aliases_normalize_to_sdk_values(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    _install_highrise_stub(monkeypatch)
+    room = importlib.import_module("modules.room_utils")
+
+    assert room._normalize_spawn_facing("fr")[0] == "FrontRight"
+    assert room._normalize_spawn_facing("front-right")[0] == "FrontRight"
+    assert room._normalize_spawn_facing("front_left")[0] == "FrontLeft"
+    assert room._normalize_spawn_facing("br")[0] == "BackRight"
+    assert room._normalize_spawn_facing("back-left")[0] == "BackLeft"
+    assert room._normalize_spawn_facing("", fallback="BackRight") == ("BackRight", "sender")
+    assert room._normalize_spawn_facing("sideways")[1] == "invalid"
+
+
+def test_botspawnhere_saves_explicit_diagonal_facing(monkeypatch, tmp_path, capsys):
+    _install_env(monkeypatch, tmp_path, bot_mode="host")
+    _install_highrise_stub(monkeypatch)
+
+    class Pos:
+        def __init__(self, x, y, z, facing="FrontRight"):
+            self.x = x
+            self.y = y
+            self.z = z
+            self.facing = facing
+
+    sys.modules["highrise.models"].Position = Pos
+    room = importlib.import_module("modules.room_utils")
+    monkeypatch.setattr(room, "_can_manage_room", lambda _username: True)
+    room._user_positions[FakeUser.id] = Pos(1, 2, 3, "BackLeft")
+    saved = {}
+
+    def fake_set_bot_spawn(bot_username, spawn_name, x, y, z, facing, set_by):
+        saved.update(
+            bot_username=bot_username,
+            spawn_name=spawn_name,
+            x=x,
+            y=y,
+            z=z,
+            facing=facing,
+            set_by=set_by,
+        )
+
+    class Highrise(FakeHighrise):
+        def __init__(self):
+            super().__init__()
+            self.teleports = []
+
+        async def teleport(self, uid, pos):
+            self.teleports.append((uid, pos))
+
+    class Bot:
+        def __init__(self):
+            self.highrise = Highrise()
+
+    async def fake_resolve(_bot, _username):
+        return types.SimpleNamespace(id="bot-target", username="GreatestProspector"), None
+
+    monkeypatch.setattr(room.db, "set_bot_spawn", fake_set_bot_spawn)
+    monkeypatch.setattr(room, "_resolve_user_in_room", fake_resolve)
+    bot = Bot()
+
+    asyncio.run(
+        room.handle_setbotspawnhere(
+            bot,
+            FakeUser(),
+            ["botspawnhere", "@GreatestProspector", "front-left"],
+        )
+    )
+
+    assert saved["bot_username"] == "greatestprospector"
+    assert saved["facing"] == "FrontLeft"
+    assert bot.highrise.teleports[0][1].facing == "FrontLeft"
+    assert "Facing: FrontLeft" in bot.highrise.whispers[0][1]
+    assert (
+        "[BOT_SPAWN_SAVE] bot=greatestprospector key=greatestprospector "
+        "facing_raw='front-left' facing_saved='FrontLeft' source=explicit"
+    ) in capsys.readouterr().out
+
+
 def test_radio_nowplaying_vote_counts_use_canonical_title_key(monkeypatch, tmp_path, capsys):
     _install_env(monkeypatch, tmp_path, bot_mode="dj")
     resolver = importlib.import_module("modules.track_resolver")

@@ -68,6 +68,35 @@ _BOT_SPAWN_MODE_ALIASES: dict[str, tuple[str, ...]] = {
     "dj": ("dj_dudu",),
 }
 
+_BOT_SPAWN_USAGE = (
+    "Usage: !botspawnhere @bot "
+    "[front|back|left|right|frontleft|frontright|backleft|backright]"
+)
+
+_SDK_FACING_VALUES = {"FrontRight", "FrontLeft", "BackRight", "BackLeft"}
+_FACING_ALIASES: dict[str, str] = {
+    "frontright": "FrontRight",
+    "front-right": "FrontRight",
+    "front_right": "FrontRight",
+    "fr": "FrontRight",
+    "front": "FrontRight",
+    "right": "FrontRight",
+    "frontleft": "FrontLeft",
+    "front-left": "FrontLeft",
+    "front_left": "FrontLeft",
+    "fl": "FrontLeft",
+    "left": "FrontLeft",
+    "backright": "BackRight",
+    "back-right": "BackRight",
+    "back_right": "BackRight",
+    "br": "BackRight",
+    "backleft": "BackLeft",
+    "back-left": "BackLeft",
+    "back_left": "BackLeft",
+    "bl": "BackLeft",
+    "back": "BackLeft",
+}
+
 # Follow task
 _follow_task: asyncio.Task | None = None
 
@@ -110,6 +139,25 @@ def _format_pos(pos: object | None) -> str:
         )
     except Exception:
         return repr(pos)[:120]
+
+
+def _normalize_spawn_facing(raw: object, *, fallback: str = "FrontRight") -> tuple[str, str]:
+    """
+    Normalize staff-friendly facing words to SDK Position.facing values.
+    Returns (saved_facing, source) where source is explicit|sender.
+    """
+    raw_s = str(raw or "").strip()
+    if not raw_s:
+        fb = str(fallback or "FrontRight").strip()
+        return (fb if fb in _SDK_FACING_VALUES else "FrontRight", "sender")
+    key = raw_s.replace(" ", "").lower()
+    saved = _FACING_ALIASES.get(key)
+    if saved:
+        return saved, "explicit"
+    camel = raw_s[:1].upper() + raw_s[1:]
+    if camel in _SDK_FACING_VALUES:
+        return camel, "explicit"
+    return "", "invalid"
 
 
 def _pos_close(actual: object | None, expected: Position, threshold: float = 1.25) -> bool:
@@ -2317,6 +2365,10 @@ async def handle_setbotspawn(bot: BaseBot, user: User, args: list[str]) -> None:
     x, y, z = spawn["x"], spawn["y"], spawn["z"]
     facing   = spawn.get("facing", "FrontRight")
     db.set_bot_spawn(bot_username, spawn_name, x, y, z, facing, user.username)
+    print(
+        f"[BOT_SPAWN_SAVE] bot={bot_username} key={bot_username} "
+        f"facing_raw={facing!r} facing_saved={facing!r} source=spawn"
+    )
     msg = (
         f"🤖 Bot Spawn Saved\n"
         f"Bot: @{bot_username}\n"
@@ -2326,14 +2378,15 @@ async def handle_setbotspawn(bot: BaseBot, user: User, args: list[str]) -> None:
 
 
 async def handle_setbotspawnhere(bot: BaseBot, user: User, args: list[str]) -> None:
-    """!setbotspawnhere @BotName — save bot's spawn at the command user's position."""
+    """!setbotspawnhere @BotName [facing] — save bot spawn at the command user's position."""
     if not _can_manage_room(user.username):
         await _w(bot, user.id, "Manager+ only.")
         return
     if len(args) < 2:
-        await _w(bot, user.id, "Usage: !setbotspawnhere @BotName")
+        await _w(bot, user.id, _BOT_SPAWN_USAGE)
         return
     bot_username = args[1].lstrip("@").lower()
+    facing_raw = args[2] if len(args) >= 3 else ""
 
     # Primary: use cached position (keyed by user_id)
     pos = _user_positions.get(user.id)
@@ -2359,8 +2412,22 @@ async def handle_setbotspawnhere(bot: BaseBot, user: User, args: list[str]) -> N
         return
 
     x, y, z = pos.x, pos.y, pos.z
-    facing   = getattr(pos, "facing", "FrontRight")
-    db.set_bot_spawn(bot_username, "custom", x, y, z, str(facing), user.username)
+    sender_facing = str(getattr(pos, "facing", "FrontRight"))
+    facing, facing_source = _normalize_spawn_facing(facing_raw, fallback=sender_facing)
+    if not facing:
+        await _w(bot, user.id, _BOT_SPAWN_USAGE)
+        return
+    if facing_raw and facing_raw.strip().replace(" ", "").lower() in {"front", "back", "left", "right"}:
+        print(
+            f"[BOT_SPAWN_SAVE] cardinal_facing_mapped=true "
+            f"raw={facing_raw!r} saved={facing!r}"
+        )
+    db.set_bot_spawn(bot_username, "custom", x, y, z, facing, user.username)
+    print(
+        f"[BOT_SPAWN_SAVE] bot={bot_username} key={bot_username} "
+        f"facing_raw={(facing_raw or sender_facing)!r} "
+        f"facing_saved={facing!r} source={facing_source}"
+    )
 
     # Teleport the target bot to that position right now if it's in the room
     moved = "NO"
@@ -2368,7 +2435,7 @@ async def handle_setbotspawnhere(bot: BaseBot, user: User, args: list[str]) -> N
         result = await _resolve_user_in_room(bot, bot_username)
         if result:
             target_user, _ = result
-            await bot.highrise.teleport(target_user.id, pos)
+            await bot.highrise.teleport(target_user.id, Position(x, y, z, facing))
             moved = "YES"
     except Exception as exc:
         print(
@@ -2379,6 +2446,7 @@ async def handle_setbotspawnhere(bot: BaseBot, user: User, args: list[str]) -> N
     msg = (
         f"🤖 Bot Spawn Saved\n"
         f"Bot: @{bot_username}\n"
+        f"Facing: {facing}\n"
         f"Moved Here: {moved}\n"
         f"Auto-return on rejoin: YES"
     )
@@ -2554,9 +2622,13 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
             await asyncio.sleep(0.75)
             actual = await _get_bot_position(bot, bot_uid)
             success = bool(ok and expected is not None and _pos_close(actual, expected))
+            expected_facing = getattr(expected, "facing", "") if expected is not None else ""
+            actual_facing = getattr(actual, "facing", "") if actual is not None else ""
             print(
                 f"[SPAWN_RESTORE] bot={key} saved_key={saved_key or 'none'} attempt={attempt} "
                 f"expected={_format_pos(expected)} actual={_format_pos(actual)} "
+                f"expected_facing={expected_facing or 'unknown'} "
+                f"actual_facing={actual_facing or 'unknown'} "
                 f"success={success} reason={reason}"
             )
             if success or expected is None:

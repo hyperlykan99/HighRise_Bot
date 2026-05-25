@@ -444,6 +444,7 @@ REGISTRY: dict[str, Cmd] = {
     # ── Host: bot spawn management (new) ─────────────────────────────────────
     "setbotspawn":      Cmd("host","room_admin", True, False, True, perm="manager"),
     "setbotspawnhere":  Cmd("host","room_admin", True, False, True, perm="manager"),
+    "botspawnhere":     Cmd("host","room_admin", True, False, True, perm="manager"),
     "botspawns":        Cmd("host","room_admin", True, True,  False, perm="staff"),
     "clearbotspawn":    Cmd("host","room_admin", True, False, True, perm="manager"),
     "mypos":            Cmd("host","room_admin", True, True,  False, perm="any"),
