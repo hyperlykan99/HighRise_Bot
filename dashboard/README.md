@@ -82,6 +82,11 @@ Open:
 http://localhost:3000
 ```
 
+Use the same SQLite file that the bots use. On production/VPS this usually
+means setting `DB_PATH` to the same value as the bot process `SHARED_DB_PATH`.
+If `DB_PATH` is omitted, the dashboard defaults to
+`../artifacts/highrise-bot/highrise_hangout.db` from this directory.
+
 ## Database Tables Created Safely
 
 The server creates these tables only if missing:
@@ -113,18 +118,24 @@ It also reads existing tables when present:
 
 ## Bot Integration Notes
 
-Current dashboard write surfaces are intentionally conservative.
+Current dashboard write surfaces are intentionally conservative. Bot runtime
+code reads dashboard flags through `modules/dashboard_settings.py`; the web
+server still writes database rows only and never edits source files.
 
-Bot modules should read:
+Bot modules currently read:
 
 - `module_flags.module='radio'` and `bot_settings.key='requests_enabled'`
   before accepting new radio requests.
+- `module_flags.module='casino'` before accepting casino commands.
+- `module_flags.module='games'` and `bot_settings.key='games.enabled'` before
+  accepting optional game commands.
+
+Planned/future bot reads:
+
 - `bot_settings.key='radio.skip_requested'` if dashboard skip support is added.
-- `module_flags.module='casino'` and `bot_settings` keys beginning with
+- `bot_settings` keys beginning with
   `casino`, `bj_`, `rbj_`, `poker`, or `daily_` before accepting casino/game
   settings.
-- `module_flags.module='games'` and `bot_settings.key='games.enabled'` before
-  starting optional minigames.
 
 Emergency controls write flags only, except `clear_queue`, which marks upcoming
 radio request rows `cancelled` in `yt_request_jobs`. It does not touch source

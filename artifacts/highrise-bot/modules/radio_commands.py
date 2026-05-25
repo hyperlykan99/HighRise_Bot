@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 import database as db
 import modules.azuracast_controller as azura
 import modules.config_store         as cs
+from modules import dashboard_settings as _dash
 import modules.dj_announcer         as ann
 import modules.music_credits        as mc
 import modules.payment_service      as ps
@@ -2192,6 +2193,10 @@ async def _playfav_youtube_fallback(bot: "BaseBot", user: "User", fav: dict, pos
 async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
     """!playfav <#> — queue a specific favorite by number."""
     _rlog("playfav", "handle_playfav", user.username)
+    if not _dash.dashboard_gate_open("radio", "requests_enabled"):
+        await _w(bot, user.id, "📻 Song requests are currently disabled.")
+        return
+
     if len(args) < 2 or not args[1].isdigit():
         await _w(bot, user.id, "Usage: !playfav <#>  (see !favs for your list)")
         return

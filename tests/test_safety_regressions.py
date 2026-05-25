@@ -781,3 +781,27 @@ def test_shop_root_fallback_is_real_shop_menu(monkeypatch, tmp_path):
     assert msg.startswith("🛍️ ChillTopia Shop")
     assert "ct:" not in msg
     assert "route=YES" not in msg
+
+
+def test_dashboard_settings_flags_gate_bot_modules(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path)
+    _install_highrise_stub(monkeypatch)
+    db = importlib.import_module("database")
+    dash = importlib.import_module("modules.dashboard_settings")
+
+    db.init_db()
+    assert dash.module_enabled("casino") is True
+    assert dash.dashboard_gate_open("radio", "requests_enabled") is True
+
+    con = db.get_connection()
+    con.execute(
+        "INSERT OR REPLACE INTO module_flags (module, enabled, reason) VALUES ('casino', 0, 'test')"
+    )
+    con.execute(
+        "INSERT OR REPLACE INTO bot_settings (key, value) VALUES ('requests_enabled', 'false')"
+    )
+    con.commit()
+    con.close()
+
+    assert dash.module_enabled("casino") is False
+    assert dash.dashboard_gate_open("radio", "requests_enabled") is False

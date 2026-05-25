@@ -237,6 +237,20 @@ function ensureDashboardSchema(db) {
   seedRole.run("owner", "Full dashboard access");
   seedRole.run("staff", "Limited staff access controlled by permission flags");
 
+  for (const sql of [
+    "ALTER TABLE bot_settings ADD COLUMN scope TEXT NOT NULL DEFAULT 'global'",
+    "ALTER TABLE bot_settings ADD COLUMN module TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE bot_settings ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE bot_settings ADD COLUMN updated_by TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE bot_settings ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+  ]) {
+    try {
+      db.prepare(sql).run();
+    } catch (err) {
+      if (!String(err.message || "").includes("duplicate column")) throw err;
+    }
+  }
+
   const seedFlag = db.prepare(
     "INSERT OR IGNORE INTO module_flags (module, enabled, reason, updated_by) VALUES (?, 1, '', 'system')",
   );
@@ -470,6 +484,8 @@ app.get("/api/healthz", (_req, res) => {
   res.json({
     status: "ok",
     service: "chilltopia-owner-dashboard",
+    port: PORT,
+    db_path: DB_PATH,
     db_path_present: !!DB_PATH,
     remote_status: !!REMOTE_STATUS_URL,
   });
@@ -933,7 +949,7 @@ app.get(/.*/, (_req, res) => {
   }
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[DASHBOARD] stage=dashboard_startup mode=owner_staff port=${PORT}`);
-    console.log(`[DASHBOARD] db=${DB_PATH}`);
+    console.log(`[DASHBOARD_CONFIG] db_path=${DB_PATH} port=${PORT}`);
     if (REMOTE_STATUS_URL) console.log(`[DASHBOARD] remote_status_url=${REMOTE_STATUS_URL}`);
     console.log(`[DASHBOARD] Open: http://localhost:${PORT}`);
   });

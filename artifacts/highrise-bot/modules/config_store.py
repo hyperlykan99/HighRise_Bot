@@ -12,6 +12,7 @@ import json as _json
 import os
 import time as _time
 import database as db
+from modules import dashboard_settings as _dash
 
 _NS = "radio_"
 
@@ -73,6 +74,8 @@ def set_voteskip_threshold(n: int) -> None:
 # ─── System enabled ───────────────────────────────────────────────────────────
 
 def request_system_enabled() -> bool:
+    if not _dash.dashboard_gate_open("radio", "requests_enabled"):
+        return False
     return _get("requests_enabled", "true").lower() in ("1", "true", "yes")
 
 

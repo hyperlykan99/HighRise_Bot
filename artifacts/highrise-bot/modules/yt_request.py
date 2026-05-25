@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Callable
 
 import config as _config
 import database as db
+from modules import dashboard_settings as _dash
 import modules.config_store as cs
 from modules.permissions import is_admin, is_owner, is_manager
 from modules.radio_status import ACTIVE_QUEUE_STATUSES
@@ -1977,6 +1978,10 @@ async def handle_play(bot: "BaseBot", user: "User", args: list[str]) -> None:
     • Text → searches YouTube and shows top 5; user picks with !pick <1-5>.
     Aliases: !request !sr !song !req !ytrequest
     """
+    if not _dash.dashboard_gate_open("radio", "requests_enabled"):
+        await _w(bot, user.id, "📻 Song requests are currently disabled.")
+        return
+
     if _sftp_missing_vars():
         await _w(bot, user.id, "📻 YT Requests not configured (missing SFTP secrets).")
         return
@@ -2084,6 +2089,9 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list[str]) -> None:
 
 async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> None:
     """!ytrequest <youtube_url> — download and add to AzuraCast Requests playlist."""
+    if not _dash.dashboard_gate_open("radio", "requests_enabled"):
+        await _w(bot, user.id, "📻 Song requests are currently disabled.")
+        return
 
     # ── SFTP readiness check ─────────────────────────────────────────────────
     missing = _sftp_missing_vars()
@@ -2350,6 +2358,10 @@ async def handle_request(bot: "BaseBot", user: "User", args: list[str]) -> None:
     """!request <song name>  — search YouTube, show top 5 for AzuraCast upload.
     If a YouTube URL is given instead, delegates directly to handle_ytrequest.
     """
+    if not _dash.dashboard_gate_open("radio", "requests_enabled"):
+        await _w(bot, user.id, "📻 Song requests are currently disabled.")
+        return
+
     # SFTP must be ready — no point searching if we can't upload
     if _sftp_missing_vars():
         await _w(bot, user.id, "📻 YT Requests not configured (missing SFTP secrets).")

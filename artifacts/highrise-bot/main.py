@@ -37,6 +37,7 @@ from highrise.__main__ import BotDefinition, main as highrise_main
 
 import database as db
 import config
+from modules import dashboard_settings as dash_settings
 
 # Shared root-level modules (reusable by any future bot)
 from economy import (
@@ -1941,6 +1942,20 @@ DJ_COMMANDS: frozenset[str] = frozenset({
 })
 DJ_COMMANDS = DJ_COMMANDS | RADIO_REGISTRY_COMMANDS
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS
+
+DASHBOARD_CASINO_BLOCK_COMMANDS: frozenset[str] = frozenset(
+    BJ_COMMANDS
+    | {
+        "coinflip",
+        "poker", "join", "leave", "table", "hand", "cards",
+        "check", "call", "raise", "fold", "allin", "rebuy",
+        "sitout", "sitback", "pbet", "pstats", "pokerstats",
+        "plb", "pleaderboard", "pokerlb", "pokerleaderboard",
+    }
+)
+DASHBOARD_GAMES_BLOCK_COMMANDS: frozenset[str] = frozenset({
+    "trivia", "scramble", "riddle", "answer", "autogames",
+})
 
 # Commands that are strictly DJ_DUDU-only — any other bot mode must silently
 # ignore them even if they slip past the routing elif block.
@@ -4939,6 +4954,16 @@ class HangoutBot(BaseBot):
             _blocked = await automod_check(self, user, cmd, message)
             if _blocked:
                 return
+
+        # ── Dashboard emergency gates — DB flags only, no gameplay rewrites ───
+        if cmd in DASHBOARD_CASINO_BLOCK_COMMANDS and not dash_settings.module_enabled("casino", True):
+            print(f"[DASHBOARD_GATE] module=casino command={cmd} user={user.username} blocked=true")
+            await self.highrise.send_whisper(user.id, "⚠️ Casino is temporarily disabled by staff.")
+            return
+        if cmd in DASHBOARD_GAMES_BLOCK_COMMANDS and not dash_settings.dashboard_gate_open("games", "games.enabled"):
+            print(f"[DASHBOARD_GATE] module=games command={cmd} user={user.username} blocked=true")
+            await self.highrise.send_whisper(user.id, "⚠️ Games are temporarily disabled by staff.")
+            return
 
         # ── Public: /rules ────────────────────────────────────────────────────
         if cmd == "rules":
