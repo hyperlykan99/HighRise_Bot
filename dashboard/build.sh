@@ -1,31 +1,36 @@
 #!/usr/bin/env bash
-# build.sh — Build the React frontend for standalone VPS deployment.
+# build.sh — Build the owner/staff admin dashboard frontend for VPS deployment.
 #
 # Run this from the monorepo root (or via `npm run build` from dashboard/):
 #   bash dashboard/build.sh
 #
-# Requirements: Node.js 20+, pnpm (installed in the monorepo)
+# Requirements: Node.js 20+
 # Output: dashboard/public/ (ready to be served by server.mjs)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MONO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DIST_SRC="${MONO_ROOT}/artifacts/dj-status/dist/public"
+ADMIN_SRC="${SCRIPT_DIR}/admin-ui"
 DIST_DST="${SCRIPT_DIR}/public"
 
-echo "[BUILD] Building DJ Dashboard frontend..."
-echo "[BUILD] Monorepo root: ${MONO_ROOT}"
+echo "[BUILD] Building Owner/Staff Admin Dashboard frontend..."
+echo "[BUILD] Source: ${ADMIN_SRC}"
+echo "[BUILD] Output: ${DIST_DST}"
 
-cd "${MONO_ROOT}"
+if [[ ! -f "${ADMIN_SRC}/index.html" || ! -f "${ADMIN_SRC}/app.js" || ! -f "${ADMIN_SRC}/styles.css" ]]; then
+  echo "[BUILD] Missing admin dashboard source files in ${ADMIN_SRC}" >&2
+  exit 1
+fi
 
-# Build the React frontend with base path = / (VPS root, not /dj-status/)
-PORT=3000 BASE_PATH=/ NODE_ENV=production \
-  pnpm --filter @workspace/dj-status run build
+if command -v node >/dev/null 2>&1; then
+  node --check "${ADMIN_SRC}/app.js"
+fi
 
-echo "[BUILD] Copying built files to dashboard/public/ ..."
 rm -rf "${DIST_DST}"
-cp -r "${DIST_SRC}" "${DIST_DST}"
+mkdir -p "${DIST_DST}"
+cp "${ADMIN_SRC}/index.html" "${DIST_DST}/index.html"
+cp "${ADMIN_SRC}/app.js" "${DIST_DST}/app.js"
+cp "${ADMIN_SRC}/styles.css" "${DIST_DST}/styles.css"
 
 echo "[BUILD] Done."
 echo "[BUILD] To start the dashboard:"
