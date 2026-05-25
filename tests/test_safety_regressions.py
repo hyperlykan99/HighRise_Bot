@@ -687,3 +687,34 @@ def test_permission_alias_helpers_delegate_to_role_hierarchy(monkeypatch, tmp_pa
     assert permissions.is_manager_or_higher("player") is False
     assert permissions.is_staff("staff") is True
     assert permissions.is_staff("player") is False
+
+
+def test_economy_phase_one_reward_targets(monkeypatch, tmp_path):
+    _install_env(monkeypatch, tmp_path)
+    _install_highrise_stub(monkeypatch)
+    economy = importlib.import_module("economy")
+    missions = importlib.import_module("modules.missions")
+
+    daily_total = (
+        sum(m["coins"] for m in missions.DAILY_MISSIONS)
+        + missions.DAILY_MISSION_CHEST_COINS
+    )
+    weekly_coin_total = (
+        sum(m.get("coins", 0) for m in missions.WEEKLY_MISSIONS if not m.get("tickets"))
+        + missions.WEEKLY_STREAK_CHEST_COINS
+    )
+    weekly_fallback_total = (
+        sum(m.get("coins", 0) for m in missions.WEEKLY_MISSIONS)
+        + missions.WEEKLY_STREAK_CHEST_COINS
+    )
+    streak_week_total = (
+        7 * 50
+        + sum(economy.STREAK_COIN_BONUS.get(day, 0) for day in range(1, 8))
+        + economy.STREAK_DAY7_CHEST_COINS
+    )
+
+    assert 8_000 <= daily_total <= 12_000
+    assert daily_total == 10_000
+    assert 100_000 <= weekly_coin_total <= 150_000
+    assert 100_000 <= weekly_fallback_total <= 150_000
+    assert streak_week_total == 8_600

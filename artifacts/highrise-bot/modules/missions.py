@@ -162,18 +162,24 @@ def get_next_player_action(user_id: str) -> str:
 # Mission definitions
 # ---------------------------------------------------------------------------
 
+# Phase 1 economy rebalance targets:
+# - Daily full clear: 8K-12K coins/day while preserving the same four goals.
+# - Weekly full clear: 100K-150K coins/week depending Luxe ticket fallback.
+DAILY_MISSION_CHEST_COINS = 3_000
+WEEKLY_STREAK_CHEST_COINS = 50_000
+
 DAILY_MISSIONS: list[dict] = [
-    {"num": 1, "key": "daily_mine",   "label": "Mine 25",      "target": 25, "coins": 5000,  "icon": "⛏️"},
-    {"num": 2, "key": "daily_fish",   "label": "Fish 25",      "target": 25, "coins": 5000,  "icon": "🎣"},
-    {"num": 3, "key": "daily_trivia", "label": "Trivia x3",    "target": 3,  "coins": 3000,  "icon": "❓"},
-    {"num": 4, "key": "daily_game",   "label": "Games x3",     "target": 3,  "coins": 3000,  "icon": "🎮"},
+    {"num": 1, "key": "daily_mine",   "label": "Mine 25",      "target": 25, "coins": 2000,  "icon": "⛏️"},
+    {"num": 2, "key": "daily_fish",   "label": "Fish 25",      "target": 25, "coins": 2000,  "icon": "🎣"},
+    {"num": 3, "key": "daily_trivia", "label": "Trivia x3",    "target": 3,  "coins": 1500,  "icon": "❓"},
+    {"num": 4, "key": "daily_game",   "label": "Games x3",     "target": 3,  "coins": 1500,  "icon": "🎮"},
 ]
 
 WEEKLY_MISSIONS: list[dict] = [
-    {"num": 1, "key": "weekly_mine",    "label": "Mine 500",          "target": 500, "coins": 50000,             "icon": "⛏️"},
-    {"num": 2, "key": "weekly_fish",    "label": "Fish 500",          "target": 500, "coins": 50000,             "icon": "🎣"},
-    {"num": 3, "key": "weekly_rare3",   "label": "3 Legendary+ finds","target": 3,   "tickets": 50,  "coins": 75000, "icon": "💎"},
-    {"num": 4, "key": "weekly_daily5",  "label": "5 daily sets",      "target": 5,   "tickets": 100, "coins": 75000, "icon": "📋"},
+    {"num": 1, "key": "weekly_mine",    "label": "Mine 500",          "target": 500, "coins": 25000,             "icon": "⛏️"},
+    {"num": 2, "key": "weekly_fish",    "label": "Fish 500",          "target": 500, "coins": 25000,             "icon": "🎣"},
+    {"num": 3, "key": "weekly_rare3",   "label": "3 Legendary+ finds","target": 3,   "tickets": 50,  "coins": 25000, "icon": "💎"},
+    {"num": 4, "key": "weekly_daily5",  "label": "5 daily sets",      "target": 5,   "tickets": 100, "coins": 25000, "icon": "📋"},
     {"num": 5, "key": "weekly_streak7", "label": "7-day streak",      "target": 7,   "chest": True,              "icon": "🔥"},
 ]
 
@@ -395,6 +401,10 @@ async def handle_claimmission(bot: BaseBot, user: User, args: list) -> None:
 
     db.claim_mission_db(uid, m["key"], dk)
     db.adjust_balance(uid, m["coins"])
+    print(
+        f"[ECON_REWARD] source=daily_mission reward={m['coins']} "
+        f"user_id={uid} username={uname} key={m['key']}"
+    )
     try:
         import modules.leveling as leveling
         from modules.utils import _make_user
@@ -446,7 +456,7 @@ async def handle_claimdaily(bot: BaseBot, user: User, args: list) -> None:
     chest_tickets = 0
     if all_claimed and not db.is_set_claimed(uid, "daily", dk):
         db.claim_mission_set_db(uid, uname, "daily", dk)
-        total_coins   += 10000
+        total_coins   += DAILY_MISSION_CHEST_COINS
         chest_awarded  = True
         if random.random() < 0.20:
             chest_tickets = random.randint(5, 10)
@@ -459,6 +469,10 @@ async def handle_claimdaily(bot: BaseBot, user: User, args: list) -> None:
 
     if total_coins > 0:
         db.adjust_balance(uid, total_coins)
+        print(
+            f"[ECON_REWARD] source=daily_missions reward={total_coins} "
+            f"user_id={uid} username={uname} claimed={claimed_n} chest={int(chest_awarded)}"
+        )
     if chest_tickets > 0:
         try:
             db.adjust_luxe_balance(uid, chest_tickets)
@@ -474,7 +488,7 @@ async def handle_claimdaily(bot: BaseBot, user: User, args: list) -> None:
     msg = f"✅ Claimed {claimed_n} mission(s): +{total_coins:,} 🪙"
     if chest_awarded:
         msg = f"🎁 Daily Chest!\nClaimed {claimed_n} missions + chest"
-        extras = f"\n+10,000 🪙"
+        extras = f"\n+{DAILY_MISSION_CHEST_COINS:,} 🪙"
         if chest_tickets:
             extras += f" +{chest_tickets} 🎫"
         msg += extras
@@ -509,7 +523,7 @@ async def handle_claimweekly(bot: BaseBot, user: User, args: list) -> None:
             db.claim_mission_db(uid, m["key"], wk)
             claimed_n += 1
             if m.get("chest"):
-                total_coins += 100000
+                total_coins += WEEKLY_STREAK_CHEST_COINS
                 if random.random() < 0.30:
                     total_tickets += random.randint(25, 100)
             elif "tickets" in m:
@@ -540,6 +554,10 @@ async def handle_claimweekly(bot: BaseBot, user: User, args: list) -> None:
 
     if total_coins > 0:
         db.adjust_balance(uid, total_coins)
+        print(
+            f"[ECON_REWARD] source=weekly_missions reward={total_coins} "
+            f"user_id={uid} username={uname} claimed={claimed_n} tickets={total_tickets}"
+        )
     if total_tickets > 0:
         try:
             db.adjust_luxe_balance(uid, total_tickets)

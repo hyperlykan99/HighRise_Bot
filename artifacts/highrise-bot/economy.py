@@ -27,6 +27,21 @@ from modules.reputation   import get_rank
 from modules.permissions  import can_moderate, is_admin
 
 
+# Phase 1 economy rebalance: keep daily streaks rewarding without making
+# one login streak out-earn active play. Target raw streak coins: ~8.6K/week.
+STREAK_COIN_BONUS: dict[int, int] = {
+    1: 0,
+    2: 250,
+    3: 500,
+    4: 1_000,
+    5: 0,
+    6: 1_500,
+    7: 0,
+}
+STREAK_TICKET_BONUS: dict[int, int] = {5: 10, 7: 25}
+STREAK_DAY7_CHEST_COINS = 5_000
+
+
 # ---------------------------------------------------------------------------
 # Coin formatter
 # ---------------------------------------------------------------------------
@@ -167,10 +182,6 @@ async def handle_daily(bot: BaseBot, user: User):
     else:
         new_streak = 1
 
-    # 3.1J — Structured streak rewards (Days 1-7, then flat after 7)
-    _STREAK_COIN_BONUS   = {1: 0, 2: 1000, 3: 2000, 4: 4000, 5: 0,    6: 4000, 7: 0}
-    _STREAK_TICKET_BONUS = {5: 10, 7: 25}
-
     benefits     = get_player_benefits(user.id)
     bonus_coins  = benefits["daily_coins_bonus"]
     bonus_xp     = benefits["daily_xp_bonus"]
@@ -183,9 +194,9 @@ async def handle_daily(bot: BaseBot, user: User):
         pass
     base_daily   = db.get_economy_settings()["daily_coins"]
     _day         = min(new_streak, 7)
-    streak_bonus  = _STREAK_COIN_BONUS.get(_day, (_day - 1) * 25)
-    bonus_tickets = _STREAK_TICKET_BONUS.get(_day, 0)
-    chest_bonus   = 25000 if new_streak == 7 else 0
+    streak_bonus  = STREAK_COIN_BONUS.get(_day, (_day - 1) * 25)
+    bonus_tickets = STREAK_TICKET_BONUS.get(_day, 0)
+    chest_bonus   = STREAK_DAY7_CHEST_COINS if new_streak == 7 else 0
     actual_coins  = max(base_daily + bonus_coins + streak_bonus + chest_bonus, 1)
     actual_xp     = config.XP_DAILY + bonus_xp
 
@@ -218,6 +229,11 @@ async def handle_daily(bot: BaseBot, user: User):
         extra_txt += " 🎁 Streak Chest!"
     s_label = "day" if new_streak == 1 else "days"
     print(f"[DAILY] @{user.username} claimed {actual_coins} coins streak={new_streak}")
+    print(
+        f"[ECON_REWARD] source=daily_streak reward={actual_coins} "
+        f"user_id={user.id} username={user.username} streak={new_streak} "
+        f"base={base_daily} streak_bonus={streak_bonus} chest_bonus={chest_bonus}"
+    )
     boost_note = f"\n(+{bonus_coins:,} boost)" if bonus_coins > 0 else ""
     await bot.highrise.send_whisper(user.id,
         (f"🎁 Daily Reward Claimed!\n"
