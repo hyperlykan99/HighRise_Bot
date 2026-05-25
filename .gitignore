@@ -51,3 +51,19 @@ Thumbs.db
 # SQLite journal files — never commit these
 artifacts/highrise-bot/*.db-shm
 artifacts/highrise-bot/*.db-wal
+
+# Production / VPS runtime files
+.env
+venv/
+__pycache__/
+logs/
+runtime_locks/
+*.pyc
+*.pyo
+artifacts/highrise-bot/logs/
+artifacts/highrise-bot/runtime_locks/
+artifacts/highrise-bot/**/__pycache__/
+highrise_hangout_WORKING_*.db
+highrise_hangout_before_migration.db
+highrise_hangout_fresh_backup.db
+highrise_hangout_old.db
