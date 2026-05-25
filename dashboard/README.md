@@ -1,121 +1,142 @@
-# ChillTopia DJ Dashboard — VPS Deployment
+# ChillTopia Owner/Staff Dashboard
 
-Standalone web dashboard for the DJ_DUDU / ChillTopia radio system.
-Supports two data sources — pick the one that fits your current setup.
+Secure sidecar web dashboard for the HighRise multi-bot project.
 
-## Requirements
+The dashboard does not edit bot source files. It uses this flow:
 
-- Node.js 20+
-- One of:
-  - **Replit bot running** → use `REMOTE_STATUS_URL` (recommended, no DB copy needed)
-  - **Bot on same VPS** → use `DB_PATH` pointing at the shared SQLite file
-
----
-
-## Run dashboard on VPS
-
-### 1. Build the frontend (run once in the Replit monorepo)
-
-```bash
-bash dashboard/build.sh
+```text
+Browser UI -> Express API -> shared SQLite database -> bot modules read settings
 ```
 
-This builds the React app with base path `/` and copies output into
-`dashboard/public/`. Run again whenever the dashboard UI changes.
+Existing bot behavior stays intact until a bot module intentionally reads a new
+dashboard setting from `bot_settings` or `module_flags`.
 
-### 2. Copy the dashboard folder to your VPS
+## Features
 
-```bash
-rsync -av --exclude='.env' --exclude='node_modules' \
-  dashboard/ user@your-vps:/srv/chilltopia-dashboard/
-```
+- Owner/staff login with PBKDF2 password hashing
+- HttpOnly session cookie auth
+- Role and permission flags:
+  - `manage_radio`
+  - `manage_casino`
+  - `manage_games`
+  - `manage_titles`
+  - `manage_staff`
+  - `view_logs`
+  - `emergency_controls`
+- Staff and bot-role management
+- Settings and module-flag management
+- Radio view with now playing, queue, remove request, clear queue, skip-request flag
+- Casino/game setting editor surface
+- Title catalog and assignment surface
+- Bot live tracker using existing `bot_instances`
+- Audit logs for every dashboard write
+- Emergency controls that write DB flags only
 
-### 3. Install dependencies on the VPS
+## Required Environment Variables
 
-```bash
-cd /srv/chilltopia-dashboard
-npm install --omit=dev
-```
-
-### 4. Configure environment variables
-
-```bash
-cp .env.example .env
-nano .env
-```
-
----
-
-## Data source: Mode A — Remote (Replit live data, recommended now)
-
-Use this when the bot is running on Replit and you don't want to run a second
-bot instance on the VPS. The dashboard proxies the Replit API — no database
-copy, no duplicate DJ_DUDU login.
-
-**How to find your Replit URL:**
-1. Open your Replit project
-2. Click "Open in new tab" in the preview pane header
-3. Your domain looks like `https://abc123.username.replit.dev`
-4. Append `/api/dj/status` to confirm it returns JSON
-
-Set in `.env`:
 ```env
-REMOTE_STATUS_URL=https://YOUR-REPL-SLUG.replit.dev/api/dj/status
+PORT=3000
+DB_PATH=/absolute/path/to/highrise_hangout.db
+DASHBOARD_BOOTSTRAP_OWNER=YourOwnerUsername
+DASHBOARD_BOOTSTRAP_PASSWORD=ChangeThisLongPassword
 ```
 
-Leave `DB_PATH` commented out — it is not used in remote mode.
+Optional:
 
-**What data flows and what doesn't:**
+```env
+DASHBOARD_SESSION_DAYS=7
+DASHBOARD_COOKIE_SECURE=1
+REMOTE_STATUS_URL=https://your-replit-url/api/dj/status
+AZURACAST_STREAM_URL=https://public-stream-url.example/radio.mp3
+```
 
-| Flows to VPS dashboard | Never leaves Replit |
-|---|---|
-| now_playing, queue, recent, stats | BOT_TOKEN (Highrise) |
-| radio_url (stream URL only) | AZURA_API_KEY |
-| queue_open, updated_at | Room passwords |
-| radio_type, radio_mount | Any user PII |
+Do not put `BOT_TOKEN`, `AZURA_API_KEY`, room passwords, or other bot secrets in
+frontend code. The dashboard never sends those values to the browser.
 
-### 5. Start the server
+## First Owner Creation
+
+The first owner can be created safely from environment variables:
 
 ```bash
+export DB_PATH=/srv/highrise-bot/highrise_hangout.db
+export DASHBOARD_BOOTSTRAP_OWNER=Marion
+export DASHBOARD_BOOTSTRAP_PASSWORD='use-a-long-random-password'
 npm start
 ```
 
-Expected startup output:
-```
-[DASHBOARD] stage=dashboard_startup mode=remote port=3000
-[DASHBOARD] data_source=remote url=https://YOUR-REPL.replit.dev/api/dj/status
-[DASHBOARD] Open: http://localhost:3000
-```
+On startup, `server.mjs` creates the owner only if that username does not
+already exist. Remove the bootstrap password from the environment after the
+first successful login.
 
----
+## Run Locally
 
-## Data source: Mode B — Local SQLite (future VPS migration)
-
-Use this when the bot moves to the VPS and shares the same machine.
-Set `DB_PATH` to the absolute path of `highrise_hangout.db` and leave
-`REMOTE_STATUS_URL` unset.
-
-```env
-DB_PATH=/home/chilltopia/highrise-bot/highrise_hangout.db
+```bash
+cd dashboard
+npm install
+DB_PATH=/absolute/path/to/highrise_hangout.db npm start
 ```
 
-SQLite WAL mode allows safe concurrent reads while the bot is writing.
+Open:
 
-**Keeping a remote DB in sync** (if bot stays on Replit temporarily):
-```cron
-*/2 * * * * rsync -az --checksum \
-  user@replit-server:/path/to/highrise_hangout.db \
-  /srv/chilltopia-dashboard/highrise_hangout.db
+```text
+http://localhost:3000
 ```
 
----
+## Database Tables Created Safely
 
-## Run as a systemd service (recommended)
+The server creates these tables only if missing:
+
+- `dashboard_users`
+- `dashboard_roles`
+- `dashboard_permissions`
+- `dashboard_sessions`
+- `bot_settings`
+- `player_titles`
+- `audit_logs`
+- `module_flags`
+- `live_status`
+
+It also reads existing tables when present:
+
+- `room_settings`
+- `bot_instances`
+- `yt_request_jobs`
+- `title_catalog`
+- `user_titles`
+- `owner_users`
+- `admin_users`
+- `moderators`
+- `managers`
+- `owned_items`
+- `admin_action_logs`
+- `command_error_logs`
+
+## Bot Integration Notes
+
+Current dashboard write surfaces are intentionally conservative.
+
+Bot modules should read:
+
+- `module_flags.module='radio'` and `bot_settings.key='requests_enabled'`
+  before accepting new radio requests.
+- `bot_settings.key='radio.skip_requested'` if dashboard skip support is added.
+- `module_flags.module='casino'` and `bot_settings` keys beginning with
+  `casino`, `bj_`, `rbj_`, `poker`, or `daily_` before accepting casino/game
+  settings.
+- `module_flags.module='games'` and `bot_settings.key='games.enabled'` before
+  starting optional minigames.
+
+Emergency controls write flags only, except `clear_queue`, which marks upcoming
+radio request rows `cancelled` in `yt_request_jobs`. It does not touch source
+files or secrets.
+
+## Deployment
+
+Example systemd unit:
 
 ```ini
-# /etc/systemd/system/chilltopia-dashboard.service
 [Unit]
-Description=ChillTopia DJ Dashboard
+Description=ChillTopia Owner Dashboard
 After=network.target
 
 [Service]
@@ -131,50 +152,5 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-```bash
-systemctl enable --now chilltopia-dashboard
-```
-
----
-
-## Refresh rate
-
-The dashboard polls `/api/dj/status` every **15 seconds** (built into the
-React frontend). In remote mode the VPS server forwards that request to Replit.
-No configuration needed.
-
----
-
-## Reverse proxy with nginx + SSL (recommended for public access)
-
-```nginx
-server {
-    server_name dj.your-domain.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
-```
-
-Add SSL:
-```bash
-certbot --nginx -d dj.your-domain.com
-```
-
----
-
-## AZURACAST_STREAM_URL (optional override)
-
-If you want to override the stream URL shown to listeners (e.g. to point at a
-different CDN edge), set this in `.env`:
-
-```env
-AZURACAST_STREAM_URL=https://radio.example.com/listen/chilltopia/radio.mp3
-```
-
-This replaces whatever `radio_url` comes from Replit or the local DB.
-It is the **audio stream URL only** — never the AzuraCast API key.
+Put nginx or another reverse proxy with HTTPS in front of the dashboard before
+exposing it publicly.

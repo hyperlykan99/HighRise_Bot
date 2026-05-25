@@ -1,7 +1,7 @@
 {
   "name": "chilltopia-dj-dashboard",
   "version": "1.0.0",
-  "description": "Standalone ChillTopia DJ status dashboard — for VPS hosting",
+  "description": "Standalone ChillTopia owner/staff control dashboard — for VPS hosting",
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
