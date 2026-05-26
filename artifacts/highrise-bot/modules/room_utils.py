@@ -2601,7 +2601,7 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
         return
     _bot_spawn_restore_tasks[key] = asyncio.current_task()  # type: ignore[assignment]
 
-    delays = (0.0, 2.0, 5.0)
+    delays = (8.0, 18.0, 35.0, 60.0)
     expected: Position | None = None
     try:
         for attempt, delay in enumerate(delays, 1):

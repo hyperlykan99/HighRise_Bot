@@ -1,0 +1,11 @@
+# ChillTopia runtime/secrets
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+request_staging/
+*.mp3
+logs/
+__pycache__/
+*.pyc
