@@ -63,6 +63,49 @@ def _self_display() -> str:
     return BOT_USERNAME or BOT_MODE
 
 
+async def _bot_self_present(bot: "BaseBot") -> tuple[bool, str]:
+    try:
+        from modules.gold import get_bot_user_id
+        bot_uid = get_bot_user_id()
+    except Exception:
+        bot_uid = ""
+    if not bot_uid:
+        return False, "no_bot_uid_yet"
+    try:
+        resp = await bot.highrise.get_room_users()
+        pairs = list(resp.content) if hasattr(resp, "content") else []
+        for room_user, _pos in pairs:
+            if getattr(room_user, "id", "") == bot_uid:
+                return True, "present"
+        return False, "bot_not_in_room"
+    except Exception as exc:
+        return False, f"get_room_users_failed:{type(exc).__name__}"
+
+
+async def _send_self_emote_if_present(bot: "BaseBot", eid: str, *, mode: str, iteration: int) -> bool:
+    present, reason = await _bot_self_present(bot)
+    if not present:
+        print(
+            f"[RELAY] emote skip mode={mode!r} eid={eid!r} "
+            f"iter={iteration} reason={reason}"
+        )
+        return False
+    try:
+        await bot.highrise.send_emote(eid)
+        return True
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        if "user not in room" in repr(exc).lower():
+            print(
+                f"[RELAY] emote skip mode={mode!r} eid={eid!r} "
+                f"iter={iteration} reason=user_not_in_room"
+            )
+            return False
+        print(f"[RELAY] emote loop err mode={mode!r} eid={eid!r}: {exc!r}")
+        return False
+
+
 async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None:
     """Start a registry-timed emote loop on THIS bot for the given emote_id."""
     from modules.emote_system import _bot_loops
@@ -100,7 +143,9 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
     print(f"[BOT_LOOP_INTERVAL] alias={emote_name!r} id={eid!r} resolved={_t_initial} source=registry")
 
     async def _loop() -> None:
+        _iter = 0
         while True:
+            _iter += 1
             # Re-read timing each iteration so in-process !setemote updates
             # take effect without a bot restart.
             _sleep = _t_initial
@@ -113,12 +158,7 @@ async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> None
                             _sleep = _v2
             except Exception:
                 pass
-            try:
-                await bot.highrise.send_emote(_eid)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                print(f"[RELAY] emote loop err mode={BOT_MODE!r} eid={_eid!r}: {exc!r}")
+            await _send_self_emote_if_present(bot, _eid, mode=BOT_MODE, iteration=_iter)
             await asyncio.sleep(_sleep)
 
     _bot_loops[BOT_MODE] = asyncio.create_task(_loop())

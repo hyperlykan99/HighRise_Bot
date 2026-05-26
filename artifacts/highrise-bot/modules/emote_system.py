@@ -81,6 +81,83 @@ def is_emote_controller_bot() -> bool:
         return False
 
 
+async def _bot_self_present(bot: "BaseBot") -> tuple[bool, str]:
+    """Return whether this bot's own avatar is currently visible in the room."""
+    try:
+        from modules.gold import get_bot_user_id
+        bot_uid = get_bot_user_id()
+    except Exception:
+        bot_uid = ""
+    if not bot_uid:
+        return False, "no_bot_uid_yet"
+    try:
+        resp = await bot.highrise.get_room_users()
+        pairs = list(resp.content) if hasattr(resp, "content") else []
+        for room_user, _pos in pairs:
+            if getattr(room_user, "id", "") == bot_uid:
+                return True, "present"
+        return False, "bot_not_in_room"
+    except Exception as exc:
+        return False, f"get_room_users_failed:{type(exc).__name__}"
+
+
+async def _send_bot_self_emote_if_present(
+    bot: "BaseBot",
+    eid: str,
+    *,
+    mode: str,
+    stage: str,
+    iteration: int = 0,
+) -> bool:
+    present, reason = await _bot_self_present(bot)
+    if not present:
+        print(
+            f"[EMOTE BOT SKIP] mode={mode!r} eid={eid!r} "
+            f"stage={stage} iter={iteration} reason={reason}"
+        )
+        return False
+    try:
+        await bot.highrise.send_emote(eid)
+        return True
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        text = repr(exc).lower()
+        if "user not in room" in text:
+            print(
+                f"[EMOTE BOT SKIP] mode={mode!r} eid={eid!r} "
+                f"stage={stage} iter={iteration} reason=user_not_in_room"
+            )
+            return False
+        print(
+            f"[EMOTE BOT FAIL] mode={mode!r} eid={eid!r} "
+            f"stage={stage} iter={iteration} error={exc!r}"
+        )
+        return False
+
+
+async def _wait_for_bot_self_presence(
+    bot: "BaseBot",
+    *,
+    mode: str,
+    stage: str,
+    attempts: int = 8,
+) -> bool:
+    delays = (2.0, 5.0, 10.0, 20.0, 35.0, 60.0, 90.0, 120.0)
+    for attempt in range(1, attempts + 1):
+        delay = delays[min(attempt - 1, len(delays) - 1)]
+        if delay:
+            await asyncio.sleep(delay)
+        present, reason = await _bot_self_present(bot)
+        print(
+            f"[EMOTE BOT PRESENCE] mode={mode!r} stage={stage} "
+            f"attempt={attempt} present={present} reason={reason}"
+        )
+        if present:
+            return True
+    return False
+
+
 def reload_emote_registry() -> None:
     """Reload data/emotes.json into memory before a registry read or write.
 
@@ -410,13 +487,8 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
             if _iter == 1 or _iter % 20 == 0:
                 print(f"[EMOTE BOT] mode={bot_mode!r} eid={eid!r}"
                       f" iter={_iter} sleep={sleep_time}s")
-            try:
-                await bot.highrise.send_emote(eid)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                print(f"[EMOTE BOT FAIL] mode={bot_mode!r} eid={eid!r}"
-                      f" iter={_iter} error={exc!r}")
+            await _send_bot_self_emote_if_present(
+                bot, eid, mode=bot_mode, stage="bot_loop", iteration=_iter)
             await asyncio.sleep(sleep_time)
 
     _bot_loops[bot_mode] = asyncio.create_task(_loop())
@@ -775,13 +847,11 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         _t_imm = get_emote_time(_emote_id)
         print(f"[BOT_LOOP_INTERVAL] alias={emote_name!r} id={_emote_id!r} resolved={_t_imm} source=registry")
         async def _imm_loop() -> None:
+            _iter = 0
             while True:
-                try:
-                    await bot.highrise.send_emote(_emote_id)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as _exc:
-                    print(f"[EMOTE BOT] loop err mode={BOT_MODE!r} eid={_emote_id!r}: {_exc!r}")
+                _iter += 1
+                await _send_bot_self_emote_if_present(
+                    bot, _emote_id, mode=BOT_MODE, stage="botemote_self", iteration=_iter)
                 await asyncio.sleep(get_emote_time(_emote_id))
         _bot_loops[BOT_MODE] = asyncio.create_task(_imm_loop())
         display = f"@{_get_bot_uname() or BOT_MODE}"
@@ -847,13 +917,11 @@ async def _direct_emote_fallback(bot, uid, raw_target: str,
             old.cancel()
         _eid2 = eid
         async def _direct_loop() -> None:
+            _iter = 0
             while True:
-                try:
-                    await target_bot.highrise.send_emote(_eid2)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as _exc:
-                    print(f"[EMOTE BOT] direct loop err target={raw_target!r}: {_exc!r}")
+                _iter += 1
+                await _send_bot_self_emote_if_present(
+                    target_bot, _eid2, mode=raw_target, stage="direct_fallback", iteration=_iter)
                 await asyncio.sleep(get_emote_time(_eid2))
         _bot_loops[raw_target] = asyncio.create_task(_direct_loop())
         # Persist using the resolved target mode so recovery can resume it.
@@ -1077,13 +1145,11 @@ async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
         _t_ch = get_emote_time(_eid)
         print(f"[BOT_LOOP_INTERVAL] alias={_alias_ch!r} id={_eid!r} resolved={_t_ch} source=registry")
         async def _ch_loop() -> None:
+            _iter = 0
             while True:
-                try:
-                    await bot.highrise.send_emote(_eid)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as _exc:
-                    print(f"[EMOTE BOT] ch-loop err mode={BOT_MODE!r} eid={_eid!r}: {_exc!r}")
+                _iter += 1
+                await _send_bot_self_emote_if_present(
+                    bot, _eid, mode=BOT_MODE, stage="channel_event", iteration=_iter)
                 await asyncio.sleep(get_emote_time(_eid))
         _bot_loops[BOT_MODE] = asyncio.create_task(_ch_loop())
         # Persist for restart recovery.
@@ -1114,7 +1180,13 @@ async def startup_bot_emote_recovery(bot: "BaseBot") -> None:
     eid = db.get_room_setting(f"bot_emote_{BOT_MODE.lower()}", "")
     if not eid:
         return
-    await asyncio.sleep(6)
+    if not await _wait_for_bot_self_presence(
+        bot, mode=BOT_MODE, stage="startup_recovery", attempts=8):
+        print(
+            f"[EMOTE BOT SKIP] mode={BOT_MODE!r} eid={eid!r} "
+            "stage=startup_recovery reason=presence_timeout"
+        )
+        return
     _start_bot_loop(bot, BOT_MODE, eid)
     _log("emote_recovery", bot=BOT_MODE, emote=eid)
 
