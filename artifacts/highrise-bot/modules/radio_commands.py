@@ -2580,9 +2580,11 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
             return
         items = []
         for i, s in enumerate(songs, 1):
-            t = (s.get("title") or "?")[:28]
+            title = (s.get("title") or "?").strip()
+            artist = (s.get("artist") or "").strip()
+            display = f"{artist} - {title}" if artist else title
             src = "📺" if s.get("source_type") == "youtube" else "📻"
-            items.append(f"{i}. {src} {t}")
+            items.append(f"{i}. {src} {display[:36]}")
         chunks = [items[i : i + 4] for i in range(0, len(items), 4)]
         for pg, chunk in enumerate(chunks, 1):
             hdr = (f"📂 {pl['name'][:17]} {pg}/{len(chunks)}"
@@ -2777,8 +2779,24 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
         if not pl:
             await _w(bot, uid, f"❌ Playlist not found: {pl_name[:24]}")
             return
-        result = _pl_song_add(pl["id"], uid, "youtube", "(YouTube)", "",
-                               url, "", "", "")
+        yt_title = "YouTube Link"
+        yt_artist = ""
+        yt_video_id = ""
+        try:
+            import yt_dlp
+            opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+            loop = asyncio.get_running_loop()
+            def _extract():
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    return ydl.extract_info(url, download=False) or {}
+            info = await loop.run_in_executor(None, _extract)
+            yt_title = (info.get("title") or yt_title).strip()
+            yt_artist = (info.get("artist") or info.get("uploader") or info.get("channel") or "").strip()
+            yt_video_id = (info.get("id") or "").strip()
+        except Exception as exc:
+            print(f"{_LOG} playlist metadata lookup error: {exc!r}")
+        result = _pl_song_add(pl["id"], uid, "youtube", yt_title, yt_artist,
+                               url, yt_video_id, "", "")
         msgs = {
             "added":     f"✅ Added to {pl['name'][:22]}.",
             "duplicate": f"⭐ Already in {pl['name'][:22]}.",
