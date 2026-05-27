@@ -1448,6 +1448,92 @@ const DASHBOARD_HTML = `<!doctype html>
 </body>
 </html>`;
 
+/* ── Bot Control (deduplicated) ─────────────────────── */
+const BOT_DISPLAY_NAMES = {
+  dj: "DJ_DUDU", host: "ChillTopiaMC", security: "KeanuShield",
+  miner: "GreatestProspector", fisher: "MasterAngler",
+  poker: "AceSinatra", blackjack: "ChipSoprano",
+  banker: "BankingBot", shopkeeper: "BankingBot",
+};
+
+app.get("/api/bot-control", requireAuth, (req, res) => {
+  const raw = safeRows(req.db, "bot_instances",
+    ["bot_id","bot_mode","bot_username","status","enabled","last_heartbeat_at","last_error","current_room_id"],
+    { orderBy: "last_heartbeat_at DESC" }
+  );
+  const byMode = new Map();
+  for (const row of raw) {
+    const key = String(row.bot_mode || row.bot_username || row.bot_id || "unknown").toLowerCase();
+    const existing = byMode.get(key);
+    if (!existing || String(row.last_heartbeat_at || "") > String(existing.last_heartbeat_at || "")) {
+      byMode.set(key, { ...row, _modeKey: key });
+    }
+  }
+  const dupeCounts = {};
+  for (const row of raw) {
+    const k = String(row.bot_mode || row.bot_username || row.bot_id || "unknown").toLowerCase();
+    dupeCounts[k] = (dupeCounts[k] || 0) + 1;
+  }
+  const bots = [...byMode.values()].map((b) => {
+    const modeKey = b._modeKey;
+    const displayName = BOT_DISPLAY_NAMES[modeKey] || b.bot_username || b.bot_mode || "Bot";
+    return { bot_id: b.bot_id, bot_mode: b.bot_mode, bot_username: b.bot_username,
+      display_name: displayName, status: b.status, enabled: b.enabled,
+      last_heartbeat_at: b.last_heartbeat_at, last_error: b.last_error,
+      current_room_id: b.current_room_id, has_duplicate_raw_rows: dupeCounts[modeKey] > 1 };
+  }).sort((a, b) => String(a.bot_mode || "").localeCompare(String(b.bot_mode || "")));
+  json(res, { bots, raw_count: raw.length });
+}, closeDb);
+
+/* ── Economy Overview (read-only) ───────────────────── */
+app.get("/api/economy/overview", requireAuth, requireAnyPermission("manage_casino","manage_games","emergency_controls"), (req, res) => {
+  const stats = (() => {
+    try {
+      if (!tableExists(req.db, "users")) return null;
+      const cols = tableColumns(req.db, "users");
+      const hasTix = cols.includes("tickets");
+      const hasCasinoWin = cols.includes("casino_winnings");
+      const selTix = hasTix ? ", COALESCE(SUM(tickets),0) AS total_tickets" : "";
+      return req.db.prepare(
+        `SELECT COUNT(*) AS player_count, COALESCE(SUM(coins),0) AS total_coins${selTix}, COALESCE(AVG(coins),0) AS avg_coins, COALESCE(MAX(coins),0) AS richest FROM users`
+      ).get();
+    } catch { return null; }
+  })();
+  const topRich = safeRows(req.db, "users", ["username","coins","level","xp"], { where: "coins > 0", orderBy: "coins DESC", limit: "15" });
+  const topXp = safeRows(req.db, "users", ["username","xp","level"], { where: "xp > 0", orderBy: "xp DESC", limit: "10" });
+  json(res, { stats, top_rich: topRich, top_xp: topXp });
+}, closeDb);
+
+/* ── Player Search ──────────────────────────────────── */
+app.get("/api/player/search", requireAuth, (req, res) => {
+  const q = String(req.query.q || "").trim().slice(0, 80);
+  if (!q) return json(res, { player: null, error: "query_required" }, 400);
+  if (!tableExists(req.db, "users")) return json(res, { player: null, error: "users_table_missing" }, 404);
+  const desired = ["user_id","username","coins","tickets","xp","level","casino_winnings","last_seen_at","created_at"];
+  let player = safeOne(req.db, "users", desired, { where: "lower(username)=lower(?) OR user_id=?", params: [q, q] });
+  if (!player) player = safeOne(req.db, "users", desired, { where: "lower(username) LIKE ?", params: [`%${q.toLowerCase()}%`] });
+  if (!player) return json(res, { player: null });
+  const titles = safeRows(req.db, "user_titles", ["title_id","source","unlocked_at"], { where: "user_id=?", params: [player.user_id], limit: "20" });
+  const ownedCount = (() => {
+    try { return tableExists(req.db, "owned_items") ? (req.db.prepare("SELECT COUNT(*) AS n FROM owned_items WHERE user_id=?").get(player.user_id)?.n ?? 0) : 0; } catch { return 0; }
+  })();
+  json(res, { player: { ...player, titles, owned_item_count: ownedCount } });
+}, closeDb);
+
+/* ── Room Control (read) ────────────────────────────── */
+app.get("/api/room-control", requireAuth, (req, res) => {
+  const KNOWN_KEYS = [
+    "welcome_enabled","welcome_message","maintenance_mode","public_emotes_enabled",
+    "social_enabled","self_teleport_enabled","requests_enabled","current_vibe",
+    "bots_enabled","announcements_enabled","daily_enabled","mining_enabled","fishing_enabled",
+  ];
+  const allSettings = safeRows(req.db, "room_settings", ["key","value"], { orderBy: "key" });
+  const known = {};
+  for (const row of allSettings) { if (KNOWN_KEYS.includes(row.key)) known[row.key] = row.value; }
+  const extra = allSettings.filter((r) => !KNOWN_KEYS.includes(r.key));
+  json(res, { known_settings: known, extra_settings: extra, known_keys: KNOWN_KEYS });
+}, closeDb);
+
 app.get("/", (_req, res) => {
   const index = path.join(PUBLIC_DIR, "index.html");
   if (fs.existsSync(index)) return res.sendFile(index);

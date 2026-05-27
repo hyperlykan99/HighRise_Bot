@@ -32,15 +32,15 @@ const ADMIN_NAV_IDS = ADMIN_NAV.map((n) => n.id);
 const ADMIN_API = {
   Overview:        "/api/overview",
   "Live Tracker":  "/api/live",
-  "Bot Control":   null,
+  "Bot Control":   "/api/bot-control",
   "Bot Config":    "/api/bot-config",
   Radio:           "/api/radio",
   Casino:          "/api/casino",
   Games:           "/api/games",
   Titles:          "/api/titles",
   "Player Control":null,
-  Economy:         null,
-  "Room Control":  null,
+  Economy:         "/api/economy/overview",
+  "Room Control":  "/api/room-control",
   Emotes:          null,
   Staff:           "/api/staff",
   Logs:            "/api/logs",
@@ -714,7 +714,7 @@ function renderAdmin() {
 }
 
 function renderAdminPage() {
-  if (!state.data && !["Bot Control","Player Control","Economy","Room Control","Emotes"].includes(state.adminPage)) {
+  if (!state.data && !["Player Control","Emotes"].includes(state.adminPage)) {
     return `<div class="notice">Loading or unavailable.</div>`;
   }
   const map = {
@@ -816,33 +816,46 @@ function renderLive() {
 
 function renderBotControl() {
   const bots = state.data?.bots || [];
+  const rawCount = state.data?.raw_count ?? bots.length;
   if (!bots.length) {
     return `<div class="card">
       <h2>🤖 Bot Control</h2>
-      <div class="notice warn" style="margin-bottom:16px">No bot heartbeat data available yet. Bots write to the <code>bot_instances</code> table on startup.</div>
-      ${endpointNeeded("Per-bot restart, emote and spawn controls require a /api/bot-control endpoint — not yet implemented.")}
+      <div class="notice warn" style="margin-bottom:16px">No bot heartbeat data yet. Bots write to <code>bot_instances</code> on startup — ensure bots are running and have connected at least once.</div>
+      <p class="muted text-sm">Spawn/stop/emote controls: <span class="pill warn">Backend endpoint needed</span> /api/bot-control/spawn · /stop · /emote</p>
     </div>`;
   }
+  const dupeNote = rawCount > bots.length
+    ? `<div class="notice" style="margin-bottom:16px">ℹ️ ${rawCount} raw rows deduped to ${bots.length} bots (latest heartbeat per mode kept).</div>`
+    : "";
   return `
+    ${dupeNote}
     <div class="grid">
-      ${bots.map((b) => `<div class="card">
-        <div class="card-header">
-          <h2>${esc(b.bot_mode || b.bot_username || "Bot")}</h2>
-          ${pill(b.status || "unknown")}
-        </div>
-        <div class="muted text-sm" style="margin-bottom:10px">@${esc(b.bot_username || "—")}</div>
-        <div style="display:grid;gap:6px;font-size:13px;margin-bottom:14px">
-          <div class="muted">Room: ${esc(b.current_room_id || "—")}</div>
-          <div class="muted">Heartbeat: ${esc(b.last_heartbeat_at || "—")}</div>
-          ${b.last_error ? `<div class="error text-sm">${esc(b.last_error)}</div>` : ""}
-        </div>
-        <div class="inline-actions">
-          <button class="btn sm" disabled title="Endpoint needed">⬆ Spawn</button>
-          <button class="btn danger sm" disabled title="Endpoint needed">⏹ Stop</button>
-          <button class="btn cyan sm" disabled title="Endpoint needed">💃 Emote</button>
-        </div>
-        <div class="muted text-sm" style="margin-top:8px">Controls require /api/bot-control endpoint</div>
-      </div>`).join("")}
+      ${bots.map((b) => {
+        const isOnline = String(b.status || "").toLowerCase() === "online";
+        return `<div class="card">
+          <div class="card-header">
+            <h2>${esc(b.display_name || b.bot_mode || b.bot_username || "Bot")}</h2>
+            ${pill(b.status || "unknown")}
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+            <span class="muted text-sm">@${esc(b.bot_username || "—")}</span>
+            <span class="pill def">${esc(b.bot_mode || "—")}</span>
+            ${b.has_duplicate_raw_rows ? `<span class="pill warn" title="Multiple rows in bot_instances for this mode">dupes</span>` : ""}
+            ${b.enabled === 0 ? `<span class="pill bad">disabled</span>` : ""}
+          </div>
+          <div style="display:grid;gap:4px;font-size:13px;margin-bottom:14px">
+            <div class="muted">Room: ${esc(b.current_room_id || "—")}</div>
+            <div class="muted">Heartbeat: ${esc(b.last_heartbeat_at || "—")}</div>
+            ${b.last_error ? `<div class="muted text-sm" style="color:#ffaaa5">⚠ ${esc(String(b.last_error).slice(0, 120))}</div>` : ""}
+          </div>
+          <div class="inline-actions">
+            <button class="btn sm" disabled title="Backend endpoint needed: /api/bot-control/spawn">⬆ Spawn</button>
+            <button class="btn danger sm" disabled title="Backend endpoint needed: /api/bot-control/stop">⏹ Stop</button>
+            <button class="btn cyan sm" disabled title="Backend endpoint needed: /api/bot-control/emote">💃 Emote</button>
+          </div>
+          <div class="muted text-sm" style="margin-top:8px">Per-bot spawn/stop/emote: <span class="pill warn">endpoint needed</span></div>
+        </div>`;
+      }).join("")}
     </div>
   `;
 }
@@ -1022,42 +1035,114 @@ function renderPlayerControl() {
 }
 
 function renderEconomy() {
+  const d = state.data || {};
+  const s = d.stats;
   return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      ${metricCard("Players", s?.player_count ?? "—", "in database", "", "👤")}
+      ${metricCard("Total Coins", s?.total_coins != null ? Number(s.total_coins).toLocaleString() : "—", "in circulation", "accent-green", "💰")}
+      ${metricCard("Total Tickets", s?.total_tickets != null ? Number(s.total_tickets).toLocaleString() : "—", "in circulation", "", "🎟")}
+      ${metricCard("Avg Coins", s?.avg_coins != null ? Math.round(Number(s.avg_coins)).toLocaleString() : "—", "per player", "", "📊")}
+      ${metricCard("Richest Balance", s?.richest != null ? Number(s.richest).toLocaleString() : "—", "single player", "", "🏆")}
+    </div>
     <div class="grid">
       <div class="card">
-        <h2>💰 Economy Overview</h2>
-        ${endpointNeeded("Economy summary (total coins in circulation, transaction volume) requires a /api/economy/overview endpoint.")}
+        <h2>💰 Rich List</h2>
+        ${table(d.top_rich || [], [
+          { key: "username", label: "Player" },
+          { key: "coins", label: "Coins", render: (r) => Number(r.coins ?? 0).toLocaleString() },
+          { key: "level", label: "Level" },
+          { key: "xp", label: "XP", render: (r) => Number(r.xp ?? 0).toLocaleString() },
+        ])}
       </div>
       <div class="card">
-        <h2>🎟 Adjust Coins / Tickets</h2>
-        ${endpointNeeded("Bulk coin/ticket adjustments require a /api/economy/adjust endpoint.")}
+        <h2>📈 Top XP</h2>
+        ${table(d.top_xp || [], [
+          { key: "username", label: "Player" },
+          { key: "xp", label: "XP", render: (r) => Number(r.xp ?? 0).toLocaleString() },
+          { key: "level", label: "Level" },
+        ])}
       </div>
     </div>
     <div class="card">
-      <h2>📜 Transaction Audit</h2>
-      ${endpointNeeded("Transaction history requires a /api/economy/transactions endpoint.")}
+      <h2>🔧 Economy Write Actions</h2>
+      <div style="display:grid;gap:8px">
+        ${endpointNeeded("Coin/ticket/XP editing: POST /api/player/:id/economy")}
+        ${endpointNeeded("Bulk coin adjustments: POST /api/economy/adjust")}
+        ${endpointNeeded("Transaction history: GET /api/economy/transactions")}
+      </div>
     </div>
   `;
 }
 
 function renderRoomControl() {
+  const d = state.data || {};
+  const known = d.known_settings || {};
+
+  function boolRow(key, label) {
+    const val = known[key];
+    const isSet = val !== undefined;
+    const checked = val === "true" || val === "1";
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1e2822">
+      <span>${esc(label)}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${isSet ? pill(checked ? "enabled" : "disabled") : `<span class="muted text-sm">not set</span>`}
+        <label class="switch" style="margin:0">
+          <input type="checkbox" data-room-toggle="${esc(key)}" ${checked ? "checked" : ""} ${!isSet ? "" : ""} />
+          <span></span>
+        </label>
+      </div>
+    </div>`;
+  }
+
+  const extra = d.extra_settings || [];
   return `
     <div class="grid">
       <div class="card">
-        <h2>📢 Send Announcement</h2>
-        ${endpointNeeded("Room announcements require a /api/room/announce endpoint consumed by the host bot.")}
+        <h2>🔧 Room Toggles</h2>
+        <p class="muted text-sm" style="margin-bottom:12px">Writes to <code>room_settings</code> table — bots consume these flags.</p>
+        ${boolRow("welcome_enabled", "Welcome messages")}
+        ${boolRow("maintenance_mode", "Maintenance mode")}
+        ${boolRow("public_emotes_enabled", "Public emotes")}
+        ${boolRow("social_enabled", "Social features")}
+        ${boolRow("self_teleport_enabled", "Self teleport")}
+        ${boolRow("announcements_enabled", "Announcements")}
+        ${boolRow("daily_enabled", "Daily rewards")}
+        ${boolRow("mining_enabled", "Mining")}
+        ${boolRow("fishing_enabled", "Fishing")}
       </div>
       <div class="card">
         <h2>👋 Welcome Message</h2>
-        ${endpointNeeded("Welcome message editing requires a /api/room/welcome endpoint.")}
+        <form class="roomSettingForm" data-key="welcome_message" style="display:grid;gap:10px">
+          <textarea name="value" rows="4" placeholder="Enter welcome message for new players" style="width:100%;box-sizing:border-box;background:#0e120f;color:#fff;border:1px solid #334037;border-radius:6px;padding:10px;font:inherit;resize:vertical">${esc(known.welcome_message ?? "")}</textarea>
+          <button class="btn primary sm">💾 Save Welcome Message</button>
+        </form>
+        <div style="margin-top:16px">
+          ${boolRow("welcome_enabled", "Enable welcome messages")}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>⚙️ Generic Room Setting Editor</h2>
+      <p class="muted text-sm" style="margin-bottom:12px">Edit any <code>room_settings</code> key. Writes are audit-logged.</p>
+      <form id="roomSettingRawForm" class="toolbar" style="flex-wrap:wrap;margin-bottom:16px">
+        <input name="key" placeholder="setting_key" required style="flex:2;min-width:120px" />
+        <input name="value" placeholder="value" required style="flex:3;min-width:120px" />
+        <button class="btn primary sm">Save</button>
+      </form>
+      ${extra.length ? `<div class="muted text-sm" style="margin-bottom:8px">Other room settings (${extra.length}):</div>
+        ${table(extra, [{ key: "key", label: "Key" }, { key: "value", label: "Value" }],
+          (r) => `<button class="btn sm" data-room-edit="${esc(r.key)}" data-room-val="${esc(r.value)}">Edit</button>`)}` :
+        `<div class="notice">No other room settings found.</div>`}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>📢 Send Announcement</h2>
+        ${endpointNeeded("Room announcements: POST /api/room/announce consumed by the host bot.")}
       </div>
       <div class="card">
-        <h2>🔧 Maintenance Mode</h2>
-        ${endpointNeeded("Maintenance mode toggle requires a /api/room/maintenance endpoint.")}
-      </div>
-      <div class="card">
-        <h2>🚩 Emergency Flags</h2>
-        <p class="muted text-sm" style="margin-bottom:12px">Use the Emergency page for quick disable controls.</p>
+        <h2>🚩 Quick Emergency</h2>
+        <p class="muted text-sm" style="margin-bottom:12px">Use the Emergency page for module kill-switches.</p>
         <button class="btn" data-admin-page="Emergency">→ Go to Emergency</button>
       </div>
     </div>
@@ -1380,7 +1465,78 @@ function bindAdminPageEvents() {
     const query = e.currentTarget.querySelector('[name="query"]').value.trim();
     const result = document.getElementById("playerSearchResult");
     if (!result) return;
-    result.innerHTML = `<div class="notice">Searching for "${esc(query)}"… (endpoint not yet implemented)</div>`;
+    result.innerHTML = `<div class="notice">Searching…</div>`;
+    try {
+      const data = await api(`/api/player/search?q=${encodeURIComponent(query)}`);
+      if (!data.player) {
+        result.innerHTML = `<div class="notice">No player found for <strong>${esc(query)}</strong>.</div>`;
+      } else {
+        const p = data.player;
+        result.innerHTML = `<div class="card" style="margin-top:0">
+          <div class="card-header">
+            <h3>🔍 ${esc(p.username || "Unknown")}</h3>
+            <span class="muted text-sm">ID: ${esc(p.user_id || "—")}</span>
+          </div>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:12px 0">
+            ${metricCard("Coins", Number(p.coins ?? 0).toLocaleString(), "", "accent-green", "💰")}
+            ${metricCard("Tickets", p.tickets != null ? Number(p.tickets).toLocaleString() : "—", "", "", "🎟")}
+            ${metricCard("Level", p.level ?? "—", "", "", "⭐")}
+            ${metricCard("XP", p.xp != null ? Number(p.xp).toLocaleString() : "—", "", "", "📈")}
+            ${metricCard("Casino", p.casino_winnings != null ? Number(p.casino_winnings).toLocaleString() : "—", "winnings", "", "🎲")}
+            ${metricCard("Items", p.owned_item_count ?? 0, "owned", "", "🎒")}
+          </div>
+          ${p.titles?.length ? `<div class="muted text-sm">Titles: ${p.titles.map((t) => esc(t.title_id)).join(", ")}</div>` : ""}
+          ${p.last_seen_at ? `<div class="muted text-sm" style="margin-top:6px">Last seen: ${esc(p.last_seen_at)}</div>` : ""}
+        </div>
+        <div class="card" style="margin-top:12px">
+          <h3>🔧 Edit Actions</h3>
+          ${endpointNeeded("Coin/ticket/XP editing: POST /api/player/:id/economy")}
+          ${endpointNeeded("Badge/title give-remove: POST /api/player/:id/badges")}
+          ${endpointNeeded("Inventory edit: POST /api/player/:id/inventory")}
+        </div>`;
+      }
+    } catch (err) {
+      result.innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+    }
+  });
+
+  document.querySelectorAll("[data-room-toggle]").forEach((cb) => {
+    cb.addEventListener("change", async (e) => {
+      const key = cb.dataset.roomToggle;
+      const value = e.target.checked ? "true" : "false";
+      await action(`${key} set to ${value}.`, () =>
+        api(`/api/settings/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value, source: "room_settings" }) }));
+    });
+  });
+
+  document.querySelectorAll(".roomSettingForm").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const key = form.dataset.key;
+      const value = form.querySelector("[name='value']")?.value ?? "";
+      await action(`${key} saved.`, () =>
+        api(`/api/settings/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value, source: "room_settings" }) }));
+    });
+  });
+
+  document.getElementById("roomSettingRawForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    if (!data.key) return;
+    await action(`${data.key} saved.`, () =>
+      api(`/api/settings/${encodeURIComponent(data.key)}`, { method: "PUT", body: JSON.stringify({ value: data.value, source: "room_settings" }) }));
+  });
+
+  document.querySelectorAll("[data-room-edit]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.roomEdit;
+      const cur = btn.dataset.roomVal || "";
+      const newVal = prompt(`Edit room setting "${key}" (current: ${cur})`, cur);
+      if (newVal !== null) {
+        action(`${key} saved.`, () =>
+          api(`/api/settings/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value: newVal, source: "room_settings" }) }));
+      }
+    });
   });
 
   document.querySelector('[data-action="logs-filter"]')?.addEventListener("click", () => {

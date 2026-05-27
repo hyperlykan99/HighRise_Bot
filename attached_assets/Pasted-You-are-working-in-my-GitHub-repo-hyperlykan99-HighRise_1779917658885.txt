@@ -1,0 +1,165 @@
+You are working in my GitHub repo hyperlykan99/HighRise_Bot on branch dashboard-agent-portal or dashboard-redesign, whichever currently contains the public portal and owner dashboard work.
+
+Goal:
+Audit and hook the ChillTopia dashboard so it is not just a pretty shell. I want real working owner controls wherever the bot/database already supports it, and clean placeholders only where backend work truly does not exist yet.
+
+Important safety:
+- Do NOT expose or print bot tokens.
+- Do NOT edit .env directly unless using the existing Bot Config API.
+- Do NOT modify runtime bot code in artifacts/highrise-bot unless absolutely necessary.
+- Prefer dashboard/server.mjs and dashboard/public/app.js/styles.css.
+- Keep public pages read-only and safe.
+- Owner actions must require auth and permission checks.
+- Dangerous actions need confirmation.
+
+Main problems to fix:
+1. Bot Control page says “No bot heartbeat data” even though Overview shows 19/19 online bots.
+2. Bot list shows duplicate raw rows like dj/DJ_DUDU and dj/dj, host/ChillTopiaMC and host/host. Clean this up.
+3. Player Control, Economy, Inventory, Emotes, Room Control, etc. are mostly placeholder cards. Hook what can be hooked to existing database tables/APIs.
+4. Make all pages aligned: if a page says editable/configurable, it should either work or clearly say exactly what endpoint is missing.
+5. Public portal should remain separate from owner dashboard.
+
+Step 1 — audit existing backend and database:
+Inspect dashboard/server.mjs and the SQLite schema/code references to find existing tables and APIs for:
+- bot_instances
+- room_settings
+- bot_settings
+- module_flags
+- users
+- owned_items
+- titles / player_titles / badges if present
+- yt_request_jobs
+- audit logs / command errors
+- bot spawns if table exists
+- emote registry/settings if table exists
+
+Step 2 — fix Bot Control data:
+Create or update GET /api/bot-control to return clean per-bot cards.
+Deduplicate raw bot_instances rows by real bot username when available.
+Prefer display names:
+- DJ_DUDU for dj
+- ChillTopiaMC for host
+- KeanuShield for security
+- GreatestProspector for miner
+- MasterAngler for fisher
+- AceSinatra for poker
+- ChipSoprano for blackjack
+- BankingBot for banker/shopkeeper
+Use latest heartbeat/status per bot.
+Include:
+- mode
+- username
+- status
+- enabled
+- last_heartbeat_at
+- last_error
+- current_room_id
+- has_duplicate_raw_rows boolean if applicable
+
+Update the Bot Control frontend to use this endpoint instead of showing empty data.
+
+Step 3 — hook Bot Config:
+Keep existing /api/bot-config and /api/bot-config/restart.
+Make sure Bot Config page can:
+- show ROOM_ID
+- show BOTS_ENABLED
+- show token keys as SET/EMPTY only
+- save room ID / enabled bots / pasted new tokens
+- restart bots through /api/bot-config/restart
+- show success/error messages clearly
+
+Step 4 — hook Room Control:
+Use existing room_settings and bot_settings endpoints where possible.
+Room Control should let owner edit:
+- welcome_enabled
+- welcome_message / setwelcome if known key exists
+- maintenance flags
+- public_emotes_enabled
+- social_enabled
+- self_teleport_enabled
+- any common room_settings keys discovered
+Add generic key/value editor for room_settings with confirmation.
+
+Step 5 — hook Radio Control:
+Use existing working radio endpoints:
+- GET /api/radio
+- POST /api/radio/skip
+- POST /api/radio/clear
+- PUT /api/radio/requests-enabled
+- POST /api/radio/requests/:id/remove
+Make UI clear:
+- Now Playing
+- Queue
+- Request gate
+- Skip
+- Clear Queue
+- Remove item
+Show whether a request is actual request or Auto DJ if data exists.
+
+Step 6 — hook Casino/Games:
+Use existing:
+- GET /api/casino
+- PUT /api/casino/:key
+- GET /api/games
+- PUT /api/games/:key
+- module flag endpoints
+Make buttons/toggles work for existing settings.
+Only leave “endpoint needed” for actions like reset stuck table if no endpoint exists.
+
+Step 7 — hook Player Control where possible:
+If users table exists, add read-only search endpoint:
+GET /api/player/search?q=
+Return safe owner-only data:
+- user_id
+- username
+- balance
+- xp
+- level
+- equipped title/badge fields if present
+- owned item count if available
+Add player search UI that actually works.
+For edit actions, only implement if safe existing DB helper/table is obvious. Otherwise keep placeholder:
+“Backend endpoint needed: /api/player/:id/economy”
+Do NOT fake edits.
+
+Step 8 — hook Economy/Inventory:
+If owned_items and users table exist, show player inventory safely after search.
+If edit endpoints are not implemented, clearly list needed endpoints:
+- POST /api/player/:id/coins
+- POST /api/player/:id/tickets
+- POST /api/player/:id/xp
+- POST /api/player/:id/items/add
+- POST /api/player/:id/items/remove
+Do not create risky write endpoints unless simple and audited.
+
+Step 9 — hook Emotes where possible:
+Find if emote data is JSON file or DB.
+If file-based, create read-only dashboard view first:
+- player emotes
+- bot emotes
+- alias
+- id
+- timing
+- bot/player flags
+Do not edit JSON from dashboard yet unless safe backup is implemented.
+Mark edit/add/delete as backend endpoint needed if not implemented.
+
+Step 10 — clean UI alignment:
+- No huge raw tables on top-level pages unless Logs/debug.
+- Use cards and tables consistently.
+- Mobile layout must not overlap with iOS browser bar.
+- Fix sticky hamburger/header overlaps.
+- Ensure all pages have consistent spacing and titles.
+- Use clear status chips: ONLINE, OFFLINE, ENABLED, DISABLED, SET, EMPTY.
+- All placeholder cards must be labeled “Backend endpoint needed” and include exact endpoint name.
+
+Step 11 — validation:
+- Public home works logged out.
+- Owner login works.
+- Owner dashboard works after login.
+- Bot Control shows real deduplicated bots.
+- Bot Config restart still works.
+- Radio controls still work.
+- node --check dashboard/server.mjs passes.
+- Commit changes with message:
+  Hook dashboard controls and align owner panel
