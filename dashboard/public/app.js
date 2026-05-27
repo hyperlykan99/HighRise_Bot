@@ -527,7 +527,7 @@ function pill(value, good = ["online","enabled","ready","queued","submitted","se
 }
 
 function table(rows, columns, actions) {
-  if (!rows || rows.length === 0) return `<div class="notice">No data available.</div>`;
+  if (!rows || rows.length === 0) return `<div class="empty-state"><div class="empty-state-icon">📭</div><span>No records found.</span></div>`;
   const cols = columns || Object.keys(rows[0]).slice(0, 8).map((k) => ({ key: k, label: k }));
   return `<div class="table-wrap"><table>
     <thead><tr>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}${actions ? "<th></th>" : ""}</tr></thead>
@@ -1078,7 +1078,8 @@ function renderAdminPage() {
   const role = state.user?.role;
   const nullDataOk = ["Players", "Bots", "Room & Content", "Economy & Rewards",
     "System", "Staff Home", "Players", "Events", "Room Tools", "Logs"];
-  if (!d && !nullDataOk.includes(page)) return `<div class="notice">Loading…</div>`;
+  if (!d && state.error && !nullDataOk.includes(page)) return `<div class="card"><div class="empty-state"><div class="empty-state-icon">⚠️</div><strong style="color:var(--red);margin-bottom:4px">Failed to load</strong><span>${esc(state.error)}</span></div></div>`;
+  if (!d && !nullDataOk.includes(page)) return `<div class="card"><div class="loading-state"><div class="loading-spinner"></div><span class="muted text-sm">Loading…</span></div></div>`;
   return role === "owner" ? renderOwnerPage(page) : renderStaffPage(page);
 }
 
@@ -1134,10 +1135,18 @@ function renderCommandCenter() {
     </div>
     <div class="card">
       <div class="card-header"><h2>⚡ Quick Actions</h2></div>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:4px">
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:4px">
         <button class="btn primary" id="qaRestartBots">🔄 Restart Bots</button>
         <button class="btn cyan" id="qaToggleRequests">${r.queue_open ? "🚫 Close Requests" : "✅ Open Requests"}</button>
-        <button class="btn" data-admin-page="Room & Content">🎵 Radio Controls</button>
+        <button class="btn" data-admin-page="Room & Content">📻 Radio Controls</button>
+      </div>
+    </div>
+    <div class="card danger-zone">
+      <div class="card-header" style="margin-bottom:10px">
+        <h2>🚨 Danger Zone</h2>
+        <span class="muted text-sm">Writes DB flags — bots respond on next heartbeat</span>
+      </div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
         <button class="btn danger" id="qaDisableCasino">🎲 Disable Casino</button>
         <button class="btn danger" id="qaDisableGames">🎮 Disable Games</button>
         <button class="btn danger" id="qaClearQueue">🗑 Clear Queue</button>
@@ -1277,6 +1286,7 @@ function renderBotConfig() {
             <button class="btn" type="button" id="saveAndRestartBtn">💾 Save + Restart</button>
             <button class="btn danger" type="button" id="restartBotsBtn">🔄 Restart Bots</button>
           </div>
+          <p class="muted text-sm" style="margin-top:12px">ℹ️ Restart writes a flag to the DB. Each bot picks it up on its next heartbeat (~15–30 s) — the process is not killed immediately.</p>
         </form>
       </div>
       <div class="card">
@@ -1768,7 +1778,7 @@ function renderEmergency() {
     <div class="notice warn" style="margin-bottom:0">
       ⚠️ Emergency controls write DB flags only. Bots consume these on next heartbeat — no processes are killed.
     </div>
-    <div class="card">
+    <div class="card danger-zone">
       <h2>🚨 Quick Disable</h2>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:4px">
         <button class="btn danger" data-emergency="disable_radio_requests">🎵 Disable Radio Requests</button>

@@ -1,0 +1,71 @@
+Final polish pass for ChillTopia web portal and control panel.
+
+Goals:
+- Make the dashboard feel clean, simple, and premium.
+- Remove confusion.
+- Make mobile layout excellent.
+- Make owner controls less overwhelming.
+
+Polish tasks:
+1. Public Portal:
+   - Home looks like a real landing page.
+   - Radio looks like DJ DUDU radio dashboard.
+   - Tutorials are friendly cards.
+   - Events and Rankings have clean empty states.
+   - Owner Login is easy to find but not intrusive.
+
+2. Staff Console:
+   - Only shows operational pages.
+   - No owner-only dangerous buttons.
+   - Staff pages should be easy to use on mobile.
+
+3. Owner Control Center:
+   - Sidebar uses grouped main sections only:
+     Command Center
+     Bots
+     Players
+     Room & Content
+     Economy & Rewards
+     Staff
+     System
+   - Advanced/raw/debug areas hidden in accordions.
+   - Danger Zone visually separated.
+   - Confirm modals for destructive actions.
+
+4. Settings:
+   - Blackjack Settings, Poker Settings, Radio Settings, etc. are grouped cards.
+   - Raw key/value tables are hidden under Advanced.
+   - Labels are human-friendly.
+   - Controls are aligned.
+
+5. Bot Control:
+   - No duplicate cards.
+   - Blackjack/Realistic Blackjack appear under one Casino Dealer bot card.
+   - Raw duplicate rows only in Advanced Debug.
+
+6. Accessibility:
+   - Buttons large enough on mobile.
+   - No overlapping header/sidebar.
+   - Good contrast.
+   - Long tables scroll horizontally.
+   - Forms usable on iPhone.
+
+7. Empty/error states:
+   - No ugly JSON dumps except Logs/Debug.
+   - No blank white pages.
+   - Friendly error cards.
+   - Loading states.
+
+Validation:
+- Public page works logged out.
+- Owner login works.
+- Staff/Owner dashboard works logged in.
+- Bot Config page works.
+- Restart Bots button behavior is clearly labeled and works as intended.
+- Radio controls still work.
+- Player search works if implemented.
+- No tokens displayed.
+- node --check dashboard/server.mjs passes.
+
+Commit with message:
+Polish ChillTopia dashboard UX

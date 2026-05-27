@@ -194,6 +194,9 @@ body {
   font-weight: 500;
   text-align: left;
   transition: all 0.15s ease;
+  min-height: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .nav button:hover {
@@ -326,6 +329,9 @@ body {
   font-weight: 600;
   transition: all 0.15s ease;
   white-space: nowrap;
+  min-height: 40px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn:hover {
@@ -681,10 +687,9 @@ input::placeholder { color: rgba(136,146,184,0.4); }
 
 /* ── Bot Config Token Rows ───────────────────────────── */
 .token-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 10px;
+  display: flex;
   align-items: center;
+  gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid rgba(120,100,220,0.08);
 }
@@ -692,22 +697,12 @@ input::placeholder { color: rgba(136,146,184,0.4); }
 .token-row:last-child { border-bottom: none; }
 
 .token-name {
+  flex: 1;
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
   letter-spacing: 0.04em;
-}
-
-.token-input-wrap {
-  flex: 1;
-}
-
-.token-input-wrap input {
-  padding: 6px 10px;
-  font-size: 12px;
-  border-radius: 8px;
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 /* ── Misc ────────────────────────────────────────────── */
@@ -723,7 +718,67 @@ input::placeholder { color: rgba(136,146,184,0.4); }
   margin: 16px 0;
 }
 
-.inline-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.inline-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ── Danger Zone Card ────────────────────────────────── */
+.danger-zone {
+  border-color: rgba(255, 77, 106, 0.28) !important;
+  background: rgba(255, 77, 106, 0.04) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.danger-zone::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--red), #ff8a00);
+  pointer-events: none;
+}
+
+.danger-zone h2 { color: var(--red) !important; }
+
+/* ── Empty State ─────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 16px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 14px;
+}
+
+.empty-state-icon {
+  font-size: 36px;
+  opacity: 0.45;
+  line-height: 1;
+}
+
+/* ── Loading State ───────────────────────────────────── */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 48px 16px;
+}
+
+.loading-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid rgba(155, 94, 255, 0.18);
+  border-top-color: var(--purple);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
 
 pre.mono-block {
   background: rgba(6,8,20,0.8);
@@ -890,6 +945,9 @@ pre.mono-block {
   font-weight: 500;
   white-space: nowrap;
   transition: all 0.15s;
+  min-height: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .pub-nav-link:hover {
@@ -1494,6 +1552,8 @@ pre.mono-block {
   font-weight: 500;
   white-space: nowrap;
   transition: all 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .tab-btn:hover {
