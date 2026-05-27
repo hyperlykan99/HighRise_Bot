@@ -1512,3 +1512,128 @@ pre.mono-block {
   .tab-nav { gap: 2px; padding: 4px; }
   .tab-btn { padding: 7px 10px; font-size: 12px; }
 }
+
+/* ── Settings Groups & Fields ───────────────────────── */
+.settings-group {
+  margin-bottom: 16px;
+}
+
+.settings-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settings-field-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(155, 94, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-height: 52px;
+}
+
+.settings-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+}
+
+.settings-suffix {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 2px 6px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+}
+
+.settings-field input[type="text"],
+.settings-field input[type="number"],
+.settings-field select,
+.settings-field textarea {
+  width: 100%;
+  background: rgba(10, 12, 24, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 13px;
+  transition: border-color 0.15s;
+}
+
+.settings-field input:focus,
+.settings-field select:focus,
+.settings-field textarea:focus {
+  outline: none;
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(155, 94, 255, 0.12);
+}
+
+/* ── Advanced Collapse ───────────────────────────────── */
+.advanced-collapse {
+  margin-top: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(10, 12, 24, 0.5);
+}
+
+.advanced-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  list-style: none;
+  user-select: none;
+  transition: color 0.15s, background 0.15s;
+}
+
+.advanced-summary::-webkit-details-marker { display: none; }
+
+.advanced-summary::before {
+  content: "▶";
+  font-size: 11px;
+  transition: transform 0.2s;
+  color: var(--warn);
+}
+
+details[open] .advanced-summary::before {
+  transform: rotate(90deg);
+}
+
+.advanced-summary:hover {
+  color: var(--text);
+  background: rgba(255, 202, 106, 0.05);
+}
+
+.advanced-content {
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 600px) {
+  .settings-fields { grid-template-columns: 1fr; }
+}

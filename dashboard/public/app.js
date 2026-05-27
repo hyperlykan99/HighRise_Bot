@@ -36,10 +36,10 @@ const STAFF_NAV = [
 
 /* ── Page Tabs ───────────────────────────────────────── */
 const PAGE_TABS = {
-  "Bots":              ["Bot Status", "Bot Config", "Bot Spawns", "Advanced"],
+  "Bots":              ["Bot Status", "Bot Config", "Bot Settings", "Bot Spawns", "Advanced"],
   "Players":           ["Search", "Titles & Badges", "Moderation"],
   "Room & Content":    ["Room Settings", "Radio", "Events", "Announcements", "Welcome", "Emotes"],
-  "Economy & Rewards": ["Coins & Tickets", "VIP", "Titles", "Badges", "Rewards"],
+  "Economy & Rewards": ["Coins & Tickets", "Casino", "Games", "VIP", "Titles", "Badges", "Rewards"],
   "System":            ["Health", "Logs", "Emergency", "Database"],
 };
 
@@ -59,6 +59,388 @@ const PAGE_DESC = {
   "Logs":              "Audit trail and command error logs",
 };
 
+/* ── Settings Schema ─────────────────────────────────── */
+const SETTINGS_SCHEMA = {
+  casino: [
+    {
+      title: "Blackjack Settings",
+      description: "Main BJ table rules — read by blackjack.py on startup",
+      api: "/api/casino/:key",
+      keys: [
+        { key: "bj_enabled",          label: "Enabled",              type: "toggle" },
+        { key: "bj_min_bet",          label: "Min Bet",              type: "number", suffix: "coins", placeholder: "10" },
+        { key: "bj_max_bet",          label: "Max Bet",              type: "number", suffix: "coins", placeholder: "5000" },
+        { key: "bj_max_players",      label: "Max Players",          type: "number", placeholder: "6" },
+        { key: "bj_action_timer",     label: "Action Timer",         type: "number", suffix: "sec",   placeholder: "30" },
+        { key: "bj_daily_win_limit",  label: "Daily Win Limit",      type: "number", suffix: "coins" },
+        { key: "bj_bonus_enabled",    label: "Pair Bonus",           type: "toggle" },
+        { key: "bj_bonus_cap",        label: "Pair Bonus Cap",       type: "number", suffix: "coins" },
+        { key: "bj_bonus_pair_pct",   label: "Pair Bonus %",         type: "number", suffix: "%" },
+        { key: "bj_bonus_color_pct",  label: "Color Pair Bonus %",   type: "number", suffix: "%" },
+        { key: "bj_bonus_perfect_pct",label: "Perfect Pair Bonus %", type: "number", suffix: "%" },
+      ],
+    },
+    {
+      title: "Realistic Blackjack Settings",
+      description: "Shoe-based BJ with advanced rules",
+      api: "/api/casino/:key",
+      keys: [
+        { key: "rbj_enabled",         label: "Enabled",         type: "toggle" },
+        { key: "rbj_min_bet",         label: "Min Bet",         type: "number", suffix: "coins" },
+        { key: "rbj_max_bet",         label: "Max Bet",         type: "number", suffix: "coins" },
+        { key: "rbj_max_players",     label: "Max Players",     type: "number" },
+        { key: "rbj_action_timer",    label: "Action Timer",    type: "number", suffix: "sec" },
+        { key: "rbj_num_decks",       label: "Number of Decks", type: "number", placeholder: "6" },
+        { key: "rbj_daily_win_limit", label: "Daily Win Limit", type: "number", suffix: "coins" },
+      ],
+    },
+    {
+      title: "Poker Settings",
+      description: "Texas Hold'em poker table settings",
+      api: "/api/casino/:key",
+      keys: [
+        { key: "poker_enabled",      label: "Enabled",    type: "toggle" },
+        { key: "poker_min_buyin",    label: "Min Buy-In", type: "number", suffix: "coins" },
+        { key: "poker_max_buyin",    label: "Max Buy-In", type: "number", suffix: "coins" },
+        { key: "poker_small_blind",  label: "Small Blind",type: "number", suffix: "coins" },
+        { key: "poker_big_blind",    label: "Big Blind",  type: "number", suffix: "coins" },
+        { key: "poker_max_players",  label: "Max Players",type: "number", placeholder: "8" },
+        { key: "poker_turn_timer",   label: "Turn Timer", type: "number", suffix: "sec" },
+        { key: "poker_lobby_timer",  label: "Lobby Timer",type: "number", suffix: "sec" },
+      ],
+    },
+    {
+      title: "Casino Global Settings",
+      description: "Settings that apply across all casino games",
+      api: "/api/casino/:key",
+      keys: [
+        { key: "casino_enabled",      label: "Casino Enabled",    type: "toggle" },
+        { key: "daily_coin_limit",    label: "Daily Coin Limit",  type: "number", suffix: "coins" },
+        { key: "daily_reset_hour",    label: "Daily Reset Hour",  type: "number", suffix: "h UTC", placeholder: "0" },
+      ],
+    },
+  ],
+  games: [
+    {
+      title: "Trivia Settings",
+      description: "In-room trivia game configuration",
+      api: "/api/games/:key",
+      keys: [
+        { key: "trivia.enabled",       label: "Enabled",              type: "toggle" },
+        { key: "trivia.reward_coins",  label: "Reward per Correct",   type: "number", suffix: "coins" },
+        { key: "trivia.timer",         label: "Answer Timer",         type: "number", suffix: "sec" },
+        { key: "trivia.cooldown",      label: "Cooldown",             type: "number", suffix: "sec" },
+        { key: "trivia.max_rounds",    label: "Max Rounds",           type: "number" },
+      ],
+    },
+    {
+      title: "Scramble Settings",
+      description: "Word scramble game configuration",
+      api: "/api/games/:key",
+      keys: [
+        { key: "scramble.enabled",      label: "Enabled",          type: "toggle" },
+        { key: "scramble.reward_coins", label: "Reward per Win",   type: "number", suffix: "coins" },
+        { key: "scramble.timer",        label: "Answer Timer",     type: "number", suffix: "sec" },
+        { key: "scramble.cooldown",     label: "Cooldown",         type: "number", suffix: "sec" },
+      ],
+    },
+    {
+      title: "Riddle Settings",
+      description: "Riddle game configuration",
+      api: "/api/games/:key",
+      keys: [
+        { key: "riddle.enabled",      label: "Enabled",           type: "toggle" },
+        { key: "riddle.reward_coins", label: "Reward per Correct",type: "number", suffix: "coins" },
+        { key: "riddle.timer",        label: "Answer Timer",      type: "number", suffix: "sec" },
+        { key: "riddle.cooldown",     label: "Cooldown",          type: "number", suffix: "sec" },
+      ],
+    },
+    {
+      title: "Auto Games",
+      description: "Automatic game scheduling",
+      api: "/api/games/:key",
+      keys: [
+        { key: "games.auto_enabled",  label: "Auto Games Enabled",type: "toggle" },
+        { key: "games.auto_interval", label: "Auto Interval",     type: "number", suffix: "min" },
+        { key: "games.auto_types",    label: "Game Types",        type: "text", placeholder: "trivia,scramble,riddle" },
+      ],
+    },
+    {
+      title: "Games Rewards",
+      description: "XP and ticket rewards for mini-games",
+      api: "/api/games/:key",
+      keys: [
+        { key: "games.xp_per_win",    label: "XP per Win",        type: "number" },
+        { key: "games.ticket_per_win",label: "Tickets per Win",   type: "number" },
+        { key: "games.bonus_streak",  label: "Streak Bonus Round",type: "number", placeholder: "5" },
+      ],
+    },
+  ],
+  radio: [
+    {
+      title: "Request Settings",
+      description: "Controls for the song request system",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "radio_requests_enabled",   label: "Requests Enabled",     type: "toggle" },
+        { key: "radio_max_queue_size",     label: "Max Queue Size",       type: "number", placeholder: "50" },
+        { key: "radio_max_per_user",       label: "Max Per User",         type: "number", placeholder: "3" },
+        { key: "radio_cooldown_min",       label: "Request Cooldown",     type: "number", suffix: "min" },
+        { key: "radio_vip_queue_priority", label: "VIP Priority Queue",   type: "toggle" },
+        { key: "radio_vip_max_per_user",   label: "VIP Max Per User",     type: "number" },
+      ],
+    },
+    {
+      title: "Queue Settings",
+      description: "Now-playing and skip behaviour",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "radio_skip_votes_required",label: "Skip Votes Required",  type: "number", placeholder: "3" },
+        { key: "radio_announce_np",        label: "Announce Now Playing", type: "toggle" },
+        { key: "radio_announce_up_next",   label: "Announce Up Next",     type: "toggle" },
+        { key: "radio_dj_prefix",          label: "DJ Announce Prefix",   type: "text",   placeholder: "🎵" },
+      ],
+    },
+    {
+      title: "AutoDJ Settings",
+      description: "Fallback automatic DJ when queue is empty",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "autodj_enabled",  label: "AutoDJ Enabled",  type: "toggle" },
+        { key: "autodj_playlist", label: "Playlist",        type: "text", placeholder: "playlist ID or name" },
+        { key: "autodj_shuffle",  label: "Shuffle Playlist",type: "toggle" },
+      ],
+    },
+  ],
+  room: [
+    {
+      title: "Welcome Settings",
+      description: "Welcome message sent to players when they join",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "welcome_enabled",    label: "Welcome Enabled",   type: "toggle" },
+        { key: "welcome_message",    label: "Welcome Message",   type: "textarea", placeholder: "Welcome to ChillTopia! 🎉" },
+        { key: "welcome_delay_sec",  label: "Send Delay",        type: "number", suffix: "sec", placeholder: "2" },
+        { key: "welcome_vip_extra",  label: "VIP Extra Message", type: "textarea" },
+      ],
+    },
+    {
+      title: "Announcement Settings",
+      description: "Room-wide announcement configuration",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "announcements_enabled",         label: "Announcements Enabled",    type: "toggle" },
+        { key: "announcement_interval_min",     label: "Auto Interval",            type: "number", suffix: "min" },
+        { key: "announce_big_find_threshold",   label: "Big Find Threshold",       type: "number", suffix: "lbs" },
+        { key: "announce_big_catch_threshold",  label: "Big Catch Threshold",      type: "number", suffix: "lbs" },
+      ],
+    },
+    {
+      title: "Social Settings",
+      description: "Social interactions and public room features",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "social_enabled",          label: "Social Enabled",    type: "toggle" },
+        { key: "public_emotes_enabled",   label: "Public Emotes",     type: "toggle" },
+        { key: "dancefloor_enabled",      label: "Dancefloor",        type: "toggle" },
+        { key: "self_teleport_enabled",   label: "Self Teleport",     type: "toggle" },
+        { key: "daily_enabled",           label: "Daily Rewards",     type: "toggle" },
+        { key: "mining_enabled",          label: "Mining",            type: "toggle" },
+        { key: "fishing_enabled",         label: "Fishing",           type: "toggle" },
+      ],
+    },
+    {
+      title: "Moderation Settings",
+      description: "Auto-mod thresholds and kick behaviour",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "maintenance_mode",   label: "Maintenance Mode",    type: "toggle" },
+        { key: "automod_enabled",    label: "Auto-Mod Enabled",    type: "toggle" },
+        { key: "spam_threshold",     label: "Spam Threshold",      type: "number", suffix: "msgs/30s" },
+        { key: "warn_before_kick",   label: "Warn Before Kick",    type: "toggle" },
+      ],
+    },
+  ],
+  bots: [
+    {
+      title: "Bot Runtime Settings",
+      description: "How bots behave at runtime — read on next heartbeat",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "bot_heartbeat_interval", label: "Heartbeat Interval",      type: "number", suffix: "sec", placeholder: "30" },
+        { key: "bot_rejoin_delay",       label: "Rejoin Delay",            type: "number", suffix: "sec", placeholder: "10" },
+        { key: "bot_max_retries",        label: "Max Reconnect Retries",   type: "number", placeholder: "5" },
+        { key: "bot_auto_start",         label: "Auto-start on boot",      type: "toggle" },
+        { key: "bots_enabled",           label: "Enabled Bots",            type: "text",   placeholder: "all  or  main,dj,banker" },
+      ],
+    },
+    {
+      title: "Bot Welcome Settings",
+      description: "Per-bot configurable whispers sent when a player joins",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "botwelcomes_enabled",   label: "Bot Welcomes Enabled",  type: "toggle" },
+        { key: "botwelcome_dj",         label: "DJ Bot Welcome",        type: "textarea", placeholder: "Welcome to ChillTopia! DJ_DUDU here 🎵" },
+        { key: "botwelcome_host",       label: "Host Bot Welcome",      type: "textarea", placeholder: "Hey! I'm ChillTopiaMC 🎉" },
+        { key: "botwelcome_security",   label: "Security Bot Welcome",  type: "textarea" },
+        { key: "botwelcome_miner",      label: "Miner Bot Welcome",     type: "textarea" },
+        { key: "botwelcome_banker",     label: "Banker Bot Welcome",    type: "textarea" },
+      ],
+    },
+  ],
+  emotes: [
+    {
+      title: "Player Emote Settings",
+      description: "Player-triggered emotes and cooldowns",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "public_emotes_enabled", label: "Player Emotes Enabled", type: "toggle" },
+        { key: "emote_cooldown_sec",    label: "Emote Cooldown",        type: "number", suffix: "sec" },
+        { key: "emote_allowed_roles",   label: "Allowed Roles",         type: "text",   placeholder: "all  or  vip,admin" },
+      ],
+    },
+    {
+      title: "Bot Emote Settings",
+      description: "Bot reaction emotes for big finds, greetings, and dancefloor",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "bot_react_enabled",    label: "Bot Reactions Enabled",    type: "toggle" },
+        { key: "bot_react_threshold",  label: "Big Find React Threshold", type: "number", suffix: "lbs" },
+        { key: "bot_greet_emote",      label: "Greeting Emote",           type: "text",   placeholder: "wave" },
+      ],
+    },
+    {
+      title: "Dancefloor Settings",
+      description: "Automated dancefloor and sync configuration",
+      api: "/api/settings/:key",
+      apiOpts: { source: "room_settings" },
+      keys: [
+        { key: "dancefloor_enabled",       label: "Dancefloor Enabled",   type: "toggle" },
+        { key: "dancefloor_sync_interval", label: "Sync Interval",        type: "number", suffix: "sec" },
+        { key: "dancefloor_auto_emote",    label: "Auto Emote on Floor",  type: "toggle" },
+      ],
+    },
+  ],
+};
+
+/* ── Settings Helpers ────────────────────────────────── */
+function settingsMapFrom(rawArr) {
+  const m = {};
+  if (!rawArr) return m;
+  for (const s of rawArr) if (s?.key !== undefined) m[String(s.key)] = String(s.value ?? "");
+  return m;
+}
+
+function renderSettingsGroup(group, valuesMap, idx) {
+  const formId = `sg_${idx}_${group.title.replace(/\W+/g, "_").toLowerCase()}`;
+  const apiPath = group.api || "";
+  return `<div class="card settings-group">
+    <div class="card-header" style="margin-bottom:10px">
+      <div>
+        <h2>${esc(group.title)}</h2>
+        ${group.description ? `<div class="muted text-sm" style="margin-top:2px">${esc(group.description)}</div>` : ""}
+      </div>
+    </div>
+    <form id="${esc(formId)}" data-settings-group="${esc(formId)}"
+          data-sg-api="${esc(apiPath)}"
+          data-sg-opts='${JSON.stringify(group.apiOpts || {})}'>
+      <div class="settings-fields">
+        ${group.keys.map((f) => renderSettingsField(f, valuesMap[f.key])).join("")}
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn primary sm" type="submit">💾 Save ${esc(group.title)}</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+function renderSettingsField(field, currentVal) {
+  const val = currentVal ?? field.default ?? "";
+  const id = `sf_${field.key.replace(/\W+/g, "_")}`;
+
+  if (field.type === "toggle") {
+    const checked = val === "true" || val === "1" || val === true;
+    return `<div class="settings-field settings-field-toggle">
+      <div>
+        <div class="field-label">${esc(field.label)}</div>
+        ${field.hint ? `<div class="muted text-sm">${esc(field.hint)}</div>` : ""}
+      </div>
+      <label class="switch" style="margin:0">
+        <input type="checkbox" id="${esc(id)}" name="${esc(field.key)}" data-sf-toggle="1" ${checked ? "checked" : ""} />
+        <span></span>
+      </label>
+    </div>`;
+  }
+
+  if (field.type === "textarea") {
+    return `<div class="settings-field">
+      <label class="field-label" for="${esc(id)}">${esc(field.label)}</label>
+      ${field.hint ? `<div class="muted text-sm" style="margin-bottom:4px">${esc(field.hint)}</div>` : ""}
+      <textarea id="${esc(id)}" name="${esc(field.key)}" rows="3"
+        placeholder="${esc(field.placeholder || "")}"
+        style="resize:vertical">${esc(val)}</textarea>
+    </div>`;
+  }
+
+  if (field.type === "select") {
+    return `<div class="settings-field">
+      <label class="field-label" for="${esc(id)}">${esc(field.label)}</label>
+      <select id="${esc(id)}" name="${esc(field.key)}">
+        ${(field.options || []).map(([v, l]) => `<option value="${esc(v)}" ${val === v ? "selected" : ""}>${esc(l)}</option>`).join("")}
+      </select>
+    </div>`;
+  }
+
+  // number or text
+  return `<div class="settings-field">
+    <div class="settings-field-row">
+      <label class="field-label" for="${esc(id)}">${esc(field.label)}</label>
+      ${field.suffix ? `<span class="settings-suffix">${esc(field.suffix)}</span>` : ""}
+    </div>
+    ${field.hint ? `<div class="muted text-sm" style="margin-bottom:4px">${esc(field.hint)}</div>` : ""}
+    <input type="${field.type === "number" ? "number" : "text"}"
+      id="${esc(id)}" name="${esc(field.key)}"
+      value="${esc(val)}" placeholder="${esc(field.placeholder || "")}" />
+  </div>`;
+}
+
+function renderAdvancedCollapse(rawSettings) {
+  const raw = rawSettings || [];
+  return `<details class="advanced-collapse">
+    <summary class="advanced-summary">
+      <span class="pill warn">⚙️</span> Advanced — Raw Settings Editor
+      <span class="muted text-sm">(${raw.length} keys)</span>
+    </summary>
+    <div class="advanced-content">
+      <form class="rawSettingGroupForm toolbar" style="flex-wrap:wrap;margin-bottom:14px">
+        <input name="key" placeholder="setting_key" required style="flex:2;min-width:120px" />
+        <input name="value" placeholder="value" required style="flex:3;min-width:120px" />
+        <button class="btn sm" type="submit">Save</button>
+      </form>
+      ${raw.length ? table(raw,
+          [{ key: "key", label: "Key" }, { key: "value", label: "Value" }, { key: "source", label: "Source" }],
+          (r) => `<button class="btn sm" data-raw-edit-key="${esc(r.key)}" data-raw-edit-val="${esc(r.value)}" data-raw-edit-src="${esc(r.source||"room_settings")}">Edit</button>`)
+        : `<div class="notice">No raw settings found.</div>`}
+    </div>
+  </details>`;
+}
+
+function renderSchemaGroups(schemaKey, valuesMap) {
+  const groups = SETTINGS_SCHEMA[schemaKey] || [];
+  return groups.map((g, i) => renderSettingsGroup(g, valuesMap, `${schemaKey}${i}`)).join("");
+}
+
 /* ── API Map ─────────────────────────────────────────── */
 function pageApi(page, tab) {
   const key = tab ? `${page}/${tab}` : page;
@@ -66,11 +448,17 @@ function pageApi(page, tab) {
     "Command Center":                     "/api/overview",
     "Bots/Bot Status":                    "/api/bot-control",
     "Bots/Bot Config":                    "/api/bot-config",
+    "Bots/Bot Settings":                  "/api/settings",
     "Players/Titles & Badges":            "/api/titles",
     "Room & Content/Room Settings":       "/api/room-control",
     "Room & Content/Radio":               "/api/radio",
     "Room & Content/Events":              "/api/public/events",
+    "Room & Content/Announcements":       "/api/room-control",
+    "Room & Content/Welcome":             "/api/room-control",
+    "Room & Content/Emotes":              "/api/room-control",
     "Economy & Rewards/Coins & Tickets":  "/api/economy/overview",
+    "Economy & Rewards/Casino":           "/api/casino",
+    "Economy & Rewards/Games":            "/api/games",
     "Economy & Rewards/Titles":           "/api/titles",
     "Staff":                              "/api/staff",
     "System/Health":                      "/api/healthz",
@@ -777,10 +1165,22 @@ function renderCommandCenter() {
 function renderBotsPage(tab) {
   return `
     ${tabNav("Bots")}
-    ${tab === "Bot Status" ? renderBotStatus() : ""}
-    ${tab === "Bot Config" ? renderBotConfig() : ""}
-    ${tab === "Bot Spawns" ? renderBotSpawns() : ""}
-    ${tab === "Advanced" ? renderBotAdvanced() : ""}
+    ${tab === "Bot Status"   ? renderBotStatus() : ""}
+    ${tab === "Bot Config"   ? renderBotConfig() : ""}
+    ${tab === "Bot Settings" ? renderBotSettingsTab() : ""}
+    ${tab === "Bot Spawns"   ? renderBotSpawns() : ""}
+    ${tab === "Advanced"     ? renderBotAdvanced() : ""}
+  `;
+}
+
+function renderBotSettingsTab() {
+  const d = state.data || {};
+  const rawAll = [...(d.room_settings || []), ...(d.bot_settings || [])];
+  const valMap = settingsMapFrom(rawAll);
+  return `
+    ${renderSchemaGroups("bots", valMap)}
+    ${renderAdvancedCollapse(rawAll.filter((s) =>
+      s.key?.startsWith("bot") || s.key?.startsWith("botwelcome") || s.key?.startsWith("bots_")))}
   `;
 }
 
@@ -970,52 +1370,11 @@ function renderRoomSettings() {
   const d = state.data || {};
   const known = d.known_settings || {};
   const extra = d.extra_settings || [];
-
-  function boolRow(key, label) {
-    const val = known[key];
-    const isSet = val !== undefined;
-    const checked = val === "true" || val === "1";
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1e2822">
-      <span>${esc(label)}</span>
-      <div style="display:flex;align-items:center;gap:8px">
-        ${isSet ? pill(checked ? "enabled" : "disabled") : `<span class="muted text-sm">not set</span>`}
-        <label class="switch" style="margin:0">
-          <input type="checkbox" data-room-toggle="${esc(key)}" ${checked ? "checked" : ""} />
-          <span></span>
-        </label>
-      </div>
-    </div>`;
-  }
-
+  const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
+  const valMap = settingsMapFrom(allRaw);
   return `
-    <div class="grid">
-      <div class="card">
-        <h2>🔧 Room Toggles</h2>
-        <p class="muted text-sm" style="margin-bottom:10px">Writes to <code>room_settings</code> — bots read these flags.</p>
-        ${boolRow("welcome_enabled", "Welcome messages")}
-        ${boolRow("maintenance_mode", "Maintenance mode")}
-        ${boolRow("public_emotes_enabled", "Public emotes")}
-        ${boolRow("social_enabled", "Social features")}
-        ${boolRow("self_teleport_enabled", "Self teleport")}
-        ${boolRow("announcements_enabled", "Announcements")}
-        ${boolRow("daily_enabled", "Daily rewards")}
-        ${boolRow("mining_enabled", "Mining")}
-        ${boolRow("fishing_enabled", "Fishing")}
-      </div>
-      <div class="card">
-        <h2>⚙️ Raw Setting Editor</h2>
-        <p class="muted text-sm" style="margin-bottom:10px">Edit any <code>room_settings</code> key. Audit logged.</p>
-        <form id="roomSettingRawForm" class="toolbar" style="flex-wrap:wrap;margin-bottom:14px">
-          <input name="key" placeholder="setting_key" required style="flex:2;min-width:100px" />
-          <input name="value" placeholder="value" required style="flex:2;min-width:80px" />
-          <button class="btn primary sm">Save</button>
-        </form>
-        ${extra.length ? table(extra,
-            [{ key: "key", label: "Key" }, { key: "value", label: "Value" }],
-            (r) => `<button class="btn sm" data-room-edit="${esc(r.key)}" data-room-val="${esc(r.value)}">Edit</button>`)
-          : `<div class="notice">No extra room settings.</div>`}
-      </div>
-    </div>
+    ${renderSchemaGroups("room", valMap)}
+    ${renderAdvancedCollapse(allRaw)}
   `;
 }
 
@@ -1053,6 +1412,8 @@ function renderRadioTab() {
         { key: "status", label: "Status", render: (r) => pill(r.status) },
       ], (r) => `<button class="btn danger sm" data-remove-request="${r.id}">Remove</button>`)}
     </div>
+    ${renderSchemaGroups("radio", {})}
+    ${renderAdvancedCollapse([])}
   `;
 }
 
@@ -1080,43 +1441,48 @@ function renderEventsTab() {
 }
 
 function renderAnnouncementsTab() {
-  return `<div class="card">
-    <h2>📢 Announcements</h2>
-    <p class="muted text-sm" style="margin-bottom:12px">Sends a room-wide message via the host bot.</p>
-    ${endpointNeeded("POST /api/room/announce — consumed by the host bot. Bot must poll this endpoint.")}
-  </div>`;
+  const d = state.data || {};
+  const known = d.known_settings || {};
+  const extra = d.extra_settings || [];
+  const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
+  const valMap = settingsMapFrom(allRaw);
+  const annoGroup = SETTINGS_SCHEMA.room.find((g) => g.title === "Announcement Settings");
+  return `
+    ${annoGroup ? renderSettingsGroup(annoGroup, valMap, "announcements") : ""}
+    <div class="card">
+      <h2>📢 Send Announcement</h2>
+      <p class="muted text-sm" style="margin-bottom:12px">Sends a room-wide message via the host bot.</p>
+      ${endpointNeeded("POST /api/room/announce — consumed by the host bot (needs bot polling loop)")}
+    </div>
+  `;
 }
 
 function renderWelcomeTab() {
   const d = state.data || {};
   const known = d.known_settings || {};
+  const extra = d.extra_settings || [];
+  const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
+  const valMap = settingsMapFrom(allRaw);
+  const welGroup = SETTINGS_SCHEMA.room.find((g) => g.title === "Welcome Settings");
   return `
-    <div class="card">
-      <h2>👋 Welcome Message</h2>
-      <form class="roomSettingForm" data-key="welcome_message" style="display:grid;gap:10px">
-        <textarea name="value" rows="4" placeholder="Enter welcome message for new players"
-          style="width:100%;box-sizing:border-box;background:#0e120f;color:#fff;border:1px solid #334037;border-radius:8px;padding:10px;font:inherit;resize:vertical"
-        >${esc(known.welcome_message ?? "")}</textarea>
-        <button class="btn primary sm">💾 Save Welcome Message</button>
-      </form>
-      <div style="margin-top:16px;padding:8px 0;border-top:1px solid #1e2822;display:flex;align-items:center;justify-content:space-between">
-        <span>Welcome messages enabled</span>
-        <label class="switch" style="margin:0">
-          <input type="checkbox" data-room-toggle="welcome_enabled" ${known.welcome_enabled === "true" || known.welcome_enabled === "1" ? "checked" : ""} />
-          <span></span>
-        </label>
-      </div>
-    </div>
+    ${welGroup ? renderSettingsGroup(welGroup, valMap, "welcome") : ""}
+    ${renderAdvancedCollapse(allRaw.filter((s) => s.key?.startsWith("welcome")))}
   `;
 }
 
 function renderEmotesTab() {
-  return `<div class="card">
-    <h2>💃 Emotes & Dancefloor</h2>
-    ${endpointNeeded("POST /api/room/emote — trigger bot emote")}
-    ${endpointNeeded("POST /api/room/dancefloor — sync dancefloor")}
-    ${endpointNeeded("GET /api/room/emote-packs — list custom emote packs")}
-  </div>`;
+  const d = state.data || {};
+  const known = d.known_settings || {};
+  const extra = d.extra_settings || [];
+  const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
+  const valMap = settingsMapFrom(allRaw);
+  return `
+    ${renderSchemaGroups("emotes", valMap)}
+    ${endpointNeeded("POST /api/room/emote — trigger a specific bot emote in-room")}
+    ${endpointNeeded("GET /api/room/emote-packs — list / manage custom emote packs")}
+    ${renderAdvancedCollapse(allRaw.filter((s) =>
+      s.key?.includes("emote") || s.key?.includes("dance") || s.key?.includes("react")))}
+  `;
 }
 
 /* ── Economy & Rewards ───────────────────────────────── */
@@ -1124,10 +1490,52 @@ function renderEconomyRewards(tab) {
   return `
     ${tabNav("Economy & Rewards")}
     ${tab === "Coins & Tickets" ? renderCoinsTab() : ""}
-    ${tab === "VIP" ? renderVipTab() : ""}
-    ${tab === "Titles" ? renderTitlesTab() : ""}
-    ${tab === "Badges" ? renderBadgesTab() : ""}
-    ${tab === "Rewards" ? renderRewardsTab() : ""}
+    ${tab === "Casino"          ? renderCasinoTab() : ""}
+    ${tab === "Games"           ? renderGamesTab() : ""}
+    ${tab === "VIP"             ? renderVipTab() : ""}
+    ${tab === "Titles"          ? renderTitlesTab() : ""}
+    ${tab === "Badges"          ? renderBadgesTab() : ""}
+    ${tab === "Rewards"         ? renderRewardsTab() : ""}
+  `;
+}
+
+function renderCasinoTab() {
+  const d = state.data || {};
+  const settings = d.settings || [];
+  const valMap = settingsMapFrom(settings);
+  const flag = d.module_flag;
+  return `
+    <div class="card">
+      <div class="card-header">
+        <h2>🎲 Casino Module</h2>
+        ${flag ? pill(flag.enabled ? "enabled" : "disabled") : `<span class="muted text-sm">no flag set</span>`}
+      </div>
+      <div class="inline-actions">
+        <button class="btn cyan" data-toggle-module="casino" data-enabled="${flag?.enabled ? "0" : "1"}">${flag?.enabled ? "Disable Casino" : "Enable Casino"}</button>
+      </div>
+    </div>
+    ${renderSchemaGroups("casino", valMap)}
+    ${renderAdvancedCollapse(settings)}
+  `;
+}
+
+function renderGamesTab() {
+  const d = state.data || {};
+  const settings = d.settings || [];
+  const valMap = settingsMapFrom(settings);
+  const flag = d.module_flag;
+  return `
+    <div class="card">
+      <div class="card-header">
+        <h2>🎮 Games Module</h2>
+        ${flag ? pill(flag.enabled ? "enabled" : "disabled") : `<span class="muted text-sm">no flag set</span>`}
+      </div>
+      <div class="inline-actions">
+        <button class="btn cyan" data-toggle-module="games" data-enabled="${flag?.enabled ? "0" : "1"}">${flag?.enabled ? "Disable Games" : "Enable Games"}</button>
+      </div>
+    </div>
+    ${renderSchemaGroups("games", valMap)}
+    ${renderAdvancedCollapse(settings)}
   `;
 }
 
@@ -1650,6 +2058,61 @@ function bindAdminPageEvents() {
       confirmAction("Remove Request", `Remove request #${id} from the queue?`, async () => {
         await action("Request removed.", () => api(`/api/radio/requests/${id}/remove`, { method: "POST", body: JSON.stringify({}) }));
       });
+    });
+  });
+
+  /* Settings group forms — data-settings-group */
+  document.querySelectorAll("[data-settings-group]").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const apiTemplate = form.dataset.sgApi || "";
+      let opts = {};
+      try { opts = JSON.parse(form.dataset.sgOpts || "{}"); } catch (_) {}
+
+      const fields = Array.from(form.elements).filter((el) => el.name);
+      const saves = fields.map((el) => {
+        const key = el.name;
+        let value;
+        if (el.dataset.sfToggle === "1" || el.type === "checkbox") {
+          value = el.checked ? "true" : "false";
+        } else {
+          value = el.value;
+        }
+        const url = apiTemplate.replace(/:key$/, encodeURIComponent(key));
+        const body = { value, ...opts };
+        return api(url, { method: "PUT", body: JSON.stringify(body) });
+      });
+
+      await action(`Saved ${fields.length} setting${fields.length !== 1 ? "s" : ""}.`, () => Promise.all(saves));
+    });
+  });
+
+  /* Raw settings advanced editor — edit buttons */
+  document.querySelectorAll("[data-raw-edit-key]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.rawEditKey;
+      const val = btn.dataset.rawEditVal;
+      const src = btn.dataset.rawEditSrc || "room_settings";
+      const form = btn.closest(".advanced-content")?.querySelector(".rawSettingGroupForm");
+      if (form) {
+        form.querySelector("[name='key']").value = key;
+        form.querySelector("[name='value']").value = val;
+        form.dataset.editSrc = src;
+        form.querySelector("[name='key']").focus();
+      }
+    });
+  });
+
+  /* Raw settings advanced editor — form submit */
+  document.querySelectorAll(".rawSettingGroupForm").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const key = form.querySelector("[name='key']").value.trim();
+      const value = form.querySelector("[name='value']").value;
+      const source = form.dataset.editSrc || "room_settings";
+      if (!key) return;
+      await action(`Setting "${key}" saved.`, () =>
+        api(`/api/settings/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value, source }) }));
     });
   });
 

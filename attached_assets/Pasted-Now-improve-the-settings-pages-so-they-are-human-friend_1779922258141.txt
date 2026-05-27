@@ -1,0 +1,122 @@
+Now improve the settings pages so they are human-friendly, not raw database-shaped.
+
+Goal:
+Every module should show clean grouped settings cards like:
+
+BlackJack Settings:
+- Enabled
+- Min Bet
+- Max Bet
+- Max Players
+- Action Timer
+- Daily Win Limit
+
+Poker Settings:
+- Enabled
+- Min Buy-In
+- Max Buy-In
+- Small Blind
+- Big Blind
+- Max Players
+- Turn Timer
+- Lobby Timer
+
+Do this for all major systems:
+- Blackjack
+- Realistic Blackjack
+- Poker
+- Radio
+- Games
+- Economy
+- Room
+- Emotes
+- Bots
+
+Important:
+- Do NOT remove the raw key/value editor. Move it under “Advanced / Raw Settings”.
+- Owner should not need to know raw DB keys.
+- Use friendly labels and typed controls:
+  - number input for min/max/cooldowns
+  - toggle for enabled/disabled
+  - textarea for messages
+  - select/dropdown for modes
+- Each grouped settings card must have one Save button.
+- If a specific key does not exist yet, still show the UI only if there is a safe existing endpoint to save it.
+- If no backend support exists, show disabled placeholder:
+  “Endpoint needed: PUT /api/[module]/[key]”
+
+Create a SETTINGS_SCHEMA or equivalent mapping in dashboard/public/app.js.
+
+Example schema style:
+const SETTINGS_SCHEMA = {
+  casino: [
+    {
+      title: "BlackJack Settings",
+      description: "Main blackjack game settings",
+      keys: [
+        { key: "bj_min_bet", label: "Min Bet", type: "number" },
+        { key: "bj_max_bet", label: "Max Bet", type: "number" },
+        { key: "bj_max_players", label: "Max Players", type: "number" },
+        { key: "bj_action_timer", label: "Action Timer", type: "number", suffix: "sec" }
+      ]
+    }
+  ]
+}
+
+Casino page should have:
+- Casino Overview
+- BlackJack Settings
+- Realistic BlackJack Settings
+- Poker Settings
+- Casino Global Settings
+- Advanced Raw Settings
+
+Radio page should have:
+- Radio Request Settings
+- Queue Settings
+- AutoDJ Settings
+- Playlist Settings
+- Advanced Raw Settings
+
+Games page should have:
+- Trivia Settings
+- Scramble Settings
+- Riddle Settings
+- Auto Games Settings
+- Rewards Settings
+- Advanced Raw Settings
+
+Room & Content page should have:
+- Welcome Settings
+- Announcements
+- Room Rules
+- Social Settings
+- Teleport Settings
+- Moderation Settings
+- Advanced Raw Settings
+
+Bots page should have:
+- Bot Runtime Settings
+- Bot Spawn Settings
+- Bot Welcome Settings
+- Token/Room Config
+- Advanced Raw Settings
+
+Emotes page should have:
+- Player Emote Settings
+- Bot Emote Settings
+- Dancefloor Settings
+- Sync Settings
+- Custom Packs
+- Advanced Raw Settings
+
+Validation:
+- Settings pages look clean on mobile.
+- Each grouped card is aligned.
+- Raw settings are hidden under Advanced.
+- No raw ugly tables on top by default.
+- Existing save endpoints are preserved.
+- node --check dashboard/server.mjs passes if changed.
+
+Commit with message:
+Add human friendly dashboard settings panels
