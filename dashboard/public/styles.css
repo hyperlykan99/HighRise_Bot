@@ -74,3 +74,11 @@ tr:last-child td { border-bottom: 0; }
   .sidebar { position: static; height: auto; }
   .split { grid-template-columns: 1fr; }
 }
+
+/* ChillTopia mobile-safe theme */
+body{background:radial-gradient(circle at top left,rgba(141,77,255,.18),transparent 32%),linear-gradient(180deg,#050712,#090d1a 55%,#050712);color:#eef3ff;}
+aside{background:rgba(7,12,22,.92);border-right:1px solid rgba(124,135,190,.20);backdrop-filter:blur(18px);} aside h2{color:#fff;letter-spacing:-.04em;}
+aside h2:before{content:"CT";display:inline-grid;place-items:center;width:46px;height:46px;margin-right:12px;border-radius:14px;background:linear-gradient(135deg,#2ce6a1,#7fa7ff);color:#07111f;font-weight:900;font-size:18px;vertical-align:middle;}
+nav button{border-radius:14px;color:#9aa6c7;} nav button:hover{background:rgba(141,77,255,.14);color:#fff;} nav button.active{background:linear-gradient(135deg,rgba(141,77,255,.35),rgba(34,215,255,.12));color:#fff;}
+.card,.login{background:linear-gradient(180deg,rgba(20,27,49,.97),rgba(11,16,31,.97));border:1px solid rgba(124,135,190,.22);border-radius:22px;box-shadow:0 18px 50px rgba(0,0,0,.45),0 0 0 1px rgba(141,77,255,.15);} input,select,textarea{background:rgba(6,10,22,.88);color:#fff;border:1px solid rgba(124,135,190,.30);border-radius:14px;}
+button,.primary{background:linear-gradient(135deg,#8d4dff,#b56cff);color:#fff;border:1px solid rgba(255,255,255,.10);border-radius:14px;font-weight:800;} button.danger,.danger{background:linear-gradient(135deg,#b3132c,#ff4d63);} .ok{color:#2ce6a1;font-weight:900;} .err{color:#ff4d63;font-weight:900;}

@@ -24,6 +24,79 @@ const REMOTE_TIMEOUT_MS = parseInt(process.env.REMOTE_TIMEOUT_MS ?? "8000", 10);
 const SESSION_DAYS = parseInt(process.env.DASHBOARD_SESSION_DAYS ?? "7", 10);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const APP_MODE = process.env.NODE_ENV || process.env.APP_MODE || "production";
+
+const BOT_ENV_PATH = process.env.BOT_ENV_PATH?.trim() || "/opt/highrise-bots/artifacts/highrise-bot/.env";
+const BOT_PM2_APP = process.env.BOT_PM2_APP?.trim() || "ChillTopia-8Bots";
+const BOT_TOKEN_KEYS = [
+  "DJ_BOT_TOKEN",
+  "HOST_BOT_TOKEN",
+  "SECURITY_BOT_TOKEN",
+  "BLACKJACK_BOT_TOKEN",
+  "POKER_BOT_TOKEN",
+  "MINER_BOT_TOKEN",
+  "BANKER_BOT_TOKEN",
+  "FISHING_BOT_TOKEN",
+  "SHOP_BOT_TOKEN",
+  "EVENT_BOT_TOKEN",
+];
+
+function parseDotEnvText(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const values = {};
+  for (const line of lines) {
+    if (!line || line.trim().startsWith("#")) continue;
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$/);
+    if (m) values[m[1]] = m[2];
+  }
+  return { lines, values };
+}
+
+function setEnvLine(lines, key, value) {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("^\\s*" + escaped + "=");
+  const nextLine = `${key}=${String(value ?? "")}`;
+  for (let i = 0; i < lines.length; i++) {
+    if (re.test(lines[i]) && !lines[i].trim().startsWith("#")) {
+      lines[i] = nextLine;
+      return;
+    }
+  }
+  if (lines.length && lines[lines.length - 1] !== "") lines.push("");
+  lines.push(nextLine);
+}
+
+function readBotEnv() {
+  const text = fs.existsSync(BOT_ENV_PATH) ? fs.readFileSync(BOT_ENV_PATH, "utf8") : "";
+  return parseDotEnvText(text);
+}
+
+function botConfigSummary() {
+  const { values } = readBotEnv();
+  return {
+    env_path: BOT_ENV_PATH,
+    pm2_app: BOT_PM2_APP,
+    room_id: values.ROOM_ID || "",
+    bots_enabled: values.BOTS_ENABLED || "",
+    tokens: BOT_TOKEN_KEYS.map((key) => ({
+      key,
+      status: values[key] ? "SET" : "EMPTY",
+    })),
+  };
+}
+
+function writeBotEnvUpdates(updates) {
+  const before = fs.existsSync(BOT_ENV_PATH) ? fs.readFileSync(BOT_ENV_PATH, "utf8") : "";
+  const backupPath = `${BOT_ENV_PATH}.DASHBOARD_BACKUP_${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  if (fs.existsSync(BOT_ENV_PATH)) fs.copyFileSync(BOT_ENV_PATH, backupPath);
+  const parsed = parseDotEnvText(before);
+  const lines = parsed.lines;
+  for (const [key, value] of Object.entries(updates)) setEnvLine(lines, key, value);
+  fs.writeFileSync(BOT_ENV_PATH, lines.join("\n").replace(/\n*$/, "\n"), { mode: 0o600 });
+  try { fs.chmodSync(BOT_ENV_PATH, 0o600); } catch {}
+  return backupPath;
+}
+
+
 const VPS_ENV_PATH = "/opt/highrise-bots/.env";
 
 function readEnvFileValue(filePath, key) {
@@ -900,6 +973,48 @@ app.get("/api/live", requireAuth, (req, res) => {
   json(res, { bots, live_status: liveRows, recent_commands_or_errors: commands, updated_at: nowIso() });
 }, closeDb);
 
+
+app.get("/api/bot-config", requireAuth, requirePermission("emergency_controls"), (_req, res) => {
+  res.json(botConfigSummary());
+});
+
+app.post("/api/bot-config", requireAuth, requirePermission("emergency_controls"), (req, res) => {
+  const body = req.body || {};
+  const updates = {};
+  if (typeof body.room_id === "string") updates.ROOM_ID = body.room_id.trim();
+  if (typeof body.bots_enabled === "string") updates.BOTS_ENABLED = body.bots_enabled.trim();
+
+  const tokens = body.tokens && typeof body.tokens === "object" ? body.tokens : {};
+  for (const key of BOT_TOKEN_KEYS) {
+    const value = String(tokens[key] ?? "").trim();
+    if (value) updates[key] = value;
+  }
+
+  if (!Object.keys(updates).length) {
+    return res.json({ ok: true, message: "No changes submitted.", config: botConfigSummary() });
+  }
+
+  const backup = writeBotEnvUpdates(updates);
+  try {
+    audit(req.db, req.user.username, "bot_config_update", "env", Object.keys(updates).join(","), req.ip);
+  } catch {}
+  res.json({ ok: true, backup, updated: Object.keys(updates), config: botConfigSummary() });
+});
+
+app.post("/api/bot-config/restart", requireAuth, requirePermission("emergency_controls"), async (req, res) => {
+  try {
+    const { execFile } = await import("node:child_process");
+    execFile("/usr/bin/pm2", ["restart", BOT_PM2_APP, "--update-env"], { timeout: 20000 }, (err, stdout, stderr) => {
+      try { audit(req.db, req.user.username, "bot_runner_restart", "pm2", BOT_PM2_APP, req.ip); } catch {}
+      if (err) return res.status(500).json({ error: "pm2_restart_failed", message: err.message, stderr: String(stderr || "").slice(0, 800) });
+      res.json({ ok: true, stdout: String(stdout || "").slice(0, 1200), stderr: String(stderr || "").slice(0, 800) });
+    });
+  } catch (err) {
+    res.status(500).json({ error: "restart_exception", message: String(err?.message || err) });
+  }
+});
+
+
 app.get("/api/settings", requireAuth, requirePermission("emergency_controls"), (req, res) => {
   const roomSettings = rowsOrEmpty(
     req.db,
@@ -1260,7 +1375,7 @@ const DASHBOARD_HTML = `<!doctype html>
 <body>
   <div id="root"></div>
   <script>
-    const pages = ["Overview","Radio","Casino","Games","Titles","Staff & Permissions","Settings","Logs","Emergency"];
+    const pages = ["Overview","Radio","Casino","Games","Titles","Staff & Permissions","Bot Config","Settings","Logs","Emergency"];
     let state = { user:null, page:"Overview", data:null, error:"" };
     const $ = (s) => document.querySelector(s);
     async function api(path, opts={}) {
@@ -1280,7 +1395,7 @@ const DASHBOARD_HTML = `<!doctype html>
     async function load(){
       const map = {
         "Overview":"/api/overview", "Radio":"/api/radio", "Casino":"/api/casino", "Games":"/api/settings",
-        "Titles":"/api/titles", "Staff & Permissions":"/api/staff", "Settings":"/api/settings", "Logs":"/api/logs", "Emergency":"/api/settings"
+        "Titles":"/api/titles", "Staff & Permissions":"/api/staff", "Bot Config":"/api/bot-config", "Settings":"/api/settings", "Logs":"/api/logs", "Emergency":"/api/settings"
       };
       try { state.data = await api(map[state.page]); state.error=""; } catch(e){ state.data=null; state.error=e.message; }
       render();
@@ -1293,7 +1408,32 @@ const DASHBOARD_HTML = `<!doctype html>
         rows.map(r=>'<tr>'+keys.map(k=>'<td>'+esc(typeof r[k]==="object"?JSON.stringify(r[k]):r[k])+'</td>').join('')+'</tr>').join('')+
         '</tbody></table>';
     }
-    function renderLogin(){
+    
+function tokenRows(tokens){
+        if (!tokens || !tokens.length) return '<p class="muted">No token keys found.</p>';
+        return '<table><thead><tr><th>Token</th><th>Status</th><th>Replace Token</th></tr></thead><tbody>'+
+          tokens.map(t => '<tr><td><code>'+esc(t.key)+'</code></td><td><span class="'+(t.status==='SET'?'ok':'err')+'">'+esc(t.status)+'</span></td><td><input data-token-key="'+esc(t.key)+'" type="password" placeholder="Paste new token only; blank keeps current" autocomplete="off" /></td></tr>').join('')+
+          '</tbody></table>';
+      }
+      async function saveBotConfig(){
+        const tokens = {};
+        document.querySelectorAll('[data-token-key]').forEach(el => { if (el.value.trim()) tokens[el.dataset.tokenKey] = el.value.trim(); });
+        const body = {
+          room_id: (document.getElementById('bot_room_id')?.value || '').trim(),
+          bots_enabled: (document.getElementById('bots_enabled')?.value || '').trim(),
+          tokens
+        };
+        const r = await api('/api/bot-config', { method:'POST', body:JSON.stringify(body) });
+        alert('Saved. Backup: ' + (r.backup || 'none'));
+        await load();
+      }
+      async function restartBotRunner(){
+        if (!confirm('Restart ChillTopia-8Bots now?')) return;
+        const r = await api('/api/bot-config/restart', { method:'POST' });
+        alert(r.ok ? 'Bot runner restart requested.' : 'Restart failed.');
+      }
+
+function renderLogin(){
       const root = document.getElementById("root");
       root.innerHTML = '<form class="login" onsubmit="login(event)"><h1>ChillTopia Control</h1><p class="muted">Owner/staff login</p>'+
       (state.error?'<p class="err">'+esc(state.error)+'</p>':'')+
@@ -1317,7 +1457,8 @@ const DASHBOARD_HTML = `<!doctype html>
       if (state.page==="Games") return '<div class="card"><h3>Module Flags and Settings</h3>'+table(d.module_flags)+'<p class="muted">Use Settings for exact key edits.</p></div>';
       if (state.page==="Titles") return '<div class="grid"><div class="card"><h3>Catalog</h3>'+table(d.catalog)+'</div><div class="card"><h3>Assigned</h3>'+table(d.assigned)+'</div></div>';
       if (state.page==="Staff & Permissions") return '<div class="grid"><div class="card"><h3>Dashboard Users</h3>'+table(d.dashboard_users)+'</div><div class="card"><h3>Bot Roles</h3><pre>'+esc(JSON.stringify(d.bot_roles,null,2))+'</pre></div></div>';
-      if (state.page==="Settings") return '<div class="grid"><div class="card"><h3>Bot Settings</h3>'+table(d.bot_settings)+'</div><div class="card"><h3>Room Settings</h3>'+table(d.room_settings)+'</div></div>';
+      if (state.page==="Bot Config") return '<div class="grid"><div class="card"><h3>Bot Config</h3><p class="muted">Tokens are never displayed. Leave token fields blank to keep current values.</p><p class="muted">Env: <code>'+esc(d.env_path||'')+'</code></p><p class="muted">PM2 app: <code>'+esc(d.pm2_app||'')+'</code></p><p><label>ROOM_ID<br><input id="bot_room_id" value="'+esc(d.room_id||'')+'" placeholder="HighRise room id" /></label></p><p><label>BOTS_ENABLED<br><input id="bots_enabled" value="'+esc(d.bots_enabled||'')+'" placeholder="dj,blackjack,poker,miner,banker,security,host,fisher" /></label></p><h3>Bot Tokens</h3>'+tokenRows(d.tokens||[])+'<p class="row"><button class="primary" onclick="saveBotConfig()">Save Bot Config</button><button class="danger" onclick="restartBotRunner()">Restart Bots</button></p></div></div>';
+        if (state.page==="Settings") return '<div class="grid"><div class="card"><h3>Bot Settings</h3>'+table(d.bot_settings)+'</div><div class="card"><h3>Room Settings</h3>'+table(d.room_settings)+'</div></div>';
       if (state.page==="Logs") return '<div class="grid"><div class="card"><h3>Audit Logs</h3>'+table(d.audit_logs)+'</div><div class="card"><h3>Admin Logs</h3>'+table(d.admin_action_logs)+'</div></div>';
       if (state.page==="Emergency") return '<div class="card"><h3>Emergency Controls</h3><p>These write DB flags only.</p><div class="row">'+
         '<button class="danger" onclick="api(\\'/api/emergency\\',{method:\\'POST\\',body:JSON.stringify({flags:{disable_radio_requests:true}})}).then(load)">Disable Radio Requests</button>'+
