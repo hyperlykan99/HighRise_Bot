@@ -1,0 +1,112 @@
+Audit all dashboard controls and make sure every visible control is either real or clearly marked as unavailable.
+
+Goal:
+No fake working buttons. Every button should:
+1. call a real endpoint, or
+2. be disabled with exact “Endpoint needed: METHOD /path” text.
+
+Audit pages:
+- Public Home
+- Public Radio
+- Public Tutorials
+- Public Events
+- Public Rankings
+- Public Room Info
+- Staff Console
+- Owner Command Center
+- Bots
+- Players
+- Room & Content
+- Economy & Rewards
+- Staff
+- System
+
+Real controls that should remain hooked:
+Radio:
+- GET /api/radio
+- POST /api/radio/skip
+- POST /api/radio/clear
+- PUT /api/radio/requests-enabled
+- POST /api/radio/requests/:id/remove
+
+Bot Config:
+- GET /api/bot-config
+- POST /api/bot-config
+- POST /api/bot-config/restart
+
+Casino/Games:
+- GET /api/casino
+- PUT /api/casino/:key
+- GET /api/games
+- PUT /api/games/:key
+- module flag endpoints if present
+
+Settings:
+- GET /api/settings
+- PUT /api/settings/:key
+
+Staff:
+- existing staff CRUD endpoints if present
+
+Logs:
+- GET /api/logs
+
+Emergency:
+- existing emergency endpoint
+
+Player Control:
+If player search endpoint does not exist, add owner-only read-only:
+GET /api/player/search?q=
+
+It should search users table by username or user_id and return safe owner-only data:
+- user_id
+- username
+- balance
+- xp
+- level
+- total_games_won
+- equipped_badge/title if columns exist
+- owned_items count if table exists
+
+Do NOT implement risky write edits yet unless simple and audited.
+For edits, show disabled placeholders:
+- Endpoint needed: POST /api/player/:id/coins
+- Endpoint needed: POST /api/player/:id/tickets
+- Endpoint needed: POST /api/player/:id/xp
+- Endpoint needed: POST /api/player/:id/items/add
+- Endpoint needed: POST /api/player/:id/items/remove
+- Endpoint needed: POST /api/player/:id/vip
+
+Economy/Inventory:
+If owned_items exists, show read-only inventory after player search.
+If edit endpoints missing, show endpoint-needed placeholders.
+
+Emotes:
+Add read-only view if emote registry can be read safely.
+If editable endpoints are missing, show:
+- Endpoint needed: GET /api/emotes
+- Endpoint needed: POST /api/emotes
+- Endpoint needed: PUT /api/emotes/:name
+- Endpoint needed: DELETE /api/emotes/:name
+
+Room Control:
+Hook to existing room_settings/bot_settings where possible.
+Common toggles:
+- welcome_enabled
+- public_emotes_enabled
+- social_enabled
+- self_teleport_enabled
+- maintenance mode if key exists
+If keys are unknown, show raw advanced editor.
+
+Validation:
+- Click through every page.
+- No button appears active unless it does something.
+- Disabled placeholders are clear.
+- Public users never see owner controls.
+- Staff only sees staff-safe controls.
+- Owner sees full controls.
+- node --check dashboard/server.mjs passes.
+
+Commit with message:
+Audit and hook dashboard controls

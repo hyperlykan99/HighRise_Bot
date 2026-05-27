@@ -1286,11 +1286,10 @@ function renderBotConfig() {
           <div class="token-row">
             <span class="token-name">${esc(key)}</span>
             ${pill(status)}
-            <div class="token-input-wrap">
-              <input type="password" placeholder="Paste new token (leave blank to keep)" data-token-key="${esc(key)}" autocomplete="off" />
-            </div>
           </div>`).join("")}
-        <p class="muted text-sm" style="margin-top:12px">Set actual tokens in Replit environment secrets.</p>
+        <div style="margin-top:12px;display:grid;gap:6px">
+          ${endpointNeeded("PUT /api/bot-config/token/:key — update token (manage via Replit Secrets instead)")}
+        </div>
       </div>
     </div>
   `;
@@ -1930,6 +1929,7 @@ function renderStaffEvents() {
 function renderStaffRoomTools() {
   const d = state.data || {};
   const known = d.known_settings || {};
+  const hasPerms = can("emergency_controls");
 
   function boolRow(key, label) {
     const val = known[key];
@@ -1947,19 +1947,23 @@ function renderStaffRoomTools() {
     <div class="grid">
       <div class="card">
         <h2>🔧 Room Flags</h2>
-        ${boolRow("welcome_enabled", "Welcome messages")}
-        ${boolRow("public_emotes_enabled", "Public emotes")}
-        ${boolRow("social_enabled", "Social features")}
-        ${boolRow("announcements_enabled", "Announcements")}
+        ${hasPerms ? `
+          ${boolRow("welcome_enabled", "Welcome messages")}
+          ${boolRow("public_emotes_enabled", "Public emotes")}
+          ${boolRow("social_enabled", "Social features")}
+          ${boolRow("announcements_enabled", "Announcements")}
+        ` : `<div class="notice">Requires <code>emergency_controls</code> permission — contact the owner to enable this access.</div>`}
       </div>
       <div class="card">
         <h2>👋 Welcome Message</h2>
-        <form class="roomSettingForm" data-key="welcome_message" style="display:grid;gap:10px">
-          <textarea name="value" rows="4" placeholder="Enter welcome message"
-            style="width:100%;box-sizing:border-box;background:#0e120f;color:#fff;border:1px solid #334037;border-radius:8px;padding:10px;font:inherit;resize:vertical"
-          >${esc(known.welcome_message ?? "")}</textarea>
-          <button class="btn primary sm">💾 Save</button>
-        </form>
+        ${hasPerms ? `
+          <form class="roomSettingForm" data-key="welcome_message" style="display:grid;gap:10px">
+            <textarea name="value" rows="4" placeholder="Enter welcome message"
+              style="width:100%;box-sizing:border-box;background:#0e120f;color:#fff;border:1px solid #334037;border-radius:8px;padding:10px;font:inherit;resize:vertical"
+            >${esc(known.welcome_message ?? "")}</textarea>
+            <button class="btn primary sm">💾 Save</button>
+          </form>
+        ` : `${endpointNeeded("PUT /api/settings/welcome_message — requires emergency_controls permission")}`}
       </div>
     </div>
     <div class="card">
