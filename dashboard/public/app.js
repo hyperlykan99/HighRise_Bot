@@ -1,64 +1,91 @@
-const NAV = [
-  { id: "Overview",     icon: "📊", label: "Overview",     group: "main" },
-  { id: "Radio",        icon: "🎵", label: "Radio",        group: "main" },
-  { id: "Live Tracker", icon: "📡", label: "Live Tracker", group: "main" },
-  { id: "Casino",       icon: "🎲", label: "Casino",       group: "games" },
-  { id: "Games",        icon: "🎮", label: "Games",        group: "games" },
-  { id: "Titles",       icon: "🏅", label: "Titles",       group: "games" },
-  { id: "Staff",        icon: "👥", label: "Staff",        group: "admin" },
-  { id: "Bot Config",   icon: "⚙️", label: "Bot Config",   group: "admin" },
-  { id: "Settings",     icon: "🔧", label: "Settings",     group: "admin" },
-  { id: "Logs",         icon: "📋", label: "Logs",         group: "admin" },
-  { id: "Emergency",    icon: "🚨", label: "Emergency",    group: "admin" },
+/* ── Public Nav ──────────────────────────────────────── */
+const PUBLIC_NAV = [
+  { id: "home",      icon: "🏠", label: "Home" },
+  { id: "radio",     icon: "📻", label: "Radio" },
+  { id: "tutorials", icon: "📖", label: "Tutorials" },
+  { id: "events",    icon: "🎉", label: "Events" },
+  { id: "rankings",  icon: "🏆", label: "Rankings" },
+  { id: "roominfo",  icon: "ℹ️",  label: "Room Info" },
 ];
 
-const NAV_IDS = NAV.map((n) => n.id);
+/* ── Admin Nav ───────────────────────────────────────── */
+const ADMIN_NAV = [
+  { id: "Overview",       icon: "📊", label: "Overview",       group: "Monitor" },
+  { id: "Live Tracker",   icon: "📡", label: "Live Tracker",   group: "Monitor" },
+  { id: "Bot Control",    icon: "🤖", label: "Bot Control",    group: "Bots" },
+  { id: "Bot Config",     icon: "⚙️", label: "Bot Config",     group: "Bots" },
+  { id: "Radio",          icon: "🎵", label: "Radio",          group: "Content" },
+  { id: "Casino",         icon: "🎲", label: "Casino",         group: "Content" },
+  { id: "Games",          icon: "🎮", label: "Games",          group: "Content" },
+  { id: "Titles",         icon: "🏅", label: "Titles",         group: "Content" },
+  { id: "Player Control", icon: "👤", label: "Player Control", group: "Players" },
+  { id: "Economy",        icon: "💰", label: "Economy",        group: "Players" },
+  { id: "Room Control",   icon: "🏠", label: "Room Control",   group: "Room" },
+  { id: "Emotes",         icon: "💃", label: "Emotes",         group: "Room" },
+  { id: "Staff",          icon: "👥", label: "Staff",          group: "Admin" },
+  { id: "Logs",           icon: "📋", label: "Logs",           group: "Admin" },
+  { id: "Emergency",      icon: "🚨", label: "Emergency",      group: "Admin" },
+];
 
-const API_FOR_PAGE = {
-  Overview:      "/api/overview",
-  Radio:         "/api/radio",
-  Casino:        "/api/casino",
-  Games:         "/api/games",
-  Titles:        "/api/titles",
-  Staff:         "/api/staff",
-  "Bot Config":  "/api/bot-config",
-  Settings:      "/api/settings",
-  "Live Tracker":"/api/live",
-  Logs:          "/api/logs",
-  Emergency:     "/api/settings",
+const ADMIN_NAV_IDS = ADMIN_NAV.map((n) => n.id);
+
+const ADMIN_API = {
+  Overview:        "/api/overview",
+  "Live Tracker":  "/api/live",
+  "Bot Control":   null,
+  "Bot Config":    "/api/bot-config",
+  Radio:           "/api/radio",
+  Casino:          "/api/casino",
+  Games:           "/api/games",
+  Titles:          "/api/titles",
+  "Player Control":null,
+  Economy:         null,
+  "Room Control":  null,
+  Emotes:          null,
+  Staff:           "/api/staff",
+  Logs:            "/api/logs",
+  Emergency:       "/api/settings",
 };
 
 const PAGE_DESC = {
-  Overview:      "Room status, bot health and quick metrics",
-  Radio:         "Manage the DJ queue and radio stream",
-  "Live Tracker":"Real-time bot heartbeats and room status",
-  Casino:        "Blackjack, Poker and casino settings",
-  Games:         "Trivia, Scramble and game settings",
-  Titles:        "Assign and manage player titles",
-  Staff:         "Dashboard users and bot role management",
-  "Bot Config":  "Bot tokens, ROOM_ID and restart controls",
-  Settings:      "Global bot and room settings",
-  Logs:          "Audit trail and command error logs",
-  Emergency:     "Quick disable switches for critical systems",
+  Overview:        "Room status, bot health and quick metrics",
+  "Live Tracker":  "Real-time bot heartbeats and room status",
+  "Bot Control":   "Per-bot status, enable/disable and restart",
+  "Bot Config":    "Bot tokens, ROOM_ID and restart controls",
+  Radio:           "Manage the DJ queue and radio stream",
+  Casino:          "Blackjack, Poker and casino settings",
+  Games:           "Trivia, Scramble and game settings",
+  Titles:          "Assign and manage player titles",
+  "Player Control":"Search and edit player profiles",
+  Economy:         "Coins, tickets, inventory and transactions",
+  "Room Control":  "Announcements, welcome messages and room flags",
+  Emotes:          "Bot emotes, dancefloor and sync controls",
+  Staff:           "Dashboard users and bot role management",
+  Logs:            "Audit trail and command error logs",
+  Emergency:       "Quick disable switches for critical systems",
 };
 
+/* ── State ───────────────────────────────────────────── */
 const state = {
   user: null,
   csrf: "",
-  page: (() => {
+  adminPage: (() => {
     const h = location.hash ? decodeURIComponent(location.hash.slice(1)) : "";
-    return NAV_IDS.includes(h) ? h : "Overview";
+    return ADMIN_NAV_IDS.includes(h) ? h : "Overview";
   })(),
+  publicPage: "home",
   data: null,
   error: "",
   notice: "",
   logs: { action_type: "", user: "", module: "", offset: 0 },
   modal: null,
   sidebarOpen: false,
+  showLoginOverlay: false,
 };
 
 const app = document.getElementById("app");
 
+/* ── Helpers ─────────────────────────────────────────── */
 function esc(v) {
   return String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
@@ -77,6 +104,11 @@ async function api(path, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
+}
+
+async function publicApi(path) {
+  const res = await fetch(path, { credentials: "omit" });
+  return res.json().catch(() => ({}));
 }
 
 function pill(value, goodValues = ["online", "enabled", "ready", "queued", "submitted", "set"]) {
@@ -108,12 +140,38 @@ function metricCard(label, value, hint = "", accentClass = "", icon = "") {
   </div>`;
 }
 
-async function load() {
-  const page = NAV_IDS.includes(state.page) ? state.page : "Overview";
-  state.page = page;
-  location.hash = encodeURIComponent(page);
+function endpointNeeded(label) {
+  return `<div class="endpoint-needed"><span class="pill warn">Backend endpoint needed</span><p>${esc(label)}</p></div>`;
+}
+
+/* ── Data Loading ────────────────────────────────────── */
+async function loadPublic() {
+  const apiMap = {
+    home:      "/api/public/home",
+    radio:     "/api/public/radio",
+    events:    "/api/public/events",
+    rankings:  "/api/public/rankings",
+    tutorials: null,
+    roominfo:  null,
+  };
+  const url = apiMap[state.publicPage];
   try {
-    const url = page === "Logs" ? logsUrl() : API_FOR_PAGE[page];
+    state.data = url ? await publicApi(url) : {};
+    state.error = "";
+  } catch (err) {
+    state.data = {};
+    state.error = err.message;
+  }
+  render();
+}
+
+async function loadAdmin() {
+  const page = ADMIN_NAV_IDS.includes(state.adminPage) ? state.adminPage : "Overview";
+  state.adminPage = page;
+  location.hash = encodeURIComponent(page);
+  const url = page === "Logs" ? logsUrl() : ADMIN_API[page];
+  if (!url) { state.data = {}; render(); return; }
+  try {
     state.data = await api(url);
     state.error = "";
   } catch (err) {
@@ -133,18 +191,23 @@ function logsUrl() {
   return `/api/logs?${p.toString()}`;
 }
 
+/* ── Auth ────────────────────────────────────────────── */
 async function init() {
   try {
     const me = await api("/api/auth/me");
     state.user = me.user;
     state.csrf = me.csrf_token || "";
-    await load();
+    await loadAdmin();
   } catch {
-    render();
+    await loadPublic();
   }
   setInterval(() => {
-    if (state.user && ["Overview", "Radio", "Live Tracker"].includes(state.page)) load();
-  }, 8000);
+    if (state.user) {
+      if (["Overview", "Radio", "Live Tracker"].includes(state.adminPage)) loadAdmin();
+    } else {
+      if (["home", "radio"].includes(state.publicPage)) loadPublic();
+    }
+  }, 10000);
 }
 
 async function login(event) {
@@ -154,8 +217,10 @@ async function login(event) {
     const result = await api("/api/auth/login", { method: "POST", body: JSON.stringify(body) });
     state.user = result.user;
     state.csrf = result.csrf_token || "";
-    state.notice = "Signed in.";
-    await load();
+    state.notice = "Signed in successfully.";
+    state.showLoginOverlay = false;
+    state.adminPage = "Overview";
+    await loadAdmin();
   } catch (err) {
     state.error = err.message;
     render();
@@ -167,7 +232,8 @@ async function logout() {
   state.user = null;
   state.csrf = "";
   state.data = null;
-  render();
+  state.adminPage = "Overview";
+  await loadPublic();
 }
 
 async function action(label, fn) {
@@ -175,7 +241,7 @@ async function action(label, fn) {
     await fn();
     state.notice = label;
     state.error = "";
-    await load();
+    if (state.user) await loadAdmin(); else await loadPublic();
   } catch (err) {
     state.error = err.message;
     state.notice = "";
@@ -194,51 +260,382 @@ async function runModalAction() {
   if (fn) await fn();
 }
 
-function renderLogin() {
-  app.innerHTML = `<div class="login-shell">
-    <form class="login-card" id="loginForm">
+function render() {
+  if (state.user) renderAdmin();
+  else renderPublicPortal();
+}
+
+/* ═══════════════════════════════════════════════════════
+   PUBLIC PORTAL
+══════════════════════════════════════════════════════ */
+function renderPublicPortal() {
+  app.innerHTML = `
+    <div class="pub-shell">
+      ${renderPublicNav()}
+      <main class="pub-main">
+        ${state.error ? `<div class="notice error pub-notice">${esc(state.error)}</div>` : ""}
+        <section class="pub-page">${renderPublicPage()}</section>
+      </main>
+      <footer class="pub-footer">
+        <span>ChillTopia &copy; 2025</span>
+        <span>·</span>
+        <span>Powered by DJ DUDU Radio</span>
+        <span>·</span>
+        <span>Join us on Highrise</span>
+      </footer>
+    </div>
+    ${state.showLoginOverlay ? renderLoginOverlay() : ""}
+    ${state.modal ? renderModal() : ""}
+  `;
+  bindPublicEvents();
+}
+
+function renderPublicNav() {
+  const links = PUBLIC_NAV.map((n) => `
+    <button class="pub-nav-link ${n.id === state.publicPage ? "active" : ""}" data-pub-page="${n.id}">
+      <span>${n.icon}</span> ${n.label}
+    </button>`).join("");
+  return `<header class="pub-header">
+    <div class="pub-brand">
+      <div class="mark">CT</div>
+      <div>
+        <strong>ChillTopia</strong>
+        <span>DJ DUDU Radio</span>
+      </div>
+    </div>
+    <nav class="pub-nav">${links}</nav>
+    <button class="btn primary pub-login-btn" id="pubLoginBtn">Owner Login</button>
+  </header>`;
+}
+
+function renderPublicPage() {
+  const d = state.data || {};
+  switch (state.publicPage) {
+    case "home":      return renderPublicHome(d);
+    case "radio":     return renderPublicRadio(d);
+    case "tutorials": return renderPublicTutorials();
+    case "events":    return renderPublicEvents(d);
+    case "rankings":  return renderPublicRankings(d);
+    case "roominfo":  return renderPublicRoomInfo();
+    default:          return renderPublicHome(d);
+  }
+}
+
+function renderPublicHome(d) {
+  const np = d.now_playing;
+  return `
+    <div class="pub-hero">
+      <div class="pub-hero-glow"></div>
+      <div class="pub-hero-content">
+        <div class="pub-hero-badge">🎵 Live Now</div>
+        <h1 class="pub-hero-title">Welcome to<br><span class="gradient-text">ChillTopia</span></h1>
+        <p class="pub-hero-sub">Your favourite DJ DUDU Radio hangout on Highrise</p>
+        <div class="pub-hero-now">
+          ${np ? `<span class="pub-now-label">Now Playing</span>
+          <span class="pub-now-song">${esc(np.title || "Auto DJ")}</span>
+          ${np.artist ? `<span class="pub-now-artist">${esc(np.artist)}</span>` : ""}` : `<span class="pub-now-label">Auto DJ is in the house 🎧</span>`}
+        </div>
+        <div class="pub-quick-links">
+          <button class="btn primary" data-pub-page="radio">📻 View Radio</button>
+          <button class="btn cyan" data-pub-page="rankings">🏆 Rankings</button>
+          <button class="btn ghost" data-pub-page="tutorials">📖 How to Play</button>
+        </div>
+      </div>
+    </div>
+    <div class="pub-stats-row">
+      ${pubStatCard("🤖", "Bots Online", `${d.online_bots ?? 0}/${d.total_bots ?? 0}`, "Active bots running")}
+      ${pubStatCard("👥", "In Room", d.room_users ?? 0, "Players hanging out")}
+      ${pubStatCard("🎵", "Queue", d.queue_count ?? 0, "Songs up next")}
+      ${pubStatCard("✨", "Vibe", d.vibe || "Chill", "Current room energy")}
+    </div>
+  `;
+}
+
+function pubStatCard(icon, label, value, hint) {
+  return `<div class="pub-stat-card">
+    <div class="pub-stat-icon">${icon}</div>
+    <div class="pub-stat-value">${esc(String(value))}</div>
+    <div class="pub-stat-label">${esc(label)}</div>
+    <div class="pub-stat-hint">${esc(hint)}</div>
+  </div>`;
+}
+
+function renderPublicRadio(d) {
+  const np = d.now_playing;
+  const queue = d.queue || [];
+  const recent = d.recently_played || [];
+  return `
+    <div class="pub-section-title">
+      <h2>📻 DJ DUDU Radio</h2>
+      <p>Live music in ChillTopia — request your favourite songs in the room!</p>
+    </div>
+    <div class="pub-radio-layout">
+      <div class="card pub-radio-main">
+        <div class="pub-radio-disc ${np ? "spinning" : ""}">🎵</div>
+        <h3 style="font-size:20px;font-weight:800;margin-bottom:4px">${esc(np?.title || "Auto DJ")}</h3>
+        ${np?.artist ? `<p class="muted">${esc(np.artist)}</p>` : ""}
+        ${np?.username ? `<p class="muted text-sm" style="margin-top:4px">Requested by <strong>${esc(np.username)}</strong></p>` : ""}
+        <div style="margin-top:16px">
+          <span class="pill ${d.queue_open ? "ok" : "bad"}">${d.queue_open ? "Requests Open" : "Requests Closed"}</span>
+        </div>
+        ${d.stream_url ? `<div style="margin-top:16px"><a href="${esc(d.stream_url)}" target="_blank" class="btn cyan">🔊 Listen Live</a></div>` : ""}
+        <div class="pub-request-tip">
+          <span class="pill info">💡 How to Request</span>
+          <p>Type <strong>!request [song name]</strong> in the Highrise room chat to add your song to the queue.</p>
+        </div>
+      </div>
+      <div style="display:grid;gap:16px;min-width:0">
+        <div class="card">
+          <h3>🎶 Up Next (${queue.length})</h3>
+          ${queue.length ? queue.slice(0,10).map((s,i) => `
+            <div class="pub-queue-item">
+              <span class="pub-queue-pos">${i+1}</span>
+              <div class="pub-queue-info">
+                <div class="pub-queue-title">${esc(s.title || "—")}</div>
+                ${s.artist ? `<div class="pub-queue-artist">${esc(s.artist)}</div>` : ""}
+              </div>
+              <span class="muted text-sm">${esc(s.username || "")}</span>
+            </div>`).join("") : `<div class="notice">Queue is empty. Be the first to request!</div>`}
+        </div>
+        ${recent.length ? `<div class="card">
+          <h3>🕐 Recently Played</h3>
+          ${recent.slice(0,5).map((s) => `<div class="pub-queue-item">
+            <span class="pub-queue-pos" style="opacity:0.4">✓</span>
+            <div class="pub-queue-info">
+              <div class="pub-queue-title">${esc(s.title || "—")}</div>
+              ${s.artist ? `<div class="pub-queue-artist">${esc(s.artist)}</div>` : ""}
+            </div>
+          </div>`).join("")}
+        </div>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderPublicTutorials() {
+  const sections = [
+    { icon: "🎵", title: "How to Request Songs", content: `Type <strong>!request [song name or artist]</strong> in the room chat. The DJ bot will search YouTube and add it to the queue. Example: <code>!request lofi hip hop</code>` },
+    { icon: "🃏", title: "How to Play Casino Games", content: `Type <strong>!bj [amount]</strong> to start Blackjack, or <strong>!poker</strong> to join Poker. Use <strong>!hit</strong>, <strong>!stand</strong>, <strong>!double</strong> to play Blackjack hands. Min/max bets are set by staff.` },
+    { icon: "⛏️", title: "How to Mine & Fish", content: `Type <strong>!mine</strong> to start mining ores. There are 7+ rarities including Prismatic and Exotic. Type <strong>!fish</strong> to go fishing. Rare catches earn bonus coins and room announcements!` },
+    { icon: "💰", title: "How to Earn Coins", content: `Coins are earned through daily rewards (<strong>!daily</strong>), casino wins, mining/fishing, completing quests, attending events, and time spent in the room. Use <strong>!balance</strong> to check your coins.` },
+    { icon: "💃", title: "Emotes & Dancefloor", content: `Jump on the dancefloor and the bot may react or start a chain! Use <strong>!emote [name]</strong> for bot emotes. Special dancefloor events run during DJ sets.` },
+    { icon: "⭐", title: "How VIP Works", content: `VIP gives you priority queue slots, a special badge in the room, and bonus coins on daily rewards. Ask staff about VIP access.` },
+  ];
+  return `
+    <div class="pub-section-title">
+      <h2>📖 Tutorials & Guides</h2>
+      <p>Everything you need to know to enjoy ChillTopia</p>
+    </div>
+    <div class="pub-tutorial-grid">
+      ${sections.map((s) => `<div class="card pub-tutorial-card">
+        <div class="pub-tutorial-icon">${s.icon}</div>
+        <h3>${s.title}</h3>
+        <p>${s.content}</p>
+      </div>`).join("")}
+    </div>
+  `;
+}
+
+function renderPublicEvents(d) {
+  const scheduled = d.scheduled || [];
+  return `
+    <div class="pub-section-title">
+      <h2>🎉 Events</h2>
+      <p>Current and upcoming ChillTopia events</p>
+    </div>
+    <div class="pub-grid2">
+      <div class="card">
+        <h3>🏆 Event Points & Rewards</h3>
+        <p class="muted" style="margin-bottom:12px">Earn points by participating in room events. Points unlock exclusive rewards.</p>
+        <div class="pub-reward-list">
+          <div class="pub-reward-item"><span class="pill info">Bronze</span><span>50 pts — Special title</span></div>
+          <div class="pub-reward-item"><span class="pill def">Silver</span><span>150 pts — Badge + bonus coins</span></div>
+          <div class="pub-reward-item"><span class="pill warn">Gold</span><span>300 pts — VIP access + exclusive badge</span></div>
+          <div class="pub-reward-item"><span class="pill ok">Diamond</span><span>500 pts — Premium rewards package</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>📅 Upcoming Events</h3>
+        ${scheduled.length ? scheduled.map((e) => `<div class="pub-event-item">
+          <div class="pub-event-name">${esc(e.name || "Event")}</div>
+          ${e.description ? `<div class="pub-event-desc muted">${esc(e.description)}</div>` : ""}
+          ${e.starts_at ? `<div class="muted text-sm">📅 ${esc(e.starts_at)}</div>` : ""}
+          ${e.points ? `<div class="muted text-sm">⭐ ${esc(String(e.points))} points</div>` : ""}
+        </div>`).join("") : `<div class="notice">No events scheduled yet — stay tuned!</div>`}
+      </div>
+    </div>
+    <div class="card" style="text-align:center;padding:28px">
+      <div style="font-size:40px;margin-bottom:12px">🎊</div>
+      <h3>Want to host an event?</h3>
+      <p class="muted" style="margin-top:6px">Contact a staff member in the room to arrange a special event in ChillTopia!</p>
+    </div>
+  `;
+}
+
+function renderPublicRankings(d) {
+  function leaderboard(title, icon, rows, cols) {
+    return `<div class="card">
+      <h3>${icon} ${title}</h3>
+      ${rows && rows.length ? `<div class="pub-leaderboard">
+        ${rows.map((r, i) => `<div class="pub-lb-row">
+          <span class="pub-lb-rank ${i < 3 ? "top"+i : ""}">${["🥇","🥈","🥉"][i] || (i+1)}</span>
+          <span class="pub-lb-name">${esc(r[cols[0]] || "—")}</span>
+          ${r[cols[1]] !== undefined ? `<span class="pub-lb-val">${esc(String(r[cols[1]]))}</span>` : ""}
+        </div>`).join("")}
+      </div>` : `<div class="notice">No data yet — be the first on the leaderboard!</div>`}
+    </div>`;
+  }
+  return `
+    <div class="pub-section-title">
+      <h2>🏆 Rankings</h2>
+      <p>Top players across all ChillTopia activities</p>
+    </div>
+    <div class="pub-rankings-grid">
+      ${leaderboard("Rich List", "💰", d.rich_list, ["username","coins"])}
+      ${leaderboard("Top Miners", "⛏️", d.miners, ["username","total_weight"])}
+      ${leaderboard("Top Fishers", "🎣", d.fishers, ["username","total_weight"])}
+      ${leaderboard("Casino Kings", "🎲", d.casino, ["username","casino_winnings"])}
+      ${leaderboard("Top Requesters", "🎵", d.top_requesters, ["username","count"])}
+    </div>
+  `;
+}
+
+function renderPublicRoomInfo() {
+  return `
+    <div class="pub-section-title">
+      <h2>ℹ️ Room Info</h2>
+      <p>Everything you need to know about ChillTopia</p>
+    </div>
+    <div class="pub-grid2">
+      <div class="card">
+        <h3>📋 Room Rules</h3>
+        <ol class="pub-rules-list">
+          <li>Be respectful — no harassment or hate speech.</li>
+          <li>No spamming commands or chat.</li>
+          <li>Keep requests appropriate for all ages.</li>
+          <li>Follow staff instructions at all times.</li>
+          <li>No advertising other rooms.</li>
+          <li>Have fun and spread good vibes!</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3>⭐ VIP Perks</h3>
+        <div class="pub-vip-list">
+          <div class="pub-vip-item">🎵 Priority song queue slots</div>
+          <div class="pub-vip-item">💰 Bonus daily coin rewards</div>
+          <div class="pub-vip-item">🏅 Exclusive VIP badge</div>
+          <div class="pub-vip-item">🎨 Special room access</div>
+          <div class="pub-vip-item">🤖 Personal bot shoutout</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>🤖 Bot Commands</h3>
+        <div class="pub-cmd-list">
+          ${[
+            ["!balance", "Check your coin balance"],
+            ["!daily", "Claim daily coins"],
+            ["!bj [bet]", "Play Blackjack"],
+            ["!poker", "Join Poker game"],
+            ["!mine", "Start mining"],
+            ["!fish", "Start fishing"],
+            ["!request [song]", "Request a song"],
+            ["!queue", "View the song queue"],
+            ["!profile", "View your profile"],
+            ["!leaderboard", "View top players"],
+          ].map(([cmd, desc]) => `<div class="pub-cmd-item">
+            <code>${esc(cmd)}</code><span>${esc(desc)}</span>
+          </div>`).join("")}
+        </div>
+      </div>
+      <div class="card">
+        <h3>👥 Staff</h3>
+        <p class="muted" style="margin-bottom:12px">ChillTopia is managed by a dedicated team of staff members.</p>
+        <div class="pub-staff-roles">
+          <div class="pub-staff-role"><span class="pill ok">Owner</span><span>Full room authority</span></div>
+          <div class="pub-staff-role"><span class="pill info">Admin</span><span>Rule enforcement</span></div>
+          <div class="pub-staff-role"><span class="pill def">Manager</span><span>Event & bot control</span></div>
+          <div class="pub-staff-role"><span class="pill warn">Mod</span><span>Chat moderation</span></div>
+          <div class="pub-staff-role"><span class="pill info">DJ</span><span>Radio management</span></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderLoginOverlay() {
+  return `<div class="modal-backdrop" id="loginOverlay">
+    <div class="login-card" style="position:relative">
+      <button class="login-close" id="loginCloseBtn">✕</button>
       <div class="login-logo">
         <div class="login-mark">CT</div>
         <div class="login-logo-text">
           <strong>ChillTopia</strong>
-          <span>Admin Control Panel</span>
+          <span>Owner / Staff Login</span>
         </div>
       </div>
       <h1>Welcome back</h1>
-      <p class="subtitle">Sign in to manage your room and bots</p>
+      <p class="subtitle">Sign in to access the control panel</p>
       ${state.error ? `<div class="notice error" style="margin-bottom:14px">${esc(state.error)}</div>` : ""}
-      <div class="field">
-        <label class="field-label">Username</label>
-        <input name="username" autocomplete="username" placeholder="Enter username" required />
-      </div>
-      <div class="field" style="margin-bottom:20px">
-        <label class="field-label">Password</label>
-        <input name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
-      </div>
-      <button class="btn primary" type="submit" style="width:100%;justify-content:center;padding:12px">Log in</button>
-    </form>
+      <form id="loginForm">
+        <div class="field">
+          <label class="field-label">Username</label>
+          <input name="username" autocomplete="username" placeholder="Enter username" required />
+        </div>
+        <div class="field" style="margin-bottom:20px">
+          <label class="field-label">Password</label>
+          <input name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+        </div>
+        <button class="btn primary" type="submit" style="width:100%;justify-content:center;padding:12px">Log in</button>
+      </form>
+    </div>
   </div>`;
-  document.getElementById("loginForm").addEventListener("submit", login);
 }
 
-function buildNav() {
-  const groups = { main: "Monitor", games: "Content", admin: "Admin" };
-  let html = "";
+function bindPublicEvents() {
+  document.querySelectorAll("[data-pub-page]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.publicPage = btn.dataset.pubPage;
+      state.error = "";
+      loadPublic();
+    });
+  });
+  document.getElementById("pubLoginBtn")?.addEventListener("click", () => {
+    state.showLoginOverlay = true;
+    state.error = "";
+    render();
+  });
+  document.getElementById("loginCloseBtn")?.addEventListener("click", () => {
+    state.showLoginOverlay = false;
+    state.error = "";
+    render();
+  });
+  document.getElementById("loginOverlay")?.addEventListener("click", (e) => {
+    if (e.target.id === "loginOverlay") {
+      state.showLoginOverlay = false;
+      state.error = "";
+      render();
+    }
+  });
+  document.getElementById("loginForm")?.addEventListener("submit", login);
+}
+
+/* ═══════════════════════════════════════════════════════
+   ADMIN PORTAL
+══════════════════════════════════════════════════════ */
+function renderAdmin() {
+  const initials = (state.user?.username || "U").slice(0, 2).toUpperCase();
   let lastGroup = null;
-  for (const item of NAV) {
+  const navHtml = ADMIN_NAV.map((item) => {
+    let groupHdr = "";
     if (item.group !== lastGroup) {
-      html += `<div class="nav-label" style="margin-top:${lastGroup ? '14px' : '0'}">${groups[item.group]}</div>`;
+      groupHdr = `<div class="nav-label" style="margin-top:${lastGroup ? '14px' : '0'}">${item.group}</div>`;
       lastGroup = item.group;
     }
-    html += `<button class="${item.id === state.page ? "active" : ""}" data-page="${esc(item.id)}">
+    return `${groupHdr}<button class="${item.id === state.adminPage ? "active" : ""}" data-admin-page="${esc(item.id)}">
       <span class="nav-icon">${item.icon}</span>${esc(item.label)}
     </button>`;
-  }
-  return html;
-}
+  }).join("");
 
-function renderShell() {
-  const initials = (state.user?.username || "U").slice(0, 2).toUpperCase();
   app.innerHTML = `
     <button class="hamburger" id="hamburgerBtn">☰</button>
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
@@ -251,8 +648,9 @@ function renderShell() {
             <span>Control Panel</span>
           </div>
         </div>
-        <nav class="nav">${buildNav()}</nav>
+        <nav class="nav">${navHtml}</nav>
         <div class="sidebar-footer">
+          <button class="btn ghost pub-portal-btn" id="pubPortalBtn">← Public Portal</button>
           <div class="sidebar-user">
             <div class="sidebar-user-avatar">${esc(initials)}</div>
             <div>
@@ -266,8 +664,8 @@ function renderShell() {
       <main class="content">
         <div class="topbar">
           <div class="topbar-left">
-            <h1>${esc(state.page)}</h1>
-            <div class="page-desc">${esc(PAGE_DESC[state.page] || "")}</div>
+            <h1>${esc(state.adminPage)}</h1>
+            <div class="page-desc">${esc(PAGE_DESC[state.adminPage] || "")}</div>
           </div>
           <div class="topbar-actions">
             <button class="btn ghost" id="refreshBtn">↻ Refresh</button>
@@ -275,21 +673,29 @@ function renderShell() {
         </div>
         ${state.error ? `<div class="notice error" style="margin-bottom:16px">${esc(state.error)}</div>` : ""}
         ${state.notice ? `<div class="notice success" style="margin-bottom:16px">${esc(state.notice)}</div>` : ""}
-        <section class="page">${renderPage()}</section>
+        <section class="page">${renderAdminPage()}</section>
       </main>
     </div>
     ${state.modal ? renderModal() : ""}
   `;
-  document.querySelectorAll(".nav button").forEach((btn) => {
+
+  document.querySelectorAll("[data-admin-page]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      state.page = btn.dataset.page;
+      state.adminPage = btn.dataset.adminPage;
       state.notice = "";
+      state.error = "";
       state.sidebarOpen = false;
-      load();
+      loadAdmin();
     });
   });
-  document.getElementById("refreshBtn").addEventListener("click", load);
+  document.getElementById("refreshBtn").addEventListener("click", loadAdmin);
   document.getElementById("logoutBtn").addEventListener("click", logout);
+  document.getElementById("pubPortalBtn")?.addEventListener("click", () => {
+    state.user = null;
+    state.csrf = "";
+    state.data = null;
+    loadPublic();
+  });
   document.getElementById("hamburgerBtn")?.addEventListener("click", () => {
     state.sidebarOpen = !state.sidebarOpen;
     document.getElementById("sidebar")?.classList.toggle("open", state.sidebarOpen);
@@ -300,7 +706,35 @@ function renderShell() {
     document.getElementById("sidebar")?.classList.remove("open");
     document.getElementById("sidebarOverlay")?.classList.remove("open");
   });
-  bindPageEvents();
+  if (state.modal) {
+    document.getElementById("modalConfirm")?.addEventListener("click", runModalAction);
+    document.getElementById("modalCancel")?.addEventListener("click", () => { state.modal = null; render(); });
+  }
+  bindAdminPageEvents();
+}
+
+function renderAdminPage() {
+  if (!state.data && !["Bot Control","Player Control","Economy","Room Control","Emotes"].includes(state.adminPage)) {
+    return `<div class="notice">Loading or unavailable.</div>`;
+  }
+  const map = {
+    Overview:        renderOverview,
+    "Live Tracker":  renderLive,
+    "Bot Control":   renderBotControl,
+    "Bot Config":    renderBotConfig,
+    Radio:           renderRadio,
+    Casino:          renderCasino,
+    Games:           renderGames,
+    Titles:          renderTitles,
+    "Player Control":renderPlayerControl,
+    Economy:         renderEconomy,
+    "Room Control":  renderRoomControl,
+    Emotes:          renderEmotes,
+    Staff:           renderStaff,
+    Logs:            renderLogs,
+    Emergency:       renderEmergency,
+  };
+  return map[state.adminPage]?.() ?? `<div class="notice">Unknown page.</div>`;
 }
 
 function renderModal() {
@@ -316,29 +750,12 @@ function renderModal() {
   </div>`;
 }
 
-function renderPage() {
-  if (!state.data) return `<div class="notice">Loading or unavailable.</div>`;
-  return {
-    Overview:      renderOverview,
-    Radio:         renderRadio,
-    Casino:        renderCasino,
-    Games:         renderGames,
-    Titles:        renderTitles,
-    Staff:         renderStaff,
-    "Bot Config":  renderBotConfig,
-    Settings:      renderSettings,
-    "Live Tracker":renderLive,
-    Logs:          renderLogs,
-    Emergency:     renderEmergency,
-  }[state.page]?.() ?? `<div class="notice">Unknown page.</div>`;
-}
-
+/* ── Admin Pages ─────────────────────────────────────── */
 function renderOverview() {
   const d = state.data;
   const m = d.metrics || {};
   const r = d.radio || {};
   const nowPlaying = r.now_playing?.title || "Auto DJ";
-
   return `
     <div class="grid grid-3" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
       ${metricCard("Online Bots", `${m.online_bots ?? 0}/${m.total_bots ?? 0}`, "active instances", "accent-green", "🤖")}
@@ -348,9 +765,7 @@ function renderOverview() {
       ${metricCard("Staff Online", m.staff_online ?? "—", "dashboard staff", "", "👑")}
     </div>
     <div class="card" style="padding:16px 20px">
-      <div class="card-header">
-        <h2>🎵 Now Playing</h2>
-      </div>
+      <div class="card-header"><h2>🎵 Now Playing</h2></div>
       <div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:4px">${esc(nowPlaying)}</div>
       ${r.now_playing?.artist ? `<div class="muted text-sm">${esc(r.now_playing.artist)}</div>` : ""}
     </div>
@@ -399,6 +814,82 @@ function renderLive() {
   `;
 }
 
+function renderBotControl() {
+  const bots = state.data?.bots || [];
+  if (!bots.length) {
+    return `<div class="card">
+      <h2>🤖 Bot Control</h2>
+      <div class="notice warn" style="margin-bottom:16px">No bot heartbeat data available yet. Bots write to the <code>bot_instances</code> table on startup.</div>
+      ${endpointNeeded("Per-bot restart, emote and spawn controls require a /api/bot-control endpoint — not yet implemented.")}
+    </div>`;
+  }
+  return `
+    <div class="grid">
+      ${bots.map((b) => `<div class="card">
+        <div class="card-header">
+          <h2>${esc(b.bot_mode || b.bot_username || "Bot")}</h2>
+          ${pill(b.status || "unknown")}
+        </div>
+        <div class="muted text-sm" style="margin-bottom:10px">@${esc(b.bot_username || "—")}</div>
+        <div style="display:grid;gap:6px;font-size:13px;margin-bottom:14px">
+          <div class="muted">Room: ${esc(b.current_room_id || "—")}</div>
+          <div class="muted">Heartbeat: ${esc(b.last_heartbeat_at || "—")}</div>
+          ${b.last_error ? `<div class="error text-sm">${esc(b.last_error)}</div>` : ""}
+        </div>
+        <div class="inline-actions">
+          <button class="btn sm" disabled title="Endpoint needed">⬆ Spawn</button>
+          <button class="btn danger sm" disabled title="Endpoint needed">⏹ Stop</button>
+          <button class="btn cyan sm" disabled title="Endpoint needed">💃 Emote</button>
+        </div>
+        <div class="muted text-sm" style="margin-top:8px">Controls require /api/bot-control endpoint</div>
+      </div>`).join("")}
+    </div>
+  `;
+}
+
+function renderBotConfig() {
+  const d = state.data;
+  const tokens = d.tokens || {};
+  const tokenRows = Object.entries(tokens).map(([key, status]) => `
+    <div class="token-row">
+      <span class="token-name">${esc(key)}</span>
+      ${pill(status)}
+      <div class="token-input-wrap">
+        <input type="password" placeholder="Paste new token (leave blank to keep)" data-token-key="${esc(key)}" autocomplete="off" />
+      </div>
+    </div>
+  `).join("");
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>Connection Settings</h2>
+        <form id="botConfigForm">
+          <div class="field">
+            <label class="field-label">Room ID</label>
+            <input name="room_id" value="${esc(d.room_id || "")}" placeholder="Enter Room ID" />
+          </div>
+          <div class="field" style="margin-bottom:18px">
+            <label class="field-label">Bots Enabled</label>
+            <input name="bots_enabled" value="${esc(d.bots_enabled || "")}" placeholder="e.g. all, main,dj,poker" />
+          </div>
+          <div class="inline-actions">
+            <button class="btn primary" type="submit">💾 Save Config</button>
+            <button class="btn danger" type="button" id="restartBotsBtn">🔄 Restart Bots</button>
+          </div>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Token Status</h2>
+        <p class="muted text-sm" style="margin-bottom:14px">⚠️ Tokens are stored in Replit Secrets and <strong>never displayed</strong>. Status shows SET or EMPTY only.</p>
+        ${tokenRows}
+        <div style="margin-top:14px">
+          <p class="muted text-sm">Token fields are for future update support — set actual tokens in Replit environment secrets.</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderRadio() {
   const d = state.data;
   return `
@@ -413,8 +904,7 @@ function renderRadio() {
           </div>
           <div class="inline-actions">
             <button class="btn danger sm" data-action="radio-skip">⏭ Skip Song</button>
-          </div>
-        ` : `<div class="notice">Nothing currently playing.</div>`}
+          </div>` : `<div class="notice">Nothing currently playing.</div>`}
       </div>
       <div class="card">
         <h2>Request Controls</h2>
@@ -502,6 +992,101 @@ function renderTitles() {
   `;
 }
 
+function renderPlayerControl() {
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>Search Player</h2>
+        <form id="playerSearchForm">
+          <div class="field"><label class="field-label">Username or User ID</label><input name="query" placeholder="Enter Highrise username or ID" required /></div>
+          <button class="btn primary">Search</button>
+        </form>
+        <div id="playerSearchResult" style="margin-top:14px"></div>
+      </div>
+      <div class="card">
+        <h2>Edit Player Economy</h2>
+        ${endpointNeeded("Coin/ticket/XP editing requires a /api/player/:id/economy endpoint.")}
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Badges & Titles</h2>
+        ${endpointNeeded("Give/remove badge and title actions require a /api/player/:id/badges endpoint.")}
+      </div>
+      <div class="card">
+        <h2>Inventory</h2>
+        ${endpointNeeded("Player inventory editing requires a /api/player/:id/inventory endpoint.")}
+      </div>
+    </div>
+  `;
+}
+
+function renderEconomy() {
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>💰 Economy Overview</h2>
+        ${endpointNeeded("Economy summary (total coins in circulation, transaction volume) requires a /api/economy/overview endpoint.")}
+      </div>
+      <div class="card">
+        <h2>🎟 Adjust Coins / Tickets</h2>
+        ${endpointNeeded("Bulk coin/ticket adjustments require a /api/economy/adjust endpoint.")}
+      </div>
+    </div>
+    <div class="card">
+      <h2>📜 Transaction Audit</h2>
+      ${endpointNeeded("Transaction history requires a /api/economy/transactions endpoint.")}
+    </div>
+  `;
+}
+
+function renderRoomControl() {
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>📢 Send Announcement</h2>
+        ${endpointNeeded("Room announcements require a /api/room/announce endpoint consumed by the host bot.")}
+      </div>
+      <div class="card">
+        <h2>👋 Welcome Message</h2>
+        ${endpointNeeded("Welcome message editing requires a /api/room/welcome endpoint.")}
+      </div>
+      <div class="card">
+        <h2>🔧 Maintenance Mode</h2>
+        ${endpointNeeded("Maintenance mode toggle requires a /api/room/maintenance endpoint.")}
+      </div>
+      <div class="card">
+        <h2>🚩 Emergency Flags</h2>
+        <p class="muted text-sm" style="margin-bottom:12px">Use the Emergency page for quick disable controls.</p>
+        <button class="btn" data-admin-page="Emergency">→ Go to Emergency</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderEmotes() {
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>🤖 Bot Emotes</h2>
+        ${endpointNeeded("Bot emote triggers require a /api/room/emote endpoint consumed by the active bot.")}
+      </div>
+      <div class="card">
+        <h2>💃 Dancefloor</h2>
+        ${endpointNeeded("Dancefloor sync controls require a /api/room/dancefloor endpoint.")}
+      </div>
+      <div class="card">
+        <h2>🎭 Custom Packs</h2>
+        ${endpointNeeded("Custom emote packs require a /api/room/emote-packs endpoint.")}
+      </div>
+      <div class="card">
+        <h2>🔄 Sync All</h2>
+        ${endpointNeeded("Sync emotes across all bots requires a /api/room/emote-sync endpoint.")}
+      </div>
+    </div>
+  `;
+}
+
 function renderStaff() {
   const d = state.data;
   return `
@@ -555,74 +1140,6 @@ function renderStaff() {
   `;
 }
 
-function renderBotConfig() {
-  const d = state.data;
-  const tokens = d.tokens || {};
-  const tokenRows = Object.entries(tokens).map(([key, status]) => `
-    <div class="token-row">
-      <span class="token-name">${esc(key)}</span>
-      ${pill(status)}
-      <div class="token-input-wrap">
-        <input type="password" placeholder="Paste new token (leave blank to keep)" data-token-key="${esc(key)}" autocomplete="off" />
-      </div>
-    </div>
-  `).join("");
-
-  return `
-    <div class="grid">
-      <div class="card">
-        <h2>Connection Settings</h2>
-        <form id="botConfigForm">
-          <div class="field">
-            <label class="field-label">Room ID</label>
-            <input name="room_id" value="${esc(d.room_id || "")}" placeholder="Enter Room ID" />
-          </div>
-          <div class="field" style="margin-bottom:18px">
-            <label class="field-label">Bots Enabled</label>
-            <input name="bots_enabled" value="${esc(d.bots_enabled || "")}" placeholder="e.g. all, main,dj,poker" />
-          </div>
-          <div class="inline-actions">
-            <button class="btn primary" type="submit">💾 Save Config</button>
-            <button class="btn danger" type="button" id="restartBotsBtn">🔄 Restart Bots</button>
-          </div>
-        </form>
-      </div>
-      <div class="card">
-        <h2>Token Status</h2>
-        <p class="muted text-sm" style="margin-bottom:14px">Tokens are stored in Replit Secrets and never displayed. Status shows SET or EMPTY only.</p>
-        ${tokenRows}
-        <div style="margin-top:14px">
-          <p class="muted text-sm">⚠️ Token fields above are for future update support — changes here are noted in audit log only. Set actual tokens in your environment secrets.</p>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderSettings() {
-  const d = state.data;
-  return `
-    <div class="card">
-      <h2>Module Flags</h2>
-      ${moduleFlagTable(d.module_flags)}
-    </div>
-    <div class="grid">
-      <div class="card">
-        <h2>Edit Setting</h2>
-        ${settingsForm("", "", "global")}
-      </div>
-      <div class="card">
-        <h2>Bot Settings</h2>
-        ${settingsEditor(d.bot_settings || [], "global")}
-      </div>
-    </div>
-    <div class="card">
-      <h2>Room Settings</h2>
-      ${table(d.room_settings)}
-    </div>
-  `;
-}
-
 function renderLogs() {
   const d = state.data;
   return `
@@ -642,6 +1159,10 @@ function renderLogs() {
       <h2>Command Errors</h2>
       ${table(d.command_error_logs)}
     </div>
+    <div class="card">
+      <h2>Admin Action Logs</h2>
+      ${table(d.admin_action_logs)}
+    </div>
   `;
 }
 
@@ -657,16 +1178,16 @@ function renderEmergency() {
         <button class="btn danger" data-emergency="disable_casino">🎲 Disable Casino</button>
         <button class="btn danger" data-emergency="disable_games">🎮 Disable Games</button>
         <button class="btn danger" data-emergency="clear_queue">🗑 Clear Queue</button>
-        <button class="btn danger" data-emergency="lock_room_systems">🔒 Lock All Systems</button>
       </div>
     </div>
     <div class="card">
       <h2>Current Module Flags</h2>
-      ${moduleFlagTable(state.data.module_flags || [])}
+      ${moduleFlagTable(state.data?.module_flags || [])}
     </div>
   `;
 }
 
+/* ── Shared Admin Helpers ────────────────────────────── */
 function moduleFlagTable(flags) {
   return table(flags || [], [
     { key: "module", label: "Module" },
@@ -708,164 +1229,190 @@ function settingsForm(key, value, moduleName) {
 function permissionChecks(perms) {
   const all = ["manage_radio", "manage_casino", "manage_games", "manage_titles", "manage_staff", "view_logs", "emergency_controls"];
   return `<div style="display:grid;gap:8px">${all.map((p) => `<label class="switch">
-    <input type="checkbox" name="${p}" ${perms[p] ? "checked" : ""} />
-    <span class="text-sm">${p.replaceAll("_", " ")}</span>
+    <input type="checkbox" name="perm_${p}" ${perms[p] ? "checked" : ""} />
+    <span>${p.replace(/_/g," ")}</span>
   </label>`).join("")}</div>`;
 }
 
-function bindPageEvents() {
-  document.getElementById("modalConfirm")?.addEventListener("click", runModalAction);
-  document.getElementById("modalCancel")?.addEventListener("click", () => { state.modal = null; render(); });
-
-  document.querySelectorAll("[data-toggle-module]").forEach((btn) => {
-    btn.addEventListener("click", () => action("Module flag updated.", () => api(`/api/modules/${btn.dataset.toggleModule}`, {
-      method: "PUT",
-      body: JSON.stringify({ enabled: btn.dataset.enabled === "1", reason: "dashboard update" }),
-    })));
-  });
-
-  document.querySelectorAll("[data-module-checkbox]").forEach((box) => {
-    box.addEventListener("change", () => action("Module flag updated.", () => api(`/api/modules/${box.dataset.moduleCheckbox}`, {
-      method: "PUT",
-      body: JSON.stringify({ enabled: box.checked, reason: "dashboard update" }),
-    })));
-  });
-
-  document.querySelectorAll(".settingForm").forEach((form) => {
-    form.addEventListener("submit", (ev) => {
-      ev.preventDefault();
-      const data = Object.fromEntries(new FormData(form));
-      const moduleName = data.module || form.dataset.module;
-      const endpoint = moduleName === "casino" ? `/api/casino/${encodeURIComponent(data.key)}`
-        : moduleName === "games" ? `/api/games/${encodeURIComponent(data.key)}`
-        : `/api/settings/${encodeURIComponent(data.key)}`;
-      action("Setting saved.", () => api(endpoint, {
-        method: "PUT",
-        body: JSON.stringify({ value: data.value, module: moduleName, source: "bot_settings" }),
-      }));
-    });
-  });
-
-  document.querySelectorAll("[data-edit-setting]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const value = prompt(`New value for ${btn.dataset.editSetting}`, btn.dataset.value || "");
-      if (value === null) return;
-      const moduleName = btn.dataset.module || "global";
-      const endpoint = moduleName === "casino" ? `/api/casino/${encodeURIComponent(btn.dataset.editSetting)}`
-        : moduleName === "games" ? `/api/games/${encodeURIComponent(btn.dataset.editSetting)}`
-        : `/api/settings/${encodeURIComponent(btn.dataset.editSetting)}`;
-      action("Setting saved.", () => api(endpoint, {
-        method: "PUT",
-        body: JSON.stringify({ value, module: moduleName, source: "bot_settings" }),
-      }));
-    });
-  });
-
-  document.querySelector("[data-action='radio-skip']")?.addEventListener("click", () => {
-    confirmAction("Skip current song?", "This stores a DB skip request for the radio bot to consume.", () => action("Skip requested.", () => api("/api/radio/skip", { method: "POST" })));
-  });
-  document.querySelector("[data-action='radio-clear']")?.addEventListener("click", () => {
-    confirmAction("Clear queue?", "Upcoming requests will be marked cancelled in the database.", () => action("Queue cleared.", () => api("/api/radio/clear", { method: "POST" })));
-  });
-  document.getElementById("requestsEnabled")?.addEventListener("change", (ev) => {
-    action("Request setting updated.", () => api("/api/radio/requests-enabled", {
-      method: "PUT",
-      body: JSON.stringify({ enabled: ev.target.checked }),
-    }));
-  });
-  document.querySelectorAll("[data-remove-request]").forEach((btn) => {
-    btn.addEventListener("click", () => confirmAction("Remove queue item?", `Request #${btn.dataset.removeRequest} will be cancelled.`,
-      () => action("Request removed.", () => api(`/api/radio/requests/${btn.dataset.removeRequest}/remove`, { method: "POST" }))));
-  });
-
-  document.getElementById("assignTitleForm")?.addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    action("Title assigned.", () => api("/api/titles/assign", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(ev.currentTarget))) }));
-  });
-
-  document.getElementById("staffCreateForm")?.addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    const raw = Object.fromEntries(new FormData(ev.currentTarget));
-    const permissions = {};
-    for (const key of Object.keys(raw)) if (key.startsWith("manage_") || key === "view_logs" || key === "emergency_controls") permissions[key] = true;
-    action("Staff account created.", () => api("/api/staff", { method: "POST", body: JSON.stringify({ username: raw.username, password: raw.password, role: raw.role, permissions }) }));
-  });
-
-  document.getElementById("botRoleForm")?.addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    const raw = Object.fromEntries(new FormData(ev.currentTarget));
-    const actionType = ev.submitter?.value || "add";
-    action(`Bot role ${actionType}ed.`, () => api("/api/staff/bot-role", {
-      method: "POST",
-      body: JSON.stringify({ username: raw.username, role: raw.role, action: actionType }),
-    }));
-  });
-
-  document.querySelectorAll("[data-remove-staff]").forEach((btn) => {
-    btn.addEventListener("click", () => confirmAction("Remove staff account?", "The account will be disabled and active sessions revoked.",
-      () => action("Staff removed.", () => api(`/api/staff/${btn.dataset.removeStaff}`, { method: "DELETE" }))));
-  });
-
-  document.querySelectorAll("[data-edit-staff]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const current = Object.entries(JSON.parse(decodeURIComponent(btn.dataset.perms || "%7B%7D"))).filter(([, v]) => v).map(([k]) => k).join(", ");
-      const next = prompt("Enabled permissions, comma-separated", current);
-      if (next === null) return;
-      const permissions = {};
-      next.split(",").map((s) => s.trim()).filter(Boolean).forEach((p) => { permissions[p] = true; });
-      action("Staff permissions updated.", () => api(`/api/staff/${btn.dataset.editStaff}`, {
-        method: "PUT",
-        body: JSON.stringify({ role: btn.dataset.role || "staff", disabled: btn.dataset.disabled === "1", permissions }),
-      }));
-    });
-  });
-
-  document.getElementById("botConfigForm")?.addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    const data = Object.fromEntries(new FormData(ev.currentTarget));
-    action("Bot config saved.", () => api("/api/bot-config", {
-      method: "POST",
-      body: JSON.stringify({ room_id: data.room_id, bots_enabled: data.bots_enabled }),
-    }));
+/* ── Admin Event Binding ─────────────────────────────── */
+function bindAdminPageEvents() {
+  document.querySelector("#botConfigForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Config saved.", () => api("/api/bot-config", { method: "POST", body: JSON.stringify(body) }));
   });
 
   document.getElementById("restartBotsBtn")?.addEventListener("click", () => {
-    confirmAction("Restart bots?", "A restart flag will be written to the database. Bots will restart on their next heartbeat cycle.", () => action("Restart requested.", () => api("/api/bot-config/restart", { method: "POST" })));
+    confirmAction("Restart Bots", "Write a restart flag to the DB. Bots will restart on their next heartbeat check.", async () => {
+      await action("Restart flag written.", () => api("/api/bot-config/restart", { method: "POST", body: JSON.stringify({}) }));
+    });
   });
 
-  document.querySelector("[data-action='logs-filter']")?.addEventListener("click", () => {
-    state.logs.action_type = document.getElementById("logAction").value;
-    state.logs.user = document.getElementById("logUser").value;
-    state.logs.module = document.getElementById("logModule").value;
-    state.logs.offset = 0;
-    load();
+  document.querySelector('[data-action="radio-skip"]')?.addEventListener("click", () => {
+    confirmAction("Skip Song", "Request a skip of the current song.", async () => {
+      await action("Skip requested.", () => api("/api/radio/skip", { method: "POST", body: JSON.stringify({}) }));
+    });
   });
-  document.querySelector("[data-action='logs-prev']")?.addEventListener("click", () => { state.logs.offset = Math.max(0, state.logs.offset - 50); load(); });
-  document.querySelector("[data-action='logs-next']")?.addEventListener("click", () => { state.logs.offset += 50; load(); });
+
+  document.querySelector('[data-action="radio-clear"]')?.addEventListener("click", () => {
+    confirmAction("Clear Queue", "Cancel all pending song requests.", async () => {
+      await action("Queue cleared.", () => api("/api/radio/clear", { method: "POST", body: JSON.stringify({}) }));
+    });
+  });
+
+  document.getElementById("requestsEnabled")?.addEventListener("change", async (e) => {
+    await action(e.target.checked ? "Requests enabled." : "Requests disabled.", () =>
+      api("/api/radio/requests-enabled", { method: "PUT", body: JSON.stringify({ enabled: e.target.checked }) }));
+  });
+
+  document.querySelectorAll("[data-remove-request]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.removeRequest;
+      confirmAction("Remove Request", `Remove song request #${id} from the queue?`, async () => {
+        await action("Request removed.", () => api(`/api/radio/requests/${id}/remove`, { method: "POST", body: JSON.stringify({}) }));
+      });
+    });
+  });
 
   document.querySelectorAll("[data-emergency]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const flag = btn.dataset.emergency;
-      const flags = flag === "lock_room_systems"
-        ? { disable_radio_requests: true, disable_casino: true, disable_games: true }
-        : { [flag]: true };
-      confirmAction("Confirm emergency action", `"${flag.replaceAll("_", " ")}" will be applied through database flags only.`,
-        () => action("Emergency action applied.", () => api("/api/emergency", { method: "POST", body: JSON.stringify({ flags }) })));
+      confirmAction("Confirm Emergency Action", `Apply emergency flag: ${flag}? This disables the system immediately.`, async () => {
+        await action(`Emergency: ${flag} applied.`, () =>
+          api("/api/emergency", { method: "POST", body: JSON.stringify({ flags: { [flag]: true } }) }));
+      });
     });
   });
-}
 
-function render() {
-  if (!state.user) return renderLogin();
-  renderShell();
-}
+  document.querySelectorAll("[data-toggle-module]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mod = btn.dataset.toggleModule;
+      const enable = btn.dataset.enabled === "1";
+      confirmAction(`${enable ? "Enable" : "Disable"} Module`, `${enable ? "Enable" : "Disable"} the ${mod} module?`, async () => {
+        await action(`Module ${mod} ${enable ? "enabled" : "disabled"}.`, () =>
+          api("/api/settings", { method: "PUT", body: JSON.stringify({ key: `module.${mod}.enabled`, value: enable ? "true" : "false", module: mod }) }));
+      });
+    });
+  });
 
-window.addEventListener("hashchange", () => {
-  const next = decodeURIComponent(location.hash.slice(1));
-  if (NAV_IDS.includes(next) && next !== state.page) {
-    state.page = next;
-    load();
+  document.querySelectorAll("[data-module-checkbox]").forEach((cb) => {
+    cb.addEventListener("change", async (e) => {
+      const mod = cb.dataset.moduleCheckbox;
+      const enabled = e.target.checked;
+      await action(`Module ${mod} ${enabled ? "enabled" : "disabled"}.`, () =>
+        api("/api/settings", { method: "PUT", body: JSON.stringify({ key: `module.${mod}.enabled`, value: enabled ? "true" : "false", module: mod }) }));
+    });
+  });
+
+  document.querySelectorAll(".settingForm").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      const mod = form.dataset.module || data.module || "global";
+      const route = { casino: "/api/casino", games: "/api/games" }[mod] || "/api/settings";
+      await action("Setting saved.", () =>
+        api(`${route}/${encodeURIComponent(data.key)}`, { method: "PUT", body: JSON.stringify({ value: data.value }) }));
+    });
+  });
+
+  document.querySelectorAll("[data-edit-setting]").forEach((btn) => {
+    const key = btn.dataset.editSetting;
+    const mod = btn.dataset.module || "global";
+    const value = btn.dataset.value || "";
+    btn.addEventListener("click", () => {
+      const route = { casino: "/api/casino", games: "/api/games" }[mod] || "/api/settings";
+      const newVal = prompt(`Edit "${key}" (current: ${value})`, value);
+      if (newVal !== null) {
+        action("Setting saved.", () =>
+          api(`${route}/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value: newVal }) }));
+      }
+    });
+  });
+
+  document.getElementById("assignTitleForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Title assigned.", () => api("/api/titles/assign", { method: "POST", body: JSON.stringify(body) }));
+  });
+
+  document.getElementById("staffCreateForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    const perms = {};
+    for (const [key, val] of Object.entries(data)) {
+      if (key.startsWith("perm_")) perms[key.slice(5)] = val === "on";
+    }
+    const body = { username: data.username, password: data.password, role: data.role, permissions: perms };
+    await action("Staff account created.", () => api("/api/staff", { method: "POST", body: JSON.stringify(body) }));
+  });
+
+  document.getElementById("botRoleForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const submitter = e.submitter;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    const body = { username: data.username, role: data.role, action: submitter?.value || "add" };
+    await action(`Bot role ${body.action === "add" ? "added" : "removed"}.`, () =>
+      api("/api/staff/bot-role", { method: "POST", body: JSON.stringify(body) }));
+  });
+
+  document.querySelectorAll("[data-remove-staff]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.removeStaff;
+      confirmAction("Remove Staff", `Disable dashboard account #${id}?`, async () => {
+        await action("Staff account disabled.", () =>
+          api(`/api/staff/${id}`, { method: "DELETE", body: JSON.stringify({}) }));
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-edit-staff]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.editStaff;
+      const role = prompt("Role (owner/staff):", btn.dataset.role);
+      if (!role) return;
+      const body = { role, disabled: btn.dataset.disabled === "1", permissions: {} };
+      action("Staff updated.", () => api(`/api/staff/${id}`, { method: "PUT", body: JSON.stringify(body) }));
+    });
+  });
+
+  document.getElementById("playerSearchForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const query = e.currentTarget.querySelector('[name="query"]').value.trim();
+    const result = document.getElementById("playerSearchResult");
+    if (!result) return;
+    result.innerHTML = `<div class="notice">Searching for "${esc(query)}"… (endpoint not yet implemented)</div>`;
+  });
+
+  document.querySelector('[data-action="logs-filter"]')?.addEventListener("click", () => {
+    state.logs.action_type = document.getElementById("logAction")?.value || "";
+    state.logs.user = document.getElementById("logUser")?.value || "";
+    state.logs.module = document.getElementById("logModule")?.value || "";
+    state.logs.offset = 0;
+    loadAdmin();
+  });
+  document.querySelector('[data-action="logs-prev"]')?.addEventListener("click", () => {
+    state.logs.offset = Math.max(0, (state.logs.offset || 0) - 50);
+    loadAdmin();
+  });
+  document.querySelector('[data-action="logs-next"]')?.addEventListener("click", () => {
+    state.logs.offset = (state.logs.offset || 0) + 50;
+    loadAdmin();
+  });
+
+  document.querySelectorAll("[data-admin-page]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.adminPage = btn.dataset.adminPage;
+      state.notice = "";
+      state.error = "";
+      loadAdmin();
+    });
+  });
+
+  if (state.modal) {
+    document.getElementById("modalConfirm")?.addEventListener("click", runModalAction);
+    document.getElementById("modalCancel")?.addEventListener("click", () => { state.modal = null; render(); });
   }
-});
+}
 
+/* ── Boot ────────────────────────────────────────────── */
 init();

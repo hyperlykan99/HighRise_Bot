@@ -1,0 +1,229 @@
+You are working in my GitHub repo hyperlykan99/HighRise_Bot on branch dashboard-redesign.
+
+Goal:
+Build a complete ChillTopia web portal, not just an admin dashboard.
+
+The site must have two experiences:
+
+1. PUBLIC HOME PAGE for normal players
+2. OWNER/STAFF CONTROL PANEL after login
+
+Important safety:
+- Do NOT touch bot tokens, .env files, SQLite DB files, or runtime bot code in artifacts/highrise-bot unless absolutely necessary.
+- Never display full bot tokens.
+- Do not expose owner-only controls to public users.
+- Keep existing dashboard auth/session system.
+- Prefer editing:
+  - dashboard/public/index.html
+  - dashboard/public/app.js
+  - dashboard/public/styles.css
+  - dashboard/server.mjs only if public API endpoints are needed.
+
+Current backend already has dashboard APIs such as:
+- /api/overview
+- /api/radio
+- /api/casino
+- /api/settings
+- /api/staff
+- /api/bot-config
+- /api/bot-config/restart
+- /api/logs
+- /api/emergency
+- /api/dj/status
+
+The public home should NOT require login.
+
+PUBLIC HOME REQUIREMENTS:
+Create a clean public landing page for ChillTopia normal players. It should match the old DJ DUDU radio dashboard vibe:
+- dark neon theme
+- purple/cyan glow
+- rounded glass cards
+- mobile-first
+- clean stats cards
+
+Public pages/sections:
+1. Home
+   - ChillTopia branding
+   - room status
+   - online bot/player count if available
+   - current vibe
+   - quick links/buttons
+
+2. Radio
+   - DJ DUDU status
+   - now playing
+   - queue size
+   - full queue
+   - recently played
+   - request tutorial: “Use !request [song] in the room”
+   - web player/stream URL if available
+   - do not expose admin radio controls publicly
+
+3. Tutorials
+   - How to request songs
+   - How to play casino games
+   - How to mine/fish
+   - How to earn coins/tickets
+   - How to use emotes/dancefloor
+   - How VIP works
+
+4. Events
+   - current event if available
+   - upcoming events if data exists
+   - event points explanation
+   - rewards explanation
+
+5. Rankings
+   - leaderboards if available from DB:
+     coins / rich list
+     miners
+     fishers
+     casino
+     top requesters
+     likes/dislikes if available
+   - If data is not available, show clean “coming soon / no data yet” cards.
+
+6. Room Info
+   - Rules
+   - Staff list if available
+   - VIP info
+   - Bot command help summaries
+
+PUBLIC API:
+If needed, add safe read-only public endpoints:
+- GET /api/public/home
+- GET /api/public/radio
+- GET /api/public/tutorials
+- GET /api/public/events
+- GET /api/public/rankings
+These endpoints must expose only safe public information. No tokens, no private admin logs, no player-sensitive info.
+
+LOGIN / OWNER PANEL:
+Keep a clear “Owner Login” button.
+After login, show the authenticated owner/staff control panel.
+
+OWNER CONTROL PANEL REQUIREMENTS:
+Pages:
+1. Owner Overview
+   - online bots
+   - room ID
+   - current queue
+   - current radio status
+   - emergency status
+   - latest errors
+   - module status
+
+2. Bot Control
+   - per-bot cards
+   - status online/offline
+   - enabled/disabled
+   - heartbeat
+   - last error
+   - return to spawn if endpoint exists
+   - stop bot emote if endpoint exists
+   - restart controls if endpoint exists
+   - if endpoint does not exist, show disabled buttons labeled “endpoint needed”
+
+3. Bot Config
+   - ROOM_ID field
+   - BOTS_ENABLED field
+   - token status SET/EMPTY only
+   - blank token input fields for replacement only
+   - Save Config
+   - Restart Bots
+   - clear warning that tokens are never displayed
+
+4. Player Control
+   - search player by username/user_id
+   - view player profile/stats if available
+   - edit coins/tickets/xp/level/vip/titles/badges/inventory if backend endpoints exist
+   - if endpoints do not exist, create clean UI placeholders and mark “backend endpoint needed”
+   - never accidentally edit without confirmation
+
+5. Inventory / Economy
+   - player inventory editor
+   - give/remove badge
+   - give/remove title
+   - adjust coins/tickets
+   - transaction/audit view if available
+
+6. Radio Control
+   - now playing
+   - queue
+   - skip
+   - clear queue
+   - enable/disable requests
+   - remove queue item
+   - request settings if available
+
+7. Casino / Games Control
+   - enable/disable modules
+   - limits/settings
+   - reset stuck tables if endpoint exists
+   - blackjack/poker status if available
+
+8. Room Control
+   - announcements
+   - welcome message
+   - maintenance mode
+   - emergency flags
+   - room settings editor
+
+9. Emote Control
+   - bot emotes
+   - player emotes
+   - dancefloor
+   - sync
+   - custom packs
+   - if APIs do not exist, create placeholder cards labeled “backend endpoint needed”
+
+10. Staff & Permissions
+   - dashboard users
+   - create/edit/remove staff
+   - permission toggles
+   - bot roles
+
+11. Logs
+   - audit logs
+   - command errors
+   - admin actions
+   - radio logs
+   - filters
+
+DESIGN REQUIREMENTS:
+Use one cohesive design system:
+- dark space background
+- glass cards
+- purple primary buttons
+- cyan secondary buttons
+- red danger buttons
+- green success states
+- pill badges
+- mobile hamburger nav
+- sidebar on desktop
+- metric cards
+- clean forms
+- no raw ugly JSON unless in debug/log views
+
+STRUCTURE:
+The app should route between public and admin views:
+- If not logged in, show public portal by default.
+- Public nav: Home, Radio, Tutorials, Events, Rankings, Room Info, Owner Login.
+- If logged in, show admin nav: Overview, Bot Control, Bot Config, Player Control, Economy, Radio, Casino, Games, Room Control, Emotes, Staff, Logs, Emergency.
+- Owner Login should not remove public access; public users should still browse public pages.
+
+BACKEND:
+Only add backend endpoints that are safe and necessary.
+For public endpoints, use read-only queries.
+For admin endpoints, require auth and permissions.
+Do not break existing APIs.
+
+After changes:
+- Make sure Replit preview is not blank.
+- Make sure public home loads without login.
+- Make sure owner login still works.
+- Make sure Bot Config tab exists after login.
+- Make sure Restart Bots still calls /api/bot-config/restart.
+- Run node --check dashboard/server.mjs if server.mjs is changed.
+- Commit changes to branch dashboard-redesign with message:
+  Build ChillTopia public portal and owner control panel

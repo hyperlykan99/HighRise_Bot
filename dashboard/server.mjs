@@ -1062,6 +1062,86 @@ const BOT_TOKEN_KEYS = [
   "SECURITY_BOT_TOKEN", "DJ_BOT_TOKEN", "EVENT_BOT_TOKEN", "FISHER_BOT_TOKEN",
 ];
 
+app.get("/api/public/home", async (req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const bots = safeRows(db, "bot_instances", ["bot_mode","bot_username","status","last_heartbeat_at"], { orderBy: "last_heartbeat_at DESC", limit: "20" });
+    const onlineBots = bots.filter((b) => b.status === "online").length;
+    const radio = readLocalRadioStatus(db);
+    const nowPlaying = radio.now_playing || null;
+    const queueCount = radio.queue?.length ?? 0;
+    const roomUsers = (() => {
+      try { return Number(db.prepare("SELECT value FROM live_status WHERE key='room_user_count' LIMIT 1").get()?.value ?? 0); } catch { return 0; }
+    })();
+    const vibe = (() => {
+      try { return db.prepare("SELECT value FROM room_settings WHERE key='current_vibe' LIMIT 1").get()?.value ?? "Chill vibes"; } catch { return "Chill vibes"; }
+    })();
+    json(res, { online_bots: onlineBots, total_bots: bots.length, room_users: roomUsers, queue_count: queueCount, now_playing: nowPlaying ? { title: nowPlaying.title, artist: nowPlaying.artist } : null, vibe });
+  } catch (err) {
+    json(res, { online_bots: 0, total_bots: 0, room_users: 0, queue_count: 0, now_playing: null, vibe: "Chill vibes" });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/public/radio", async (req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const radio = readLocalRadioStatus(db);
+    const safeQueue = (radio.queue || []).map((r) => ({ pos: r.pos, title: r.title, artist: r.artist, username: r.username, status: r.status }));
+    const safeRecent = (radio.recently_played || []).map((r) => ({ title: r.title, artist: r.artist, username: r.username }));
+    const queueOpen = (() => {
+      try { return db.prepare("SELECT value FROM bot_settings WHERE key='requests_enabled' LIMIT 1").get()?.value !== "false"; } catch { return true; }
+    })();
+    json(res, {
+      now_playing: radio.now_playing ? { title: radio.now_playing.title, artist: radio.now_playing.artist, username: radio.now_playing.username } : null,
+      queue: safeQueue,
+      recently_played: safeRecent,
+      queue_open: queueOpen,
+      stream_url: AZURACAST_STREAM_URL || null,
+    });
+  } catch (err) {
+    json(res, { now_playing: null, queue: [], recently_played: [], queue_open: true, stream_url: null });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/public/events", async (req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const current = safeRows(db, "room_settings", ["key","value"], { where: "key LIKE 'event.%' OR key = 'active_event'", limit: "20" });
+    const scheduled = safeRows(db, "scheduled_events", ["id","name","description","starts_at","ends_at","points","reward"], { orderBy: "starts_at ASC", limit: "10" });
+    json(res, { current_settings: current, scheduled });
+  } catch {
+    json(res, { current_settings: [], scheduled: [] });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/public/rankings", async (req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const richList = safeRows(db, "users", ["username","coins","level"], { orderBy: "coins DESC", limit: "10" });
+    const miners = safeRows(db, "mining_profiles", ["username","total_weight","total_finds"], { orderBy: "total_weight DESC", limit: "10" });
+    const fishers = safeRows(db, "fishing_profiles", ["username","total_weight","total_catches"], { orderBy: "total_weight DESC", limit: "10" });
+    const topCasino = safeRows(db, "users", ["username","casino_winnings"], { where: "casino_winnings > 0", orderBy: "casino_winnings DESC", limit: "10" });
+    const topRequesters = safeRows(db, "yt_request_jobs", ["username"], { where: "status='played'", orderBy: "id DESC", limit: "200" })
+      .reduce((acc, r) => { acc[r.username] = (acc[r.username] || 0) + 1; return acc; }, {});
+    const topRequestersList = Object.entries(topRequesters).sort((a,b) => b[1]-a[1]).slice(0,10).map(([username,count]) => ({ username, count }));
+    json(res, { rich_list: richList, miners, fishers, casino: topCasino, top_requesters: topRequestersList });
+  } catch (err) {
+    json(res, { rich_list: [], miners: [], fishers: [], casino: [], top_requesters: [] });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
 app.get("/api/bot-config", requireAuth, (req, res) => {
   const tokens = {};
   for (const key of BOT_TOKEN_KEYS) {
