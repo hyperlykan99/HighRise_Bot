@@ -1467,3 +1467,48 @@ pre.mono-block {
   .pub-brand span { display: none; }
   .pub-stats-row { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Tab Navigation ──────────────────────────────────── */
+.tab-nav {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 6px;
+  background: rgba(10,12,28,0.7);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+}
+
+.tab-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.tab-btn:hover {
+  background: rgba(155,94,255,0.1);
+  color: var(--text);
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, rgba(155,94,255,0.22), rgba(34,215,255,0.08));
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgba(155,94,255,0.2);
+}
+
+@media (max-width: 600px) {
+  .tab-nav { gap: 2px; padding: 4px; }
+  .tab-btn { padding: 7px 10px; font-size: 12px; }
+}

@@ -1,0 +1,272 @@
+You are working in my GitHub repo hyperlykan99/HighRise_Bot.
+
+Use the branch that currently contains the ChillTopia public portal and owner dashboard work. It may be dashboard-agent-portal or dashboard-redesign. Confirm the current branch before editing.
+
+Goal:
+Redesign the ChillTopia web app into a clean 3-layer web portal:
+
+1. Public Portal for normal players
+2. Staff Console for staff/moderators
+3. Owner Control Center for the owner
+
+Important safety:
+- Do NOT expose, print, or hardcode bot tokens.
+- Do NOT commit .env files.
+- Do NOT commit SQLite database files.
+- Do NOT modify runtime bot code in artifacts/highrise-bot unless absolutely necessary.
+- Prefer editing only:
+  - dashboard/public/index.html
+  - dashboard/public/app.js
+  - dashboard/public/styles.css
+  - dashboard/server.mjs only if endpoint routing/data is needed
+- Public pages must be read-only and safe.
+- Staff pages must require auth and permissions.
+- Owner pages must require owner role or proper permissions.
+- Dangerous actions must use confirmation modals.
+- Never show full bot tokens. Show only SET/EMPTY.
+
+Current problem:
+The current owner dashboard is too confusing. It has too many pages and some controls are fake/placeholders. I want a clean owner control panel with simple controls, grouped by real tasks.
+
+New design structure:
+
+PUBLIC PORTAL:
+Public nav should be:
+- Home
+- Radio
+- How to Play
+- Events
+- Rankings
+- Room Info
+- Owner Login
+
+Public Home:
+- ChillTopia branding
+- live room/radio status
+- bots online
+- room users if available
+- current song
+- queue count
+- active event if available
+- quick buttons: Radio, How to Play, Rankings
+
+Public Radio:
+- DJ DUDU status
+- now playing
+- queue
+- recently played
+- stream/listen link if available
+- tutorial: “Use !request [song] in the room”
+- no admin controls
+
+Public How to Play:
+Cards for:
+- Request Songs
+- Casino
+- Mining
+- Fishing
+- Coins/Tickets
+- Emotes/Dancefloor
+- VIP
+
+Public Events:
+- current event if available
+- upcoming events if available
+- event points explanation
+- rewards explanation
+- clean no-data cards if empty
+
+Public Rankings:
+- top rich / coins if available
+- top miners if available
+- top fishers if available
+- casino rankings if available
+- top requesters/radio if available
+- clean no-data cards if empty
+
+Public Room Info:
+- room rules
+- staff list if available
+- bot list
+- VIP info
+- useful command summaries
+
+STAFF CONSOLE:
+Keep staff simple. Staff nav should be:
+- Staff Home
+- Radio Queue
+- Players
+- Events
+- Room Tools
+- Logs
+
+Staff Home:
+- quick health summary
+- pending/attention items
+- radio queue health
+- recent errors
+- active event
+
+Staff Radio Queue:
+- now playing
+- queue
+- remove bad request
+- skip current request if permission
+- open/close requests if permission
+- clear queue with confirmation if permission
+
+Staff Players:
+- player search
+- profile summary
+- moderation actions only if endpoints exist
+- no economy editing unless owner
+
+Staff Events:
+- view current/upcoming events
+- basic event controls only if endpoint exists
+
+Staff Room Tools:
+- announcements
+- welcome message
+- public emotes toggle
+- social toggle
+- maintenance/info toggles if available
+
+OWNER CONTROL CENTER:
+Owner nav should be simplified to these main pages:
+- Command Center
+- Bots
+- Players
+- Room & Content
+- Economy & Rewards
+- Staff
+- System
+
+Do NOT show 15+ top-level owner pages. Use sections/tabs inside pages.
+
+Owner Command Center:
+- all systems at a glance
+- online bots
+- room ID
+- radio status
+- queue size
+- casino status
+- emergency status
+- latest errors
+- quick actions:
+  - Restart Bots
+  - Open/Close Requests
+  - Clear Queue
+  - Disable Casino
+  - Disable Games
+  - Emergency Lock
+
+Bots page:
+Tabs or sections:
+- Bot Status
+- Bot Config
+- Bot Spawns
+- Advanced
+
+Bot Status:
+- one card per real bot
+- dedupe raw bot_instances rows
+- show status, heartbeat, room, last error
+- buttons only if hooked:
+  - Return Home
+  - Stop Emote
+  - Restart Bot
+  - View Logs
+- If endpoint missing, show disabled button with exact label “Endpoint needed: POST /api/bots/:id/return-home”
+
+Bot Config:
+- ROOM_ID
+- BOTS_ENABLED
+- token status SET/EMPTY only
+- blank token replacement inputs
+- Save Config
+- Save + Restart Bots
+- Restart Bots
+
+Players page:
+Tabs or sections:
+- Search
+- Summary
+- Economy
+- Inventory
+- Titles & Badges
+- Moderation
+- Logs
+
+Player Search:
+- search by username or user_id
+- show player card with coins, tickets, XP, level, VIP, titles/badges, inventory count if available
+
+Room & Content:
+Tabs:
+- Room Settings
+- Radio
+- Events
+- Emotes
+- Announcements
+- Welcome
+- Rules
+
+Economy & Rewards:
+Tabs:
+- Coins/Tickets
+- VIP
+- Titles
+- Badges
+- Shop
+- Rewards
+- Transactions
+
+Staff:
+- dashboard users
+- staff permissions
+- bot roles
+- create/edit/remove staff
+
+System:
+- dashboard health
+- bot health
+- DB status
+- PM2/status
+- backups
+- logs
+- emergency/danger zone
+
+Design:
+Use the old DJ DUDU radio dashboard vibe:
+- dark neon theme
+- purple/cyan accents
+- rounded glass cards
+- clean metric cards
+- simple forms
+- mobile-first
+- hamburger menu on mobile
+- sidebar on desktop
+- consistent spacing
+- no ugly raw JSON except debug/log sections
+- no giant raw tables on top-level pages
+
+Implementation:
+- Keep existing API calls that already work.
+- Do not fake working controls.
+- If a backend endpoint does not exist, show a polished disabled placeholder:
+  “Endpoint needed: [METHOD] [PATH]”
+- Keep public pages read-only.
+- Keep owner pages permission-protected.
+
+Validation:
+- Public portal loads without login.
+- Owner Login works.
+- Staff/Owner dashboard shows correct nav based on role.
+- Bot Config still exists.
+- Restart Bots still works if the existing endpoint is wired.
+- Replit preview is not blank.
+- node --check dashboard/server.mjs passes if server.mjs changed.
+
+Commit changes with message:
+Restructure ChillTopia portal and owner dashboard
