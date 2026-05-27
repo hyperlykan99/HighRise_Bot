@@ -1,0 +1,68 @@
+Fix duplicate bot cards and duplicate Blackjack display.
+
+Problem:
+The dashboard can show duplicate bot rows such as:
+- blackjack / ChipSoprano
+- blackjack / blackjack
+- dj / DJ_DUDU
+- dj / dj
+- host / ChillTopiaMC
+- host / host
+
+The real bot should display once. Generic fallback rows where bot_username equals bot_mode should be hidden when a real username exists for that mode.
+
+Important context:
+Realistic Blackjack is now the main blackjack game, but it is owned by the same blackjack bot mode. There should NOT be two separate Blackjack bot cards.
+
+Expected display:
+One Casino Dealer card:
+- Title: Casino Dealer
+- Bot: ChipSoprano
+- Mode: blackjack
+- Modules: BlackJack, Realistic BlackJack
+- Status/heartbeat/error from latest real row
+
+Do not display a second generic “blackjack” card.
+
+Deduping rules:
+1. Group bot_instances by bot_mode.
+2. Prefer rows where bot_username exists and lower(bot_username) !== lower(bot_mode).
+3. Prefer latest last_heartbeat_at.
+4. Prefer status online.
+5. Keep duplicate raw count internally as raw_duplicate_count.
+6. Show raw duplicate rows only in an Advanced Debug section, not normal Bot Status.
+7. Do not delete database rows automatically.
+8. Show warning chip if duplicates exist:
+   “2 raw rows merged”
+
+Display name mapping:
+- dj → DJ_DUDU
+- host → ChillTopiaMC
+- security → KeanuShield
+- miner → GreatestProspector
+- fisher → MasterAngler
+- poker → AceSinatra
+- blackjack → ChipSoprano / Casino Dealer
+- banker → BankingBot
+- shopkeeper → BankingBot
+- eventhost → ChillTopiaMC or Event Host if separate exists
+
+Module grouping:
+- blackjack bot card should list: BlackJack, Realistic BlackJack
+- banker/shopkeeper can list: Bank, Shop if using same bot
+- host/eventhost can list: Host, Events if using same bot
+
+Update:
+- /api/bot-control if it exists
+- /api/live if needed
+- frontend Bot Status/Bot Control cards
+
+Validation:
+- Bot Control shows one card per real bot role.
+- No duplicate Blackjack card.
+- Raw duplicates only show in Advanced Debug.
+- Public bot list also avoids duplicates.
+- No DB rows are deleted by the dashboard.
+
+Commit with message:
+Deduplicate dashboard bot cards

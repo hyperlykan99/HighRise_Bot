@@ -1187,39 +1187,72 @@ function renderBotSettingsTab() {
 function renderBotStatus() {
   const bots = state.data?.bots || [];
   const rawCount = state.data?.raw_count ?? bots.length;
+  const rawDupeRows = state.data?.raw_duplicate_rows || [];
+
   if (!bots.length) return `<div class="card">
     <h2>🤖 Bot Status</h2>
     <div class="notice warn">No bot heartbeat data. Bots write to <code>bot_instances</code> on startup.</div>
   </div>`;
-  const dupeNote = rawCount > bots.length
-    ? `<div class="notice" style="margin-bottom:0">ℹ️ ${rawCount} raw rows deduped → ${bots.length} bots (latest heartbeat per mode).</div>` : "";
+
+  const totalDupes = bots.reduce((n, b) => n + (b.raw_duplicate_count > 1 ? b.raw_duplicate_count - 1 : 0), 0);
+  const dupeNote = totalDupes > 0
+    ? `<div class="notice" style="margin-bottom:12px">ℹ️ ${rawCount} raw DB rows merged → ${bots.length} unique bots. ${totalDupes} duplicate row${totalDupes !== 1 ? "s" : ""} hidden — visible in Advanced Debug below.</div>`
+    : "";
+
   return `
     ${dupeNote}
     <div class="grid">
-      ${bots.map((b) => `<div class="card">
-        <div class="card-header">
-          <h2>${esc(b.display_name || b.bot_mode || "Bot")}</h2>
-          ${pill(b.status || "unknown")}
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <span class="muted text-sm">@${esc(b.bot_username || "—")}</span>
-          <span class="pill def">${esc(b.bot_mode || "—")}</span>
-          ${b.has_duplicate_raw_rows ? `<span class="pill warn">dupes</span>` : ""}
-          ${b.enabled === 0 ? `<span class="pill bad">disabled</span>` : ""}
-        </div>
-        <div class="muted text-sm" style="display:grid;gap:3px;margin-bottom:12px">
-          <span>Room: ${esc(b.current_room_id || "—")}</span>
-          <span>Heartbeat: ${esc(b.last_heartbeat_at || "—")}</span>
-          ${b.last_error ? `<span style="color:var(--red)">⚠ ${esc(String(b.last_error).slice(0, 100))}</span>` : ""}
-        </div>
-        <div class="inline-actions">
-          <button class="btn sm" disabled title="Endpoint needed: POST /api/bots/:id/return-home">🏠 Home</button>
-          <button class="btn sm" disabled title="Endpoint needed: POST /api/bots/:id/stop-emote">⏹ Stop</button>
-          <button class="btn danger sm" disabled title="Endpoint needed: POST /api/bots/:id/restart">🔄 Restart</button>
-        </div>
-        <p class="muted text-sm" style="margin-top:6px">Controls: <span class="pill warn">endpoints needed</span></p>
-      </div>`).join("")}
+      ${bots.map((b) => {
+        const dupeCount = b.raw_duplicate_count || 1;
+        return `<div class="card bot-card">
+          <div class="card-header" style="margin-bottom:8px">
+            <div>
+              <h2>${esc(b.card_title || b.display_name || b.bot_mode || "Bot")}</h2>
+              <div class="muted text-sm" style="margin-top:2px">
+                @${esc(b.bot_username || b.display_name || "—")}
+                <span style="margin:0 4px">·</span>
+                <code style="font-size:11px">${esc(b.bot_mode || "—")}</code>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+              ${pill(b.status || "unknown")}
+              ${dupeCount > 1 ? `<span class="pill warn" style="font-size:10px">${dupeCount} raw rows merged</span>` : ""}
+            </div>
+          </div>
+          ${b.modules && b.modules.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
+            ${b.modules.map((m) => `<span class="pill def" style="font-size:11px">${esc(m)}</span>`).join("")}
+          </div>` : ""}
+          <div class="muted text-sm" style="display:grid;gap:3px;margin-bottom:12px">
+            <span>Room: ${esc(b.current_room_id || "—")}</span>
+            <span>Heartbeat: ${esc(b.last_heartbeat_at || "—")}</span>
+            ${b.enabled === 0 ? `<span style="color:var(--warn)">⚠ Bot disabled</span>` : ""}
+            ${b.last_error ? `<span style="color:var(--red)">⚠ ${esc(String(b.last_error).slice(0, 120))}</span>` : ""}
+          </div>
+          <div class="inline-actions">
+            <button class="btn sm" disabled title="Endpoint needed: POST /api/bots/:id/return-home">🏠 Home</button>
+            <button class="btn sm" disabled title="Endpoint needed: POST /api/bots/:id/stop-emote">⏹ Stop</button>
+            <button class="btn danger sm" disabled title="Endpoint needed: POST /api/bots/:id/restart">🔄 Restart</button>
+          </div>
+        </div>`;
+      }).join("")}
     </div>
+    ${rawDupeRows.length ? `
+    <details class="advanced-collapse" style="margin-top:16px">
+      <summary class="advanced-summary">
+        <span class="pill warn">⚠️</span> Advanced Debug — Raw Duplicate Rows
+        <span class="muted text-sm">(${rawDupeRows.length} rows, read-only — dashboard never deletes DB rows)</span>
+      </summary>
+      <div class="advanced-content">
+        ${table(rawDupeRows, [
+          { key: "_modeKey",        label: "Mode Key" },
+          { key: "bot_mode",        label: "Bot Mode" },
+          { key: "bot_username",    label: "Username" },
+          { key: "status",          label: "Status", render: (r) => pill(r.status || "unknown") },
+          { key: "last_heartbeat_at", label: "Last Heartbeat" },
+          { key: "last_error",      label: "Last Error", render: (r) => r.last_error ? `<span style="color:var(--red);font-size:11px">${esc(String(r.last_error).slice(0,80))}</span>` : "—" },
+        ])}
+      </div>
+    </details>` : ""}
   `;
 }
 

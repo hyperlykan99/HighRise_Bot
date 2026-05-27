@@ -1066,7 +1066,8 @@ app.get("/api/public/home", async (req, res) => {
   let db = null;
   try {
     db = await openDb({ readonly: true });
-    const bots = safeRows(db, "bot_instances", ["bot_mode","bot_username","status","last_heartbeat_at"], { orderBy: "last_heartbeat_at DESC", limit: "20" });
+    const rawBots = safeRows(db, "bot_instances", ["bot_mode","bot_username","status","last_heartbeat_at"], { orderBy: "last_heartbeat_at DESC", limit: "50" });
+    const { bots } = dedupBotRows(rawBots);
     const onlineBots = bots.filter((b) => b.status === "online").length;
     const radio = readLocalRadioStatus(db);
     const nowPlaying = radio.now_playing || null;
@@ -1454,35 +1455,94 @@ const BOT_DISPLAY_NAMES = {
   miner: "GreatestProspector", fisher: "MasterAngler",
   poker: "AceSinatra", blackjack: "ChipSoprano",
   banker: "BankingBot", shopkeeper: "BankingBot",
+  eventhost: "ChillTopiaMC",
 };
+
+const BOT_CARD_TITLES = {
+  blackjack: "Casino Dealer", poker: "Poker Host",
+  dj: "DJ Bot", host: "Room Host", eventhost: "Event Host",
+  banker: "Banking Bot", shopkeeper: "Shop Bot",
+  security: "Security", miner: "Miner", fisher: "Fisher",
+};
+
+const BOT_MODULE_GROUPS = {
+  blackjack: ["BlackJack", "Realistic BlackJack"],
+  poker: ["Poker"],
+  dj: ["DJ Queue", "Radio"],
+  host: ["Host", "Announcements"],
+  eventhost: ["Events"],
+  banker: ["Bank", "Economy", "Daily"],
+  shopkeeper: ["Shop"],
+  security: ["Security", "Moderation"],
+  miner: ["Mining"],
+  fisher: ["Fishing"],
+};
+
+/**
+ * Deduplicate bot_instances rows.
+ * Groups by bot_mode (falling back to bot_username/bot_id).
+ * Within each group prefers:
+ *   1. Rows where lower(bot_username) !== lower(bot_mode)  [real username over generic fallback]
+ *   2. status === "online"
+ *   3. Latest last_heartbeat_at
+ * Returns { bots, rawDupeRows } where bots is sorted by bot_mode.
+ */
+function dedupBotRows(raw) {
+  const groups = new Map();
+  for (const row of raw) {
+    const key = String(row.bot_mode || row.bot_username || row.bot_id || "unknown").toLowerCase();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  const isRealUsername = (r) =>
+    r.bot_username &&
+    r.bot_mode &&
+    r.bot_username.toLowerCase() !== r.bot_mode.toLowerCase();
+
+  const bots = [];
+  const rawDupeRows = [];
+
+  for (const [modeKey, rows] of groups) {
+    const sorted = [...rows].sort((a, b) => {
+      const aR = isRealUsername(a) ? 0 : 1;
+      const bR = isRealUsername(b) ? 0 : 1;
+      if (aR !== bR) return aR - bR;
+      const aO = a.status === "online" ? 0 : 1;
+      const bO = b.status === "online" ? 0 : 1;
+      if (aO !== bO) return aO - bO;
+      return String(b.last_heartbeat_at || "") > String(a.last_heartbeat_at || "") ? 1 : -1;
+    });
+    const best = sorted[0];
+    const displayName = BOT_DISPLAY_NAMES[modeKey] || best.bot_username || best.bot_mode || "Bot";
+    bots.push({
+      bot_id: best.bot_id,
+      bot_mode: best.bot_mode,
+      bot_username: best.bot_username,
+      display_name: displayName,
+      card_title: BOT_CARD_TITLES[modeKey] || displayName,
+      modules: BOT_MODULE_GROUPS[modeKey] || [],
+      status: best.status,
+      enabled: best.enabled,
+      last_heartbeat_at: best.last_heartbeat_at,
+      last_error: best.last_error,
+      current_room_id: best.current_room_id,
+      raw_duplicate_count: rows.length,
+      raw_rows: rows.length > 1 ? rows : [],
+    });
+    if (rows.length > 1) rawDupeRows.push(...rows.map((r) => ({ ...r, _modeKey: modeKey })));
+  }
+  bots.sort((a, b) => String(a.bot_mode || "").localeCompare(String(b.bot_mode || "")));
+  return { bots, rawDupeRows };
+}
 
 app.get("/api/bot-control", requireAuth, (req, res) => {
   const raw = safeRows(req.db, "bot_instances",
     ["bot_id","bot_mode","bot_username","status","enabled","last_heartbeat_at","last_error","current_room_id"],
     { orderBy: "last_heartbeat_at DESC" }
   );
-  const byMode = new Map();
-  for (const row of raw) {
-    const key = String(row.bot_mode || row.bot_username || row.bot_id || "unknown").toLowerCase();
-    const existing = byMode.get(key);
-    if (!existing || String(row.last_heartbeat_at || "") > String(existing.last_heartbeat_at || "")) {
-      byMode.set(key, { ...row, _modeKey: key });
-    }
-  }
-  const dupeCounts = {};
-  for (const row of raw) {
-    const k = String(row.bot_mode || row.bot_username || row.bot_id || "unknown").toLowerCase();
-    dupeCounts[k] = (dupeCounts[k] || 0) + 1;
-  }
-  const bots = [...byMode.values()].map((b) => {
-    const modeKey = b._modeKey;
-    const displayName = BOT_DISPLAY_NAMES[modeKey] || b.bot_username || b.bot_mode || "Bot";
-    return { bot_id: b.bot_id, bot_mode: b.bot_mode, bot_username: b.bot_username,
-      display_name: displayName, status: b.status, enabled: b.enabled,
-      last_heartbeat_at: b.last_heartbeat_at, last_error: b.last_error,
-      current_room_id: b.current_room_id, has_duplicate_raw_rows: dupeCounts[modeKey] > 1 };
-  }).sort((a, b) => String(a.bot_mode || "").localeCompare(String(b.bot_mode || "")));
-  json(res, { bots, raw_count: raw.length });
+  const { bots, rawDupeRows } = dedupBotRows(raw);
+  json(res, { bots, raw_count: raw.length, raw_duplicate_rows: rawDupeRows });
 }, closeDb);
 
 /* ── Economy Overview (read-only) ───────────────────── */
