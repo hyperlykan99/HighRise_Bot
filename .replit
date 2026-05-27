@@ -20,6 +20,10 @@ author = "agent"
 task = "workflow.run"
 args = "Highrise Bot"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Dashboard"
+
 [[workflows.workflow]]
 name = "Highrise Bot"
 author = "agent"
@@ -31,6 +35,18 @@ args = "cd artifacts/highrise-bot && python3 bot.py"
 [workflows.workflow.metadata]
 outputType = "console"
 
+[[workflows.workflow]]
+name = "Dashboard"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd dashboard && PORT=5000 node server.mjs"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
@@ -38,6 +54,10 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[[ports]]
+localPort = 3000
+externalPort = 4200
 
 [[ports]]
 localPort = 8080
@@ -62,6 +82,10 @@ externalPort = 3002
 [[ports]]
 localPort = 25976
 externalPort = 3003
+
+[[ports]]
+localPort = 5000
+externalPort = 80
 
 [nix]
 channel = "stable-25_05"

@@ -1056,6 +1056,43 @@ app.post("/api/staff/bot-role", requireAuth, requirePermission("manage_staff"), 
   json(res, { ok: true });
 }, closeDb);
 
+const BOT_TOKEN_KEYS = [
+  "BOT_TOKEN", "MAIN_BOT_TOKEN", "HOST_BOT_TOKEN", "BLACKJACK_BOT_TOKEN",
+  "POKER_BOT_TOKEN", "MINER_BOT_TOKEN", "BANKER_BOT_TOKEN", "SHOP_BOT_TOKEN",
+  "SECURITY_BOT_TOKEN", "DJ_BOT_TOKEN", "EVENT_BOT_TOKEN", "FISHER_BOT_TOKEN",
+];
+
+app.get("/api/bot-config", requireAuth, (req, res) => {
+  const tokens = {};
+  for (const key of BOT_TOKEN_KEYS) {
+    tokens[key] = process.env[key] ? "set" : "empty";
+  }
+  let roomId = process.env.ROOM_ID || "";
+  let botsEnabled = process.env.BOTS_ENABLED || "";
+  try {
+    if (!roomId) roomId = getDashboardSettingValue(req.db, "bot_config.room_id", "");
+    if (!botsEnabled) botsEnabled = getDashboardSettingValue(req.db, "bot_config.bots_enabled", "");
+  } catch {}
+  json(res, { room_id: roomId, bots_enabled: botsEnabled, tokens });
+}, closeDb);
+
+app.post("/api/bot-config", requireAuth, (req, res) => {
+  if (req.user?.role !== "owner") return json(res, { error: "forbidden" }, 403);
+  const roomId = String(req.body?.room_id ?? "").trim();
+  const botsEnabled = String(req.body?.bots_enabled ?? "").trim();
+  if (roomId) upsertDashboardSetting(req.db, "bot_config.room_id", roomId, "bot_config", req.user.username, "Room ID override from dashboard.");
+  if (botsEnabled !== undefined) upsertDashboardSetting(req.db, "bot_config.bots_enabled", botsEnabled, "bot_config", req.user.username, "BOTS_ENABLED override from dashboard.");
+  audit(req.db, req.user.username, "bot_config_update", "bot_config", "config", "", { room_id: !!roomId, bots_enabled: botsEnabled }, req.ip);
+  json(res, { ok: true });
+}, closeDb);
+
+app.post("/api/bot-config/restart", requireAuth, (req, res) => {
+  if (req.user?.role !== "owner") return json(res, { error: "forbidden" }, 403);
+  upsertDashboardSetting(req.db, "bot_config.restart_requested", nowIso(), "bot_config", req.user.username, "Restart request from dashboard.");
+  audit(req.db, req.user.username, "bot_restart_requested", "bot_config", "restart", "", nowIso(), req.ip);
+  json(res, { ok: true, note: "Restart flag written to DB. Bot will restart on next heartbeat check." });
+}, closeDb);
+
 app.get("/api/radio", requireAuth, requirePermission("manage_radio"), (req, res) => {
   json(res, readLocalRadioStatus(req.db));
 }, closeDb);

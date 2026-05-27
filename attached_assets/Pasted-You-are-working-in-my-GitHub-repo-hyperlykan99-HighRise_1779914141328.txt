@@ -1,0 +1,64 @@
+You are working in my GitHub repo hyperlykan99/HighRise_Bot on branch dashboard-redesign.
+
+Goal:
+Redesign the dashboard UI to match my old DJ DUDU radio dashboard style: dark neon, purple/cyan accents, rounded glass cards, mobile-first layout, clean metric cards, premium admin panel look.
+
+Important:
+Do NOT touch bot tokens, .env files, SQLite database files, or backend bot code.
+Do NOT modify artifacts/highrise-bot bot runtime files.
+Only modify dashboard frontend files unless absolutely necessary:
+- dashboard/public/index.html
+- dashboard/public/app.js
+- dashboard/public/styles.css
+
+Backend/API already exists in:
+- dashboard/server.mjs
+
+Keep existing API calls and routes. Do not remove functionality.
+
+Fix preview:
+The dashboard preview currently shows a blank/white page. First inspect dashboard/server.mjs and dashboard/public/* to make the dashboard load correctly in Replit. The correct app should run with:
+cd dashboard && npm install && npm start
+
+Design requirements:
+1. Use a dark radio-style theme like my old DJ dashboard.
+2. Add a polished sidebar/header with ChillTopia branding.
+3. Keep pages:
+   - Overview
+   - Radio
+   - Casino
+   - Games
+   - Titles
+   - Staff
+   - Bot Config
+   - Settings
+   - Live Tracker
+   - Logs
+   - Emergency
+4. Make Overview use metric cards, not ugly raw tables.
+5. Make Bot Config look like cards:
+   - ROOM_ID field
+   - BOTS_ENABLED field
+   - token status rows SET/EMPTY only
+   - token input fields blank by default
+   - Save Bot Config button
+   - Restart Bots button
+6. Never display full tokens.
+7. Keep mobile layout clean and usable.
+8. Use existing API endpoints:
+   /api/overview
+   /api/radio
+   /api/casino
+   /api/settings
+   /api/staff
+   /api/bot-config
+   /api/bot-config/restart
+   /api/logs
+   /api/emergency
+
+After changes:
+- Run node --check dashboard/server.mjs if server.mjs is touched.
+- Make sure the app runs with npm start from dashboard.
+- Confirm preview is not blank.
+- Commit changes to branch dashboard-redesign with message:
+  Redesign dashboard UI
