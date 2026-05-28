@@ -490,6 +490,18 @@ body {
   background: linear-gradient(90deg, var(--cyan), var(--purple));
 }
 
+.message-preview {
+  min-height: 76px;
+  padding: 12px;
+  margin: 10px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .metric-icon {
   font-size: 22px;
   margin-bottom: 4px;

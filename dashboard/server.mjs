@@ -70,6 +70,7 @@ const PERMISSION_REGISTRY = {
   manage_fishing: { group: "Fishing", label: "Manage Fishing" },
   manage_room: { group: "Room", label: "Manage Room" },
   manage_events: { group: "Events", label: "Manage Events" },
+  manage_automation: { group: "Room", label: "Manage Automation" },
   manage_emotes: { group: "Emotes", label: "Manage Emotes" },
   manage_players: { group: "Players", label: "Manage Players" },
   manage_economy: { group: "Economy", label: "Manage Economy" },
@@ -116,6 +117,7 @@ const IMPORTANT_TABLES = [
   "bot_instances",
   "bot_spawns",
   "bot_command_queue",
+  "dashboard_scheduled_announcements",
   "jail_sentences",
   "first_find_announce_pending",
   "host_dm_queue",
@@ -607,6 +609,22 @@ function ensureDashboardSchema(db) {
       value TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS dashboard_scheduled_announcements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL DEFAULT '',
+      message TEXT NOT NULL,
+      target_bot TEXT NOT NULL DEFAULT 'host',
+      schedule_type TEXT NOT NULL DEFAULT 'manual',
+      interval_minutes INTEGER,
+      next_run_at TEXT,
+      last_sent_at TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     `,
   );
   const afterTables = tableNames(db);
@@ -677,6 +695,19 @@ function ensureDashboardSchema(db) {
   addColumnIfMissing(db, "live_status", "key", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "live_status", "value", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "live_status", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "title", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "message", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "target_bot", "TEXT NOT NULL DEFAULT 'host'", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "schedule_type", "TEXT NOT NULL DEFAULT 'manual'", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "interval_minutes", "INTEGER", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "next_run_at", "TEXT", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "last_sent_at", "TEXT", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "enabled", "INTEGER NOT NULL DEFAULT 1", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "archived", "INTEGER NOT NULL DEFAULT 0", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "created_by", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "created_at", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "dashboard_scheduled_announcements", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
 
   addColumnIfMissing(db, "schema_version", "component", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "schema_version", "version", "INTEGER NOT NULL DEFAULT 1", migration);
@@ -1090,6 +1121,130 @@ function enqueueBotCommand(db, { targetBot, actionName, payload, requesterId }) 
   const placeholders = ["?", "?", "?", "?", "?", "CURRENT_TIMESTAMP"].join(", ");
   const info = db.prepare(`INSERT INTO bot_command_queue (${insertCols.map(sqlIdent).join(", ")}) VALUES (${placeholders})`).run(...values);
   return { id: info.lastInsertRowid, target_bot: targetBot, action: actionName, status: "pending" };
+}
+
+const AUTOMATION_TABLES = [
+  "dashboard_scheduled_announcements",
+  "rotating_announcements",
+  "subscriber_announcements",
+  "big_announcement_settings",
+  "big_announcement_logs",
+  "release_announcements",
+  "first_find_announce_pending",
+  "host_dm_queue",
+  "bot_command_queue",
+  "event_settings",
+  "event_history",
+  "event_definitions",
+  "room_settings",
+  "bot_settings",
+  "audit_logs",
+  "admin_action_logs",
+];
+
+function automationTableInfo(db, table, limit = "75") {
+  const exists = tableExists(db, table);
+  const cols = exists ? tableColumns(db, table) : [];
+  const orderBy = cols.includes("next_run_at") ? "enabled DESC, datetime(next_run_at) ASC"
+    : cols.includes("created_at") ? "created_at DESC"
+    : cols.includes("set_at") ? "set_at DESC"
+    : cols.includes("last_sent_at") ? "last_sent_at DESC"
+    : cols.includes("id") ? "id DESC"
+    : "";
+  return { exists, columns: cols, rows: safeTableRows(db, table, { orderBy, limit }) };
+}
+
+function automationAnnouncementRows(db) {
+  return safeRows(db, "dashboard_scheduled_announcements", [
+    "id", "title", "message", "target_bot", "schedule_type", "interval_minutes",
+    "next_run_at", "last_sent_at", "enabled", "archived", "created_by", "created_at", "updated_at",
+  ], {
+    where: "COALESCE(archived,0)=0",
+    orderBy: "enabled DESC, datetime(COALESCE(next_run_at, '9999-12-31')) ASC, id DESC",
+    limit: "500",
+  });
+}
+
+function readAutomationDashboard(db) {
+  const tables = Object.fromEntries(AUTOMATION_TABLES.map((table) => [table, automationTableInfo(db, table, table === "bot_command_queue" ? "150" : "100")]));
+  const scheduled = automationAnnouncementRows(db);
+  const rotating = tables.rotating_announcements?.rows || [];
+  const queue = safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
+    where: "action IN ('announce','event_reminder','promo_message','security_alert') OR payload LIKE '%automation%' OR payload LIKE '%promo%' OR payload LIKE '%reminder%'",
+    orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "150",
+  });
+  const logs = {
+    big_announcement_logs: tables.big_announcement_logs?.rows || [],
+    admin_action_logs: tables.admin_action_logs?.rows || [],
+    host_dm_queue: tables.host_dm_queue?.rows || [],
+    audit_logs: safeRows(db, "audit_logs", ["id", "actor", "action_type", "target_type", "target_id", "old_value", "new_value", "ip_address", "created_at"], {
+      where: "action_type LIKE 'automation_%' OR action_type LIKE 'room_announce%' OR action_type LIKE 'room_rotating_announcement%' OR target_type IN ('dashboard_scheduled_announcements','rotating_announcements','bot_command_queue')",
+      orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "",
+      limit: "150",
+    }),
+    failed_commands: queue.filter((row) => String(row.status || "").toLowerCase() === "failed"),
+  };
+  const settings = readKeyValueMap(db, "room_settings");
+  const nextAnnouncement = scheduled
+    .filter((row) => Number(row.enabled) && row.next_run_at)
+    .sort((a, b) => String(a.next_run_at).localeCompare(String(b.next_run_at)))[0] || null;
+  const activeAutomations = scheduled.filter((row) => Number(row.enabled)).length
+    + rotating.filter((row) => String(row.enabled ?? "1") !== "0").length;
+  return {
+    overview: {
+      active_automations: activeAutomations,
+      scheduled_announcements: scheduled.length,
+      rotating_enabled: settings.announcements_enabled ?? "",
+      next_announcement: nextAnnouncement,
+      recent_deliveries: queue.filter((row) => String(row.status || "").toLowerCase() === "completed").length,
+      failed_deliveries: queue.filter((row) => String(row.status || "").toLowerCase() === "failed").length,
+      host_queue_pending: queue.filter((row) => ["pending", "queued", "claimed", "running"].includes(String(row.status || "").toLowerCase())).length,
+      dj_promo_status: settings.radio_promo_enabled ?? "",
+    },
+    scheduled_announcements: scheduled,
+    rotating_announcements: rotating,
+    event_reminders: {
+      event_settings: tables.event_settings?.rows || [],
+      event_history: tables.event_history?.rows || [],
+      event_definitions: tables.event_definitions?.rows || [],
+    },
+    promo_messages: [
+      { category: "Radio promo", title: "Radio Requests", message: "Request music with !play [song name or artist]", target_bot: "host", status: "template" },
+      { category: "Mining promo", title: "Mining", message: "Mine rare ores with !mine and climb !topminers.", target_bot: "host", status: "template" },
+      { category: "Fishing promo", title: "Fishing", message: "Catch rare fish with !fish and climb !topfishers.", target_bot: "host", status: "template" },
+      { category: "Casino promo", title: "Casino", message: "Play Blackjack with !bj [amount] or Poker with !join [amount].", target_bot: "host", status: "template" },
+      { category: "VIP/rewards promo", title: "Rewards", message: "Claim !daily, check !profile, and watch for VIP rewards.", target_bot: "host", status: "template" },
+      { category: "Event promo", title: "Events", message: "Watch announcements for events and check !events.", target_bot: "host", status: "template" },
+    ],
+    staff_alerts: {
+      pending_reports: tableExists(db, "reports") && columnExists(db, "reports", "status")
+        ? rowsOrEmpty(db, "reports", "SELECT COUNT(*) AS n FROM reports WHERE COALESCE(status,'open') NOT IN ('resolved','closed','dismissed')")[0]?.n ?? 0
+        : null,
+      failed_bot_commands: queue.filter((row) => String(row.status || "").toLowerCase() === "failed").length,
+      radio_failures: tableExists(db, "yt_request_jobs") && columnExists(db, "yt_request_jobs", "status")
+        ? rowsOrEmpty(db, "yt_request_jobs", "SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status IN ('failed','failed_download','error','cancelled')")[0]?.n ?? 0
+        : null,
+      db_warnings: dbHealthSnapshot(db).warning_count,
+    },
+    delivery_queue: {
+      pending: queue.filter((row) => ["pending", "queued", "claimed", "running"].includes(String(row.status || "").toLowerCase())),
+      recent: queue,
+      failed: queue.filter((row) => String(row.status || "").toLowerCase() === "failed"),
+    },
+    logs,
+    tables,
+    table_status: tableStatusMap(db, AUTOMATION_TABLES),
+    columns: tableColumnsMap(db, AUTOMATION_TABLES),
+    scheduler_note: "Dashboard stores scheduled announcements and can queue send-now commands. Recurring delivery requires a bot-side or external scheduler consumer.",
+  };
+}
+
+function cleanAutomationMessage(message) {
+  const text = String(message || "").trim();
+  if (!text) throw new Error("message_required");
+  if (text.length > 500) throw new Error("message_too_long");
+  return text;
 }
 
 const ROOM_DASHBOARD_TABLES = [
@@ -3661,6 +3816,7 @@ function buildQaAudit() {
     ["Mining", "/api/mining"],
     ["Fishing", "/api/fishing"],
     ["Quests & Missions", "/api/quests"],
+    ["Automation Center", "/api/automation"],
     ["Economy & Rewards", "/api/economy/overview"],
     ["Room & Content", "/api/room-control"],
     ["Emotes", "/api/emotes/overview"],
@@ -3685,7 +3841,7 @@ function buildQaAudit() {
   ].map(([page, api]) => ({ page, api, status: !api || hasEndpoint(api) ? "ok" : "missing" }));
   const expectedRenderers = [
     "renderPublicHome", "renderPublicRadio", "renderPublicHowToPlay", "renderPublicCasino", "renderPublicMining", "renderPublicFishing", "renderPublicQuests", "renderPublicEvents", "renderPublicRankings", "renderPublicRoomInfo",
-    "renderCommandCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderQuestsMissionsPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit",
+    "renderCommandCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderQuestsMissionsPage", "renderAutomationCenterPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit",
     "renderStaffHome", "renderStaffRadioQueue", "renderStaffPlayers", "renderStaffEvents", "renderStaffRoomTools", "renderStaffLogs",
   ];
   const missingRenderers = expectedRenderers.filter((name) => !new RegExp(`function\\s+${name}\\s*\\(`).test(appSource));
@@ -3710,6 +3866,8 @@ function buildQaAudit() {
     "table-search", "rarity-filter", "enabled-filter", "room-toggle", "room-edit",
     "staff-id", "remove-staff", "enabled", "room-val", "key", "vip-remove", "vip-user",
     "quest-disable",
+    "automation-send", "automation-archive", "automation-rotating-send", "automation-rotating-disable",
+    "automation-promo", "automation-source",
   ]);
   const buttonsWithoutHandlers = dataAttrs
     .filter((attr) => !handledAttrs.has(attr))
@@ -6506,6 +6664,8 @@ const ALLOWED_BOT_COMMAND_ACTIONS = new Set([
   "event_start",
   "event_stop",
   "event_schedule",
+  "event_reminder",
+  "promo_message",
   "dancefloor_start",
   "dancefloor_stop",
   "dancefloor_clear",
@@ -6526,7 +6686,7 @@ const ALLOWED_BOT_COMMAND_ACTIONS = new Set([
   "security_alert",
 ]);
 
-app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games","manage_room","manage_events","manage_emotes","manage_bots","manage_moderation"), (req, res) => {
+app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games","manage_room","manage_events","manage_automation","manage_emotes","manage_bots","manage_moderation"), (req, res) => {
   const targetBot = String(req.body?.target_bot || "").trim().slice(0, 80);
   const actionName = String(req.body?.action || "").trim();
   const payload = req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload) ? req.body.payload : {};
@@ -6542,7 +6702,7 @@ app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_contro
   }
 }, closeDb);
 
-app.get("/api/bot-command-queue", requireAuth, requireAnyPermission("manage_bots","manage_radio","manage_room","manage_events","manage_emotes","view_logs"), (req, res) => {
+app.get("/api/bot-command-queue", requireAuth, requireAnyPermission("manage_bots","manage_radio","manage_room","manage_events","manage_automation","manage_emotes","view_logs"), (req, res) => {
   const pending = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
     where: "status IN ('pending','queued','claimed','running')",
     orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
@@ -6553,6 +6713,167 @@ app.get("/api/bot-command-queue", requireAuth, requireAnyPermission("manage_bots
     limit: "50",
   });
   json(res, { pending, recent });
+}, closeDb);
+
+app.get("/api/automation", requireAuth, requireAnyPermission("manage_automation", "manage_room", "manage_events", "view_logs"), (req, res) => {
+  json(res, readAutomationDashboard(req.db));
+}, closeDb);
+
+app.get("/api/automation/announcements", requireAuth, requireAnyPermission("manage_automation", "manage_room", "manage_events", "view_logs"), (req, res) => {
+  const data = readAutomationDashboard(req.db);
+  json(res, { announcements: data.scheduled_announcements, overview: data.overview, table_status: data.table_status, scheduler_note: data.scheduler_note });
+}, closeDb);
+
+app.post("/api/automation/announcements", requireAuth, requireOwner, (req, res) => {
+  try {
+    const title = String(req.body?.title || "").trim().slice(0, 160);
+    const message = cleanAutomationMessage(req.body?.message);
+    const targetBot = String(req.body?.target_bot || "host").trim().slice(0, 80) || "host";
+    const scheduleType = String(req.body?.schedule_type || "manual").trim().slice(0, 40) || "manual";
+    const intervalMinutes = req.body?.interval_minutes === "" || req.body?.interval_minutes == null ? null : Math.max(1, Math.min(43200, Math.trunc(Number(req.body.interval_minutes))));
+    const nextRunAt = String(req.body?.next_run_at || "").trim();
+    const enabled = req.body?.enabled === false || req.body?.enabled === "false" || req.body?.enabled === "0" ? 0 : 1;
+    const info = req.db.prepare(`
+      INSERT INTO dashboard_scheduled_announcements
+        (title, message, target_bot, schedule_type, interval_minutes, next_run_at, enabled, created_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(title, message, targetBot, scheduleType, intervalMinutes, nextRunAt, enabled, req.user.username);
+    audit(req.db, req.user.username, "automation_announcement_create", "dashboard_scheduled_announcements", info.lastInsertRowid, "", { title, targetBot, scheduleType, intervalMinutes, nextRunAt, enabled }, req.ip);
+    json(res, { ok: true, id: info.lastInsertRowid });
+  } catch (err) {
+    json(res, { error: err.message || "create_failed" }, 400);
+  }
+}, closeDb);
+
+app.put("/api/automation/announcements/:id", requireAuth, requireOwner, (req, res) => {
+  const id = String(req.params.id || "").trim();
+  const old = safeOne(req.db, "dashboard_scheduled_announcements", tableColumns(req.db, "dashboard_scheduled_announcements"), { where: "id=?", params: [id] });
+  if (!old) return json(res, { error: "not_found" }, 404);
+  try {
+    const updates = [];
+    const values = [];
+    const add = (col, value) => { updates.push(`${sqlIdent(col)}=?`); values.push(value); };
+    if (req.body?.title !== undefined) add("title", String(req.body.title || "").trim().slice(0, 160));
+    if (req.body?.message !== undefined) add("message", cleanAutomationMessage(req.body.message));
+    if (req.body?.target_bot !== undefined) add("target_bot", String(req.body.target_bot || "host").trim().slice(0, 80) || "host");
+    if (req.body?.schedule_type !== undefined) add("schedule_type", String(req.body.schedule_type || "manual").trim().slice(0, 40) || "manual");
+    if (req.body?.interval_minutes !== undefined) add("interval_minutes", req.body.interval_minutes === "" || req.body.interval_minutes == null ? null : Math.max(1, Math.min(43200, Math.trunc(Number(req.body.interval_minutes)))));
+    if (req.body?.next_run_at !== undefined) add("next_run_at", String(req.body.next_run_at || "").trim());
+    if (req.body?.enabled !== undefined) add("enabled", req.body.enabled === true || req.body.enabled === "true" || req.body.enabled === "1" ? 1 : 0);
+    if (req.body?.archived !== undefined) add("archived", req.body.archived === true || req.body.archived === "true" || req.body.archived === "1" ? 1 : 0);
+    updates.push("updated_at=CURRENT_TIMESTAMP");
+    if (!updates.length) return json(res, { error: "no_updates" }, 400);
+    values.push(id);
+    req.db.prepare(`UPDATE dashboard_scheduled_announcements SET ${updates.join(", ")} WHERE id=?`).run(...values);
+    const row = safeOne(req.db, "dashboard_scheduled_announcements", tableColumns(req.db, "dashboard_scheduled_announcements"), { where: "id=?", params: [id] });
+    audit(req.db, req.user.username, "automation_announcement_update", "dashboard_scheduled_announcements", id, old, row, req.ip);
+    json(res, { ok: true, row });
+  } catch (err) {
+    json(res, { error: err.message || "update_failed" }, 400);
+  }
+}, closeDb);
+
+app.delete("/api/automation/announcements/:id", requireAuth, requireOwner, (req, res) => {
+  const id = String(req.params.id || "").trim();
+  const old = safeOne(req.db, "dashboard_scheduled_announcements", tableColumns(req.db, "dashboard_scheduled_announcements"), { where: "id=?", params: [id] });
+  if (!old) return json(res, { error: "not_found" }, 404);
+  const hard = req.body?.hard === true || req.body?.hard === "true";
+  if (hard) {
+    if (String(req.body?.confirmation || "").trim() !== "DELETE ANNOUNCEMENT") return json(res, { error: "confirmation_required", required: "DELETE ANNOUNCEMENT" }, 400);
+    req.db.prepare("DELETE FROM dashboard_scheduled_announcements WHERE id=?").run(id);
+    audit(req.db, req.user.username, "automation_announcement_hard_delete", "dashboard_scheduled_announcements", id, old, { hard: true }, req.ip);
+    return json(res, { ok: true, deleted: true });
+  }
+  req.db.prepare("UPDATE dashboard_scheduled_announcements SET archived=1, enabled=0, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
+  audit(req.db, req.user.username, "automation_announcement_archive", "dashboard_scheduled_announcements", id, old, { archived: true }, req.ip);
+  json(res, { ok: true, archived: true });
+}, closeDb);
+
+app.post("/api/automation/announcements/:id/send-now", requireAuth, requireAnyPermission("manage_automation", "manage_room", "manage_events", "emergency_controls"), (req, res) => {
+  const id = String(req.params.id || "").trim();
+  const row = safeOne(req.db, "dashboard_scheduled_announcements", tableColumns(req.db, "dashboard_scheduled_announcements"), { where: "id=?", params: [id] });
+  if (!row) return json(res, { error: "not_found" }, 404);
+  try {
+    const message = cleanAutomationMessage(row.message);
+    const targetBot = String(row.target_bot || "host").trim() || "host";
+    const queued = enqueueBotCommand(req.db, { targetBot, actionName: "announce", payload: { message, source: "automation", announcement_id: row.id, title: row.title || "" }, requesterId: req.user.username });
+    req.db.prepare("UPDATE dashboard_scheduled_announcements SET last_sent_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
+    audit(req.db, req.user.username, "automation_announcement_send_now", "bot_command_queue", queued.id, "", { announcement_id: id, targetBot, message }, req.ip);
+    json(res, { ok: true, command: queued, message: "Command queued. Bot must consume bot_command_queue." });
+  } catch (err) {
+    json(res, { error: err.message || "send_failed" }, 400);
+  }
+}, closeDb);
+
+app.get("/api/automation/rotating", requireAuth, requireAnyPermission("manage_automation", "manage_room", "manage_events", "view_logs"), (req, res) => {
+  const data = readAutomationDashboard(req.db);
+  json(res, { rows: data.rotating_announcements, table: data.tables.rotating_announcements, overview: data.overview });
+}, closeDb);
+
+app.post("/api/automation/rotating", requireAuth, requireOwner, (req, res) => {
+  if (!tableExists(req.db, "rotating_announcements")) return json(res, { error: "missing_table", message: "rotating_announcements is not present." }, 400);
+  const cols = tableColumns(req.db, "rotating_announcements");
+  const messageCol = ["message", "text", "body", "content"].find((col) => cols.includes(col));
+  if (!messageCol) return json(res, { error: "unverified_schema", message: "No message/text/body/content column found." }, 400);
+  try {
+    const message = cleanAutomationMessage(req.body?.message);
+    const insertCols = [messageCol];
+    const values = [message];
+    if (cols.includes("enabled")) { insertCols.push("enabled"); values.push("1"); }
+    if (cols.includes("created_by")) { insertCols.push("created_by"); values.push(req.user.username); }
+    if (cols.includes("set_by")) { insertCols.push("set_by"); values.push(req.user.username); }
+    if (cols.includes("created_at")) insertCols.push("created_at");
+    const placeholders = insertCols.map((col) => col === "created_at" ? "CURRENT_TIMESTAMP" : "?").join(", ");
+    const info = req.db.prepare(`INSERT INTO rotating_announcements (${insertCols.map(sqlIdent).join(", ")}) VALUES (${placeholders})`).run(...values);
+    audit(req.db, req.user.username, "automation_rotating_create", "rotating_announcements", info.lastInsertRowid, "", { message }, req.ip);
+    json(res, { ok: true, id: info.lastInsertRowid });
+  } catch (err) {
+    json(res, { error: err.message || "create_failed" }, 400);
+  }
+}, closeDb);
+
+app.put("/api/automation/rotating/:id", requireAuth, requireOwner, (req, res) => {
+  if (!tableExists(req.db, "rotating_announcements")) return json(res, { error: "missing_table" }, 400);
+  const cols = tableColumns(req.db, "rotating_announcements");
+  if (!cols.includes("id")) return json(res, { error: "unverified_schema", message: "rotating_announcements.id is required." }, 400);
+  const id = String(req.params.id || "").trim();
+  const old = req.db.prepare("SELECT * FROM rotating_announcements WHERE id=? LIMIT 1").get(id);
+  if (!old) return json(res, { error: "not_found" }, 404);
+  const updates = [];
+  const values = [];
+  try {
+    const messageCol = ["message", "text", "body", "content"].find((col) => cols.includes(col));
+    if (messageCol && req.body?.message !== undefined) {
+      updates.push(`${sqlIdent(messageCol)}=?`);
+      values.push(cleanAutomationMessage(req.body.message));
+    }
+    if (cols.includes("enabled") && req.body?.enabled !== undefined) {
+      updates.push(`${sqlIdent("enabled")}=?`);
+      values.push(req.body.enabled ? "1" : "0");
+    }
+    if (cols.includes("updated_at")) updates.push(`${sqlIdent("updated_at")}=CURRENT_TIMESTAMP`);
+    if (!updates.length) return json(res, { error: "no_verified_updates" }, 400);
+    values.push(id);
+    req.db.prepare(`UPDATE rotating_announcements SET ${updates.join(", ")} WHERE id=?`).run(...values);
+    const next = req.db.prepare("SELECT * FROM rotating_announcements WHERE id=? LIMIT 1").get(id);
+    audit(req.db, req.user.username, "automation_rotating_update", "rotating_announcements", id, old, next, req.ip);
+    json(res, { ok: true, row: next });
+  } catch (err) {
+    json(res, { error: err.message || "update_failed" }, 400);
+  }
+}, closeDb);
+
+app.post("/api/automation/send", requireAuth, requireAnyPermission("manage_automation", "manage_room", "manage_events", "emergency_controls"), (req, res) => {
+  try {
+    const message = cleanAutomationMessage(req.body?.message);
+    const targetBot = String(req.body?.target_bot || "host").trim().slice(0, 80) || "host";
+    const source = String(req.body?.source || "automation").trim().slice(0, 80) || "automation";
+    const queued = enqueueBotCommand(req.db, { targetBot, actionName: "announce", payload: { message, source }, requesterId: req.user.username });
+    audit(req.db, req.user.username, "automation_send_now", "bot_command_queue", queued.id, "", { targetBot, source, message }, req.ip);
+    json(res, { ok: true, command: queued, message: "Command queued. Bot must consume bot_command_queue." });
+  } catch (err) {
+    json(res, { error: err.message || "send_failed" }, 400);
+  }
 }, closeDb);
 
 app.get("/api/emotes/overview", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
@@ -6645,7 +6966,7 @@ app.post("/api/sync/command", requireAuth, requireAnyPermission("emergency_contr
   return enqueueEmoteAction(req, res, { targetBot: "dj", actionName, payload, auditAction: `sync_${command}_enqueue` });
 }, closeDb);
 
-app.post("/api/room/announce", requireAuth, requireAnyPermission("emergency_controls","manage_room","manage_events"), (req, res) => {
+app.post("/api/room/announce", requireAuth, requireAnyPermission("emergency_controls","manage_room","manage_events","manage_automation"), (req, res) => {
   const message = String(req.body?.message || "").trim();
   if (!message) return json(res, { error: "message_required" }, 400);
   if (message.length > 500) return json(res, { error: "message_too_long" }, 400);

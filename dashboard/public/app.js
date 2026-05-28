@@ -31,6 +31,7 @@ const OWNER_NAV = [
   { id: "Mining",            icon: "⛏️", label: "Mining",            group: "Control" },
   { id: "Fishing",           icon: "🎣", label: "Fishing",           group: "Control" },
   { id: "Quests & Missions", icon: "📜", label: "Quests & Missions", group: "Control" },
+  { id: "Automation Center", icon: "⏱️", label: "Automation Center", group: "Control" },
   { id: "Events",            icon: "🎉", label: "Events",            group: "Control" },
   { id: "Economy & Rewards", icon: "💰", label: "Economy & Rewards", group: "Control" },
   { id: "Staff",             icon: "👥", label: "Staff",             group: "Admin" },
@@ -166,6 +167,17 @@ const QUEST_TABS = [
   { id: "Logs", api: "/api/quests" },
   { id: "Advanced", api: "/api/quests" },
 ];
+const AUTOMATION_TABS = [
+  { id: "Overview", api: "/api/automation" },
+  { id: "Scheduled Announcements", api: "/api/automation/announcements" },
+  { id: "Rotating Announcements", api: "/api/automation/rotating" },
+  { id: "Event Reminders", api: "/api/automation" },
+  { id: "Promo Messages", api: "/api/automation" },
+  { id: "Staff Alerts", api: "/api/automation" },
+  { id: "Delivery Queue", api: "/api/automation" },
+  { id: "Logs", api: "/api/automation" },
+  { id: "Advanced", api: "/api/automation" },
+];
 const EMOTE_TABS = [
   { id: "Overview", api: "/api/emotes/overview" },
   { id: "Emote Registry", api: "/api/emotes/registry" },
@@ -222,6 +234,7 @@ const TAB_REGISTRY = {
   "Mining": MINING_TABS,
   "Fishing": FISHING_TABS,
   "Quests & Missions": QUEST_TABS,
+  "Automation Center": AUTOMATION_TABS,
   "System": SYSTEM_TABS,
 };
 const PAGE_TABS = Object.fromEntries(
@@ -242,6 +255,7 @@ const PAGE_DESC = {
   "Mining":            "Mining catalog, settings, drop chances and logs",
   "Fishing":           "Fishing catalog, settings, catch chances and logs",
   "Quests & Missions": "Daily, weekly, event and player mission progress",
+  "Automation Center": "Scheduled announcements, promos, reminders and delivery queues",
   "Economy & Rewards": "Coins, VIP, shop, titles, badges, quests and grants",
   "Staff":             "Dashboard users, permissions and bot roles",
   "System":            "Health monitoring, logs and emergency controls",
@@ -639,6 +653,7 @@ function pageApi(page, tab) {
     "Command Center":                     "/api/overview",
     "Casino":                             "/api/casino",
     "Quests & Missions":                  "/api/quests",
+    "Automation Center":                  "/api/automation",
     "Staff":                              "/api/staff",
     "Staff Home":                         "/api/overview",
     "Radio Queue":                        "/api/radio",
@@ -1940,6 +1955,7 @@ function renderOwnerPage(page) {
     case "Mining":            return renderMiningOwnerPage(activeTab("Mining"));
     case "Fishing":           return renderFishingOwnerPage(activeTab("Fishing"));
     case "Quests & Missions": return renderQuestsMissionsPage(activeTab("Quests & Missions"));
+    case "Automation Center": return renderAutomationCenterPage(activeTab("Automation Center"));
     case "Events":            return renderEventsOwnerPage();
     case "Economy & Rewards": return renderEconomyRewards(activeTab("Economy & Rewards"));
     case "Staff":             return renderStaffPage_shared();
@@ -4256,6 +4272,257 @@ function renderQuestAdvancedPage() {
   `;
 }
 
+/* ── Automation Center ──────────────────────────────── */
+function renderAutomationCenterPage(tab) {
+  return `
+    <div class="card page-hero-card">
+      <div>
+        <h2>⏱️ Automation Center</h2>
+        <p class="muted">Scheduled announcements, promos, reminders, staff alerts and queued room delivery. Live sends go through bot_command_queue.</p>
+      </div>
+      <button class="btn ghost sm" data-admin-page="Room & Content">Room Tools</button>
+    </div>
+    ${tabNav("Automation Center")}
+    ${tab === "Overview" ? renderAutomationOverview() : ""}
+    ${tab === "Scheduled Announcements" ? renderAutomationScheduled() : ""}
+    ${tab === "Rotating Announcements" ? renderAutomationRotating() : ""}
+    ${tab === "Event Reminders" ? renderAutomationEventReminders() : ""}
+    ${tab === "Promo Messages" ? renderAutomationPromos() : ""}
+    ${tab === "Staff Alerts" ? renderAutomationStaffAlerts() : ""}
+    ${tab === "Delivery Queue" ? renderAutomationDeliveryQueue() : ""}
+    ${tab === "Logs" ? renderAutomationLogs() : ""}
+    ${tab === "Advanced" ? renderAutomationAdvanced() : ""}
+  `;
+}
+
+function automationScheduledRows() {
+  return state.data?.scheduled_announcements || state.data?.announcements || [];
+}
+
+function automationQueueHelp() {
+  return `<div class="notice" style="margin-top:12px">Send Now queues <code>target_bot='host'</code>, <code>action='announce'</code>. The host bot must consume <code>bot_command_queue</code>.</div>`;
+}
+
+function automationMessagePreview(message) {
+  const text = String(message || "");
+  return `<div class="message-preview">${esc(text || "Message preview")}</div><div class="muted text-sm">${text.length}/500 characters</div>`;
+}
+
+function renderAutomationOverview() {
+  const d = state.data || {};
+  const o = d.overview || {};
+  const next = o.next_announcement || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:14px">
+      ${metricCard("Active Automations", o.active_automations ?? 0, "scheduled + rotating", "accent-green", "⏱️")}
+      ${metricCard("Scheduled", o.scheduled_announcements ?? 0, "dashboard_scheduled_announcements", "", "📅")}
+      ${metricCard("Rotating", boolLabel(o.rotating_enabled), "announcements_enabled", truthy(o.rotating_enabled) ? "accent-green" : "accent-red", "🔁")}
+      ${metricCard("Next Announcement", next.title || next.next_run_at || "None", next.next_run_at || "manual only", "accent-cyan", "➡️")}
+      ${metricCard("Recent Deliveries", o.recent_deliveries ?? 0, "completed queue rows", "", "✅")}
+      ${metricCard("Failed Deliveries", o.failed_deliveries ?? 0, "failed queue rows", o.failed_deliveries ? "accent-red" : "", "⚠️")}
+      ${metricCard("Host Queue", o.host_queue_pending ?? 0, "pending/claimed/running", "", "📨")}
+      ${metricCard("DJ Promo", o.dj_promo_status || "Unknown", "room setting if present", "", "📻")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Next Scheduled Announcement</h2>
+        ${next.id ? table([next], automationScheduleColumns()) : `<div class="notice">No enabled scheduled announcement with a next run time.</div>`}
+        ${d.scheduler_note ? `<div class="notice warn" style="margin-top:12px">${esc(d.scheduler_note)}</div>` : ""}
+      </div>
+      <div class="card">
+        <h2>Delivery Queue Snapshot</h2>
+        ${renderQueuedBotCommands(d.delivery_queue || {})}
+      </div>
+    </div>
+  `;
+}
+
+function automationScheduleColumns() {
+  return [
+    { key: "title", label: "Title", render: (r) => esc(r.title || `Announcement #${r.id || ""}`) },
+    { key: "message", label: "Message", render: (r) => `<span title="${esc(r.message || "")}">${esc(String(r.message || "").slice(0, 90))}${String(r.message || "").length > 90 ? "..." : ""}</span>` },
+    { key: "target_bot", label: "Target" },
+    { key: "schedule_type", label: "Schedule" },
+    { key: "interval_minutes", label: "Interval", render: (r) => r.interval_minutes ? `${esc(r.interval_minutes)} min` : "—" },
+    { key: "next_run_at", label: "Next Run" },
+    { key: "last_sent_at", label: "Last Sent" },
+    { key: "enabled", label: "Status", render: (r) => pill(Number(r.enabled) ? "enabled" : "disabled") },
+  ];
+}
+
+function renderAutomationScheduled() {
+  const rows = automationScheduledRows();
+  const owner = state.user?.role === "owner";
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><h2>Scheduled Announcements</h2><div class="muted text-sm">Source: <code>dashboard_scheduled_announcements</code></div></div>
+        <span class="pill info">Dashboard owned</span>
+      </div>
+      ${table(rows, automationScheduleColumns(), (r) => `
+        <button class="btn cyan sm" data-automation-send="${esc(r.id)}">Send Now</button>
+        ${owner ? `<button class="btn danger sm" data-automation-archive="${esc(r.id)}">Archive</button>` : ""}
+      `)}
+      ${automationQueueHelp()}
+    </div>
+    ${owner ? `<div class="grid">
+      <div class="card">
+        <h2>Add Scheduled Announcement</h2>
+        <form id="automationAnnouncementForm" class="settings-form">
+          <div class="field"><label class="field-label">Title</label><input name="title" placeholder="Weekend mining promo" /></div>
+          <div class="field"><label class="field-label">Message</label><textarea name="message" rows="4" maxlength="500" required placeholder="Room message"></textarea></div>
+          <div class="field"><label class="field-label">Target Bot</label><select name="target_bot"><option value="host">host</option><option value="dj">dj</option><option value="security">security</option></select></div>
+          <div class="field"><label class="field-label">Schedule Type</label><select name="schedule_type"><option>manual</option><option>once</option><option>interval</option><option>daily</option><option>weekly</option></select></div>
+          <div class="field"><label class="field-label">Interval Minutes</label><input name="interval_minutes" type="number" min="1" max="43200" /></div>
+          <div class="field"><label class="field-label">Next Run At</label><input name="next_run_at" placeholder="YYYY-MM-DD HH:MM or ISO" /></div>
+          <label class="switch"><input type="checkbox" name="enabled" checked /><span>Enabled</span></label>
+          <button class="btn primary">Add Announcement</button>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Edit Announcement</h2>
+        <form id="automationAnnouncementEditForm" class="settings-form">
+          <div class="field"><label class="field-label">Announcement ID</label><input name="id" required /></div>
+          <div class="field"><label class="field-label">Title</label><input name="title" /></div>
+          <div class="field"><label class="field-label">Message</label><textarea name="message" rows="4" maxlength="500"></textarea></div>
+          <div class="field"><label class="field-label">Target Bot</label><input name="target_bot" placeholder="host" /></div>
+          <div class="field"><label class="field-label">Schedule Type</label><input name="schedule_type" /></div>
+          <div class="field"><label class="field-label">Interval Minutes</label><input name="interval_minutes" type="number" min="1" max="43200" /></div>
+          <div class="field"><label class="field-label">Next Run At</label><input name="next_run_at" /></div>
+          <label class="switch"><input type="checkbox" name="enabled" checked /><span>Enabled</span></label>
+          <button class="btn primary">Save Changes</button>
+        </form>
+      </div>
+    </div>` : `<div class="notice">Owner role required to edit scheduled announcements.</div>`}
+  `;
+}
+
+function renderAutomationRotating() {
+  const d = state.data || {};
+  const rows = d.rows || d.rotating_announcements || [];
+  const tableInfo = d.table || d.tables?.rotating_announcements || {};
+  const owner = state.user?.role === "owner";
+  return `<div class="grid">
+    <div class="card">
+      <div class="card-header"><h2>Rotating Announcements</h2>${pill(tableInfo.exists ? "connected" : "missing")}</div>
+      ${tableInfo.exists ? table(rows, null, (r) => `
+        <button class="btn cyan sm" data-automation-rotating-send="${esc(r.id || "")}">Send Now</button>
+        ${owner && r.id !== undefined ? `<button class="btn danger sm" data-automation-rotating-disable="${esc(r.id)}">Disable</button>` : ""}
+      `) : `<div class="notice">rotating_announcements is not present in this DB.</div>`}
+    </div>
+    ${owner && tableInfo.exists ? `<div class="card">
+      <h2>Add Rotating Announcement</h2>
+      <form id="automationRotatingForm" class="settings-form">
+        <div class="field"><label class="field-label">Message</label><textarea name="message" maxlength="500" rows="4" required></textarea></div>
+        <button class="btn primary">Add Rotating Message</button>
+      </form>
+    </div>` : ""}
+  </div>`;
+}
+
+function renderAutomationEventReminders() {
+  const e = state.data?.event_reminders || {};
+  return `<div class="grid">
+    <div class="card"><h2>Event Definitions</h2>${table(e.event_definitions || [])}</div>
+    <div class="card"><h2>Event Settings</h2>${table(e.event_settings || [])}</div>
+    <div class="card"><h2>Event History</h2>${table(e.event_history || [])}</div>
+    <div class="card">
+      <h2>Send Event Reminder</h2>
+      <form class="settings-form automationSendForm">
+        <input type="hidden" name="source" value="event_reminder" />
+        <input type="hidden" name="target_bot" value="host" />
+        <div class="field"><label class="field-label">Reminder Message</label><textarea name="message" maxlength="500" rows="4" required placeholder="Event starts soon!"></textarea></div>
+        <button class="btn primary">Queue Event Reminder</button>
+      </form>
+      ${automationQueueHelp()}
+    </div>
+  </div>
+  ${futureControls([{ endpoint: "recurring event reminder scheduler", purpose: "Needs bot-side scheduler/consumer for timed delivery", status: "Future" }], "Advanced / Future Event Reminder Controls")}`;
+}
+
+function renderAutomationPromos() {
+  const promos = state.data?.promo_messages || [];
+  return `<div class="grid">
+    ${promos.map((p) => `<div class="card">
+      <div class="card-header"><h2>${esc(p.title)}</h2><span class="pill def">${esc(p.category)}</span></div>
+      ${automationMessagePreview(p.message)}
+      <button class="btn cyan sm" data-automation-promo="${esc(p.message)}" data-automation-source="${esc(p.category)}">Send Now</button>
+    </div>`).join("") || `<div class="card"><div class="notice">No promo templates loaded.</div></div>`}
+    <div class="card">
+      <h2>Custom Promo</h2>
+        <form class="settings-form automationSendForm">
+        <input type="hidden" name="source" value="promo_message" />
+        <div class="field"><label class="field-label">Target Bot</label><select name="target_bot"><option value="host">host</option><option value="dj">dj</option></select></div>
+        <div class="field"><label class="field-label">Message</label><textarea name="message" maxlength="500" rows="4" required></textarea></div>
+        <button class="btn primary">Queue Promo</button>
+      </form>
+      ${automationQueueHelp()}
+    </div>
+  </div>`;
+}
+
+function renderAutomationStaffAlerts() {
+  const a = state.data?.staff_alerts || {};
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:14px">
+    ${metricCard("Pending Reports", a.pending_reports ?? "—", "reports", "", "🛡️")}
+    ${metricCard("Failed Commands", a.failed_bot_commands ?? 0, "bot_command_queue", a.failed_bot_commands ? "accent-red" : "", "⚠️")}
+    ${metricCard("Radio Failures", a.radio_failures ?? "—", "yt_request_jobs", a.radio_failures ? "accent-red" : "", "📻")}
+    ${metricCard("DB Warnings", a.db_warnings ?? 0, "maintenance health", a.db_warnings ? "accent-red" : "accent-green", "🧰")}
+  </div>
+  <div class="card">
+    <h2>Queue Staff Alert</h2>
+    <form class="settings-form automationSendForm">
+      <input type="hidden" name="source" value="staff_alert" />
+      <input type="hidden" name="target_bot" value="security" />
+      <div class="field"><label class="field-label">Alert Message</label><textarea name="message" maxlength="500" rows="4" required></textarea></div>
+      <button class="btn primary">Queue Staff Alert</button>
+    </form>
+    <div class="notice">This queues a safe announcement-style command. It does not DM staff unless bot-side support consumes it that way.</div>
+  </div>`;
+}
+
+function renderAutomationDeliveryQueue() {
+  return `<div class="card">
+    <h2>Automation Delivery Queue</h2>
+    ${renderQueuedBotCommands(state.data?.delivery_queue || {})}
+  </div>`;
+}
+
+function renderAutomationLogs() {
+  const logs = state.data?.logs || {};
+  return `<div class="grid">
+    <div class="card"><h2>Audit Logs</h2>${table(logs.audit_logs || [])}</div>
+    <div class="card"><h2>Big Announcement Logs</h2>${table(logs.big_announcement_logs || [])}</div>
+    <div class="card"><h2>Host DM Queue</h2>${table(logs.host_dm_queue || [])}</div>
+    <div class="card"><h2>Failed Commands</h2>${table(logs.failed_commands || [])}</div>
+    <div class="card"><h2>Admin Action Logs</h2>${table(logs.admin_action_logs || [])}</div>
+  </div>`;
+}
+
+function renderAutomationAdvanced() {
+  const d = state.data || {};
+  const tables = d.tables || {};
+  return `
+    ${futureControls([
+      { endpoint: "recurring scheduler consumer", purpose: "Run due dashboard_scheduled_announcements automatically", status: "Needs bot/external scheduler" },
+      { endpoint: "hard delete announcement", purpose: "Requires typed confirmation DELETE ANNOUNCEMENT via API", status: "Advanced only" },
+      { endpoint: "host_dm_queue writes", purpose: "Schema varies; keep read-only until verified", status: "Unverified schema" },
+    ], "Advanced / Future Automation Controls")}
+    <div class="card"><h2>Raw Automation Tables</h2>
+      <h3>dashboard_scheduled_announcements</h3>${table(tables.dashboard_scheduled_announcements?.rows || [])}
+      <h3>subscriber_announcements</h3>${table(tables.subscriber_announcements?.rows || [])}
+      <h3>release_announcements</h3>${table(tables.release_announcements?.rows || [])}
+      <h3>first_find_announce_pending</h3>${table(tables.first_find_announce_pending?.rows || [])}
+      <h3>bot_settings</h3>${table(tables.bot_settings?.rows || [])}
+      <h3>room_settings</h3>${table(tables.room_settings?.rows || [])}
+    </div>
+    <div class="card"><h2>Table Status</h2>${table(Object.entries(d.table_status || {}).map(([table_name, exists]) => ({ table_name, status: exists ? "present" : "missing" })), [
+      { key: "table_name", label: "Table" },
+      { key: "status", label: "Status", render: (r) => pill(r.status) },
+    ])}</div>
+  `;
+}
+
 /* ── Economy & Rewards ───────────────────────────────── */
 function renderEconomyRewards(tab) {
   return `
@@ -5824,7 +6091,7 @@ function moduleFlagTable(flags) {
 function permissionChecks(perms) {
   const all = state.data?.permissions || [
     "view_dashboard","manage_radio","manage_casino","manage_games","manage_mining","manage_fishing",
-    "manage_room","manage_events","manage_emotes","manage_players","manage_economy","manage_inventory",
+    "manage_room","manage_events","manage_automation","manage_emotes","manage_players","manage_economy","manage_inventory",
     "manage_rewards","manage_moderation","manage_staff","manage_bots","manage_bot_config","view_logs","emergency_controls","db_admin",
   ];
   const groups = {
@@ -5832,7 +6099,7 @@ function permissionChecks(perms) {
     Players: ["manage_players", "manage_inventory", "manage_moderation"],
     Economy: ["manage_economy", "manage_rewards"],
     Games: ["manage_casino", "manage_games", "manage_mining", "manage_fishing"],
-    Room: ["manage_room", "manage_events", "manage_emotes"],
+    Room: ["manage_room", "manage_events", "manage_automation", "manage_emotes"],
     Bots: ["manage_bots", "manage_bot_config"],
     Logs: ["view_logs"],
     Emergency: ["emergency_controls"],
@@ -6266,6 +6533,99 @@ function bindAdminPageEvents() {
     state.questSearch = "";
     state.data = await api("/api/quests").catch(() => state.data);
     render();
+  });
+
+  document.getElementById("automationAnnouncementForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Scheduled announcement saved.", async () => {
+      await api("/api/automation/announcements", { method: "POST", body: JSON.stringify(body) });
+      state.data = await api("/api/automation");
+    });
+  });
+  document.getElementById("automationAnnouncementEditForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name || el.name === "id") return;
+      if (el.type === "checkbox") body[el.name] = el.checked;
+      else if (String(el.value || "").trim() !== "") body[el.name] = el.value;
+    });
+    const id = new FormData(form).get("id");
+    await action("Scheduled announcement updated.", async () => {
+      await api(`/api/automation/announcements/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) });
+      state.data = await api("/api/automation");
+    });
+  });
+  document.querySelectorAll("[data-automation-send]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.automationSend;
+      confirmAction("Queue Announcement", `Send scheduled announcement #${id} now?`, async () => {
+        await action("Announcement queued.", () => api(`/api/automation/announcements/${encodeURIComponent(id)}/send-now`, { method: "POST", body: JSON.stringify({}) }));
+      });
+    });
+  });
+  document.querySelectorAll("[data-automation-archive]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.automationArchive;
+      confirmAction("Archive Announcement", `Archive scheduled announcement #${id}?`, async () => {
+        await action("Announcement archived.", async () => {
+          await api(`/api/automation/announcements/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({}) });
+          state.data = await api("/api/automation");
+        });
+      });
+    });
+  });
+  document.getElementById("automationRotatingForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Rotating announcement saved.", async () => {
+      await api("/api/automation/rotating", { method: "POST", body: JSON.stringify(body) });
+      state.data = await api("/api/automation");
+    });
+  });
+  document.querySelectorAll("[data-automation-rotating-disable]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.automationRotatingDisable;
+      confirmAction("Disable Rotating Message", `Disable rotating announcement #${id}?`, async () => {
+        await action("Rotating announcement disabled.", async () => {
+          await api(`/api/automation/rotating/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ enabled: false }) });
+          state.data = await api("/api/automation");
+        });
+      });
+    });
+  });
+  document.querySelectorAll("[data-automation-rotating-send]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = (state.data?.rows || state.data?.rotating_announcements || []).find((r) => String(r.id || "") === String(btn.dataset.automationRotatingSend || ""));
+      const message = row?.message || row?.text || row?.body || row?.content || "";
+      if (!message) return;
+      confirmAction("Queue Rotating Message", "Send this rotating announcement now?", async () => {
+        await action("Rotating announcement queued.", () => api("/api/automation/send", { method: "POST", body: JSON.stringify({ target_bot: "host", source: "rotating_announcement", message }) }));
+      });
+    });
+  });
+  document.querySelectorAll("[data-automation-promo]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const message = btn.dataset.automationPromo;
+      const source = btn.dataset.automationSource || "promo_message";
+      confirmAction("Queue Promo", "Send this promo message now?", async () => {
+        await action("Promo queued.", () => api("/api/automation/send", { method: "POST", body: JSON.stringify({ target_bot: "host", source, message }) }));
+      });
+    });
+  });
+  document.querySelectorAll(".automationSendForm").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(form));
+      await action("Automation message queued.", () => api("/api/automation/send", { method: "POST", body: JSON.stringify(body) }));
+    });
   });
 
   document.querySelectorAll("[data-table-search], [data-rarity-filter], [data-enabled-filter]").forEach((control) => {
