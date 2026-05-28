@@ -39,7 +39,7 @@ const PAGE_TABS = {
   "Bots":              ["Bot Status", "Bot Config", "Bot Settings", "Bot Spawns", "Advanced Debug"],
   "Players":           ["Search", "Titles & Badges", "Moderation"],
   "Room & Content":    ["Room Settings", "Radio", "Events", "Announcements", "Welcome", "Emotes"],
-  "Economy & Rewards": ["Coins & Tickets", "Casino", "Games", "VIP", "Titles", "Badges", "Rewards"],
+  "Economy & Rewards": ["Coins & Tickets", "Casino", "Mining", "Games", "VIP", "Titles", "Badges", "Rewards"],
   "System":            ["Health", "Logs", "Settings Audit", "Emergency", "Database"],
 };
 
@@ -447,6 +447,7 @@ function pageApi(page, tab) {
     "Room & Content/Emotes":              "/api/room-control",
     "Economy & Rewards/Coins & Tickets":  "/api/economy/overview",
     "Economy & Rewards/Casino":           "/api/casino",
+    "Economy & Rewards/Mining":           "/api/mining-settings",
     "Economy & Rewards/Games":            "/api/games",
     "Economy & Rewards/Titles":           "/api/titles",
     "Staff":                              "/api/staff",
@@ -1706,6 +1707,7 @@ function renderEconomyRewards(tab) {
     ${tabNav("Economy & Rewards")}
     ${tab === "Coins & Tickets" ? renderCoinsTab() : ""}
     ${tab === "Casino"          ? renderCasinoTab() : ""}
+    ${tab === "Mining"          ? renderMiningTab() : ""}
     ${tab === "Games"           ? renderGamesTab() : ""}
     ${tab === "VIP"             ? renderVipTab() : ""}
     ${tab === "Titles"          ? renderTitlesTab() : ""}
@@ -1852,6 +1854,105 @@ function renderUnverifiedCasinoSettings(groups, valuesMap) {
       ]) : `<div class="notice">No unverified casino settings listed.</div>`}
     </div>
   </details>`;
+}
+
+function renderMiningTab() {
+  const d = state.data || {};
+  const s = d.settings || {};
+  const status = d.table_status || {};
+  const fields = [
+    { key: "mining_enabled", label: "Mining Enabled", type: "toggle", hint: "mining_settings.mining_enabled" },
+    { key: "base_cooldown_seconds", label: "Mine Cooldown", type: "number", suffix: "sec", hint: "mining_settings.base_cooldown_seconds" },
+    { key: "mining_requires_room", label: "Requires Room", type: "toggle", hint: "mining_settings.mining_requires_room" },
+    { key: "mining_announce_enabled", label: "Mining Announcements", type: "toggle", hint: "mining_settings.mining_announce_enabled" },
+    { key: "mining_announce_min_rarity", label: "Announce Minimum Rarity", type: "select", options: [
+      ["common", "Common"], ["uncommon", "Uncommon"], ["rare", "Rare"], ["epic", "Epic"],
+      ["legendary", "Legendary"], ["mythic", "Mythic"], ["ultra_rare", "Prismatic / Ultra Rare"], ["exotic", "Exotic"],
+    ] },
+    { key: "normal_multiplier_cap", label: "Normal Multiplier Cap", type: "number", suffix: "x", hint: "mining_settings.normal_multiplier_cap" },
+    { key: "blessing_multiplier_cap", label: "Blessing Multiplier Cap", type: "number", suffix: "x", hint: "mining_settings.blessing_multiplier_cap" },
+    { key: "weights_enabled", label: "Ore Weights Enabled", type: "toggle", hint: "mining_weight_settings.weights_enabled" },
+    { key: "weight_value_multiplier_scale", label: "Ore Value Weight Scale", type: "number", suffix: "x", hint: "mining_weight_settings.weight_value_multiplier_scale" },
+    { key: "weight_lb_mode", label: "Weight Leaderboard Mode", type: "select", options: [["best", "Best per player"], ["all", "All records"]] },
+    { key: "automine_enabled", label: "Auto Mining Enabled", type: "toggle", hint: "auto_activity_settings.automine_enabled" },
+  ];
+  const raw = d.raw || {};
+  const tables = d.tables || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+      ${metricCard("Mining Settings", status.mining_settings ? "OK" : "Missing", "mining_settings", status.mining_settings ? "accent-green" : "accent-red", "⛏️")}
+      ${metricCard("Weight Settings", status.mining_weight_settings ? "OK" : "Missing", "mining_weight_settings", status.mining_weight_settings ? "accent-green" : "", "⚖️")}
+      ${metricCard("Ore Items", (tables.mining_items || []).length, "shown", "", "💎")}
+      ${metricCard("Forced Drops", (tables.forced_mining_drops || []).length, "recent rows", "", "🎯")}
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>⛏️ Mining Settings</h2>
+          <div class="muted text-sm">Source: <code>${esc(s.source || "mining_settings")}</code></div>
+        </div>
+        <span class="pill info">Verified</span>
+      </div>
+      <form id="miningSettingsForm">
+        <div class="settings-fields">
+          ${fields.map((f) => renderSettingsField(f, s[f.key])).join("")}
+        </div>
+        <div class="notice" style="margin-top:12px">Only settings read by active mining commands are writable here. Missing optional tables are skipped safely.</div>
+        <div style="margin-top:14px">
+          <button class="btn primary sm" type="submit">💾 Save Mining Settings</button>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h2>💎 Ore Values</h2>
+        <span class="pill def">Read-only</span>
+      </div>
+      ${table(tables.mining_items || [], [
+        { key: "name", label: "Ore" },
+        { key: "rarity", label: "Rarity" },
+        { key: "item_type", label: "Type" },
+        { key: "sell_value", label: "Value", render: (r) => Number(r.sell_value || 0).toLocaleString() },
+        { key: "drop_enabled", label: "Drops", render: (r) => pill(Number(r.drop_enabled) ? "enabled" : "disabled") },
+      ])}
+    </div>
+    <details class="advanced-collapse">
+      <summary class="advanced-summary">
+        <span class="pill warn">Advanced</span> Raw Mining Settings
+        <span class="muted text-sm">Read-only audit view</span>
+      </summary>
+      <div class="advanced-content">
+        <h3>mining_settings</h3>
+        ${table(raw.mining_settings || [], [{ key: "key", label: "Key" }, { key: "value", label: "Value" }])}
+        <h3>mining_weight_settings</h3>
+        ${table(raw.mining_weight_settings || [], [{ key: "key", label: "Key" }, { key: "value", label: "Value" }])}
+        <h3>auto_activity_settings</h3>
+        ${table(raw.auto_activity_settings || [], [{ key: "key", label: "Key" }, { key: "value", label: "Value" }])}
+        <h3>gold settings</h3>
+        ${table(raw.gold_settings || [], [{ key: "table", label: "Table" }, { key: "key", label: "Key" }, { key: "value", label: "Value" }])}
+      </div>
+    </details>
+    <details class="advanced-collapse">
+      <summary class="advanced-summary">
+        <span class="pill warn">Advanced</span> Mining Events / Forced Drops / Weights
+        <span class="muted text-sm">Read-only tables</span>
+      </summary>
+      <div class="advanced-content">
+        <h3>mining_events</h3>
+        ${table(tables.mining_events || [])}
+        <h3>forced_mining_drops</h3>
+        ${table(tables.forced_mining_drops || [])}
+        <h3>ore_weight_records</h3>
+        ${table(tables.ore_weight_records || [])}
+      </div>
+    </details>
+    ${futureControls([
+      { endpoint: "ore value writes", purpose: "Update mining_items sell values/drop flags", status: "Unverified source" },
+      { endpoint: "forced mining drops", purpose: "Create/clear forced_mining_drops rows", status: "Endpoint needed" },
+      { endpoint: "rarity weight range editor", purpose: "Structured editor for rarity_weight_ranges_json", status: "Endpoint needed" },
+      { endpoint: "gold rain controls", purpose: "Gold rain is separate from mining; keep raw only here", status: "Unverified for mining" },
+    ], "Advanced / Unverified Mining Controls")}
+  `;
 }
 
 function renderGamesTab() {
@@ -2542,6 +2643,18 @@ function bindAdminPageEvents() {
     });
     await action("Poker settings saved.", () =>
       api("/api/casino/poker-settings", { method: "PUT", body: JSON.stringify(body) }));
+  });
+
+  document.getElementById("miningSettingsForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Mining settings saved.", () =>
+      api("/api/mining-settings", { method: "PUT", body: JSON.stringify(body) }));
   });
 
   document.getElementById("announcementForm")?.addEventListener("submit", async (e) => {

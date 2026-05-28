@@ -898,12 +898,89 @@ function normalizePokerSettingsBody(body) {
   return out;
 }
 
+const ACTIVE_MINING_FIELDS = [
+  { field: "mining_enabled", label: "Mining Enabled", table: "mining_settings", key: "mining_enabled", type: "bool_true_false", fallback: "true" },
+  { field: "base_cooldown_seconds", label: "Mine Cooldown", table: "mining_settings", key: "base_cooldown_seconds", type: "int", fallback: "30", min: 5, max: 3600 },
+  { field: "mining_requires_room", label: "Requires Room", table: "mining_settings", key: "mining_requires_room", type: "bool_true_false", fallback: "true" },
+  { field: "mining_announce_enabled", label: "Mining Announcements", table: "mining_settings", key: "mining_announce_enabled", type: "bool_10", fallback: "1" },
+  { field: "mining_announce_min_rarity", label: "Announce Minimum Rarity", table: "mining_settings", key: "mining_announce_min_rarity", type: "enum", fallback: "legendary", values: ["common", "uncommon", "rare", "epic", "legendary", "mythic", "ultra_rare", "exotic"] },
+  { field: "normal_multiplier_cap", label: "Normal Multiplier Cap", table: "mining_settings", key: "normal_multiplier_cap", type: "float", fallback: "3.0", min: 0, max: 100 },
+  { field: "blessing_multiplier_cap", label: "Blessing Multiplier Cap", table: "mining_settings", key: "blessing_multiplier_cap", type: "float", fallback: "5.0", min: 0, max: 100 },
+  { field: "weights_enabled", label: "Ore Weights Enabled", table: "mining_weight_settings", key: "weights_enabled", type: "bool_10", fallback: "1", optionalTable: true },
+  { field: "weight_value_multiplier_scale", label: "Ore Value Weight Scale", table: "mining_weight_settings", key: "weight_value_multiplier_scale", type: "float", fallback: "1.0", min: 0, max: 100, optionalTable: true },
+  { field: "weight_lb_mode", label: "Weight Leaderboard Mode", table: "mining_weight_settings", key: "weight_lb_mode", type: "enum", fallback: "best", values: ["best", "all"], optionalTable: true },
+  { field: "automine_enabled", label: "Auto Mining Enabled", table: "auto_activity_settings", key: "automine_enabled", type: "bool_10", fallback: "1", optionalTable: true },
+];
+
+function readKeyValueMap(db, table) {
+  if (!tableExists(db, table)) return {};
+  return Object.fromEntries(
+    rowsOrEmpty(db, table, `SELECT key, value FROM ${sqlIdent(table)} ORDER BY key`).map((r) => [r.key, r.value]),
+  );
+}
+
+function readActiveMiningSettings(db) {
+  const tableMaps = {};
+  for (const table of [...new Set(ACTIVE_MINING_FIELDS.map((f) => f.table))]) tableMaps[table] = readKeyValueMap(db, table);
+  const values = { source: "mining_settings + mining_weight_settings + auto_activity_settings" };
+  for (const spec of ACTIVE_MINING_FIELDS) {
+    const exists = tableExists(db, spec.table);
+    const raw = tableMaps[spec.table]?.[spec.key];
+    values[spec.field] = raw ?? spec.fallback;
+    values[`${spec.field}_source`] = `${spec.table}.${spec.key}`;
+    values[`${spec.field}_table_exists`] = exists;
+  }
+  return values;
+}
+
+function normalizeMiningSettingsBody(db, body) {
+  const out = [];
+  const boolish = (v) => v === true || v === "true" || v === "1" || v === 1 || v === "on";
+  const has = (key) => Object.prototype.hasOwnProperty.call(body || {}, key);
+  for (const spec of ACTIVE_MINING_FIELDS) {
+    if (!has(spec.field)) continue;
+    if (!tableExists(db, spec.table)) {
+      if (spec.optionalTable) continue;
+      throw new Error(`${spec.table}_missing`);
+    }
+    let value;
+    if (spec.type === "bool_true_false") {
+      value = boolish(body[spec.field]) ? "true" : "false";
+    } else if (spec.type === "bool_10") {
+      value = boolish(body[spec.field]) ? "1" : "0";
+    } else if (spec.type === "int") {
+      const n = Number(body[spec.field]);
+      if (!Number.isFinite(n)) throw new Error(`${spec.field}_must_be_number`);
+      const i = Math.trunc(n);
+      if (spec.min !== undefined && i < spec.min) throw new Error(`${spec.field}_too_low`);
+      if (spec.max !== undefined && i > spec.max) throw new Error(`${spec.field}_too_high`);
+      value = String(i);
+    } else if (spec.type === "float") {
+      const n = Number(body[spec.field]);
+      if (!Number.isFinite(n)) throw new Error(`${spec.field}_must_be_number`);
+      if (spec.min !== undefined && n < spec.min) throw new Error(`${spec.field}_too_low`);
+      if (spec.max !== undefined && n > spec.max) throw new Error(`${spec.field}_too_high`);
+      value = String(Math.round(n * 10000) / 10000);
+    } else if (spec.type === "enum") {
+      value = String(body[spec.field] ?? "").trim().toLowerCase();
+      if (!spec.values.includes(value)) throw new Error(`${spec.field}_invalid`);
+    } else {
+      continue;
+    }
+    out.push({ table: spec.table, key: spec.key, value, field: spec.field });
+  }
+  return out;
+}
+
 const KEY_VALUE_SETTING_TABLES = new Set([
   "poker_settings",
   "bank_settings",
   "economy_settings",
   "mining_settings",
   "mining_weight_settings",
+  "auto_activity_settings",
+  "gold_settings",
+  "gold_rain_settings",
   "room_settings",
   "bot_settings",
   "event_settings",
@@ -1047,13 +1124,17 @@ const SETTINGS_AUDIT_DEFINITIONS = [
   })),
   ...[
     ["!setminecooldown", "Mine Cooldown", "mining_settings", "base_cooldown_seconds"],
-    ["!setmineenergycost", "Mine Energy Cost", "mining_settings", "mine_energy_cost"],
+    ["!mining on|off", "Mining Enabled", "mining_settings", "mining_enabled"],
+    ["!mineconfig", "Requires Room", "mining_settings", "mining_requires_room"],
     ["!setmineannounce", "Mining Announce Enabled", "mining_settings", "mining_announce_enabled"],
     ["!setmineannounce", "Mining Announce Rarity", "mining_settings", "mining_announce_min_rarity"],
+    ["ore value multiplier cap", "Normal Multiplier Cap", "mining_settings", "normal_multiplier_cap"],
+    ["ore value multiplier cap", "Blessing Multiplier Cap", "mining_settings", "blessing_multiplier_cap"],
     ["!setmineweights", "Weights Enabled", "mining_weight_settings", "weights_enabled"],
     ["!setweightlbmode", "Weight Leaderboard Mode", "mining_weight_settings", "weight_lb_mode"],
     ["!setweightscale", "Weight Value Scale", "mining_weight_settings", "weight_value_multiplier_scale"],
     ["!setrarityweightrange", "Rarity Weight Ranges", "mining_weight_settings", "rarity_weight_ranges_json"],
+    ["!automine", "Auto Mining Enabled", "auto_activity_settings", "automine_enabled"],
   ].map(([command, displayName, table, key]) => auditRow({
     module: "mining",
     command,
@@ -1062,8 +1143,12 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     dashboard_section: "Mining Settings",
     db_table: table,
     db_key_or_column: key,
-    status: "BROKEN",
-    notes: "Verified mining settings source; dashboard normal controls should remain read-only/unverified.",
+    writeEndpoint: key === "rarity_weight_ranges_json" ? "" : "PUT /api/mining-settings",
+    dashboardConnected: key !== "rarity_weight_ranges_json",
+    status: key === "rarity_weight_ranges_json" ? "LEGACY" : "CONNECTED",
+    notes: key === "rarity_weight_ranges_json"
+      ? "Verified source, but kept read-only because it is edited through a structured rarity range command."
+      : "Verified mining command/runtime source and connected to the dashboard mining settings endpoint.",
   })),
   auditRow({
     module: "fishing",
@@ -1754,6 +1839,59 @@ app.put("/api/games/:key", requireAuth, requirePermission("manage_games"), (req,
   if (value.length > 2000) return json(res, { error: "value_too_long" }, 400);
   upsertDashboardSetting(req.db, key, value, "games", req.user.username, "Dashboard game setting. Bot modules should read from bot_settings.");
   json(res, { ok: true });
+}, closeDb);
+
+app.get("/api/mining-settings", requireAuth, requirePermission("manage_games"), (req, res) => {
+  const kvRows = (table) => Object.entries(readKeyValueMap(req.db, table)).map(([key, value]) => ({ key, value }));
+  const autoRows = kvRows("auto_activity_settings").filter((row) => row.key.startsWith("mine") || row.key.startsWith("automine"));
+  const goldRows = [
+    ...kvRows("gold_settings").map((row) => ({ table: "gold_settings", ...row })),
+    ...kvRows("gold_rain_settings").map((row) => ({ table: "gold_rain_settings", ...row })),
+  ];
+  json(res, {
+    settings: readActiveMiningSettings(req.db),
+    raw: {
+      mining_settings: kvRows("mining_settings"),
+      mining_weight_settings: kvRows("mining_weight_settings"),
+      auto_activity_settings: autoRows,
+      gold_settings: goldRows,
+    },
+    tables: {
+      mining_items: safeRows(req.db, "mining_items", ["item_id", "name", "emoji", "rarity", "item_type", "sell_value", "drop_enabled"], { orderBy: "rarity, sell_value DESC, name", limit: "200" }),
+      forced_mining_drops: safeTableRows(req.db, "forced_mining_drops", { orderBy: "id DESC", limit: "50" }),
+      mining_events: safeTableRows(req.db, "mining_events", { orderBy: "id DESC", limit: "20" }),
+      ore_weight_records: safeTableRows(req.db, "ore_weight_records", { orderBy: "id DESC", limit: "50" }),
+    },
+    table_status: {
+      mining_settings: tableExists(req.db, "mining_settings"),
+      mining_weight_settings: tableExists(req.db, "mining_weight_settings"),
+      auto_activity_settings: tableExists(req.db, "auto_activity_settings"),
+      mining_items: tableExists(req.db, "mining_items"),
+      forced_mining_drops: tableExists(req.db, "forced_mining_drops"),
+      ore_weight_records: tableExists(req.db, "ore_weight_records"),
+    },
+  });
+}, closeDb);
+
+app.put("/api/mining-settings", requireAuth, requirePermission("manage_games"), (req, res) => {
+  let updates;
+  try {
+    updates = normalizeMiningSettingsBody(req.db, req.body || {});
+  } catch (err) {
+    return json(res, { error: err.message || "invalid_mining_settings" }, 400);
+  }
+  if (!updates.length) return json(res, { error: "no_verified_mining_settings" }, 400);
+  try {
+    const before = readActiveMiningSettings(req.db);
+    for (const update of updates) {
+      req.db.prepare(`INSERT OR REPLACE INTO ${sqlIdent(update.table)} (key, value) VALUES (?, ?)`).run(update.key, update.value);
+    }
+    const after = readActiveMiningSettings(req.db);
+    audit(req.db, req.user.username, "mining_settings_update", "mining_settings", "verified_keys", before, updates, req.ip);
+    json(res, { ok: true, settings: after });
+  } catch (err) {
+    json(res, { error: err.message || "mining_settings_update_failed" }, 500);
+  }
 }, closeDb);
 
 app.get("/api/titles", requireAuth, requirePermission("manage_titles"), (req, res) => {
