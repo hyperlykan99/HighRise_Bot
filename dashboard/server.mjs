@@ -592,6 +592,11 @@ function requireAnyPermission(...permissions) {
   };
 }
 
+function requireOwner(req, res, next) {
+  if (req.user?.role === "owner") return next();
+  return json(res, { error: "forbidden", permission: "owner" }, 403);
+}
+
 function getSetting(db, key, fallback = "") {
   try {
     const row = db.prepare("SELECT value FROM room_settings WHERE key=? LIMIT 1").get(key);
@@ -3106,33 +3111,347 @@ app.get("/api/economy/overview", requireAuth, requireAnyPermission("manage_casin
   const topXp = userCols.includes("xp")
     ? safeRows(req.db, "users", ["user_id","username","xp","level"], { where: "xp > 0", orderBy: "xp DESC", limit: "10" })
     : [];
-  json(res, { stats, top_rich: topRich, top_xp: topXp, balance_column: balanceCol });
+  const recentTransactions = {
+    ledger: safeRows(req.db, "ledger", ["id","timestamp","user_id","username","change_amount","reason","balance_before","balance_after","related_user","metadata"], {
+      orderBy: columnExists(req.db, "ledger", "timestamp") ? "timestamp DESC" : "",
+      limit: "50",
+    }),
+    economy_transactions: safeRows(req.db, "economy_transactions", ["id","tx_id","user_id","username","currency","amount","direction","source","details","event_id","created_at"], {
+      orderBy: columnExists(req.db, "economy_transactions", "created_at") ? "created_at DESC" : "",
+      limit: "50",
+    }),
+    bank_transactions: safeRows(req.db, "bank_transactions", ["id","timestamp","sender_username","receiver_username","amount_sent","fee","amount_received","status"], {
+      orderBy: columnExists(req.db, "bank_transactions", "timestamp") ? "timestamp DESC" : "",
+      limit: "50",
+    }),
+  };
+  json(res, { stats, top_rich: topRich, top_xp: topXp, transactions: recentTransactions, balance_column: balanceCol });
+}, closeDb);
+
+app.get("/api/economy/transactions", requireAuth, requireAnyPermission("manage_casino","manage_games","emergency_controls"), (req, res) => {
+  json(res, {
+    ledger: safeRows(req.db, "ledger", ["id","timestamp","user_id","username","change_amount","reason","balance_before","balance_after","related_user","metadata"], {
+      orderBy: columnExists(req.db, "ledger", "timestamp") ? "timestamp DESC" : "",
+      limit: "100",
+    }),
+    economy_transactions: safeRows(req.db, "economy_transactions", ["id","tx_id","user_id","username","currency","amount","direction","source","details","event_id","created_at"], {
+      orderBy: columnExists(req.db, "economy_transactions", "created_at") ? "created_at DESC" : "",
+      limit: "100",
+    }),
+    bank_transactions: safeRows(req.db, "bank_transactions", ["id","timestamp","sender_username","receiver_username","amount_sent","fee","amount_received","status"], {
+      orderBy: columnExists(req.db, "bank_transactions", "timestamp") ? "timestamp DESC" : "",
+      limit: "100",
+    }),
+  });
 }, closeDb);
 
 /* ── Player Search ──────────────────────────────────── */
-app.get("/api/player/search", requireAuth, (req, res) => {
-  const q = String(req.query.q || "").trim().slice(0, 80);
-  if (!q) return json(res, { player: null, error: "query_required" }, 400);
-  if (!tableExists(req.db, "users")) return json(res, { player: null, error: "users_table_missing" }, 404);
+function readPlayerProfile(db, idOrQuery) {
+  const q = String(idOrQuery || "").trim().slice(0, 100);
+  if (!q) return null;
   const desired = [
     "user_id","username","balance","coins","tickets","xp","level","total_games_won","total_coins_earned",
     "equipped_badge","equipped_title","equipped_badge_id","equipped_title_id","tip_coins_earned",
   ];
-  let player = safeOne(req.db, "users", desired, { where: "lower(username)=lower(?) OR user_id=?", params: [q, q] });
-  if (!player) player = safeOne(req.db, "users", desired, { where: "lower(username) LIKE ?", params: [`%${q.toLowerCase()}%`] });
-  if (!player) return json(res, { player: null });
+  if (!tableExists(db, "users")) return null;
+  let player = safeOne(db, "users", desired, { where: "lower(username)=lower(?) OR user_id=?", params: [q, q] });
+  if (!player) player = safeOne(db, "users", desired, { where: "lower(username) LIKE ?", params: [`%${q.toLowerCase()}%`] });
+  if (!player) return null;
   if (player.balance == null && player.coins != null) player.balance = player.coins;
   delete player.coins;
-  const ownedItems = safeRows(req.db, "owned_items", ["user_id","item_id","item_type"], {
+  const userId = player.user_id || "";
+  const username = player.username || "";
+  const ownedItems = safeRows(db, "owned_items", ["user_id","item_id","item_type"], {
     where: "user_id=?",
-    params: [player.user_id],
-    orderBy: columnExists(req.db, "owned_items", "item_type") && columnExists(req.db, "owned_items", "item_id") ? "item_type, item_id" : "",
-    limit: "25",
+    params: [userId],
+    orderBy: columnExists(db, "owned_items", "item_type") && columnExists(db, "owned_items", "item_id") ? "item_type, item_id" : "",
+    limit: "200",
   });
   const ownedCount = (() => {
-    try { return tableExists(req.db, "owned_items") ? (req.db.prepare("SELECT COUNT(*) AS n FROM owned_items WHERE user_id=?").get(player.user_id)?.n ?? 0) : 0; } catch { return 0; }
+    try { return tableExists(db, "owned_items") ? (db.prepare("SELECT COUNT(*) AS n FROM owned_items WHERE user_id=?").get(userId)?.n ?? 0) : 0; } catch { return 0; }
   })();
-  json(res, { player: { ...player, owned_items_count: ownedCount, owned_item_count: ownedCount, owned_items: ownedItems } });
+
+  const miningInventory = safeRows(db, "mining_inventory", ["user_id","username","item_id","quantity"], {
+    where: columnExists(db, "mining_inventory", "user_id") ? "user_id=? OR lower(username)=lower(?)" : "lower(username)=lower(?)",
+    params: columnExists(db, "mining_inventory", "user_id") ? [userId, username] : [username],
+    orderBy: columnExists(db, "mining_inventory", "item_id") ? "item_id" : "",
+    limit: "200",
+  });
+  const fishInventory = safeRows(db, "fish_inventory", ["id","user_id","username","fish_name","rarity","weight","value","quantity","sold","sold_at","caught_at"], {
+    where: columnExists(db, "fish_inventory", "user_id") ? "user_id=? OR lower(username)=lower(?)" : "lower(username)=lower(?)",
+    params: columnExists(db, "fish_inventory", "user_id") ? [userId, username] : [username],
+    orderBy: columnExists(db, "fish_inventory", "caught_at") ? "caught_at DESC" : "",
+    limit: "200",
+  });
+  const titles = {
+    user_titles: safeRows(db, "user_titles", ["user_id","username","title_id","source","unlocked_at","expires_at"], {
+      where: "user_id=? OR lower(username)=lower(?)",
+      params: [userId, username],
+      limit: "100",
+    }),
+    player_titles: safeRows(db, "player_titles", ["id","user_id","username","title_id","display","color","source","created_by","created_at"], {
+      where: "user_id=? OR lower(username)=lower(?)",
+      params: [userId, username],
+      limit: "100",
+    }),
+  };
+  const badges = {
+    user_badges: safeRows(db, "user_badges", ["id","username","badge_id","acquired_at","source","equipped","locked"], {
+      where: "lower(username)=lower(?)",
+      params: [username],
+      limit: "100",
+    }),
+  };
+  const moderation = {
+    warnings: safeRows(db, "warnings", ["id","user_id","username","warned_by","reason","created_at"], {
+      where: "user_id=? OR lower(username)=lower(?)",
+      params: [userId, username],
+      orderBy: columnExists(db, "warnings", "created_at") ? "created_at DESC" : "",
+      limit: "50",
+    }),
+    mutes: safeRows(db, "mutes", ["user_id","username","muted_by","muted_at","expires_at"], {
+      where: "user_id=? OR lower(username)=lower(?)",
+      params: [userId, username],
+      limit: "20",
+    }),
+    reports: safeRows(db, "reports", ["id","timestamp","reporter_username","target_username","report_type","reason","status","handled_by"], {
+      where: "lower(target_username)=lower(?)",
+      params: [username],
+      orderBy: columnExists(db, "reports", "timestamp") ? "timestamp DESC" : "",
+      limit: "50",
+    }),
+    logs: safeRows(db, "moderation_logs", ["id","action_id","staff_id","staff_name","target_id","target_name","action","reason","duration_minutes","created_at"], {
+      where: "target_id=? OR lower(target_name)=lower(?)",
+      params: [userId, username],
+      orderBy: columnExists(db, "moderation_logs", "created_at") ? "created_at DESC" : "",
+      limit: "50",
+    }),
+  };
+  const ledgerRows = safeRows(db, "ledger", ["id","timestamp","user_id","username","change_amount","reason","balance_before","balance_after","related_user","metadata"], {
+    where: "user_id=? OR lower(username)=lower(?)",
+    params: [userId, username],
+    orderBy: columnExists(db, "ledger", "timestamp") ? "timestamp DESC" : "",
+    limit: "50",
+  });
+  const economyRows = safeRows(db, "economy_transactions", ["id","tx_id","user_id","username","currency","amount","direction","source","details","event_id","created_at"], {
+    where: "user_id=? OR lower(username)=lower(?)",
+    params: [userId, username],
+    orderBy: columnExists(db, "economy_transactions", "created_at") ? "created_at DESC" : "",
+    limit: "50",
+  });
+  const bankRows = safeRows(db, "bank_transactions", ["id","timestamp","sender_id","sender_username","receiver_id","receiver_username","amount_sent","fee","amount_received","status"], {
+    where: "sender_id=? OR receiver_id=? OR lower(sender_username)=lower(?) OR lower(receiver_username)=lower(?)",
+    params: [userId, userId, username, username],
+    orderBy: columnExists(db, "bank_transactions", "timestamp") ? "timestamp DESC" : "",
+    limit: "50",
+  });
+  return {
+    ...player,
+    owned_items_count: ownedCount,
+    owned_item_count: ownedCount,
+    owned_items: ownedItems,
+    mining_inventory: miningInventory,
+    fishing_inventory: fishInventory,
+    titles,
+    badges,
+    moderation,
+    recent_activity: { ledger: ledgerRows, economy_transactions: economyRows, bank_transactions: bankRows },
+    summaries: {
+      mining_inventory_count: miningInventory.length,
+      fishing_inventory_count: fishInventory.length,
+      warnings_count: moderation.warnings.length,
+      mutes_count: moderation.mutes.length,
+      reports_count: moderation.reports.length,
+      is_vip: ownedItems.some((item) => String(item.item_id).toLowerCase() === "vip"),
+    },
+  };
+}
+
+app.get("/api/player/search", requireAuth, (req, res) => {
+  const q = String(req.query.q || "").trim().slice(0, 80);
+  if (!q) return json(res, { player: null, error: "query_required" }, 400);
+  if (!tableExists(req.db, "users")) return json(res, { player: null, error: "users_table_missing" }, 404);
+  const player = readPlayerProfile(req.db, q);
+  if (!player) return json(res, { player: null });
+  json(res, { player });
+}, closeDb);
+
+app.get("/api/player/:id/history", requireAuth, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  json(res, { player, history: { ...player.recent_activity, moderation: player.moderation } });
+}, closeDb);
+
+function insertPlayerLedger(db, player, changeAmount, reason, before, after, actor) {
+  if (!tableExists(db, "ledger")) return;
+  const cols = tableColumns(db, "ledger");
+  const desired = ["user_id","username","change_amount","reason","balance_before","balance_after","related_user","metadata"];
+  if (!desired.every((col) => cols.includes(col))) return;
+  db.prepare(
+    "INSERT INTO ledger (user_id, username, change_amount, reason, balance_before, balance_after, related_user, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(player.user_id, player.username, changeAmount, reason, before, after, actor, JSON.stringify({ source: "dashboard", actor }));
+}
+
+function insertEconomyTransaction(db, player, amount, direction, reason, actor) {
+  if (!tableExists(db, "economy_transactions")) return;
+  const cols = tableColumns(db, "economy_transactions");
+  const desired = ["tx_id","user_id","username","currency","amount","direction","source","details"];
+  if (!desired.every((col) => cols.includes(col))) return;
+  db.prepare(
+    "INSERT INTO economy_transactions (tx_id, user_id, username, currency, amount, direction, source, details) VALUES (?, ?, ?, 'chillcoins', ?, ?, 'dashboard', ?)",
+  ).run(crypto.randomUUID(), player.user_id, player.username, Math.abs(amount), direction, JSON.stringify({ reason, actor }));
+}
+
+app.post("/api/player/:id/economy", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  const actionName = String(req.body?.action || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  const amount = Number(req.body?.amount);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  if (!Number.isFinite(amount)) return json(res, { error: "amount_required" }, 400);
+  const usersCols = tableColumns(req.db, "users");
+  const oldValues = { balance: Number(player.balance || 0), xp: Number(player.xp || 0), level: Number(player.level || 1) };
+  const updates = {};
+  const balanceAction = ["set_balance", "add_balance", "remove_balance"].includes(actionName);
+  if (balanceAction && !usersCols.includes("balance")) return json(res, { error: "balance_column_missing" }, 409);
+  if (actionName === "set_balance") updates.balance = Math.trunc(amount);
+  else if (actionName === "add_balance") updates.balance = oldValues.balance + Math.trunc(amount);
+  else if (actionName === "remove_balance") updates.balance = oldValues.balance - Math.trunc(amount);
+  else if (actionName === "set_xp") updates.xp = Math.trunc(amount);
+  else if (actionName === "add_xp") updates.xp = oldValues.xp + Math.trunc(amount);
+  else if (actionName === "remove_xp") updates.xp = oldValues.xp - Math.trunc(amount);
+  else if (actionName === "set_level") updates.level = Math.trunc(amount);
+  else return json(res, { error: "action_not_allowed" }, 400);
+  if (updates.balance != null && updates.balance < 0 && !req.body?.allow_negative_balance) {
+    return json(res, { error: "negative_balance_disallowed" }, 400);
+  }
+  if (updates.xp != null && updates.xp < 0) updates.xp = 0;
+  if (updates.level != null && updates.level < 1) updates.level = 1;
+  const updateCols = Object.keys(updates).filter((col) => usersCols.includes(col));
+  if (!updateCols.length) return json(res, { error: "no_verified_columns" }, 409);
+  const setSql = updateCols.map((col) => `${sqlIdent(col)}=?`).join(", ");
+  req.db.prepare(`UPDATE users SET ${setSql} WHERE user_id=?`).run(...updateCols.map((col) => updates[col]), player.user_id);
+  if (updates.balance != null) {
+    const delta = updates.balance - oldValues.balance;
+    insertPlayerLedger(req.db, player, delta, reason, oldValues.balance, updates.balance, req.user.username);
+    insertEconomyTransaction(req.db, player, delta, delta >= 0 ? "credit" : "debit", reason, req.user.username);
+  }
+  const updatedPlayer = readPlayerProfile(req.db, player.user_id);
+  audit(req.db, req.user.username, `player_economy_${actionName}`, "users", player.user_id, oldValues, { updates, reason, player: updatedPlayer?.username }, req.ip);
+  json(res, { ok: true, player: updatedPlayer });
+}, closeDb);
+
+app.post("/api/player/:id/items", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  if (!tableExists(req.db, "owned_items")) return json(res, { error: "owned_items_missing" }, 404);
+  const itemId = String(req.body?.item_id || "").trim().slice(0, 120);
+  const itemType = String(req.body?.item_type || "").trim().slice(0, 80);
+  if (!itemId || !itemType) return json(res, { error: "item_id_and_type_required" }, 400);
+  const before = safeOne(req.db, "owned_items", ["user_id","item_id","item_type"], { where: "user_id=? AND item_id=?", params: [player.user_id, itemId] });
+  req.db.prepare("INSERT OR IGNORE INTO owned_items (user_id, item_id, item_type) VALUES (?, ?, ?)").run(player.user_id, itemId, itemType);
+  audit(req.db, req.user.username, "player_item_add", "owned_items", `${player.user_id}:${itemId}`, before, { item_id: itemId, item_type: itemType, reason: req.body?.reason || "" }, req.ip);
+  json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.delete("/api/player/:id/items/:item_id", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  if (!tableExists(req.db, "owned_items")) return json(res, { error: "owned_items_missing" }, 404);
+  const itemId = String(req.params.item_id || "").trim();
+  const before = safeOne(req.db, "owned_items", ["user_id","item_id","item_type"], { where: "user_id=? AND item_id=?", params: [player.user_id, itemId] });
+  const info = req.db.prepare("DELETE FROM owned_items WHERE user_id=? AND item_id=?").run(player.user_id, itemId);
+  audit(req.db, req.user.username, "player_item_remove", "owned_items", `${player.user_id}:${itemId}`, before, { removed: info.changes, reason: req.body?.reason || "" }, req.ip);
+  json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.post("/api/player/:id/titles", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  if (!tableExists(req.db, "user_titles")) return json(res, { error: "user_titles_missing" }, 404);
+  const titleId = String(req.body?.title_id || "").trim().slice(0, 120);
+  if (!titleId) return json(res, { error: "title_id_required" }, 400);
+  req.db.prepare("INSERT OR IGNORE INTO user_titles (user_id, username, title_id, source) VALUES (?, ?, ?, 'dashboard')").run(player.user_id, player.username, titleId);
+  audit(req.db, req.user.username, "player_title_add", "user_titles", `${player.user_id}:${titleId}`, "", { title_id: titleId, reason: req.body?.reason || "" }, req.ip);
+  json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.delete("/api/player/:id/titles/:title_id", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  const titleId = String(req.params.title_id || "").trim();
+  const before = safeOne(req.db, "user_titles", ["user_id","username","title_id","source","unlocked_at"], { where: "user_id=? AND title_id=?", params: [player.user_id, titleId] });
+  const info = tableExists(req.db, "user_titles") ? req.db.prepare("DELETE FROM user_titles WHERE user_id=? AND title_id=?").run(player.user_id, titleId) : { changes: 0 };
+  audit(req.db, req.user.username, "player_title_remove", "user_titles", `${player.user_id}:${titleId}`, before, { removed: info.changes, reason: req.body?.reason || "" }, req.ip);
+  json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.post("/api/player/:id/badges", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  if (!tableExists(req.db, "user_badges")) return json(res, { error: "user_badges_missing" }, 404);
+  const badgeId = String(req.body?.badge_id || "").trim().slice(0, 120);
+  if (!badgeId) return json(res, { error: "badge_id_required" }, 400);
+  req.db.prepare("INSERT OR IGNORE INTO user_badges (username, badge_id, acquired_at, source) VALUES (?, ?, CURRENT_TIMESTAMP, 'dashboard')").run(player.username, badgeId);
+  audit(req.db, req.user.username, "player_badge_add", "user_badges", `${player.username}:${badgeId}`, "", { badge_id: badgeId, reason: req.body?.reason || "" }, req.ip);
+  json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.delete("/api/player/:id/badges/:badge_id", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  const badgeId = String(req.params.badge_id || "").trim();
+  const before = safeOne(req.db, "user_badges", ["id","username","badge_id","acquired_at","source","equipped","locked"], { where: "lower(username)=lower(?) AND badge_id=?", params: [player.username, badgeId] });
+  const info = tableExists(req.db, "user_badges") ? req.db.prepare("DELETE FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?").run(player.username, badgeId) : { changes: 0 };
+  audit(req.db, req.user.username, "player_badge_remove", "user_badges", `${player.username}:${badgeId}`, before, { removed: info.changes, reason: req.body?.reason || "" }, req.ip);
+  json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+function writeModerationLog(db, actor, player, actionName, reason, duration = 0) {
+  if (!tableExists(db, "moderation_logs")) return;
+  const cols = tableColumns(db, "moderation_logs");
+  const desired = ["action_id","staff_name","target_id","target_name","action","reason","duration_minutes"];
+  if (!desired.every((col) => cols.includes(col))) return;
+  db.prepare("INSERT INTO moderation_logs (action_id, staff_name, target_id, target_name, action, reason, duration_minutes) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(crypto.randomUUID(), actor, player.user_id, player.username, actionName, reason, duration);
+}
+
+app.post("/api/player/:id/warn", requireAuth, requireAnyPermission("manage_staff","emergency_controls"), (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  if (!tableExists(req.db, "warnings")) return json(res, { error: "warnings_missing" }, 404);
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  req.db.prepare("INSERT INTO warnings (user_id, username, warned_by, reason) VALUES (?, ?, ?, ?)").run(player.user_id, player.username, req.user.username, reason);
+  writeModerationLog(req.db, req.user.username, player, "warn", reason, 0);
+  audit(req.db, req.user.username, "player_warn", "warnings", player.user_id, "", { reason }, req.ip);
+  json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.post("/api/player/:id/mute", requireAuth, requireAnyPermission("manage_staff","emergency_controls"), (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  if (!tableExists(req.db, "mutes")) return json(res, { error: "mutes_missing" }, 404);
+  const reason = String(req.body?.reason || "").trim();
+  const minutes = Math.max(1, Math.min(10080, Math.trunc(Number(req.body?.minutes || 60))));
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = safeOne(req.db, "mutes", ["user_id","username","muted_by","muted_at","expires_at"], { where: "user_id=?", params: [player.user_id] });
+  req.db.prepare("INSERT OR REPLACE INTO mutes (user_id, username, muted_by, expires_at) VALUES (?, ?, ?, datetime('now', ?))")
+    .run(player.user_id, player.username, req.user.username, `+${minutes} minutes`);
+  writeModerationLog(req.db, req.user.username, player, "mute", reason, minutes);
+  audit(req.db, req.user.username, "player_mute", "mutes", player.user_id, before, { reason, minutes }, req.ip);
+  json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.post("/api/player/:id/unmute", requireAuth, requireAnyPermission("manage_staff","emergency_controls"), (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  const before = safeOne(req.db, "mutes", ["user_id","username","muted_by","muted_at","expires_at"], { where: "user_id=?", params: [player.user_id] });
+  const info = tableExists(req.db, "mutes") ? req.db.prepare("DELETE FROM mutes WHERE user_id=?").run(player.user_id) : { changes: 0 };
+  writeModerationLog(req.db, req.user.username, player, "unmute", String(req.body?.reason || ""), 0);
+  audit(req.db, req.user.username, "player_unmute", "mutes", player.user_id, before, { removed: info.changes, reason: req.body?.reason || "" }, req.ip);
+  json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
 /* ── Bot Spawns / Command Queue ─────────────────────── */

@@ -51,9 +51,11 @@ const PLAYER_TABS = [
   { id: "Search", api: null },
   { id: "Economy", api: null },
   { id: "Inventory", api: null },
+  { id: "Mining", api: null },
+  { id: "Fishing", api: null },
   { id: "Titles & Badges", api: "/api/titles" },
   { id: "Moderation", api: null },
-  { id: "History", api: null },
+  { id: "Logs", api: null },
 ];
 const ROOM_TABS = [
   { id: "Room Settings", api: "/api/room-control" },
@@ -1595,27 +1597,22 @@ function renderOwnerPlayersPage(tab) {
   return `
     ${tabNav("Players")}
     ${tab === "Search" ? renderPlayerSearch() : ""}
-    ${tab === "Economy" ? renderPlayerFutureTab("Player Economy", [
-      { endpoint: "GET /api/player/search?q=", purpose: "Use Search to inspect live balance, XP, and earnings", status: "Connected" },
-      { endpoint: "POST /api/player/:id/economy", purpose: "Adjust player economy fields", status: "Future" },
-    ]) : ""}
-    ${tab === "Inventory" ? renderPlayerFutureTab("Player Inventory", [
-      { endpoint: "GET /api/player/search?q=", purpose: "Use Search to inspect owned_items preview", status: "Connected" },
-      { endpoint: "POST /api/player/:id/inventory", purpose: "Grant or remove inventory items", status: "Future" },
-    ]) : ""}
-    ${tab === "Titles & Badges" ? renderTitlesTab() : ""}
-    ${tab === "Moderation" ? renderModerationTab() : ""}
-    ${tab === "History" ? renderPlayerFutureTab("Player History", [
-      { endpoint: "GET /api/player/:id/history", purpose: "Moderation, economy, and command history", status: "Future" },
-    ]) : ""}
+    ${tab === "Economy" ? renderPlayerEconomyTab() : ""}
+    ${tab === "Inventory" ? renderPlayerInventoryTab() : ""}
+    ${tab === "Mining" ? renderPlayerMiningTab() : ""}
+    ${tab === "Fishing" ? renderPlayerFishingTab() : ""}
+    ${tab === "Titles & Badges" ? renderPlayerTitlesBadgesTab() : ""}
+    ${tab === "Moderation" ? renderPlayerModerationTab() : ""}
+    ${tab === "Logs" ? renderPlayerLogsTab() : ""}
   `;
 }
 
-function renderPlayerFutureTab(title, rows) {
-  return notConnectedCard(title, rows);
+function selectedPlayerNotice() {
+  return `<div class="card"><div class="notice">Search for a player first on the Search tab.</div></div>`;
 }
 
 function renderPlayerSearch() {
+  const p = state.playerResult;
   return `
     <div class="card">
       <h2>🔍 Player Search</h2>
@@ -1625,16 +1622,13 @@ function renderPlayerSearch() {
       </form>
       <div id="playerSearchResult" style="margin-top:16px"></div>
     </div>
-    ${futureControls([
-      { endpoint: "POST /api/player/:id/economy", purpose: "Adjust balance, tickets, or XP", status: "Future" },
-      { endpoint: "POST /api/player/:id/badges", purpose: "Give or remove badges", status: "Future" },
-      { endpoint: "POST /api/player/:id/inventory", purpose: "Edit owned items", status: "Future" },
-    ])}
+    ${p ? renderPlayerCard(p) : ""}
   `;
 }
 
 function renderPlayerCard(p) {
   const items = p.owned_items || [];
+  const s = p.summaries || {};
   return `<div class="card" style="margin-top:0">
     <div class="card-header">
       <h3>🔍 ${esc(p.username || "Unknown")}</h3>
@@ -1648,6 +1642,7 @@ function renderPlayerCard(p) {
       ${metricCard("Coins Earned", p.total_coins_earned != null ? Number(p.total_coins_earned).toLocaleString() : "—", "", "", "🏦")}
       ${metricCard("Tip Earned", p.tip_coins_earned != null ? Number(p.tip_coins_earned).toLocaleString() : "—", "", "", "🎁")}
       ${metricCard("Items", p.owned_items_count ?? p.owned_item_count ?? 0, "owned", "", "🎒")}
+      ${metricCard("VIP", s.is_vip ? "Yes" : "No", "owned_items", s.is_vip ? "accent-green" : "", "👑")}
     </div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
       <div class="notice">
@@ -1667,43 +1662,157 @@ function renderPlayerCard(p) {
       ]) : `<div class="notice">No owned items found.</div>`}
     </div>
     <div class="inline-actions" style="margin-top:14px">
-      <button class="btn sm" disabled title="Write endpoint not implemented">Edit Economy</button>
-      <button class="btn sm" disabled title="Write endpoint not implemented">Edit Inventory</button>
-      <button class="btn sm" disabled title="Write endpoint not implemented">Edit Badge / Title</button>
+      <button class="btn sm" data-player-jump="Economy">Edit Economy</button>
+      <button class="btn sm" data-player-jump="Inventory">Edit Inventory</button>
+      <button class="btn sm" data-player-jump="Titles & Badges">Edit Badge / Title</button>
     </div>
   </div>`;
 }
 
-function renderTitlesTab() {
-  const d = state.data || {};
+function renderPlayerEconomyTab() {
+  const p = state.playerResult;
+  if (!p) return selectedPlayerNotice();
   return `
     <div class="card">
-      <h2>📚 Title Catalog</h2>
-      ${table(d.catalog || [])}
+      <div class="card-header"><h2>Economy — ${esc(p.username)}</h2><span class="pill warn">Owner writes</span></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px">
+        ${metricCard("Balance", Number(p.balance || 0).toLocaleString(), "users.balance", "accent-green", "💰")}
+        ${metricCard("XP", Number(p.xp || 0).toLocaleString(), "users.xp", "", "📈")}
+        ${metricCard("Level", p.level ?? 1, "users.level", "", "⭐")}
+      </div>
+      ${state.user?.role === "owner" ? `
+        <form id="playerEconomyForm" class="settings-form">
+          <div class="field"><label class="field-label">Action</label><select name="action">
+            <option value="add_balance">Add Coins</option>
+            <option value="remove_balance">Remove Coins</option>
+            <option value="set_balance">Set Balance</option>
+            <option value="add_xp">Add XP</option>
+            <option value="remove_xp">Remove XP</option>
+            <option value="set_xp">Set XP</option>
+            <option value="set_level">Set Level</option>
+          </select></div>
+          <div class="field"><label class="field-label">Amount</label><input type="number" name="amount" required /></div>
+          <div class="field"><label class="field-label">Reason</label><input name="reason" required placeholder="Required audit reason" /></div>
+          <button class="btn primary">Apply Economy Change</button>
+        </form>` : `<div class="notice">Owner role required for economy writes.</div>`}
     </div>
     <div class="card">
-      <h2>📋 Assigned Titles</h2>
-      ${table(d.assigned || [])}
+      <h2>Recent Economy Activity</h2>
+      ${table(p.recent_activity?.ledger || [], [
+        { key: "timestamp", label: "Time" },
+        { key: "change_amount", label: "Change" },
+        { key: "balance_before", label: "Before" },
+        { key: "balance_after", label: "After" },
+        { key: "reason", label: "Reason" },
+      ])}
     </div>
-    ${futureControls([
-      { endpoint: "POST /api/titles/assign", purpose: "Assign titles from the dashboard", status: "Hidden" },
-      { endpoint: "POST /api/player/:id/badges", purpose: "Give or remove badges", status: "Future" },
-    ])}
   `;
 }
 
-function renderModerationTab() {
-  return `<div class="card">
-    <h2>🛡 Moderation Actions</h2>
-    <p class="muted text-sm">Moderation writes are not exposed on the normal dashboard surface yet.</p>
-  </div>
-  ${futureControls([
-    { endpoint: "POST /api/player/:id/warn", purpose: "Issue warning", status: "Future" },
-    { endpoint: "POST /api/player/:id/mute", purpose: "Mute player", status: "Future" },
-    { endpoint: "POST /api/player/:id/ban", purpose: "Ban player", status: "Future" },
-    { endpoint: "POST /api/player/:id/kick", purpose: "Kick from room", status: "Future" },
-    { endpoint: "GET /api/player/:id/history", purpose: "Moderation history", status: "Future" },
-  ])}`;
+function renderPlayerInventoryTab() {
+  const p = state.playerResult;
+  if (!p) return selectedPlayerNotice();
+  return `<div class="grid">
+    <div class="card">
+      <h2>Owned Items</h2>
+      ${table(p.owned_items || [], [
+        { key: "item_type", label: "Type" },
+        { key: "item_id", label: "Item ID" },
+      ], state.user?.role === "owner" ? (r) => `<button class="btn danger sm" data-remove-item="${esc(r.item_id)}">Remove</button>` : null)}
+    </div>
+    <div class="card">
+      <h2>Add Item</h2>
+      ${state.user?.role === "owner" ? `<form id="playerItemForm" class="settings-form">
+        <div class="field"><label class="field-label">Item ID</label><input name="item_id" required /></div>
+        <div class="field"><label class="field-label">Item Type</label><input name="item_type" required placeholder="vip, rod, pickaxe, badge, item" /></div>
+        <div class="field"><label class="field-label">Reason</label><input name="reason" placeholder="Audit reason" /></div>
+        <button class="btn primary">Add Item</button>
+      </form>
+      <div class="inline-actions" style="margin-top:12px">
+        <button class="btn sm" data-quick-item="vip" data-quick-type="vip">Add VIP</button>
+        <button class="btn danger sm" data-remove-item="vip">Remove VIP</button>
+      </div>` : `<div class="notice">Owner role required for inventory writes.</div>`}
+    </div>
+  </div>`;
+}
+
+function renderPlayerMiningTab() {
+  const p = state.playerResult;
+  if (!p) return selectedPlayerNotice();
+  return `<div class="card"><h2>Mining Inventory</h2>${table(p.mining_inventory || [])}</div>`;
+}
+
+function renderPlayerFishingTab() {
+  const p = state.playerResult;
+  if (!p) return selectedPlayerNotice();
+  return `<div class="card"><h2>Fishing Inventory</h2>${table(p.fishing_inventory || [])}</div>`;
+}
+
+function renderPlayerTitlesBadgesTab() {
+  const p = state.playerResult;
+  if (!p) return selectedPlayerNotice();
+  return `<div class="grid">
+    <div class="card">
+      <h2>Titles</h2>
+      ${table([...(p.titles?.user_titles || []), ...(p.titles?.player_titles || [])], [
+        { key: "title_id", label: "Title ID" },
+        { key: "display", label: "Display" },
+        { key: "source", label: "Source" },
+        { key: "unlocked_at", label: "Unlocked" },
+      ], state.user?.role === "owner" ? (r) => r.title_id ? `<button class="btn danger sm" data-remove-title="${esc(r.title_id)}">Remove</button>` : "" : null)}
+      ${state.user?.role === "owner" ? `<form id="playerTitleForm" class="toolbar" style="margin-top:12px"><input name="title_id" required placeholder="title_id" /><input name="reason" placeholder="reason" /><button class="btn primary">Give Title</button></form>` : ""}
+    </div>
+    <div class="card">
+      <h2>Badges</h2>
+      ${table(p.badges?.user_badges || [], [
+        { key: "badge_id", label: "Badge ID" },
+        { key: "source", label: "Source" },
+        { key: "equipped", label: "Equipped" },
+        { key: "locked", label: "Locked" },
+      ], state.user?.role === "owner" ? (r) => `<button class="btn danger sm" data-remove-badge="${esc(r.badge_id)}">Remove</button>` : null)}
+      ${state.user?.role === "owner" ? `<form id="playerBadgeForm" class="toolbar" style="margin-top:12px"><input name="badge_id" required placeholder="badge_id" /><input name="reason" placeholder="reason" /><button class="btn primary">Give Badge</button></form>` : ""}
+    </div>
+  </div>`;
+}
+
+function renderPlayerModerationTab() {
+  const p = state.playerResult;
+  if (!p) return selectedPlayerNotice();
+  const canModerate = state.user?.role === "owner" || can("manage_staff") || can("emergency_controls");
+  return `<div class="grid">
+    <div class="card">
+      <h2>Warnings</h2>
+      ${table(p.moderation?.warnings || [])}
+    </div>
+    <div class="card">
+      <h2>Mutes</h2>
+      ${table(p.moderation?.mutes || [])}
+    </div>
+    <div class="card">
+      <h2>Reports</h2>
+      ${table(p.moderation?.reports || [])}
+    </div>
+    <div class="card">
+      <h2>Moderation Actions</h2>
+      ${canModerate ? `<form id="playerModerationForm" class="settings-form">
+        <div class="field"><label class="field-label">Action</label><select name="action"><option value="warn">Warn</option><option value="mute">Mute</option><option value="unmute">Unmute</option></select></div>
+        <div class="field"><label class="field-label">Mute Minutes</label><input type="number" name="minutes" value="60" /></div>
+        <div class="field"><label class="field-label">Reason</label><input name="reason" required /></div>
+        <button class="btn primary">Apply Moderation Action</button>
+      </form>` : `<div class="notice">Moderation permission required.</div>`}
+    </div>
+  </div>`;
+}
+
+function renderPlayerLogsTab() {
+  const p = state.playerResult;
+  if (!p) return selectedPlayerNotice();
+  return `<div class="grid">
+    <div class="card"><h2>Ledger</h2>${table(p.recent_activity?.ledger || [])}</div>
+    <div class="card"><h2>Economy Transactions</h2>${table(p.recent_activity?.economy_transactions || [])}</div>
+    <div class="card"><h2>Bank Transactions</h2>${table(p.recent_activity?.bank_transactions || [])}</div>
+    <div class="card"><h2>Moderation Logs</h2>${table(p.moderation?.logs || [])}</div>
+  </div>`;
 }
 
 /* ── Room & Content ──────────────────────────────────── */
@@ -2950,10 +3059,20 @@ function renderCoinsTab() {
         ])}
       </div>
     </div>
+    <div class="card">
+      <h2>Recent Ledger</h2>
+      ${table(d.transactions?.ledger || [], [
+        { key: "timestamp", label: "Time" },
+        { key: "username", label: "Player" },
+        { key: "change_amount", label: "Change" },
+        { key: "balance_after", label: "After" },
+        { key: "reason", label: "Reason" },
+      ])}
+    </div>
     ${futureControls([
-      { endpoint: "POST /api/player/:id/economy", purpose: "Adjust balance, tickets, or XP", status: "Future" },
+      { endpoint: "POST /api/player/:id/economy", purpose: "Adjust balance, tickets, or XP from Players page", status: "Connected" },
       { endpoint: "POST /api/economy/adjust", purpose: "Bulk economy adjustment", status: "Future" },
-      { endpoint: "GET /api/economy/transactions", purpose: "Transaction history", status: "Future" },
+      { endpoint: "GET /api/economy/transactions", purpose: "Transaction history", status: "Connected" },
     ])}
   `;
 }
@@ -2964,10 +3083,26 @@ function renderVipTab() {
     <p class="muted text-sm">VIP status is stored in <code>owned_items</code> with <code>item_id='vip'</code>. Use Player Search to inspect individual inventories.</p>
   </div>
   ${futureControls([
+    { endpoint: "Player → Inventory", purpose: "Grant/remove VIP using owned_items item_id='vip'", status: "Connected" },
     { endpoint: "GET /api/vip/list", purpose: "List all VIP players", status: "Future" },
-    { endpoint: "POST /api/vip/add", purpose: "Grant VIP", status: "Future" },
-    { endpoint: "POST /api/vip/remove", purpose: "Remove VIP", status: "Future" },
   ])}`;
+}
+
+function renderTitlesTab() {
+  const d = state.data || {};
+  return `
+    <div class="card">
+      <h2>📚 Title Catalog</h2>
+      ${table(d.catalog || [])}
+    </div>
+    <div class="card">
+      <h2>📋 Assigned Titles</h2>
+      ${table(d.assigned || [])}
+    </div>
+    ${futureControls([
+      { endpoint: "Player → Titles & Badges", purpose: "Give/remove verified player titles from the Players page", status: "Connected" },
+    ])}
+  `;
 }
 
 function renderBadgesTab() {
@@ -2977,8 +3112,7 @@ function renderBadgesTab() {
   </div>
   ${futureControls([
     { endpoint: "GET /api/badges", purpose: "List available badge types", status: "Future" },
-    { endpoint: "POST /api/player/:id/badges", purpose: "Give badge to player", status: "Future" },
-    { endpoint: "DELETE /api/player/:id/badges/:badge", purpose: "Remove badge", status: "Future" },
+    { endpoint: "Player → Titles & Badges", purpose: "Give/remove verified user_badges", status: "Connected" },
   ])}`;
 }
 
@@ -3825,6 +3959,9 @@ function bindAdminPageEvents() {
   });
 
   /* Player search */
+  document.querySelectorAll("[data-player-jump]").forEach((btn) => {
+    btn.addEventListener("click", () => switchTab("Players", btn.dataset.playerJump));
+  });
   document.getElementById("playerSearchForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const query = e.currentTarget.querySelector("[name='query']").value.trim();
@@ -3834,13 +3971,109 @@ function bindAdminPageEvents() {
     try {
       const data = await api(`/api/player/search?q=${encodeURIComponent(query)}`);
       if (!data.player) {
-        result.innerHTML = `<div class="notice">No player found for <strong>${esc(query)}</strong>.</div>`;
+        state.playerResult = null;
+        state.notice = ""; state.error = `No player found for ${query}.`;
+        render();
       } else {
-        result.innerHTML = renderPlayerCard(data.player);
+        state.playerResult = data.player;
+        state.notice = `Loaded ${data.player.username}.`; state.error = "";
+        render();
       }
     } catch (err) {
       result.innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
     }
+  });
+
+  async function applyPlayerWrite(label, fn) {
+    try {
+      const data = await fn();
+      if (data?.player) state.playerResult = data.player;
+      state.notice = label; state.error = "";
+      render();
+    } catch (err) {
+      state.error = err.message; state.notice = ""; render();
+    }
+  }
+  document.getElementById("playerEconomyForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Apply Economy Change", `${data.action} ${data.amount} for @${p?.username}?`, async () => {
+      await applyPlayerWrite("Player economy updated.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/economy`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }));
+    });
+  });
+  document.getElementById("playerItemForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Add Item", `Add ${data.item_id} to @${p?.username}?`, async () => {
+      await applyPlayerWrite("Item added.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/items`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }));
+    });
+  });
+  document.querySelectorAll("[data-quick-item]").forEach((btn) => btn.addEventListener("click", () => {
+    const p = state.playerResult;
+    const item_id = btn.dataset.quickItem;
+    const item_type = btn.dataset.quickType || "item";
+    confirmAction("Add Item", `Add ${item_id} to @${p?.username}?`, async () => {
+      await applyPlayerWrite("Item added.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/items`, {
+        method: "POST",
+        body: JSON.stringify({ item_id, item_type, reason: "dashboard quick action" }),
+      }));
+    });
+  }));
+  document.querySelectorAll("[data-remove-item]").forEach((btn) => btn.addEventListener("click", () => {
+    const p = state.playerResult;
+    const itemId = btn.dataset.removeItem;
+    confirmAction("Remove Item", `Remove ${itemId} from @${p?.username}?`, async () => {
+      await applyPlayerWrite("Item removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" }));
+    });
+  }));
+  document.getElementById("playerTitleForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Give Title", `Give title ${data.title_id} to @${p?.username}?`, async () => {
+      await applyPlayerWrite("Title added.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/titles`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+  document.querySelectorAll("[data-remove-title]").forEach((btn) => btn.addEventListener("click", () => {
+    const p = state.playerResult;
+    const titleId = btn.dataset.removeTitle;
+    confirmAction("Remove Title", `Remove title ${titleId} from @${p?.username}?`, async () => {
+      await applyPlayerWrite("Title removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/titles/${encodeURIComponent(titleId)}`, { method: "DELETE" }));
+    });
+  }));
+  document.getElementById("playerBadgeForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Give Badge", `Give badge ${data.badge_id} to @${p?.username}?`, async () => {
+      await applyPlayerWrite("Badge added.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/badges`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+  document.querySelectorAll("[data-remove-badge]").forEach((btn) => btn.addEventListener("click", () => {
+    const p = state.playerResult;
+    const badgeId = btn.dataset.removeBadge;
+    confirmAction("Remove Badge", `Remove badge ${badgeId} from @${p?.username}?`, async () => {
+      await applyPlayerWrite("Badge removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/badges/${encodeURIComponent(badgeId)}`, { method: "DELETE" }));
+    });
+  }));
+  document.getElementById("playerModerationForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Moderation Action", `${data.action} @${p?.username}?`, async () => {
+      await applyPlayerWrite("Moderation action applied.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/${encodeURIComponent(data.action)}`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }));
+    });
   });
 
   /* Titles assign */
