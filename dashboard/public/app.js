@@ -19,6 +19,7 @@ const OWNER_NAV = [
   { id: "Bots",              icon: "🤖", label: "Bots",              group: "Control" },
   { id: "Radio",             icon: "📻", label: "Radio",             group: "Control" },
   { id: "Players",           icon: "👤", label: "Players",           group: "Control" },
+  { id: "Security",          icon: "🛡️", label: "Security",          group: "Control" },
   { id: "Room & Content",    icon: "🏠", label: "Room & Content",    group: "Control" },
   { id: "Emotes",            icon: "💃", label: "Emotes",            group: "Control" },
   { id: "Mining",            icon: "⛏️", label: "Mining",            group: "Control" },
@@ -33,6 +34,7 @@ const STAFF_NAV = [
   { id: "Staff Home",  icon: "📊", label: "Staff Home",  group: "Dashboard" },
   { id: "Radio Queue", icon: "🎵", label: "Radio Queue",  group: "Tools" },
   { id: "Players",     icon: "👤", label: "Players",      group: "Tools" },
+  { id: "Moderation",  icon: "🛡️", label: "Moderation",   group: "Tools" },
   { id: "Events",      icon: "🎉", label: "Events",       group: "Tools" },
   { id: "Room Tools",  icon: "🔧", label: "Room Tools",   group: "Tools" },
   { id: "Logs",        icon: "📋", label: "Logs",         group: "Admin" },
@@ -57,6 +59,17 @@ const PLAYER_TABS = [
   { id: "Titles & Badges", api: "/api/titles" },
   { id: "Moderation", api: null },
   { id: "Logs", api: null },
+];
+const SECURITY_TABS = [
+  { id: "Overview", api: "/api/security" },
+  { id: "Reports", api: "/api/security/reports" },
+  { id: "Warnings", api: "/api/security/warnings" },
+  { id: "Mutes", api: "/api/security/mutes" },
+  { id: "Bans / Jail", api: "/api/security" },
+  { id: "Player Lookup", api: null },
+  { id: "Security Bot", api: "/api/security" },
+  { id: "Logs", api: "/api/security/logs" },
+  { id: "Advanced", api: "/api/security" },
 ];
 const ROOM_TABS = [
   { id: "Overview", api: "/api/room-control" },
@@ -161,6 +174,8 @@ const TAB_REGISTRY = {
   "Bots": BOT_TABS,
   "Radio": RADIO_TABS,
   "Players": PLAYER_TABS,
+  "Security": SECURITY_TABS,
+  "Moderation": SECURITY_TABS,
   "Room & Content": ROOM_TABS,
   "Emotes": EMOTE_TABS,
   "Economy & Rewards": ECONOMY_TABS,
@@ -178,6 +193,7 @@ const PAGE_DESC = {
   "Radio":             "DJ DUDU queue, request gate, stream status and radio maintenance",
   "Bots":              "Bot status, configuration and control",
   "Players":           "Player search, titles, moderation",
+  "Security":          "Moderation, reports, mutes and KeanuShield controls",
   "Room & Content":    "Room settings, radio, events and announcements",
   "Emotes":            "DJ DUDU emote registry, bot loops, dancefloor, sync and social controls",
   "Mining":            "Mining catalog, settings, drop chances and logs",
@@ -187,6 +203,7 @@ const PAGE_DESC = {
   "System":            "Health monitoring, logs and emergency controls",
   "Staff Home":        "Room health and pending attention items",
   "Radio Queue":       "DJ queue management and radio controls",
+  "Moderation":        "Warnings, mutes, reports and player moderation lookup",
   "Events":            "Current and upcoming room events",
   "Room Tools":        "Announcements, welcome messages and room flags",
   "Logs":              "Audit trail and command error logs",
@@ -579,6 +596,7 @@ function pageApi(page, tab) {
     "Staff":                              "/api/staff",
     "Staff Home":                         "/api/overview",
     "Radio Queue":                        "/api/radio",
+    "Moderation":                         "/api/security",
     "Events":                             "/api/events",
     "Room Tools":                         "/api/room-control",
     "Emotes":                             "/api/emotes/overview",
@@ -603,6 +621,7 @@ const state = {
   logs: { action_type: "", user: "", module: "", status: "", date: "", target: "", offset: 0 },
   settingsAudit: { status: "all", module: "", page: "" },
   maintenanceTab: "Overview",
+  securityPlayer: null,
   modal: null,
   sidebarOpen: false,
   showLoginOverlay: false,
@@ -1256,7 +1275,7 @@ function renderAdminPage() {
   const page = state.adminPage;
   const role = state.user?.role;
   const nullDataOk = ["Players", "Bots", "Room & Content", "Emotes", "Economy & Rewards",
-    "Radio", "System", "Staff Home", "Players", "Events", "Room Tools", "Logs"];
+    "Radio", "Security", "System", "Staff Home", "Players", "Moderation", "Events", "Room Tools", "Logs"];
   if (!d && state.error && !nullDataOk.includes(page)) return `<div class="card"><div class="empty-state"><div class="empty-state-icon">⚠️</div><strong style="color:var(--red);margin-bottom:4px">Failed to load</strong><span>${esc(state.error)}</span></div></div>`;
   if (!d && !nullDataOk.includes(page)) return `<div class="card"><div class="loading-state"><div class="loading-spinner"></div><span class="muted text-sm">Loading…</span></div></div>`;
   return role === "owner" ? renderOwnerPage(page) : renderStaffPage(page);
@@ -1284,6 +1303,7 @@ function renderOwnerPage(page) {
     case "Bots":              return renderBotsPage(activeTab("Bots"));
     case "Radio":             return renderRadioOwnerPage(activeTab("Radio"));
     case "Players":           return renderOwnerPlayersPage(activeTab("Players"));
+    case "Security":          return renderSecurityPage(activeTab("Security"));
     case "Room & Content":    return renderRoomContent(activeTab("Room & Content"));
     case "Emotes":            return renderEmotesOwnerPage(activeTab("Emotes"));
     case "Mining":            return renderMiningOwnerPage(activeTab("Mining"));
@@ -2069,7 +2089,7 @@ function renderPlayerTitlesBadgesTab() {
 function renderPlayerModerationTab() {
   const p = state.playerResult;
   if (!p) return selectedPlayerNotice();
-  const canModerate = state.user?.role === "owner" || can("manage_staff") || can("emergency_controls");
+  const canModerate = state.user?.role === "owner" || can("manage_moderation") || can("emergency_controls");
   return `<div class="grid">
     <div class="card">
       <h2>Warnings</h2>
@@ -2104,6 +2124,212 @@ function renderPlayerLogsTab() {
     <div class="card"><h2>Bank Transactions</h2>${table(p.recent_activity?.bank_transactions || [])}</div>
     <div class="card"><h2>Moderation Logs</h2>${table(p.moderation?.logs || [])}</div>
   </div>`;
+}
+
+/* ── Security / Moderation ───────────────────────────── */
+function renderSecurityPage(tab, opts = {}) {
+  const pageName = opts.staff ? "Moderation" : "Security";
+  return `
+    ${tabNav(pageName)}
+    ${tab === "Overview" ? renderSecurityOverview() : ""}
+    ${tab === "Reports" ? renderSecurityReports() : ""}
+    ${tab === "Warnings" ? renderSecurityWarnings() : ""}
+    ${tab === "Mutes" ? renderSecurityMutes() : ""}
+    ${tab === "Bans / Jail" ? renderSecurityBansJail() : ""}
+    ${tab === "Player Lookup" ? renderSecurityPlayerLookup() : ""}
+    ${tab === "Security Bot" ? renderSecurityBot() : ""}
+    ${tab === "Logs" ? renderSecurityLogs() : ""}
+    ${tab === "Advanced" ? renderSecurityAdvanced() : ""}
+  `;
+}
+
+function securityCanWrite() {
+  return state.user?.role === "owner" || can("manage_moderation") || can("emergency_controls");
+}
+
+function renderSecurityOverview() {
+  const d = state.data || {};
+  const o = d.overview || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+      ${metricCard("Open Reports", o.open_reports ?? 0, "reports needing review", o.open_reports ? "accent-red" : "accent-green", "R")}
+      ${metricCard("Active Mutes", o.active_mutes ?? 0, "mutes table", o.active_mutes ? "accent-red" : "accent-green", "M")}
+      ${metricCard("Recent Warnings", o.recent_warnings ?? 0, "warning rows", "", "W")}
+      ${metricCard("Bans / Jail", o.active_bans_or_jail ?? 0, "if supported", o.active_bans_or_jail ? "accent-red" : "", "J")}
+      ${metricCard("Security Bot", o.security_bot_status || "missing", "KeanuShield", o.security_bot_status === "online" ? "accent-green" : "accent-red", "S")}
+      ${metricCard("Failed Commands", o.failed_moderation_commands ?? 0, "security queue", o.failed_moderation_commands ? "accent-red" : "accent-green", "!")}
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Recent Moderation Actions</h2>${table(d.tables?.moderation_logs?.rows || [])}</div>
+      <div class="card"><h2>Failed / Recent Security Commands</h2>${table(d.command_queue?.recent || [])}</div>
+    </div>
+  `;
+}
+
+function renderSecurityReports() {
+  const d = state.data || {};
+  const rows = d.reports?.rows || d.tables?.reports?.rows || [];
+  return `
+    <div class="card">
+      <h2>Reports</h2>
+      ${table(rows, [
+        { key: "id", label: "ID" },
+        { key: "reporter_username", label: "Reporter" },
+        { key: "target_username", label: "Target" },
+        { key: "report_type", label: "Type" },
+        { key: "reason", label: "Reason" },
+        { key: "status", label: "Status", render: (r) => pill(r.status || "open") },
+        { key: "handled_by", label: "Handled By" },
+      ], securityCanWrite() ? (r) => `<button class="btn sm" data-report-review="${esc(r.id)}">Reviewing</button><button class="btn primary sm" data-report-resolve="${esc(r.id)}">Resolve</button>` : null)}
+    </div>
+  `;
+}
+
+function renderSecurityWarnings() {
+  const d = state.data || {};
+  const warnings = d.warnings?.rows || d.tables?.warnings?.rows || [];
+  const roomWarnings = d.room_warnings?.rows || d.tables?.room_warnings?.rows || [];
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>Issue Warning</h2>
+        ${securityCanWrite() ? `<form id="securityWarnForm" class="settings-form">
+          <div class="field"><label class="field-label">Username or User ID</label><input name="query" required /></div>
+          <div class="field"><label class="field-label">Reason</label><input name="reason" required /></div>
+          <button class="btn primary">Issue Warning</button>
+        </form>` : `<div class="notice">Requires moderation permission.</div>`}
+      </div>
+      <div class="card"><h2>Warnings</h2>${table(warnings)}</div>
+      <div class="card"><h2>Room Warnings</h2>${table(roomWarnings)}</div>
+    </div>
+  `;
+}
+
+function renderSecurityMutes() {
+  const d = state.data || {};
+  const rows = d.mutes?.rows || d.tables?.mutes?.rows || [];
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>Mute Player</h2>
+        ${securityCanWrite() ? `<form id="securityMuteForm" class="settings-form">
+          <div class="field"><label class="field-label">Username or User ID</label><input name="query" required /></div>
+          <div class="field"><label class="field-label">Minutes</label><input name="minutes" type="number" min="1" max="10080" value="60" /></div>
+          <div class="field"><label class="field-label">Reason</label><input name="reason" required /></div>
+          <button class="btn primary">Mute Player</button>
+        </form>` : `<div class="notice">Requires moderation permission.</div>`}
+      </div>
+      <div class="card">
+        <h2>Active / Recent Mutes</h2>
+        ${table(rows, null, securityCanWrite() ? (r) => {
+          const target = r.user_id || r.username || r.target_id || "";
+          return target ? `<button class="btn danger sm" data-security-unmute="${esc(target)}">Unmute</button>` : "";
+        } : null)}
+      </div>
+    </div>
+  `;
+}
+
+function renderSecurityBansJail() {
+  const d = state.data || {};
+  return `
+    <div class="grid">
+      <div class="card"><h2>Room Bans</h2>${table(d.tables?.room_bans?.rows || [])}</div>
+      <div class="card"><h2>Jail Sentences</h2>${table(d.tables?.jail_sentences?.rows || [])}</div>
+    </div>
+    ${futureControls([
+      { endpoint: "POST /api/security/bans", purpose: "Ban/unban requires verified authoritative table or security bot support", status: "Unverified" },
+      { endpoint: "POST /api/security/jail", purpose: "Jail/unjail requires verified bot-side support", status: "Unverified" },
+    ], "Bans / Jail Actions")}
+  `;
+}
+
+function renderSecurityPlayerLookup() {
+  const p = state.securityPlayer?.player;
+  return `
+    <div class="card">
+      <h2>Player Moderation Lookup</h2>
+      <form id="securityPlayerLookupForm" class="toolbar" style="flex-wrap:wrap">
+        <input name="query" required placeholder="username or user_id" style="flex:1;min-width:180px" />
+        <button class="btn primary">Search</button>
+      </form>
+    </div>
+    ${p ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+      ${metricCard("Player", p.username || p.user_id, p.user_id, "accent-cyan", "P")}
+      ${metricCard("Warnings", p.moderation?.warnings_count ?? p.moderation?.warnings?.length ?? 0, "warnings", "", "W")}
+      ${metricCard("Mutes", p.moderation?.mutes_count ?? p.moderation?.mutes?.length ?? 0, "mutes", "", "M")}
+      ${metricCard("Reports", p.moderation?.reports_count ?? p.moderation?.reports?.length ?? 0, "reports", "", "R")}
+      ${metricCard("Bans", state.securityPlayer?.bans?.length ?? 0, "room_bans", "", "B")}
+      ${metricCard("Jail", state.securityPlayer?.jail?.length ?? 0, "jail_sentences", "", "J")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Actions</h2>
+        ${securityCanWrite() ? `<form id="securityPlayerActionForm" class="settings-form">
+          <input type="hidden" name="query" value="${esc(p.user_id || p.username)}" />
+          <div class="field"><label class="field-label">Action</label><select name="action"><option value="warn">Warn</option><option value="mute">Mute</option><option value="unmute">Unmute</option></select></div>
+          <div class="field"><label class="field-label">Minutes</label><input name="minutes" type="number" min="1" max="10080" value="60" /></div>
+          <div class="field"><label class="field-label">Reason</label><input name="reason" required /></div>
+          <button class="btn primary">Apply Action</button>
+        </form>` : `<div class="notice">Requires moderation permission.</div>`}
+      </div>
+      <div class="card"><h2>Warnings</h2>${table(p.moderation?.warnings || [])}</div>
+      <div class="card"><h2>Mutes</h2>${table(p.moderation?.mutes || [])}</div>
+      <div class="card"><h2>Reports</h2>${table(p.moderation?.reports || [])}</div>
+      <div class="card"><h2>Jail / Bans</h2>${table([...(state.securityPlayer?.jail || []), ...(state.securityPlayer?.bans || [])])}</div>
+      <div class="card"><h2>Moderation Logs</h2>${table(p.moderation?.logs || [])}</div>
+    </div>` : ""}
+  `;
+}
+
+function renderSecurityBot() {
+  const d = state.data || {};
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>KeanuShield Status</h2>
+        ${d.security_bot ? table([d.security_bot]) : `<div class="notice warn">Security bot row not found.</div>`}
+      </div>
+      <div class="card">
+        <h2>Queue Security Alert</h2>
+        ${securityCanWrite() ? `<form id="securityAlertForm" class="settings-form">
+          <div class="field"><label class="field-label">Message</label><input name="message" required maxlength="240" /></div>
+          <button class="btn primary">Queue Security Alert</button>
+        </form>
+        <div class="toolbar" style="margin-top:12px">
+          <button class="btn sm" data-security-bot-action="return_home">Queue Return Home</button>
+          <button class="btn sm" data-security-bot-action="stop_emote">Queue Stop Emote</button>
+        </div>
+        ${queueHelp()}` : `<div class="notice">Requires moderation permission.</div>`}
+      </div>
+    </div>
+    <div class="card"><h2>Security Bot Queue</h2>${table(d.command_queue?.recent || [])}</div>
+  `;
+}
+
+function renderSecurityLogs() {
+  const d = state.data || {};
+  return `
+    <div class="card"><h2>Moderation Logs</h2>${table(d.moderation_logs?.rows || d.tables?.moderation_logs?.rows || [])}</div>
+    <div class="card"><h2>Audit Logs</h2>${table(d.audit_logs?.rows || d.tables?.audit_logs?.rows || [])}</div>
+    <div class="card"><h2>Admin Action Logs</h2>${table(d.admin_action_logs?.rows || d.tables?.admin_action_logs?.rows || [])}</div>
+    <div class="card"><h2>Security Command Queue</h2>${table(d.command_queue?.recent || [])}</div>
+  `;
+}
+
+function renderSecurityAdvanced() {
+  const d = state.data || {};
+  return `
+    ${futureControls(d.missing_endpoints || [], "Unverified / Owner-only Moderation Controls")}
+    <details class="advanced-collapse">
+      <summary class="advanced-summary"><span class="pill warn">RAW</span> Raw Moderation Tables</summary>
+      <div class="advanced-content">
+        ${["reports","warnings","room_warnings","mutes","room_bans","jail_sentences","moderation_logs"].map((name) =>
+          `<h3>${esc(name)}</h3>${table(d.tables?.[name]?.rows || [])}`
+        ).join("")}
+      </div>
+    </details>
+  `;
 }
 
 /* ── Room & Content ──────────────────────────────────── */
@@ -4144,6 +4370,7 @@ function renderStaffPage(page) {
     case "Staff Home":  return renderStaffHome();
     case "Radio Queue": return renderStaffRadioQueue();
     case "Players":     return renderStaffPlayers();
+    case "Moderation":  return renderSecurityPage(activeTab("Moderation"), { staff: true });
     case "Events":      return renderStaffEvents();
     case "Room Tools":  return renderStaffRoomTools();
     case "Logs":        return renderStaffLogs();
@@ -4720,6 +4947,87 @@ function bindAdminPageEvents() {
       confirmAction("Disable Announcement", `Soft-disable rotating announcement #${id}?`, async () => {
         await action("Rotating announcement disabled.", () =>
           api(`/api/room/announcements/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ enabled: false }) }));
+      });
+    });
+  });
+
+  document.getElementById("securityWarnForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Issue Warning", `Warn ${data.query}?`, async () => {
+      await action("Warning recorded or queued.", () => api("/api/security/warnings", { method: "POST", body: JSON.stringify(data) }));
+      await loadAdmin();
+    });
+  });
+  document.getElementById("securityMuteForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Mute Player", `Mute ${data.query} for ${data.minutes || 60} minutes?`, async () => {
+      await action("Mute recorded or queued.", () => api("/api/security/mutes", { method: "POST", body: JSON.stringify(data) }));
+      await loadAdmin();
+    });
+  });
+  document.querySelectorAll("[data-security-unmute]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.securityUnmute;
+      confirmAction("Unmute Player", `Unmute ${target}?`, async () => {
+        await action("Player unmuted.", () => api(`/api/security/mutes/${encodeURIComponent(target)}`, { method: "DELETE", body: JSON.stringify({}) }));
+        await loadAdmin();
+      });
+    });
+  });
+  document.querySelectorAll("[data-report-review], [data-report-resolve]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.reportReview || btn.dataset.reportResolve;
+      const status = btn.dataset.reportResolve ? "resolved" : "reviewing";
+      const resolution = status === "resolved" ? prompt("Resolution note (optional):") || "" : "";
+      confirmAction("Update Report", `Mark report #${id} as ${status}?`, async () => {
+        await action("Report updated.", () => api(`/api/security/reports/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ status, resolution }) }));
+        await loadAdmin();
+      });
+    });
+  });
+  document.getElementById("securityPlayerLookupForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const query = e.currentTarget.querySelector("[name='query']")?.value.trim() || "";
+    if (!query) return;
+    try {
+      state.securityPlayer = await api(`/api/security/player/${encodeURIComponent(query)}`);
+      state.notice = `Loaded moderation history for ${state.securityPlayer.player?.username || query}.`;
+      state.error = "";
+      render();
+    } catch (err) {
+      state.securityPlayer = null;
+      state.error = err.message;
+      render();
+    }
+  });
+  document.getElementById("securityPlayerActionForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Apply Moderation Action", `${data.action} ${data.query}?`, async () => {
+      const url = data.action === "warn" ? "/api/security/warnings"
+        : data.action === "mute" ? "/api/security/mutes"
+        : `/api/security/mutes/${encodeURIComponent(data.query)}`;
+      const method = data.action === "unmute" ? "DELETE" : "POST";
+      await action("Moderation action applied.", () => api(url, { method, body: JSON.stringify(data) }));
+      state.securityPlayer = await api(`/api/security/player/${encodeURIComponent(data.query)}`).catch(() => state.securityPlayer);
+      render();
+    });
+  });
+  document.getElementById("securityAlertForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const message = e.currentTarget.querySelector("[name='message']")?.value.trim() || "";
+    if (!message) return;
+    await action("Security alert queued. Bot must consume bot_command_queue.", () =>
+      api("/api/bot-command", { method: "POST", body: JSON.stringify({ target_bot: "security", action: "security_alert", payload: { message } }) }));
+  });
+  document.querySelectorAll("[data-security-bot-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const actionName = btn.dataset.securityBotAction;
+      confirmAction("Queue Security Bot Command", `Queue ${actionName} for KeanuShield?`, async () => {
+        await action("Security bot command queued.", () =>
+          api("/api/bot-command", { method: "POST", body: JSON.stringify({ target_bot: "security", action: actionName, payload: {} }) }));
       });
     });
   });

@@ -1357,6 +1357,131 @@ const BOT_COMMAND_QUEUE_COLUMNS = [
   "error_text",
 ];
 
+function moderationTableInfo(db, table, limit = "100") {
+  const exists = tableExists(db, table);
+  const cols = exists ? tableColumns(db, table) : [];
+  const orderBy = cols.includes("created_at") ? "created_at DESC"
+    : cols.includes("timestamp") ? "timestamp DESC"
+    : cols.includes("muted_at") ? "muted_at DESC"
+    : cols.includes("warned_at") ? "warned_at DESC"
+    : cols.includes("reported_at") ? "reported_at DESC"
+    : cols.includes("id") ? "id DESC"
+    : "";
+  return { exists, columns: cols, rows: safeTableRows(db, table, { orderBy, limit }) };
+}
+
+function activeSecurityBot(db) {
+  const rows = safeRows(db, "bot_instances", ["bot_username","bot_mode","status","last_heartbeat_at","last_seen_at","last_error","current_room_id"], {
+    where: "lower(bot_mode)='security' OR lower(bot_username)=lower('KeanuShield')",
+    orderBy: columnExists(db, "bot_instances", "last_heartbeat_at") ? "last_heartbeat_at DESC" : "",
+    limit: "5",
+  });
+  return rows[0] || null;
+}
+
+function readSecurityDashboard(db) {
+  const reports = moderationTableInfo(db, "reports", "250");
+  const warnings = moderationTableInfo(db, "warnings", "250");
+  const roomWarnings = moderationTableInfo(db, "room_warnings", "250");
+  const mutes = moderationTableInfo(db, "mutes", "250");
+  const bans = moderationTableInfo(db, "room_bans", "250");
+  const jail = moderationTableInfo(db, "jail_sentences", "250");
+  const modLogs = moderationTableInfo(db, "moderation_logs", "250");
+  const securityBot = activeSecurityBot(db);
+  const securityCommands = safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
+    where: "target_bot IN ('security','KeanuShield') OR action IN ('warn_user','mute_user','unmute_user','jail_user','unjail_user','security_alert')",
+    orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "100",
+  });
+  const openReports = reports.rows.filter((r) => !["resolved","closed","done","dismissed"].includes(String(r.status || "").toLowerCase())).length;
+  const activeMutes = mutes.rows.filter((r) => !r.expires_at || new Date(r.expires_at).getTime() > Date.now()).length;
+  const recentWarnings = [...warnings.rows, ...roomWarnings.rows].slice(0, 25);
+  const activeJail = jail.rows.filter((r) => !r.expires_at || new Date(r.expires_at).getTime() > Date.now()).length;
+  const activeBans = bans.rows.filter((r) => !r.expires_at || new Date(r.expires_at).getTime() > Date.now()).length;
+  return {
+    overview: {
+      open_reports: openReports,
+      active_mutes: activeMutes,
+      recent_warnings: recentWarnings.length,
+      active_bans_or_jail: activeBans + activeJail,
+      security_bot_status: securityBot?.status || "missing",
+      failed_moderation_commands: securityCommands.filter((r) => r.status === "failed").length,
+    },
+    security_bot: securityBot,
+    command_queue: {
+      pending: securityCommands.filter((r) => ["pending","queued","claimed","running"].includes(String(r.status || ""))),
+      recent: securityCommands,
+    },
+    tables: {
+      reports,
+      warnings,
+      room_warnings: roomWarnings,
+      mutes,
+      room_bans: bans,
+      jail_sentences: jail,
+      moderation_logs: modLogs,
+      audit_logs: {
+        exists: tableExists(db, "audit_logs"),
+        columns: tableColumns(db, "audit_logs"),
+        rows: safeRows(db, "audit_logs", ["id","actor","action_type","target_type","target_id","old_value","new_value","ip_address","created_at"], {
+          where: "action_type LIKE '%moderation%' OR action_type LIKE 'player_warn%' OR action_type LIKE 'player_mute%' OR action_type LIKE 'player_unmute%' OR action_type LIKE 'security_%'",
+          orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "",
+          limit: "100",
+        }),
+      },
+      admin_action_logs: moderationTableInfo(db, "admin_action_logs", "100"),
+      command_error_logs: moderationTableInfo(db, "command_error_logs", "100"),
+    },
+    missing_endpoints: [
+      { endpoint: "DELETE /api/security/warnings/:id", purpose: "Clear warning history", status: "OWNER ONLY / NOT IMPLEMENTED" },
+      { endpoint: "POST /api/security/bans", purpose: "Ban/unban from room", status: bans.exists ? "UNVERIFIED" : "MISSING TABLE" },
+      { endpoint: "POST /api/security/jail", purpose: "Jail/unjail user", status: jail.exists ? "UNVERIFIED" : "MISSING TABLE" },
+      { endpoint: "moderation cleanup", purpose: "Delete old moderation records", status: "PREVIEW ONLY" },
+    ],
+  };
+}
+
+function insertWarningRow(db, player, actor, reason) {
+  if (!tableExists(db, "warnings")) throw new Error("warnings_missing");
+  const cols = tableColumns(db, "warnings");
+  const pairs = [
+    ["user_id", player.user_id],
+    ["username", player.username],
+    ["warned_by", actor],
+    ["staff_name", actor],
+    ["reason", reason],
+    ["created_at", "CURRENT_TIMESTAMP", true],
+    ["warned_at", "CURRENT_TIMESTAMP", true],
+  ].filter(([col]) => cols.includes(col));
+  if (!pairs.some(([col]) => col === "reason")) throw new Error("warnings_reason_missing");
+  const names = pairs.map(([col]) => sqlIdent(col));
+  const placeholders = pairs.map(([, , raw]) => raw ? "CURRENT_TIMESTAMP" : "?");
+  const values = pairs.filter(([, , raw]) => !raw).map(([, value]) => value);
+  return db.prepare(`INSERT INTO warnings (${names.join(", ")}) VALUES (${placeholders.join(", ")})`).run(...values);
+}
+
+function upsertMuteRow(db, player, actor, reason, minutes) {
+  if (!tableExists(db, "mutes")) throw new Error("mutes_missing");
+  const cols = tableColumns(db, "mutes");
+  const expiresAt = new Date(Date.now() + minutes * 60_000).toISOString();
+  const pairs = [
+    ["user_id", player.user_id],
+    ["username", player.username],
+    ["muted_by", actor],
+    ["staff_name", actor],
+    ["reason", reason],
+    ["duration_minutes", minutes],
+    ["muted_at", "CURRENT_TIMESTAMP", true],
+    ["created_at", "CURRENT_TIMESTAMP", true],
+    ["expires_at", expiresAt],
+  ].filter(([col]) => cols.includes(col));
+  if (!pairs.some(([col]) => col === "user_id") && !pairs.some(([col]) => col === "username")) throw new Error("mutes_identity_column_missing");
+  const names = pairs.map(([col]) => sqlIdent(col));
+  const placeholders = pairs.map(([, , raw]) => raw ? "CURRENT_TIMESTAMP" : "?");
+  const values = pairs.filter(([, , raw]) => !raw).map(([, value]) => value);
+  return db.prepare(`INSERT OR REPLACE INTO mutes (${names.join(", ")}) VALUES (${placeholders.join(", ")})`).run(...values);
+}
+
 const ACTIVE_BLACKJACK_COLUMNS = [
   "id",
   "rbj_enabled",
@@ -3939,6 +4064,142 @@ app.get("/api/economy/transactions", requireAuth, requireAnyPermission("manage_e
   });
 }, closeDb);
 
+/* ── Security / Moderation ──────────────────────────── */
+app.get("/api/security", requireAuth, requireAnyPermission("manage_moderation", "view_logs", "emergency_controls"), (req, res) => {
+  json(res, readSecurityDashboard(req.db));
+}, closeDb);
+
+app.get("/api/security/reports", requireAuth, requireAnyPermission("manage_moderation", "view_logs", "emergency_controls"), (req, res) => {
+  const d = readSecurityDashboard(req.db);
+  json(res, { reports: d.tables.reports, overview: d.overview });
+}, closeDb);
+
+app.put("/api/security/reports/:id", requireAuth, requireAnyPermission("manage_moderation", "emergency_controls"), (req, res) => {
+  if (!tableExists(req.db, "reports")) return json(res, { error: "reports_missing" }, 404);
+  const cols = tableColumns(req.db, "reports");
+  if (!cols.includes("id")) return json(res, { error: "reports_id_missing" }, 400);
+  const id = String(req.params.id);
+  const before = safeOne(req.db, "reports", cols, { where: "id=?", params: [id] });
+  if (!before) return json(res, { error: "not_found" }, 404);
+  const updates = [];
+  const values = [];
+  const status = String(req.body?.status || "").trim().toLowerCase();
+  if (status) {
+    if (!["open", "reviewing", "resolved", "closed", "dismissed"].includes(status)) return json(res, { error: "invalid_status" }, 400);
+    if (cols.includes("status")) { updates.push("status=?"); values.push(status); }
+  }
+  const resolution = String(req.body?.resolution || req.body?.resolution_note || "").trim();
+  for (const col of ["resolution", "resolution_note", "handled_reason"]) {
+    if (resolution && cols.includes(col)) { updates.push(`${sqlIdent(col)}=?`); values.push(resolution); break; }
+  }
+  for (const col of ["handled_by", "assigned_to", "reviewed_by"]) {
+    if (cols.includes(col)) { updates.push(`${sqlIdent(col)}=?`); values.push(req.user.username); break; }
+  }
+  for (const col of ["handled_at", "updated_at", "resolved_at"]) {
+    if (cols.includes(col)) { updates.push(`${sqlIdent(col)}=CURRENT_TIMESTAMP`); break; }
+  }
+  if (!updates.length) return json(res, { error: "unverified_schema", message: "reports table has no supported writable moderation columns." }, 400);
+  req.db.prepare(`UPDATE reports SET ${updates.join(", ")} WHERE id=?`).run(...values, id);
+  const after = safeOne(req.db, "reports", cols, { where: "id=?", params: [id] });
+  audit(req.db, req.user.username, "security_report_update", "reports", id, before, after, req.ip);
+  json(res, { ok: true, report: after });
+}, closeDb);
+
+app.get("/api/security/warnings", requireAuth, requireAnyPermission("manage_moderation", "view_logs", "emergency_controls"), (req, res) => {
+  const d = readSecurityDashboard(req.db);
+  json(res, { warnings: d.tables.warnings, room_warnings: d.tables.room_warnings, overview: d.overview });
+}, closeDb);
+
+app.post("/api/security/warnings", requireAuth, requireAnyPermission("manage_moderation", "emergency_controls"), (req, res) => {
+  const query = String(req.body?.username || req.body?.user_id || req.body?.query || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!query) return json(res, { error: "player_required" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const player = readPlayerProfile(req.db, query);
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  try {
+    const info = insertWarningRow(req.db, player, req.user.username, reason);
+    writeModerationLog(req.db, req.user.username, player, "warn", reason, 0);
+    audit(req.db, req.user.username, "security_warn", "warnings", player.user_id, "", { reason, rowid: info.lastInsertRowid }, req.ip);
+    json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id), rowid: info.lastInsertRowid });
+  } catch (err) {
+    try {
+      const queued = enqueueBotCommand(req.db, { targetBot: "security", actionName: "warn_user", payload: { username: player.username, user_id: player.user_id, reason }, requesterId: req.user.username });
+      audit(req.db, req.user.username, "security_warn_enqueue", "bot_command_queue", queued.id, "", { player: player.username, reason }, req.ip);
+      json(res, { ok: true, queued: true, command: queued, message: "Warning queued for security bot. Bot must consume bot_command_queue." });
+    } catch (queueErr) {
+      json(res, { error: err.message || "warning_failed", queue_error: queueErr.message }, 400);
+    }
+  }
+}, closeDb);
+
+app.get("/api/security/mutes", requireAuth, requireAnyPermission("manage_moderation", "view_logs", "emergency_controls"), (req, res) => {
+  const d = readSecurityDashboard(req.db);
+  json(res, { mutes: d.tables.mutes, overview: d.overview });
+}, closeDb);
+
+app.post("/api/security/mutes", requireAuth, requireAnyPermission("manage_moderation", "emergency_controls"), (req, res) => {
+  const query = String(req.body?.username || req.body?.user_id || req.body?.query || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  const minutes = Math.max(1, Math.min(10080, Math.trunc(Number(req.body?.minutes || 60))));
+  if (!query) return json(res, { error: "player_required" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const player = readPlayerProfile(req.db, query);
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  try {
+    const before = tableExists(req.db, "mutes") ? safeOne(req.db, "mutes", tableColumns(req.db, "mutes"), { where: "user_id=? OR lower(username)=lower(?)", params: [player.user_id, player.username] }) : null;
+    upsertMuteRow(req.db, player, req.user.username, reason, minutes);
+    writeModerationLog(req.db, req.user.username, player, "mute", reason, minutes);
+    audit(req.db, req.user.username, "security_mute", "mutes", player.user_id, before, { reason, minutes }, req.ip);
+    json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
+  } catch (err) {
+    try {
+      const queued = enqueueBotCommand(req.db, { targetBot: "security", actionName: "mute_user", payload: { username: player.username, user_id: player.user_id, reason, minutes }, requesterId: req.user.username });
+      audit(req.db, req.user.username, "security_mute_enqueue", "bot_command_queue", queued.id, "", { player: player.username, reason, minutes }, req.ip);
+      json(res, { ok: true, queued: true, command: queued, message: "Mute queued for security bot. Bot must consume bot_command_queue." });
+    } catch (queueErr) {
+      json(res, { error: err.message || "mute_failed", queue_error: queueErr.message }, 400);
+    }
+  }
+}, closeDb);
+
+app.delete("/api/security/mutes/:user_id", requireAuth, requireAnyPermission("manage_moderation", "emergency_controls"), (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.user_id);
+  const target = player?.user_id || String(req.params.user_id);
+  if (!tableExists(req.db, "mutes")) return json(res, { error: "mutes_missing" }, 404);
+  const before = safeOne(req.db, "mutes", tableColumns(req.db, "mutes"), { where: "user_id=? OR lower(username)=lower(?)", params: [target, player?.username || target] });
+  const cols = tableColumns(req.db, "mutes");
+  const where = cols.includes("user_id") && cols.includes("username") ? "user_id=? OR lower(username)=lower(?)" : cols.includes("user_id") ? "user_id=?" : "lower(username)=lower(?)";
+  const params = where.includes("OR") ? [target, player?.username || target] : [cols.includes("user_id") ? target : player?.username || target];
+  const info = req.db.prepare(`DELETE FROM mutes WHERE ${where}`).run(...params);
+  if (player) writeModerationLog(req.db, req.user.username, player, "unmute", String(req.body?.reason || ""), 0);
+  audit(req.db, req.user.username, "security_unmute", "mutes", target, before, { removed: info.changes }, req.ip);
+  json(res, { ok: true, removed: info.changes, player: player ? readPlayerProfile(req.db, player.user_id) : null });
+}, closeDb);
+
+app.get("/api/security/player/:query", requireAuth, requireAnyPermission("manage_moderation", "view_logs", "emergency_controls"), (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.query);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  const lowerId = String(player.user_id || "").toLowerCase();
+  const lowerName = String(player.username || "").toLowerCase();
+  const matchPlayer = (r) => [r.user_id, r.username, r.target_id, r.target_username].map((v) => String(v || "").toLowerCase()).includes(lowerId)
+    || [r.username, r.target_username, r.target_name].map((v) => String(v || "").toLowerCase()).includes(lowerName);
+  const bans = tableExists(req.db, "room_bans") ? safeTableRows(req.db, "room_bans", { orderBy: columnExists(req.db, "room_bans", "created_at") ? "created_at DESC" : "", limit: "250" }).filter(matchPlayer) : [];
+  const jail = tableExists(req.db, "jail_sentences") ? safeTableRows(req.db, "jail_sentences", { orderBy: columnExists(req.db, "jail_sentences", "created_at") ? "created_at DESC" : "", limit: "250" }).filter(matchPlayer) : [];
+  json(res, { player, bans, jail });
+}, closeDb);
+
+app.get("/api/security/logs", requireAuth, requireAnyPermission("manage_moderation", "view_logs", "emergency_controls"), (req, res) => {
+  const d = readSecurityDashboard(req.db);
+  json(res, {
+    moderation_logs: d.tables.moderation_logs,
+    audit_logs: d.tables.audit_logs,
+    admin_action_logs: d.tables.admin_action_logs,
+    command_error_logs: d.tables.command_error_logs,
+    command_queue: d.command_queue,
+  });
+}, closeDb);
+
 /* ── Player Search ──────────────────────────────────── */
 function readPlayerProfile(db, idOrQuery) {
   const q = String(idOrQuery || "").trim().slice(0, 100);
@@ -4287,9 +4548,15 @@ const ALLOWED_BOT_COMMAND_ACTIONS = new Set([
   "sync_persist",
   "botemote_set",
   "botemote_stop",
+  "warn_user",
+  "mute_user",
+  "unmute_user",
+  "jail_user",
+  "unjail_user",
+  "security_alert",
 ]);
 
-app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games","manage_room","manage_events","manage_emotes","manage_bots"), (req, res) => {
+app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games","manage_room","manage_events","manage_emotes","manage_bots","manage_moderation"), (req, res) => {
   const targetBot = String(req.body?.target_bot || "").trim().slice(0, 80);
   const actionName = String(req.body?.action || "").trim();
   const payload = req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload) ? req.body.payload : {};

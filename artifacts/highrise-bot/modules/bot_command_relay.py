@@ -279,6 +279,71 @@ def _require_host_action(action: str) -> None:
         raise PermissionError(f"{action} may only run on ChillTopiaMC")
 
 
+def _require_security_action(action: str) -> None:
+    if _current_mode() != "security":
+        raise PermissionError(f"{action} may only run on KeanuShield")
+
+
+async def _do_security_alert(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_security_action("security_alert")
+    message = str(payload.get("message") or "").strip()
+    if not message:
+        raise ValueError("security_alert message is empty")
+    await bot.highrise.chat(("🛡️ " + message)[:MAX_CHAT_CHARS])
+    return "security alert sent"
+
+
+async def _do_warn_user(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_security_action("warn_user")
+    username = str(payload.get("username") or "").strip().lstrip("@")
+    user_id = str(payload.get("user_id") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    if not username or not reason:
+        raise ValueError("warn_user requires username and reason")
+    total = db.add_warning(user_id or username, username, requester_id or "dashboard", reason)
+    await bot.highrise.chat((f"⚠️ @{username} warned: {reason}")[:MAX_CHAT_CHARS])
+    return f"warning recorded for @{username}; total={total}"
+
+
+async def _do_mute_user(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_security_action("mute_user")
+    username = str(payload.get("username") or "").strip().lstrip("@")
+    user_id = str(payload.get("user_id") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    try:
+        minutes = int(payload.get("minutes") or 60)
+    except Exception:
+        minutes = 60
+    minutes = max(1, min(minutes, 10080))
+    if not username or not user_id:
+        raise ValueError("mute_user requires username and user_id")
+    db.mute_user(user_id, username, requester_id or "dashboard", minutes)
+    await bot.highrise.chat((f"🔇 @{username} muted for {minutes}min. {reason}")[:MAX_CHAT_CHARS])
+    return f"muted @{username} for {minutes}min"
+
+
+async def _do_unmute_user(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_security_action("unmute_user")
+    username = str(payload.get("username") or "").strip().lstrip("@")
+    user_id = str(payload.get("user_id") or "").strip()
+    if not user_id:
+        raise ValueError("unmute_user requires user_id")
+    removed = db.unmute_user(user_id)
+    if username:
+        await bot.highrise.chat((f"🔊 @{username} unmuted.")[:MAX_CHAT_CHARS])
+    return f"unmute user_id={user_id}; removed={removed}"
+
+
+async def _do_jail_user(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_security_action("jail_user")
+    raise RuntimeError("jail_user helper missing")
+
+
+async def _do_unjail_user(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_security_action("unjail_user")
+    raise RuntimeError("unjail_user helper missing")
+
+
 async def _do_event_start(bot: "BaseBot", payload: dict, requester_id: str) -> str:
     _require_host_action("event_start")
     from modules import events
@@ -723,6 +788,12 @@ DISPATCH = {
     "event_start": _do_event_start,
     "event_stop": _do_event_stop,
     "event_schedule": _do_event_schedule,
+    "warn_user": _do_warn_user,
+    "mute_user": _do_mute_user,
+    "unmute_user": _do_unmute_user,
+    "jail_user": _do_jail_user,
+    "unjail_user": _do_unjail_user,
+    "security_alert": _do_security_alert,
     "dancefloor_start": _do_dancefloor_start,
     "dancefloor_stop": _do_dancefloor_stop,
     "dancefloor_clear": _do_dancefloor_clear,
