@@ -20,6 +20,7 @@ const OWNER_NAV = [
   { id: "Radio",             icon: "📻", label: "Radio",             group: "Control" },
   { id: "Players",           icon: "👤", label: "Players",           group: "Control" },
   { id: "Security",          icon: "🛡️", label: "Security",          group: "Control" },
+  { id: "Leaderboards",      icon: "🏆", label: "Leaderboards",      group: "Control" },
   { id: "Room & Content",    icon: "🏠", label: "Room & Content",    group: "Control" },
   { id: "Emotes",            icon: "💃", label: "Emotes",            group: "Control" },
   { id: "Mining",            icon: "⛏️", label: "Mining",            group: "Control" },
@@ -35,6 +36,7 @@ const STAFF_NAV = [
   { id: "Radio Queue", icon: "🎵", label: "Radio Queue",  group: "Tools" },
   { id: "Players",     icon: "👤", label: "Players",      group: "Tools" },
   { id: "Moderation",  icon: "🛡️", label: "Moderation",   group: "Tools" },
+  { id: "Leaderboards", icon: "🏆", label: "Leaderboards", group: "Tools" },
   { id: "Events",      icon: "🎉", label: "Events",       group: "Tools" },
   { id: "Room Tools",  icon: "🔧", label: "Room Tools",   group: "Tools" },
   { id: "Logs",        icon: "📋", label: "Logs",         group: "Admin" },
@@ -70,6 +72,16 @@ const SECURITY_TABS = [
   { id: "Security Bot", api: "/api/security" },
   { id: "Logs", api: "/api/security/logs" },
   { id: "Advanced", api: "/api/security" },
+];
+const LEADERBOARD_TABS = [
+  { id: "Overview", api: "/api/leaderboards" },
+  { id: "Economy", api: "/api/leaderboards" },
+  { id: "Casino", api: "/api/leaderboards" },
+  { id: "Mining", api: "/api/leaderboards" },
+  { id: "Fishing", api: "/api/leaderboards" },
+  { id: "Events", api: "/api/leaderboards" },
+  { id: "Radio", api: "/api/leaderboards" },
+  { id: "Diagnostics", api: "/api/leaderboards" },
 ];
 const ROOM_TABS = [
   { id: "Overview", api: "/api/room-control" },
@@ -176,6 +188,7 @@ const TAB_REGISTRY = {
   "Players": PLAYER_TABS,
   "Security": SECURITY_TABS,
   "Moderation": SECURITY_TABS,
+  "Leaderboards": LEADERBOARD_TABS,
   "Room & Content": ROOM_TABS,
   "Emotes": EMOTE_TABS,
   "Economy & Rewards": ECONOMY_TABS,
@@ -194,6 +207,7 @@ const PAGE_DESC = {
   "Bots":              "Bot status, configuration and control",
   "Players":           "Player search, titles, moderation",
   "Security":          "Moderation, reports, mutes and KeanuShield controls",
+  "Leaderboards":      "Public rankings, source diagnostics and leaderboard health",
   "Room & Content":    "Room settings, radio, events and announcements",
   "Emotes":            "DJ DUDU emote registry, bot loops, dancefloor, sync and social controls",
   "Mining":            "Mining catalog, settings, drop chances and logs",
@@ -597,6 +611,7 @@ function pageApi(page, tab) {
     "Staff Home":                         "/api/overview",
     "Radio Queue":                        "/api/radio",
     "Moderation":                         "/api/security",
+    "Leaderboards":                       "/api/leaderboards",
     "Events":                             "/api/events",
     "Room Tools":                         "/api/room-control",
     "Emotes":                             "/api/emotes/overview",
@@ -1058,13 +1073,15 @@ function renderPublicEvents(d) {
 
 function renderPublicRankings(d) {
   function leaderboard(title, icon, rows, cols) {
+    const list = (rows || []).slice(0, 10);
     return `<div class="card"><h3>${icon} ${title}</h3>
-      ${rows && rows.length ? `<div class="pub-leaderboard">
-        ${rows.map((r, i) => `<div class="pub-lb-row">
+      ${list.length ? `<div class="pub-leaderboard">
+        ${list.map((r, i) => `<div class="pub-lb-row">
           <span class="pub-lb-rank ${i < 3 ? "top" + i : ""}">${["🥇","🥈","🥉"][i] || (i + 1)}</span>
-          <span class="pub-lb-name">${esc(r[cols[0]] || "—")}</span>
-          ${r[cols[1]] !== undefined ? `<span class="pub-lb-val">${esc(String(r[cols[1]]))}</span>` : ""}
+          <span class="pub-lb-name">${esc(r[cols[0]] || r.username || r.title || "—")}</span>
+          <span class="pub-lb-val">${esc(String(r[cols[1]] ?? r[cols[2]] ?? ""))}</span>
         </div>`).join("")}
+        ${(rows || []).length > 10 ? `<div class="muted text-sm" style="margin-top:10px;text-align:center">Showing top 10 of ${rows.length}</div>` : ""}
       </div>` : `<div class="notice">No data yet — be the first on the leaderboard!</div>`}
     </div>`;
   }
@@ -1072,12 +1089,18 @@ function renderPublicRankings(d) {
     <div class="pub-section-title"><h2>🏆 Rankings</h2>
       <p>Top players across all ChillTopia activities</p></div>
     <div class="pub-rankings-grid">
-      ${leaderboard("Rich List", "💰", d.rich_list, ["username","coins"])}
-      ${leaderboard("Top Miners", "⛏️", d.miners, ["username","total_weight"])}
-      ${leaderboard("Top Fishers", "🎣", d.fishers, ["username","total_weight"])}
-      ${leaderboard("Casino Kings", "🎲", d.casino, ["username","casino_winnings"])}
-      ${leaderboard("Top Requesters", "🎵", d.top_requesters, ["username","count"])}
+      ${leaderboard("Richest Players", "💰", d.rich || d.rich_list, ["username","balance"])}
+      ${leaderboard("Top XP / Level", "⭐", d.xp, ["username","level","xp"])}
+      ${leaderboard("Casino Overall", "🎲", d.casino, ["username","wins","total_won"])}
+      ${leaderboard("Blackjack", "🃏", d.blackjack, ["username","wins","total_won"])}
+      ${leaderboard("Poker", "♠️", d.poker, ["username","wins","net"])}
+      ${leaderboard("Mining", "⛏️", d.mining || d.miners, ["username","total_mined","total_weight"])}
+      ${leaderboard("Fishing", "🎣", d.fishing || d.fishers, ["username","total_catches","biggest_catch"])}
+      ${leaderboard("Events", "🎉", d.events, ["username","points"])}
+      ${leaderboard("Radio Requesters", "🎵", d.radio || d.top_requesters, ["username","requests","count"])}
+      ${leaderboard("Reputation", "💜", d.reputation, ["username","rep_received"])}
     </div>
+    ${(d.metadata?.missing_tables || []).length ? `<div class="notice" style="margin-top:16px">Some leaderboard sources are not connected yet: ${esc(d.metadata.missing_tables.slice(0, 8).join(", "))}</div>` : ""}
   `;
 }
 
@@ -1275,7 +1298,7 @@ function renderAdminPage() {
   const page = state.adminPage;
   const role = state.user?.role;
   const nullDataOk = ["Players", "Bots", "Room & Content", "Emotes", "Economy & Rewards",
-    "Radio", "Security", "System", "Staff Home", "Players", "Moderation", "Events", "Room Tools", "Logs"];
+    "Radio", "Security", "Leaderboards", "System", "Staff Home", "Players", "Moderation", "Events", "Room Tools", "Logs"];
   if (!d && state.error && !nullDataOk.includes(page)) return `<div class="card"><div class="empty-state"><div class="empty-state-icon">⚠️</div><strong style="color:var(--red);margin-bottom:4px">Failed to load</strong><span>${esc(state.error)}</span></div></div>`;
   if (!d && !nullDataOk.includes(page)) return `<div class="card"><div class="loading-state"><div class="loading-spinner"></div><span class="muted text-sm">Loading…</span></div></div>`;
   return role === "owner" ? renderOwnerPage(page) : renderStaffPage(page);
@@ -1304,6 +1327,7 @@ function renderOwnerPage(page) {
     case "Radio":             return renderRadioOwnerPage(activeTab("Radio"));
     case "Players":           return renderOwnerPlayersPage(activeTab("Players"));
     case "Security":          return renderSecurityPage(activeTab("Security"));
+    case "Leaderboards":      return renderLeaderboardsPage(activeTab("Leaderboards"));
     case "Room & Content":    return renderRoomContent(activeTab("Room & Content"));
     case "Emotes":            return renderEmotesOwnerPage(activeTab("Emotes"));
     case "Mining":            return renderMiningOwnerPage(activeTab("Mining"));
@@ -2329,6 +2353,111 @@ function renderSecurityAdvanced() {
         ).join("")}
       </div>
     </details>
+  `;
+}
+
+/* ── Leaderboards ────────────────────────────────────── */
+function renderLeaderboardsPage(tab, opts = {}) {
+  return `
+    ${tabNav("Leaderboards")}
+    ${tab === "Overview" ? renderLeaderboardsOverview() : ""}
+    ${tab === "Economy" ? renderLeaderboardGroup("Economy Rankings", [
+      ["Richest Players", "rich", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "balance", label: "Balance" }]],
+      ["Top XP / Level", "xp", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }]],
+    ]) : ""}
+    ${tab === "Casino" ? renderLeaderboardGroup("Casino Rankings", [
+      ["Casino Overall", "casino", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "total_won", label: "Total Won" }]],
+      ["Blackjack / RBJ", "blackjack", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "losses", label: "Losses" }, { key: "blackjacks", label: "Blackjacks" }, { key: "total_won", label: "Total Won" }, { key: "net", label: "Net" }]],
+      ["Poker", "poker", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "hands_played", label: "Hands" }, { key: "total_won", label: "Total Won" }, { key: "net", label: "Net" }, { key: "biggest_pot", label: "Biggest Pot" }]],
+    ]) : ""}
+    ${tab === "Mining" ? renderLeaderboardGroup("Mining Rankings", [
+      ["Mining", "mining", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }, { key: "total_mined", label: "Total Mined" }, { key: "rare_finds", label: "Rare Finds" }, { key: "total_value", label: "Value" }, { key: "best_ore", label: "Best Ore" }]],
+    ]) : ""}
+    ${tab === "Fishing" ? renderLeaderboardGroup("Fishing Rankings", [
+      ["Fishing", "fishing", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }, { key: "total_catches", label: "Catches" }, { key: "biggest_catch", label: "Biggest" }, { key: "total_value", label: "Value" }]],
+    ]) : ""}
+    ${tab === "Events" ? renderLeaderboardGroup("Event Rankings", [
+      ["Event Points", "events", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "points", label: "Points" }]],
+    ]) : ""}
+    ${tab === "Radio" ? renderLeaderboardGroup("Radio Rankings", [
+      ["Top Requesters", "radio", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "requests", label: "Requests" }]],
+      ["Song Stats", "radio_songs", [{ key: "rank", label: "#" }, { key: "title", label: "Title" }, { key: "artist", label: "Artist" }, { key: "plays", label: "Plays" }, { key: "requests", label: "Requests" }, { key: "likes", label: "Likes" }, { key: "dislikes", label: "Dislikes" }]],
+      ["Reputation / Social", "reputation", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "rep_received", label: "Received" }, { key: "rep_given", label: "Given" }]],
+    ]) : ""}
+    ${tab === "Diagnostics" ? renderLeaderboardDiagnostics() : ""}
+  `;
+}
+
+function renderLeaderboardsOverview() {
+  const d = state.data || {};
+  const sections = [
+    ["Richest Players", "rich", "💰", "balance"],
+    ["Top XP", "xp", "⭐", "xp"],
+    ["Casino Overall", "casino", "🎲", "wins"],
+    ["Blackjack", "blackjack", "🃏", "wins"],
+    ["Poker", "poker", "♠️", "wins"],
+    ["Mining", "mining", "⛏️", "total_mined"],
+    ["Fishing", "fishing", "🎣", "total_catches"],
+    ["Events", "events", "🎉", "points"],
+    ["Radio", "radio", "🎵", "requests"],
+    ["Reputation", "reputation", "💜", "rep_received"],
+  ];
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:14px">
+      ${metricCard("Generated", d.metadata?.generated_at || "—", "ranking snapshot", "accent-cyan", "🏆")}
+      ${metricCard("Missing Tables", d.metadata?.missing_tables?.length || 0, "safe empty sections", d.metadata?.missing_tables?.length ? "accent-red" : "accent-green", "T")}
+      ${metricCard("Missing Columns", d.metadata?.missing_columns?.length || 0, "partial sources", d.metadata?.missing_columns?.length ? "accent-red" : "accent-green", "C")}
+    </div>
+    <div class="pub-rankings-grid">
+      ${sections.map(([title, key, icon, valueKey]) => renderLeaderboardMini(title, icon, d[key] || [], valueKey)).join("")}
+    </div>
+  `;
+}
+
+function renderLeaderboardMini(title, icon, rows, valueKey) {
+  const top = (rows || []).slice(0, 5);
+  return `<div class="card"><h3>${icon} ${esc(title)}</h3>
+    ${top.length ? `<div class="pub-leaderboard">${top.map((r, i) => `<div class="pub-lb-row">
+      <span class="pub-lb-rank ${i < 3 ? "top" + i : ""}">${["🥇","🥈","🥉"][i] || (i + 1)}</span>
+      <span class="pub-lb-name">${esc(r.username || r.title || "—")}</span>
+      <span class="pub-lb-val">${esc(String(r[valueKey] ?? r.total_won ?? ""))}</span>
+    </div>`).join("")}</div>` : `<div class="notice">No connected rows.</div>`}
+  </div>`;
+}
+
+function renderLeaderboardGroup(title, groups) {
+  const d = state.data || {};
+  return `<div class="grid">
+    ${groups.map(([label, key, cols]) => `<div class="card">
+      <div class="card-header"><h2>${esc(label)}</h2><span class="pill info">${(d[key] || []).length} rows</span></div>
+      ${table(d[key] || [], cols)}
+      <div class="muted text-sm" style="margin-top:10px">Source: <code>${esc(d.metadata?.sources?.[key]?.table || "not connected")}</code></div>
+    </div>`).join("")}
+  </div>`;
+}
+
+function renderLeaderboardDiagnostics() {
+  const d = state.data || {};
+  const sources = Object.entries(d.metadata?.sources || {}).map(([name, info]) => ({ name, ...info, columns: (info.columns || []).join(", ") }));
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("Sources", sources.length, "leaderboard source checks", "accent-cyan", "S")}
+      ${metricCard("Missing Tables", d.metadata?.missing_tables?.length || 0, (d.metadata?.missing_tables || []).slice(0, 3).join(", "), d.metadata?.missing_tables?.length ? "accent-red" : "accent-green", "T")}
+      ${metricCard("Missing Columns", d.metadata?.missing_columns?.length || 0, (d.metadata?.missing_columns || []).slice(0, 3).join(", "), d.metadata?.missing_columns?.length ? "accent-red" : "accent-green", "C")}
+    </div>
+    <div class="card">
+      <h2>Source Diagnostics</h2>
+      ${table(sources, [
+        { key: "name", label: "Leaderboard" },
+        { key: "table", label: "Table" },
+        { key: "status", label: "Status", render: (r) => auditStatusChip(String(r.status || "").toUpperCase(), r.status === "connected") },
+        { key: "row_count", label: "Rows" },
+        { key: "columns", label: "Columns" },
+        { key: "notes", label: "Notes" },
+      ])}
+    </div>
+    ${futureControls((d.metadata?.missing_tables || []).map((t) => ({ endpoint: t, purpose: "Leaderboard source table is not present in this DB.", status: "MISSING TABLE" }))
+      .concat((d.metadata?.missing_columns || []).map((c) => ({ endpoint: c, purpose: "Leaderboard source column is not present in this DB.", status: "MISSING COLUMN" }))), "Leaderboard Missing Sources")}
   `;
 }
 
@@ -4371,6 +4500,7 @@ function renderStaffPage(page) {
     case "Radio Queue": return renderStaffRadioQueue();
     case "Players":     return renderStaffPlayers();
     case "Moderation":  return renderSecurityPage(activeTab("Moderation"), { staff: true });
+    case "Leaderboards": return renderLeaderboardsPage(activeTab("Leaderboards"), { staff: true });
     case "Events":      return renderStaffEvents();
     case "Room Tools":  return renderStaffRoomTools();
     case "Logs":        return renderStaffLogs();

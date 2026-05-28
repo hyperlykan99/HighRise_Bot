@@ -1482,6 +1482,236 @@ function upsertMuteRow(db, player, actor, reason, minutes) {
   return db.prepare(`INSERT OR REPLACE INTO mutes (${names.join(", ")}) VALUES (${placeholders.join(", ")})`).run(...values);
 }
 
+function buildLeaderboards(db) {
+  const missingTables = [];
+  const missingColumns = [];
+  const sources = {};
+  const limit = 50;
+
+  function source(name, table, columns, status = "connected", notes = "") {
+    sources[name] = { table, columns, status, notes, row_count: rowCountSafe(db, table) ?? 0 };
+  }
+  function markMissingTable(name, table) {
+    missingTables.push(table);
+    source(name, table, [], "missing_table");
+    return [];
+  }
+  function markMissingColumns(name, table, cols) {
+    for (const col of cols) missingColumns.push(`${table}.${col}`);
+    source(name, table, tableExists(db, table) ? tableColumns(db, table) : [], "missing_column", cols.join(", "));
+    return [];
+  }
+  function choose(cols, candidates) {
+    return candidates.find((col) => cols.includes(col));
+  }
+  function addRank(rows) {
+    return rows.map((row, index) => ({ rank: index + 1, ...row }));
+  }
+  function numericExpr(col) {
+    return `COALESCE(CAST(${sqlIdent(col)} AS REAL),0)`;
+  }
+  function readTableLeaderboard(name, table, desired, { orderCandidates = [], where = "", map = (r) => r } = {}) {
+    if (!tableExists(db, table)) return markMissingTable(name, table);
+    const cols = tableColumns(db, table);
+    const orderCol = choose(cols, orderCandidates);
+    if (!orderCol) return markMissingColumns(name, table, orderCandidates.slice(0, 1));
+    source(name, table, desired.filter((col) => cols.includes(col)), "connected");
+    return addRank(safeRows(db, table, desired, {
+      where,
+      orderBy: `${numericExpr(orderCol)} DESC`,
+      limit: String(limit),
+    }).map(map));
+  }
+
+  const userCols = tableExists(db, "users") ? tableColumns(db, "users") : [];
+  const usernameCol = userCols.includes("username") ? "username" : null;
+  const balanceCol = choose(userCols, ["balance", "coins"]);
+  const rich = tableExists(db, "users") && usernameCol && balanceCol
+    ? addRank(safeRows(db, "users", ["user_id", "username", balanceCol], {
+        where: `${numericExpr(balanceCol)} > 0`,
+        orderBy: `${numericExpr(balanceCol)} DESC`,
+        limit: String(limit),
+      }).map((r) => ({ username: r.username, balance: r.balance ?? r.coins ?? 0 })))
+    : (tableExists(db, "users") ? markMissingColumns("rich", "users", [usernameCol ? balanceCol || "balance" : "username"]) : markMissingTable("rich", "users"));
+  if (rich.length) source("rich", "users", ["username", balanceCol], "connected", "Richest players from users.balance.");
+
+  const xp = tableExists(db, "users") && usernameCol && userCols.includes("xp")
+    ? addRank(safeRows(db, "users", ["user_id", "username", "level", "xp"], {
+        where: "COALESCE(CAST(xp AS REAL),0) > 0",
+        orderBy: `${userCols.includes("level") ? "COALESCE(CAST(level AS REAL),0) DESC, " : ""}COALESCE(CAST(xp AS REAL),0) DESC`,
+        limit: String(limit),
+      }))
+    : (tableExists(db, "users") ? markMissingColumns("xp", "users", [usernameCol ? "xp" : "username"]) : markMissingTable("xp", "users"));
+  if (xp.length) source("xp", "users", ["username", "level", "xp"].filter((c) => userCols.includes(c)), "connected", "Top XP and level from users.");
+
+  const casino = tableExists(db, "users") && usernameCol && userCols.includes("total_games_won")
+    ? addRank(safeRows(db, "users", ["user_id", "username", "total_games_won", "total_coins_earned"], {
+        where: "COALESCE(CAST(total_games_won AS REAL),0) > 0",
+        orderBy: "COALESCE(CAST(total_games_won AS REAL),0) DESC",
+        limit: String(limit),
+      }).map((r) => ({ username: r.username, wins: r.total_games_won, total_won: r.total_coins_earned ?? "" })))
+    : [];
+  source("casino", "users", ["username", "total_games_won", "total_coins_earned"].filter((c) => userCols.includes(c)), casino.length ? "connected" : "partial", "Overall casino uses users.total_games_won when present.");
+
+  function gameStats(name, preferredTables) {
+    for (const table of preferredTables) {
+      if (!tableExists(db, table)) continue;
+      const cols = tableColumns(db, table);
+      const uname = choose(cols, ["username", "user_name", "player_name", "name", "user_id"]);
+      if (!uname) return markMissingColumns(name, table, ["username"]);
+      const wins = choose(cols, ["wins", "games_won", "hands_won", "total_wins"]);
+      const totalWon = choose(cols, ["total_won", "coins_won", "winnings", "profit", "net_profit"]);
+      const orderCol = totalWon || wins || choose(cols, ["blackjacks", "hands_played", "games_played"]);
+      if (!orderCol) return markMissingColumns(name, table, ["wins"]);
+      const desired = [uname, "wins", "games_won", "hands_won", "total_wins", "losses", "blackjacks", "total_won", "coins_won", "winnings", "profit", "net", "net_profit", "hands_played", "biggest_pot", "biggest_win", "games_played"].filter((c, i, a) => cols.includes(c) && a.indexOf(c) === i);
+      source(name, table, desired, "connected");
+      return addRank(safeRows(db, table, desired, {
+        orderBy: `${numericExpr(orderCol)} DESC`,
+        limit: String(limit),
+      }).map((r) => ({
+        username: r.username || r.user_name || r.player_name || r.name || r.user_id,
+        wins: r.wins ?? r.games_won ?? r.hands_won ?? r.total_wins ?? "",
+        losses: r.losses ?? "",
+        blackjacks: r.blackjacks ?? "",
+        total_won: r.total_won ?? r.coins_won ?? r.winnings ?? "",
+        net: r.net ?? r.net_profit ?? r.profit ?? "",
+        hands_played: r.hands_played ?? r.games_played ?? "",
+        biggest_pot: r.biggest_pot ?? r.biggest_win ?? "",
+      })));
+    }
+    return markMissingTable(name, preferredTables[0]);
+  }
+
+  const blackjack = gameStats("blackjack", ["rbj_stats", "bj_stats"]);
+  const poker = gameStats("poker", ["poker_stats"]);
+
+  const mining = (() => {
+    for (const table of ["mining_players", "mining_profiles"]) {
+      if (!tableExists(db, table)) continue;
+      const cols = tableColumns(db, table);
+      const uname = choose(cols, ["username", "user_name", "player_name", "user_id"]);
+      const total = choose(cols, ["total_mined", "total_ores_mined", "ores_mined", "total_finds", "mines", "total_weight", "total_value", "xp", "mining_xp"]);
+      if (!uname || !total) return markMissingColumns("mining", table, [uname ? total || "total_mined" : "username"]);
+      const desired = [uname, "mining_level", "level", "mining_xp", "xp", "total_mined", "total_ores_mined", "ores_mined", "total_finds", "rare_finds", "total_value", "total_weight", "best_ore"].filter((c, i, a) => cols.includes(c) && a.indexOf(c) === i);
+      source("mining", table, desired, "connected");
+      return addRank(safeRows(db, table, desired, { orderBy: `${numericExpr(total)} DESC`, limit: String(limit) }).map((r) => ({
+        username: r.username || r.user_name || r.player_name || r.user_id,
+        level: r.mining_level ?? r.level ?? "",
+        xp: r.mining_xp ?? r.xp ?? "",
+        total_mined: r.total_mined ?? r.total_ores_mined ?? r.ores_mined ?? r.total_finds ?? "",
+        rare_finds: r.rare_finds ?? "",
+        total_value: r.total_value ?? "",
+        total_weight: r.total_weight ?? "",
+        best_ore: r.best_ore ?? "",
+      })));
+    }
+    return markMissingTable("mining", "mining_players");
+  })();
+
+  const fishing = (() => {
+    for (const table of ["fish_profiles", "fishing_profiles"]) {
+      if (!tableExists(db, table)) continue;
+      const cols = tableColumns(db, table);
+      const uname = choose(cols, ["username", "user_name", "player_name", "user_id"]);
+      const total = choose(cols, ["total_catches", "fish_caught", "catches", "total_fish", "biggest_catch", "biggest_weight", "xp", "fishing_xp"]);
+      if (!uname || !total) return markMissingColumns("fishing", table, [uname ? total || "total_catches" : "username"]);
+      const desired = [uname, "fishing_level", "level", "fishing_xp", "xp", "total_catches", "fish_caught", "catches", "biggest_catch", "biggest_weight", "total_value"].filter((c, i, a) => cols.includes(c) && a.indexOf(c) === i);
+      source("fishing", table, desired, "connected");
+      return addRank(safeRows(db, table, desired, { orderBy: `${numericExpr(total)} DESC`, limit: String(limit) }).map((r) => ({
+        username: r.username || r.user_name || r.player_name || r.user_id,
+        level: r.fishing_level ?? r.level ?? "",
+        xp: r.fishing_xp ?? r.xp ?? "",
+        total_catches: r.total_catches ?? r.fish_caught ?? r.catches ?? "",
+        biggest_catch: r.biggest_catch ?? r.biggest_weight ?? "",
+        total_value: r.total_value ?? "",
+      })));
+    }
+    return markMissingTable("fishing", "fish_profiles");
+  })();
+
+  const events = (() => {
+    if (!tableExists(db, "event_points")) return markMissingTable("events", "event_points");
+    const cols = tableColumns(db, "event_points");
+    const uname = choose(cols, ["username", "user_name", "player_name", "user_id"]);
+    const points = choose(cols, ["points", "total_points", "score"]);
+    if (!uname || !points) return markMissingColumns("events", "event_points", [uname ? "points" : "username"]);
+    source("events", "event_points", [uname, points], "connected");
+    return addRank(safeRows(db, "event_points", [uname, points], { orderBy: `${numericExpr(points)} DESC`, limit: String(limit) }).map((r) => ({
+      username: r.username || r.user_name || r.player_name || r.user_id,
+      points: r.points ?? r.total_points ?? r.score ?? 0,
+    })));
+  })();
+
+  const radio = (() => {
+    if (tableExists(db, "radio_user_stats")) {
+      const cols = tableColumns(db, "radio_user_stats");
+      const uname = choose(cols, ["username", "user_name", "requester", "user_id"]);
+      const requests = choose(cols, ["requests", "request_count", "total_requests", "plays", "played_count"]);
+      if (uname && requests) {
+        source("radio", "radio_user_stats", [uname, requests], "connected");
+        return addRank(safeRows(db, "radio_user_stats", [uname, requests], { orderBy: `${numericExpr(requests)} DESC`, limit: String(limit) }).map((r) => ({
+          username: r.username || r.user_name || r.requester || r.user_id,
+          requests: r.requests ?? r.request_count ?? r.total_requests ?? r.plays ?? r.played_count,
+        })));
+      }
+    }
+    if (!tableExists(db, "yt_request_jobs") || !columnExists(db, "yt_request_jobs", "username")) return markMissingTable("radio", "radio_user_stats");
+    const rows = safeRows(db, "yt_request_jobs", ["username", "status"], { where: "username IS NOT NULL AND username <> ''", limit: "1000" });
+    const counts = new Map();
+    for (const row of rows) counts.set(row.username, (counts.get(row.username) || 0) + 1);
+    source("radio", "yt_request_jobs", ["username", "status"], "connected", "Fallback aggregation from yt_request_jobs.");
+    return addRank([...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([username, requests]) => ({ username, requests })));
+  })();
+
+  const radio_songs = tableExists(db, "radio_song_stats")
+    ? readTableLeaderboard("radio_songs", "radio_song_stats", ["title", "artist", "plays", "requests", "likes", "dislikes"], { orderCandidates: ["plays", "requests", "like_count"] })
+    : [];
+
+  const reputation = (() => {
+    if (!tableExists(db, "reputation")) return markMissingTable("reputation", "reputation");
+    const cols = tableColumns(db, "reputation");
+    const uname = choose(cols, ["username", "user_name", "user_id"]);
+    const rep = choose(cols, ["rep_received", "received", "reputation", "points", "likes_received"]);
+    if (!uname || !rep) return markMissingColumns("reputation", "reputation", [uname ? "rep_received" : "username"]);
+    source("reputation", "reputation", [uname, rep, "rep_given", "given", "likes_given"].filter((c) => cols.includes(c)), "connected");
+    return addRank(safeRows(db, "reputation", [uname, rep, "rep_given", "given", "likes_given"].filter((c) => cols.includes(c)), {
+      orderBy: `${numericExpr(rep)} DESC`,
+      limit: String(limit),
+    }).map((r) => ({
+      username: r.username || r.user_name || r.user_id,
+      rep_received: r.rep_received ?? r.received ?? r.reputation ?? r.points ?? r.likes_received ?? 0,
+      rep_given: r.rep_given ?? r.given ?? r.likes_given ?? "",
+    })));
+  })();
+
+  const out = {
+    rich,
+    xp,
+    casino,
+    blackjack,
+    poker,
+    mining,
+    fishing,
+    events,
+    radio,
+    radio_songs,
+    reputation,
+    metadata: {
+      generated_at: nowIso(),
+      missing_tables: [...new Set(missingTables)],
+      missing_columns: [...new Set(missingColumns.filter(Boolean))],
+      sources,
+    },
+  };
+  return {
+    ...out,
+    rich_list: rich,
+    miners: mining,
+    fishers: fishing,
+    top_requesters: radio,
+  };
+}
+
 const ACTIVE_BLACKJACK_COLUMNS = [
   "id",
   "rbj_enabled",
@@ -3029,27 +3259,21 @@ app.get("/api/public/rankings", async (req, res) => {
   let db = null;
   try {
     db = await openDb({ readonly: true });
-    const userCols = tableExists(db, "users") ? tableColumns(db, "users") : [];
-    const balanceCol = userCols.includes("balance") ? "balance" : userCols.includes("coins") ? "coins" : null;
-    const richList = balanceCol
-      ? safeRows(db, "users", ["username",balanceCol,"level"], { orderBy: `${sqlIdent(balanceCol)} DESC`, limit: "10" })
-          .map((row) => ({ ...row, coins: row.balance ?? row.coins ?? 0, balance: row.balance ?? row.coins ?? 0 }))
-      : [];
-    const miners = safeRows(db, "mining_profiles", ["username","total_weight","total_finds"], { orderBy: "total_weight DESC", limit: "10" });
-    const fishers = safeRows(db, "fishing_profiles", ["username","total_weight","total_catches"], { orderBy: "total_weight DESC", limit: "10" });
-    const topCasino = userCols.includes("casino_winnings")
-      ? safeRows(db, "users", ["username","casino_winnings"], { where: "casino_winnings > 0", orderBy: "casino_winnings DESC", limit: "10" })
-      : [];
-    const topRequesters = safeRows(db, "yt_request_jobs", ["username"], { where: "status='played'", orderBy: "id DESC", limit: "200" })
-      .reduce((acc, r) => { acc[r.username] = (acc[r.username] || 0) + 1; return acc; }, {});
-    const topRequestersList = Object.entries(topRequesters).sort((a,b) => b[1]-a[1]).slice(0,10).map(([username,count]) => ({ username, count }));
-    json(res, { rich_list: richList, miners, fishers, casino: topCasino, top_requesters: topRequestersList });
+    json(res, buildLeaderboards(db));
   } catch (err) {
-    json(res, { rich_list: [], miners: [], fishers: [], casino: [], top_requesters: [] });
+    json(res, {
+      rich: [], xp: [], casino: [], blackjack: [], poker: [], mining: [], fishing: [], events: [], radio: [], reputation: [],
+      rich_list: [], miners: [], fishers: [], top_requesters: [],
+      metadata: { generated_at: nowIso(), missing_tables: [], missing_columns: [], error: err.message },
+    });
   } finally {
     if (db) try { db.close(); } catch {}
   }
 });
+
+app.get("/api/leaderboards", requireAuth, (req, res) => {
+  json(res, buildLeaderboards(req.db));
+}, closeDb);
 
 app.get("/api/bot-config", requireAuth, requireOwner, (req, res) => {
   const tokens = {};
