@@ -132,10 +132,31 @@ const SYSTEM_TABS = [
   { id: "Logs", api: null },
   { id: "Settings Audit", api: "/api/settings-audit" },
   { id: "Permissions Audit", api: "/api/permissions/audit" },
+  { id: "Maintenance Center", api: "/api/maintenance/overview" },
   { id: "Database", api: "/api/db/inspect" },
   { id: "Emergency", api: "/api/settings" },
   { id: "Missing/Future Controls", api: null },
 ];
+const MAINTENANCE_TABS = [
+  "Overview",
+  "Backups",
+  "Restore",
+  "Database Health",
+  "Cleanup Preview",
+  "Runtime Health",
+  "Logs",
+  "Advanced",
+];
+const MAINTENANCE_API = {
+  "Overview": "/api/maintenance/overview",
+  "Backups": "/api/maintenance/backups",
+  "Restore": "/api/maintenance/backups",
+  "Database Health": "/api/maintenance/db-health",
+  "Cleanup Preview": "/api/maintenance/cleanup-preview",
+  "Runtime Health": "/api/maintenance/runtime-health",
+  "Logs": "/api/maintenance/logs",
+  "Advanced": "/api/maintenance/advanced",
+};
 const TAB_REGISTRY = {
   "Bots": BOT_TABS,
   "Radio": RADIO_TABS,
@@ -581,6 +602,7 @@ const state = {
   notice: "",
   logs: { action_type: "", user: "", module: "", status: "", date: "", target: "", offset: 0 },
   settingsAudit: { status: "all", module: "", page: "" },
+  maintenanceTab: "Overview",
   modal: null,
   sidebarOpen: false,
   showLoginOverlay: false,
@@ -734,9 +756,18 @@ async function loadAdmin() {
 
 async function switchTab(page, tab) {
   state.adminTab[page] = tab;
+  if (page === "System" && tab === "Maintenance Center") state.maintenanceTab = "Overview";
   const url = (page === "System" && tab === "Logs") || page === "Logs"
     ? logsUrl() : pageApi(page, tab);
   if (!url) { state.data = {}; render(); return; }
+  try { state.data = await api(url); state.error = ""; }
+  catch (err) { state.data = null; state.error = err.message; }
+  render();
+}
+
+async function loadMaintenanceTab(tab = state.maintenanceTab || "Overview") {
+  state.maintenanceTab = tab;
+  const url = MAINTENANCE_API[tab] || MAINTENANCE_API.Overview;
   try { state.data = await api(url); state.error = ""; }
   catch (err) { state.data = null; state.error = err.message; }
   render();
@@ -1194,6 +1225,9 @@ function renderAdmin() {
   }));
   document.querySelectorAll("[data-page-tab]").forEach((btn) => btn.addEventListener("click", () => {
     state.notice = ""; state.error = ""; switchTab(state.adminPage, btn.dataset.pageTab);
+  }));
+  document.querySelectorAll("[data-maint-tab]").forEach((btn) => btn.addEventListener("click", () => {
+    state.notice = ""; state.error = ""; loadMaintenanceTab(btn.dataset.maintTab);
   }));
   document.getElementById("refreshBtn").addEventListener("click", loadAdmin);
   document.getElementById("logoutBtn").addEventListener("click", logout);
@@ -3651,6 +3685,7 @@ function renderSystemPage(tab) {
     ${tab === "Logs" ? renderSystemLogs() : ""}
     ${tab === "Settings Audit" ? renderSettingsAudit() : ""}
     ${tab === "Permissions Audit" ? renderPermissionsAudit() : ""}
+    ${tab === "Maintenance Center" ? renderMaintenanceCenter() : ""}
     ${tab === "Database" ? renderSystemDatabase() : ""}
     ${tab === "Emergency" ? renderEmergency() : ""}
     ${tab === "Missing/Future Controls" ? renderSystemFutureControls() : ""}
@@ -3807,6 +3842,244 @@ function renderPermissionsAudit() {
         { key: "required_permission", label: "Permission", render: (r) => `<code>${esc(r.required_permission || (r.public ? "PUBLIC" : "AUTH"))}</code>` },
       ])}
     </div>
+  `;
+}
+
+function renderMaintenanceCenter() {
+  const tab = state.maintenanceTab || "Overview";
+  return `
+    <div class="tabs sub-tabs" style="margin-bottom:14px">
+      ${MAINTENANCE_TABS.map((t) => `<button class="${tab === t ? "active" : ""}" data-maint-tab="${esc(t)}">${esc(t)}</button>`).join("")}
+    </div>
+    ${tab === "Overview" ? renderMaintenanceOverview() : ""}
+    ${tab === "Backups" ? renderMaintenanceBackups() : ""}
+    ${tab === "Restore" ? renderMaintenanceRestore() : ""}
+    ${tab === "Database Health" ? renderMaintenanceDbHealth() : ""}
+    ${tab === "Cleanup Preview" ? renderMaintenanceCleanup() : ""}
+    ${tab === "Runtime Health" ? renderMaintenanceRuntime() : ""}
+    ${tab === "Logs" ? renderMaintenanceLogs() : ""}
+    ${tab === "Advanced" ? renderMaintenanceAdvanced() : ""}
+  `;
+}
+
+function bytes(n) {
+  const value = Number(n || 0);
+  if (!Number.isFinite(value)) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+  return `${size.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+}
+
+function maintenanceStatusPill(value) {
+  const s = String(value ?? "unknown");
+  const cls = /ok|online|connected|open/i.test(s) ? "ok" : /warn|missing|failed|error|unavailable|not_found/i.test(s) ? "warn" : "def";
+  return `<span class="pill ${cls}">${esc(s)}</span>`;
+}
+
+function renderMaintenanceOverview() {
+  const d = state.data || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("DB Size", bytes(d.db_file?.size), d.db_path || "SQLite", "accent-cyan", "DB")}
+      ${metricCard("Last Backup", d.last_backup?.modified_at || "None", d.last_backup?.name || "No DB backup found", d.last_backup ? "accent-green" : "accent-red", "BK")}
+      ${metricCard("SQLite", d.sqlite_integrity_status || "unknown", "integrity_check", d.sqlite_integrity_status === "ok" ? "accent-green" : "accent-red", "✓")}
+      ${metricCard("Warnings", d.warning_count ?? 0, "maintenance warnings", d.warning_count ? "accent-red" : "accent-green", "!")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>System Snapshot</h2>
+        <div style="display:grid;gap:8px">
+          <div class="inline-actions"><span>Current DB Path</span><code>${esc(d.db_path || "—")}</code></div>
+          <div class="inline-actions"><span>WAL Size</span><span>${esc(bytes(d.wal_size))}</span></div>
+          <div class="inline-actions"><span>PM2 Dashboard</span>${maintenanceStatusPill(d.pm2_dashboard_status)}</div>
+          <div class="inline-actions"><span>Last Dashboard Restart</span><span class="muted">${esc(d.last_dashboard_restart || "—")}</span></div>
+          <div class="inline-actions"><span>Last Bot Restart</span><span class="muted">${esc(d.last_bot_restart || "—")}</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Bot PM2 Status</h2>
+        ${table(d.pm2_bot_status || [], [
+          { key: "name", label: "Process" },
+          { key: "status", label: "Status", render: (r) => maintenanceStatusPill(r.status) },
+          { key: "restart_time", label: "Restarts" },
+        ])}
+      </div>
+    </div>
+    <div class="card">
+      <h2>Warnings</h2>
+      ${(d.warnings || []).length ? table(d.warnings) : `<div class="notice">No maintenance warnings detected.</div>`}
+    </div>
+  `;
+}
+
+function renderMaintenanceBackups() {
+  const d = state.data || {};
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>Create Backups</h2>
+        <div class="toolbar" style="flex-wrap:wrap">
+          <button class="btn primary" data-maint-action="backup-db">Create DB Backup</button>
+          <button class="btn" data-maint-action="backup-dashboard">Backup Dashboard Files</button>
+          <button class="btn danger" data-maint-action="backup-env">Backup Env Server-Side</button>
+        </div>
+        <div class="notice warn" style="margin-top:12px">Env backup never returns token values. It requires typed confirmation: <code>BACKUP ENV</code>.</div>
+      </div>
+      <div class="card">
+        <h2>Environment Metadata</h2>
+        <div class="inline-actions"><span>Path</span><code>${esc(d.env_metadata?.env_path || "—")}</code></div>
+        <div class="inline-actions"><span>Exists</span>${pill(d.env_metadata?.file_exists ? "yes" : "no")}</div>
+        <div class="inline-actions"><span>Modified</span><span class="muted">${esc(d.env_metadata?.modified_at || "—")}</span></div>
+        ${table(Object.entries(d.env_metadata?.token_keys || {}).map(([key, status]) => ({ key, status })), [
+          { key: "key", label: "Secret Key" },
+          { key: "status", label: "Status", render: (r) => maintenanceStatusPill(r.status) },
+        ])}
+      </div>
+    </div>
+    <div class="card">
+      <h2>Backup Files</h2>
+      ${table(d.backups || [], [
+        { key: "name", label: "Name" },
+        { key: "type", label: "Type" },
+        { key: "size", label: "Size", render: (r) => bytes(r.size) },
+        { key: "modified_at", label: "Modified" },
+        { key: "path", label: "Path", render: (r) => `<code>${esc(r.path)}</code>` },
+      ])}
+    </div>
+  `;
+}
+
+function renderMaintenanceRestore() {
+  const d = state.data || {};
+  const dbBackups = (d.backups || []).filter((b) => b.type === "sqlite_db");
+  return `
+    <div class="notice warn">Database restore is owner-only, requires <code>RESTORE DATABASE</code>, creates a pre-restore backup, and requires bot/dashboard restart after completion.</div>
+    <div class="card danger-zone">
+      <h2>Restore Preview</h2>
+      <form id="restorePreviewForm" class="toolbar" style="flex-wrap:wrap;margin-bottom:14px">
+        <select name="backup" required style="flex:2;min-width:260px">
+          <option value="">Select DB backup</option>
+          ${dbBackups.map((b) => `<option value="${esc(b.path)}">${esc(b.name)} (${bytes(b.size)})</option>`).join("")}
+        </select>
+        <button class="btn">Preview</button>
+      </form>
+      <div id="restorePreviewResult"></div>
+      <form id="restoreDbForm" class="toolbar" style="flex-wrap:wrap">
+        <input name="backup" placeholder="Approved backup path" required style="flex:2;min-width:260px" />
+        <input name="confirmation" placeholder="Type RESTORE DATABASE" required style="flex:1;min-width:220px" />
+        <button class="btn danger">Restore DB</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Dashboard File Restore</h2>
+      <div class="notice">Dashboard file restore is not automated here. Use the timestamped backups under the approved folder and deploy through git or a controlled shell session.</div>
+    </div>
+  `;
+}
+
+function renderMaintenanceDbHealth() {
+  const d = state.data || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("Integrity", d.integrity_check || "unknown", "PRAGMA integrity_check", d.integrity_check === "ok" ? "accent-green" : "accent-red", "✓")}
+      ${metricCard("Quick Check", d.quick_check || "unknown", "PRAGMA quick_check", d.quick_check === "ok" ? "accent-green" : "accent-red", "QC")}
+      ${metricCard("Tables", d.table_count ?? 0, "SQLite tables", "accent-cyan", "T")}
+      ${metricCard("Pending Commands", d.pending_bot_command_queue ?? 0, "bot_command_queue", "", "Q")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Database Files</h2>
+        ${table([d.db_file || {}].concat(d.sidecars || []), [
+          { key: "path", label: "Path", render: (r) => `<code>${esc(r.path || "—")}</code>` },
+          { key: "exists", label: "Exists", render: (r) => pill(r.exists ? "yes" : "no") },
+          { key: "size", label: "Size", render: (r) => bytes(r.size) },
+          { key: "modified_at", label: "Modified" },
+        ])}
+      </div>
+      <div class="card">
+        <h2>Health Counters</h2>
+        ${table([
+          { metric: "Stale bot_instances", value: d.stale_bot_instances },
+          { metric: "Failed bot commands", value: d.failed_bot_command_queue },
+          { metric: "Failed radio jobs", value: d.failed_yt_request_jobs },
+          { metric: "Orphaned inventory rows", value: d.orphaned_inventory_rows ?? "not checked" },
+        ])}
+      </div>
+    </div>
+    <div class="card"><h2>Largest Tables</h2>${table(d.largest_tables || [])}</div>
+  `;
+}
+
+function renderMaintenanceCleanup() {
+  const d = state.data || {};
+  return `
+    <div class="notice warn">Cleanup preview does not delete rows. Actual DB row cleanup is disabled in this build unless a future safe cleanup type is explicitly added.</div>
+    <div class="card">
+      <div class="card-header"><h2>Cleanup Candidates</h2><span class="pill info">Retention ${esc(d.retention_days || 30)} days</span></div>
+      ${table(d.candidates || [], [
+        { key: "cleanup_type", label: "Type" },
+        { key: "description", label: "Description" },
+        { key: "count", label: "Count" },
+        { key: "dry_run_only", label: "Mode", render: (r) => pill(r.dry_run_only ? "dry-run only" : "can clean") },
+      ], (r) => `<button class="btn sm" data-maint-cleanup="${esc(r.cleanup_type)}">Dry Run</button>`)}
+    </div>
+  `;
+}
+
+function renderMaintenanceRuntime() {
+  const d = state.data || {};
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>PM2 Processes</h2>
+        ${d.pm2?.available ? table(d.pm2.processes || [], [
+          { key: "name", label: "Name" },
+          { key: "status", label: "Status", render: (r) => maintenanceStatusPill(r.status) },
+          { key: "restart_time", label: "Restarts" },
+          { key: "memory", label: "Memory", render: (r) => bytes(r.memory) },
+          { key: "cpu", label: "CPU" },
+        ]) : `<div class="notice warn">${esc(d.pm2?.error || "PM2 unavailable")}</div>`}
+      </div>
+      <div class="card">
+        <h2>Command Queue Counts</h2>
+        ${table(d.command_queue_counts || [])}
+      </div>
+    </div>
+    <div class="card"><h2>Bot Heartbeats</h2>${table(d.bot_heartbeats || [])}</div>
+    <div class="card"><h2>Command Queue Failures</h2>${table(d.command_queue_failures || [])}</div>
+  `;
+}
+
+function renderMaintenanceLogs() {
+  const d = state.data || {};
+  return `
+    <div class="card"><h2>Audit Logs</h2>${table(d.audit_logs || [])}</div>
+    <div class="card"><h2>Admin Action Logs</h2>${table(d.admin_action_logs || [])}</div>
+    <div class="card"><h2>Command Queue Failures</h2>${table(d.command_queue_failures || [])}</div>
+    <div class="card"><h2>Radio Failures</h2>${table(d.radio_failures || [])}</div>
+  `;
+}
+
+function renderMaintenanceAdvanced() {
+  const d = state.data || {};
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>Approved Paths</h2>
+        <div class="inline-actions"><span>DB Path</span><code>${esc(d.db_path || "—")}</code></div>
+        ${(d.approved_backup_folders || []).map((folder) => `<div class="inline-actions"><span>Backup Folder</span><code>${esc(folder)}</code></div>`).join("")}
+      </div>
+      <div class="card">
+        <h2>Restore Warnings</h2>
+        ${(d.restore_warnings || []).map((w) => `<div class="notice warn" style="margin-bottom:8px">${esc(w)}</div>`).join("")}
+      </div>
+    </div>
+    <details class="advanced-collapse">
+      <summary class="advanced-summary"><span class="pill warn">RAW</span> Raw Health JSON</summary>
+      <div class="advanced-content"><pre style="white-space:pre-wrap;overflow:auto">${esc(JSON.stringify(d.raw_health || {}, null, 2))}</pre></div>
+    </details>
   `;
 }
 
@@ -4120,6 +4393,55 @@ function bindAdminPageEvents() {
       const key = id.replace("settingsAudit", "").toLowerCase();
       state.settingsAudit[key] = e.target.value;
       render();
+    });
+  });
+
+  document.querySelector('[data-maint-action="backup-db"]')?.addEventListener("click", () => {
+    confirmAction("Create DB Backup", "Create a consistent SQLite backup in the approved server backup folder?", async () => {
+      await action("Database backup created.", () => api("/api/maintenance/backup/db", { method: "POST", body: JSON.stringify({}) }));
+      await loadMaintenanceTab("Backups");
+    });
+  });
+  document.querySelector('[data-maint-action="backup-dashboard"]')?.addEventListener("click", async () => {
+    await action("Dashboard files backed up.", () => api("/api/maintenance/backup/dashboard", { method: "POST", body: JSON.stringify({}) }));
+    await loadMaintenanceTab("Backups");
+  });
+  document.querySelector('[data-maint-action="backup-env"]')?.addEventListener("click", () => {
+    const confirmation = prompt('Type "BACKUP ENV" to create a server-side .env backup. Token values will not be returned.');
+    if (confirmation !== "BACKUP ENV") return;
+    confirmAction("Backup Env", "Create a server-side 0600 .env backup without exposing contents?", async () => {
+      await action("Environment backup created server-side.", () => api("/api/maintenance/backup/env-metadata", { method: "POST", body: JSON.stringify({ confirmation }) }));
+      await loadMaintenanceTab("Backups");
+    });
+  });
+  document.getElementById("restorePreviewForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    try {
+      const preview = await api(`/api/maintenance/restore-preview?backup=${encodeURIComponent(data.backup)}`);
+      const target = document.getElementById("restorePreviewResult");
+      if (target) target.innerHTML = `<div class="notice warn">Backup verified: <code>${esc(preview.backup?.path || "")}</code><br/>Required confirmation: <code>${esc(preview.required_confirmation)}</code></div>`;
+      const restoreForm = document.getElementById("restoreDbForm");
+      if (restoreForm) restoreForm.querySelector("[name='backup']").value = data.backup;
+    } catch (err) {
+      state.error = err.message; render();
+    }
+  });
+  document.getElementById("restoreDbForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Restore Database", "This overwrites the live SQLite DB file. A pre-restore backup will be created first.", async () => {
+      await action("Database restored. Restart bots and dashboard.", () => api("/api/maintenance/restore-db", { method: "POST", body: JSON.stringify(data) }));
+      await loadMaintenanceTab("Restore");
+    });
+  });
+  document.querySelectorAll("[data-maint-cleanup]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await action("Cleanup dry-run recorded.", () => api("/api/maintenance/cleanup", {
+        method: "POST",
+        body: JSON.stringify({ cleanup_type: btn.dataset.maintCleanup, confirmation: "CLEANUP", dry_run: true }),
+      }));
+      await loadMaintenanceTab("Cleanup Preview");
     });
   });
 

@@ -15,6 +15,8 @@ import express from "express";
 import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";
+import { execFile } from "child_process";
+import { promisify } from "util";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
@@ -27,6 +29,7 @@ const BOT_ROOT = path.join(__dirname, "..", "artifacts", "highrise-bot");
 const BOT_DATA_DIR = path.join(BOT_ROOT, "data");
 const APP_MODE = process.env.NODE_ENV || process.env.APP_MODE || "production";
 const VPS_ENV_PATH = "/opt/highrise-bots/.env";
+const execFileAsync = promisify(execFile);
 
 function readEnvFileValue(filePath, key) {
   try {
@@ -54,6 +57,9 @@ function resolveDbPath() {
 }
 
 const DB_PATH = resolveDbPath();
+const DB_BACKUP_DIR = "/opt/highrise-bots/artifacts/highrise-bot/backups/dashboard";
+const DASHBOARD_BACKUP_DIR = "/opt/highrise-bots/dashboard/backups";
+const APPROVED_BACKUP_DIRS = [DB_BACKUP_DIR, DASHBOARD_BACKUP_DIR].map((p) => path.resolve(p));
 
 const PERMISSION_REGISTRY = {
   view_dashboard: { group: "System", label: "View Dashboard" },
@@ -167,6 +173,214 @@ function tableNames(db) {
 function tableColumns(db, name) {
   if (!tableExists(db, name)) return [];
   return db.prepare(`PRAGMA table_info(${sqlIdent(name)})`).all().map((row) => row.name);
+}
+
+function fileMeta(filePath) {
+  try {
+    const st = fs.statSync(filePath);
+    return { path: filePath, exists: true, size: st.size, modified_at: st.mtime.toISOString(), mode: (st.mode & 0o777).toString(8) };
+  } catch {
+    return { path: filePath, exists: false, size: 0, modified_at: null, mode: null };
+  }
+}
+
+function formatStamp(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+function ensureDir(dirPath, mode = 0o700) {
+  fs.mkdirSync(dirPath, { recursive: true, mode });
+  try { fs.chmodSync(dirPath, mode); } catch {}
+}
+
+function isInsideDir(filePath, dirPath) {
+  const resolvedFile = path.resolve(filePath);
+  const resolvedDir = path.resolve(dirPath);
+  return resolvedFile === resolvedDir || resolvedFile.startsWith(`${resolvedDir}${path.sep}`);
+}
+
+function isApprovedBackupPath(filePath, dirs = [DB_BACKUP_DIR]) {
+  return dirs.some((dir) => isInsideDir(filePath, dir));
+}
+
+function envMetadata(filePath = VPS_ENV_PATH) {
+  const meta = fileMeta(filePath);
+  const tokenKeys = {};
+  const keyPattern = /(?:TOKEN|SECRET|KEY|PASSWORD|PASS|AZURA|HIGHRISE)/i;
+  if (meta.exists) {
+    try {
+      for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+        const eq = trimmed.indexOf("=");
+        const key = trimmed.slice(0, eq).trim();
+        const value = trimmed.slice(eq + 1).trim().replace(/^['"]|['"]$/g, "");
+        if (keyPattern.test(key)) tokenKeys[key] = value ? "SET" : "EMPTY";
+      }
+    } catch (err) {
+      meta.read_error = err.message;
+    }
+  }
+  return { env_path: filePath, file_exists: meta.exists, modified_at: meta.modified_at, size: meta.size, token_keys: tokenKeys };
+}
+
+function backupFileList() {
+  const rows = [];
+  for (const dir of APPROVED_BACKUP_DIRS) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      const meta = fileMeta(full);
+      if (!meta.exists) continue;
+      rows.push({
+        ...meta,
+        name,
+        folder: dir,
+        type: name.endsWith(".db") ? "sqlite_db" : name.includes(".env") ? "env_metadata" : "dashboard_file",
+      });
+    }
+  }
+  return rows.sort((a, b) => String(b.modified_at || "").localeCompare(String(a.modified_at || "")));
+}
+
+function dbSidecarFiles(dbPath = DB_PATH) {
+  return [`${dbPath}-wal`, `${dbPath}-shm`].map(fileMeta);
+}
+
+function rowCountSafe(db, table) {
+  try {
+    if (!tableExists(db, table)) return null;
+    return db.prepare(`SELECT COUNT(*) AS n FROM ${sqlIdent(table)}`).get().n ?? 0;
+  } catch {
+    return null;
+  }
+}
+
+function dbHealthSnapshot(db) {
+  const dbMeta = fileMeta(DB_PATH);
+  const sidecars = dbSidecarFiles();
+  let integrity = "not_run";
+  let quick = "not_run";
+  try { integrity = db.prepare("PRAGMA integrity_check").get()?.integrity_check ?? "unknown"; } catch (err) { integrity = `error:${err.message}`; }
+  try { quick = db.prepare("PRAGMA quick_check").get()?.quick_check ?? "unknown"; } catch (err) { quick = `error:${err.message}`; }
+  const tables = tableNames(db);
+  const largest = tables.map((name) => ({ table: name, rows: rowCountSafe(db, name) ?? 0 }))
+    .sort((a, b) => b.rows - a.rows)
+    .slice(0, 15);
+  const commandPending = tableExists(db, "bot_command_queue") && columnExists(db, "bot_command_queue", "status")
+    ? db.prepare("SELECT COUNT(*) AS n FROM bot_command_queue WHERE status IN ('pending','queued','claimed','running')").get().n
+    : 0;
+  const commandFailed = tableExists(db, "bot_command_queue") && columnExists(db, "bot_command_queue", "status")
+    ? db.prepare("SELECT COUNT(*) AS n FROM bot_command_queue WHERE status='failed'").get().n
+    : 0;
+  const staleBots = tableExists(db, "bot_instances") && columnExists(db, "bot_instances", "last_heartbeat_at")
+    ? db.prepare("SELECT COUNT(*) AS n FROM bot_instances WHERE last_heartbeat_at IS NULL OR datetime(last_heartbeat_at) < datetime('now','-10 minutes')").get().n
+    : 0;
+  const failedRadio = tableExists(db, "yt_request_jobs") && columnExists(db, "yt_request_jobs", "status")
+    ? db.prepare("SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status IN ('failed','failed_download','error','cancelled')").get().n
+    : 0;
+  const orphanedOwnedItems = tableExists(db, "owned_items") && tableExists(db, "users")
+    ? db.prepare("SELECT COUNT(*) AS n FROM owned_items oi LEFT JOIN users u ON u.user_id=oi.user_id WHERE u.user_id IS NULL").get().n
+    : null;
+  const warnings = [];
+  if (integrity !== "ok") warnings.push({ level: "error", message: `SQLite integrity_check: ${integrity}` });
+  if (quick !== "ok") warnings.push({ level: "warn", message: `SQLite quick_check: ${quick}` });
+  if ((sidecars.find((f) => f.path.endsWith("-wal"))?.size || 0) > 50 * 1024 * 1024) warnings.push({ level: "warn", message: "WAL file is larger than 50 MB." });
+  if (commandFailed > 0) warnings.push({ level: "warn", message: `${commandFailed} failed bot command queue rows.` });
+  return {
+    db_path: DB_PATH,
+    db_file: dbMeta,
+    sidecars,
+    wal_size: sidecars.find((f) => f.path.endsWith("-wal"))?.size || 0,
+    integrity_check: integrity,
+    quick_check: quick,
+    table_count: tables.length,
+    largest_tables: largest,
+    stale_bot_instances: staleBots,
+    pending_bot_command_queue: commandPending,
+    failed_bot_command_queue: commandFailed,
+    failed_yt_request_jobs: failedRadio,
+    orphaned_inventory_rows: orphanedOwnedItems,
+    warnings,
+    warning_count: warnings.length,
+  };
+}
+
+function cleanupPreview(db, retentionDays = 30) {
+  const days = Math.max(1, Math.min(365, Number(retentionDays) || 30));
+  const candidates = [];
+  const oldDateSql = `datetime('now','-${days} days')`;
+  if (tableExists(db, "bot_instances")) {
+    const duplicateRows = safeRows(db, "bot_instances", ["bot_username", "bot_mode"], { limit: "1000" });
+    const seen = new Map();
+    for (const row of duplicateRows) {
+      const key = `${row.bot_username || ""}:${row.bot_mode || ""}`;
+      seen.set(key, (seen.get(key) || 0) + 1);
+    }
+    const duplicateCount = [...seen.values()].reduce((sum, n) => sum + Math.max(0, n - 1), 0);
+    candidates.push({ cleanup_type: "stale_bot_instances", description: "Duplicate/stale bot_instances rows", count: duplicateCount, dry_run_only: true });
+  }
+  if (tableExists(db, "bot_command_queue") && columnExists(db, "bot_command_queue", "created_at") && columnExists(db, "bot_command_queue", "status")) {
+    const oldCompleted = db.prepare(`SELECT COUNT(*) AS n FROM bot_command_queue WHERE status='completed' AND datetime(created_at) < ${oldDateSql}`).get().n;
+    const oldFailed = db.prepare(`SELECT COUNT(*) AS n FROM bot_command_queue WHERE status='failed' AND datetime(created_at) < ${oldDateSql}`).get().n;
+    candidates.push({ cleanup_type: "old_completed_bot_commands", description: `Completed bot commands older than ${days} days`, count: oldCompleted, dry_run_only: true });
+    candidates.push({ cleanup_type: "old_failed_bot_commands", description: `Failed bot commands older than ${days} days`, count: oldFailed, dry_run_only: true });
+  }
+  if (tableExists(db, "yt_request_jobs") && columnExists(db, "yt_request_jobs", "status")) {
+    const failedRadio = db.prepare("SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status IN ('failed','failed_download','error','cancelled')").get().n;
+    candidates.push({ cleanup_type: "failed_radio_jobs", description: "Terminal failed/cancelled radio request jobs", count: failedRadio, dry_run_only: true });
+  }
+  const backups = backupFileList();
+  const cutoff = Date.now() - days * 86400 * 1000;
+  const oldBackups = backups.filter((b) => b.modified_at && new Date(b.modified_at).getTime() < cutoff).length;
+  candidates.push({ cleanup_type: "old_backup_files", description: `Backup files older than ${days} days`, count: oldBackups, dry_run_only: true });
+  return { retention_days: days, candidates, note: "DB row cleanup is dry-run only in this dashboard build. No rows are deleted by preview." };
+}
+
+async function pm2Snapshot() {
+  try {
+    const { stdout } = await execFileAsync("pm2", ["jlist"], { timeout: 2500, maxBuffer: 1024 * 1024 });
+    const list = safeJsonParse(stdout, []);
+    return {
+      available: true,
+      processes: (Array.isArray(list) ? list : []).map((p) => ({
+        name: p.name,
+        pm_id: p.pm_id,
+        status: p.pm2_env?.status,
+        restart_time: p.pm2_env?.restart_time,
+        uptime: p.pm2_env?.pm_uptime,
+        memory: p.monit?.memory,
+        cpu: p.monit?.cpu,
+      })),
+    };
+  } catch (err) {
+    return { available: false, error: err.code === "ENOENT" ? "pm2_not_found" : err.message, processes: [] };
+  }
+}
+
+async function maintenanceOverview(db) {
+  const backups = backupFileList();
+  const health = dbHealthSnapshot(db);
+  const pm2 = await pm2Snapshot();
+  const dashboardProc = pm2.processes.find((p) => /dashboard/i.test(p.name || "")) || null;
+  const botProcs = pm2.processes.filter((p) => /bot|chilltopia|highrise/i.test(p.name || ""));
+  return {
+    db_path: DB_PATH,
+    db_file: fileMeta(DB_PATH),
+    wal_file: fileMeta(`${DB_PATH}-wal`),
+    last_backup: backups.find((b) => b.type === "sqlite_db") || null,
+    backup_count: backups.length,
+    last_dashboard_restart: dashboardProc?.uptime ? new Date(dashboardProc.uptime).toISOString() : null,
+    last_bot_restart: botProcs.map((p) => p.uptime).filter(Boolean).sort()[0] ? new Date(botProcs.map((p) => p.uptime).filter(Boolean).sort()[0]).toISOString() : null,
+    pm2_dashboard_status: dashboardProc?.status || (pm2.available ? "not_found" : "pm2_unavailable"),
+    pm2_bot_status: botProcs.map((p) => ({ name: p.name, status: p.status, restart_time: p.restart_time })),
+    sqlite_integrity_status: health.integrity_check,
+    wal_size: health.wal_size,
+    warning_count: health.warning_count,
+    warnings: health.warnings,
+    approved_backup_folders: APPROVED_BACKUP_DIRS,
+  };
 }
 
 function columnExists(db, table, column) {
@@ -2064,7 +2278,7 @@ function buildPermissionsAudit() {
     if (isApi && isWrite && !route.public && route.auth === "requireAuth" && !route.permissions.length && !route.owner_only) {
       warnings.push({ path: route.path, method: route.method, warning: "write_route_missing_permission" });
     }
-    if (/bot-config|db\/inspect|settings-audit|permissions\/audit/.test(route.path) && !route.owner_only) {
+    if (/bot-config|db\/inspect|settings-audit|permissions\/audit|maintenance/.test(route.path) && !route.owner_only) {
       warnings.push({ path: route.path, method: route.method, warning: "owner_sensitive_route_not_owner_only" });
     }
   }
@@ -2198,6 +2412,187 @@ app.get("/api/settings-audit", requireAuth, requireOwner, (req, res) => {
 
 app.get("/api/permissions/audit", requireAuth, requireOwner, (_req, res) => {
   json(res, buildPermissionsAudit());
+}, closeDb);
+
+app.get("/api/maintenance/overview", requireAuth, requireOwner, async (req, res) => {
+  json(res, await maintenanceOverview(req.db));
+}, closeDb);
+
+app.get("/api/maintenance/backups", requireAuth, requireOwner, (req, res) => {
+  json(res, {
+    backups: backupFileList(),
+    env_metadata: envMetadata(),
+    approved_backup_folders: APPROVED_BACKUP_DIRS,
+    db_path: DB_PATH,
+    db_file: fileMeta(DB_PATH),
+  });
+}, closeDb);
+
+app.post("/api/maintenance/backup/db", requireAuth, requireOwner, async (req, res) => {
+  const stamp = formatStamp();
+  ensureDir(DB_BACKUP_DIR);
+  const dest = path.join(DB_BACKUP_DIR, `highrise_hangout.dashboard_backup_${stamp}.db`);
+  try {
+    try { req.db.prepare("PRAGMA wal_checkpoint(PASSIVE)").get(); } catch {}
+    await req.db.backup(dest);
+    for (const sidecar of [`${DB_PATH}-wal`, `${DB_PATH}-shm`]) {
+      if (!fs.existsSync(sidecar)) continue;
+      fs.copyFileSync(sidecar, path.join(DB_BACKUP_DIR, `${path.basename(dest)}${sidecar.endsWith("-wal") ? "-wal" : "-shm"}`));
+    }
+    audit(req.db, req.user.username, "maintenance_db_backup", "backup_file", dest, "", { db_path: DB_PATH, backup: dest }, req.ip);
+    json(res, { ok: true, backup: fileMeta(dest), sidecars: dbSidecarFiles(dest), message: "SQLite DB backup created." });
+  } catch (err) {
+    audit(req.db, req.user.username, "maintenance_db_backup_failed", "backup_file", dest, "", err.message, req.ip);
+    json(res, { error: "backup_failed", message: err.message }, 500);
+  }
+}, closeDb);
+
+app.post("/api/maintenance/backup/dashboard", requireAuth, requireOwner, (req, res) => {
+  const stamp = formatStamp();
+  ensureDir(DASHBOARD_BACKUP_DIR);
+  const files = ["server.mjs", "public/app.js", "public/styles.css", "public/index.html"];
+  const copied = [];
+  try {
+    for (const rel of files) {
+      const src = path.join(__dirname, rel);
+      if (!fs.existsSync(src)) continue;
+      const safeName = rel.replace(/[\\/]/g, "__");
+      const dest = path.join(DASHBOARD_BACKUP_DIR, `${safeName}.${stamp}.bak`);
+      fs.copyFileSync(src, dest);
+      copied.push(fileMeta(dest));
+    }
+    audit(req.db, req.user.username, "maintenance_dashboard_backup", "backup_folder", DASHBOARD_BACKUP_DIR, "", copied.map((f) => f.name || f.path), req.ip);
+    json(res, { ok: true, copied, folder: DASHBOARD_BACKUP_DIR });
+  } catch (err) {
+    audit(req.db, req.user.username, "maintenance_dashboard_backup_failed", "backup_folder", DASHBOARD_BACKUP_DIR, "", err.message, req.ip);
+    json(res, { error: "dashboard_backup_failed", message: err.message }, 500);
+  }
+}, closeDb);
+
+app.post("/api/maintenance/backup/env-metadata", requireAuth, requireOwner, (req, res) => {
+  const confirmation = String(req.body?.confirmation || "");
+  const meta = envMetadata();
+  if (confirmation !== "BACKUP ENV") return json(res, { error: "confirmation_required", required: "BACKUP ENV", env_metadata: meta }, 400);
+  if (!meta.file_exists) return json(res, { error: "env_missing", env_metadata: meta }, 404);
+  ensureDir(DASHBOARD_BACKUP_DIR, 0o700);
+  const dest = path.join(DASHBOARD_BACKUP_DIR, `.env.dashboard_backup_${formatStamp()}`);
+  try {
+    fs.copyFileSync(VPS_ENV_PATH, dest);
+    try { fs.chmodSync(dest, 0o600); } catch {}
+    audit(req.db, req.user.username, "maintenance_env_backup", "backup_file", dest, "", { env_path: VPS_ENV_PATH, token_keys: meta.token_keys }, req.ip);
+    json(res, { ok: true, env_metadata: meta, backup: { path: dest, exists: true, mode: fileMeta(dest).mode }, message: "Environment file backed up server-side; contents are not returned." });
+  } catch (err) {
+    audit(req.db, req.user.username, "maintenance_env_backup_failed", "backup_file", dest, "", err.message, req.ip);
+    json(res, { error: "env_backup_failed", message: err.message, env_metadata: meta }, 500);
+  }
+}, closeDb);
+
+app.get("/api/maintenance/restore-preview", requireAuth, requireOwner, (req, res) => {
+  const backup = String(req.query.backup || "").trim();
+  const resolved = path.resolve(backup);
+  if (!backup || !isApprovedBackupPath(resolved, [DB_BACKUP_DIR])) {
+    return json(res, { error: "backup_not_approved", approved_backup_folder: DB_BACKUP_DIR }, 400);
+  }
+  const meta = fileMeta(resolved);
+  if (!meta.exists || !resolved.endsWith(".db")) return json(res, { error: "backup_not_found_or_not_db", backup: meta }, 404);
+  json(res, {
+    backup: meta,
+    current_db: fileMeta(DB_PATH),
+    will_create_pre_restore_backup: true,
+    required_confirmation: "RESTORE DATABASE",
+    warnings: [
+      "Restoring replaces the live SQLite DB file.",
+      "Restart ChillTopia-8Bots and ChillTopia-Dashboard after restore.",
+      "Dashboard file restore is intentionally not automated.",
+    ],
+  });
+}, closeDb);
+
+app.post("/api/maintenance/restore-db", requireAuth, requireOwner, async (req, res) => {
+  const backup = path.resolve(String(req.body?.backup || "").trim());
+  const confirmation = String(req.body?.confirmation || "");
+  if (confirmation !== "RESTORE DATABASE") return json(res, { error: "confirmation_required", required: "RESTORE DATABASE" }, 400);
+  if (!isApprovedBackupPath(backup, [DB_BACKUP_DIR]) || !backup.endsWith(".db")) return json(res, { error: "backup_not_approved", approved_backup_folder: DB_BACKUP_DIR }, 400);
+  if (!fs.existsSync(backup)) return json(res, { error: "backup_not_found" }, 404);
+  ensureDir(DB_BACKUP_DIR);
+  const preRestore = path.join(DB_BACKUP_DIR, `highrise_hangout.pre_restore_${formatStamp()}.db`);
+  try {
+    try { req.db.prepare("PRAGMA wal_checkpoint(PASSIVE)").get(); } catch {}
+    await req.db.backup(preRestore);
+    audit(req.db, req.user.username, "maintenance_db_restore", "sqlite_db", DB_PATH, { pre_restore_backup: preRestore }, { restored_from: backup }, req.ip);
+    fs.copyFileSync(backup, DB_PATH);
+    json(res, {
+      ok: true,
+      restored_from: backup,
+      pre_restore_backup: preRestore,
+      next_steps: ["restart ChillTopia-8Bots", "restart ChillTopia-Dashboard"],
+      warning: "Live DB file was replaced. Restart bots and dashboard so every process reopens SQLite cleanly.",
+    });
+  } catch (err) {
+    audit(req.db, req.user.username, "maintenance_db_restore_failed", "sqlite_db", DB_PATH, backup, err.message, req.ip);
+    json(res, { error: "restore_failed", message: err.message }, 500);
+  }
+}, closeDb);
+
+app.get("/api/maintenance/db-health", requireAuth, requireOwner, (req, res) => {
+  json(res, dbHealthSnapshot(req.db));
+}, closeDb);
+
+app.get("/api/maintenance/cleanup-preview", requireAuth, requireOwner, (req, res) => {
+  json(res, cleanupPreview(req.db, req.query.retention_days || 30));
+}, closeDb);
+
+app.post("/api/maintenance/cleanup", requireAuth, requireOwner, (req, res) => {
+  const cleanupType = String(req.body?.cleanup_type || "").trim();
+  const confirmation = String(req.body?.confirmation || "");
+  const dryRun = req.body?.dry_run !== false;
+  const preview = cleanupPreview(req.db, req.body?.retention_days || 30);
+  const candidate = preview.candidates.find((row) => row.cleanup_type === cleanupType);
+  if (!candidate) return json(res, { error: "cleanup_type_not_allowed", preview }, 400);
+  if (confirmation !== "CLEANUP") return json(res, { error: "confirmation_required", required: "CLEANUP", preview }, 400);
+  if (!dryRun) return json(res, { error: "actual_cleanup_disabled", message: "This build only returns cleanup previews for DB rows and files.", preview }, 409);
+  audit(req.db, req.user.username, "maintenance_cleanup_preview", "cleanup", cleanupType, "", candidate, req.ip);
+  json(res, { ok: true, dry_run: true, candidate, preview });
+}, closeDb);
+
+app.get("/api/maintenance/runtime-health", requireAuth, requireOwner, async (req, res) => {
+  const pm2 = await pm2Snapshot();
+  const bots = tableExists(req.db, "bot_instances")
+    ? safeRows(req.db, "bot_instances", ["bot_username","bot_mode","status","last_heartbeat_at","last_error"], { orderBy: "bot_mode, bot_username", limit: "250" })
+    : [];
+  const queueCounts = tableExists(req.db, "bot_command_queue") && columnExists(req.db, "bot_command_queue", "status")
+    ? rowsOrEmpty(req.db, "bot_command_queue", "SELECT status, COUNT(*) AS n FROM bot_command_queue GROUP BY status")
+    : [];
+  json(res, {
+    pm2,
+    bot_heartbeats: bots,
+    heartbeat_count: bots.length,
+    command_queue_counts: queueCounts,
+    command_queue_failures: safeRows(req.db, "bot_command_queue", ["id","target_bot","action","status","requester_id","created_at","claimed_by","completed_at","error_text"], { where: "status='failed'", orderBy: "id DESC", limit: "50" }),
+  });
+}, closeDb);
+
+app.get("/api/maintenance/logs", requireAuth, requireOwner, (req, res) => {
+  json(res, {
+    audit_logs: safeRows(req.db, "audit_logs", ["id","actor","action_type","target_type","target_id","old_value","new_value","ip_address","created_at"], { orderBy: "id DESC", limit: "100" }),
+    admin_action_logs: safeTableRows(req.db, "admin_action_logs", { orderBy: "id DESC", limit: "100" }),
+    command_queue_failures: safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_by","completed_at","error_text"], { where: "status='failed'", orderBy: "id DESC", limit: "100" }),
+    radio_failures: tableExists(req.db, "yt_request_jobs") ? safeRows(req.db, "yt_request_jobs", ["id","title","username","status","error","created_at","finished_at"], { where: "status IN ('failed','failed_download','error','cancelled')", orderBy: "id DESC", limit: "100" }) : [],
+  });
+}, closeDb);
+
+app.get("/api/maintenance/advanced", requireAuth, requireOwner, (req, res) => {
+  json(res, {
+    db_path: DB_PATH,
+    approved_backup_folders: APPROVED_BACKUP_DIRS,
+    retention_settings: { default_days: 30, max_days: 365 },
+    raw_health: dbHealthSnapshot(req.db),
+    restore_warnings: [
+      "Only DB files inside the approved DB backup folder can be restored.",
+      "A pre-restore backup is created before overwrite.",
+      "Restart bots and dashboard after restore.",
+    ],
+  });
 }, closeDb);
 
 app.get("/api/dj/status", async (_req, res) => {
