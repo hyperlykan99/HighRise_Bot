@@ -449,6 +449,9 @@ function ensureDashboardSchema(db) {
   addColumnIfMissing(db, "schema_version", "version", "INTEGER NOT NULL DEFAULT 1", migration);
   addColumnIfMissing(db, "schema_version", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
 
+  addColumnIfMissing(db, "bot_command_queue", "result_text", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "bot_command_queue", "error_text", "TEXT NOT NULL DEFAULT ''", migration);
+
   for (const moduleName of ["radio", "casino", "games", "titles", "staff", "settings"]) {
     const existingFlag = db.prepare("SELECT module FROM module_flags WHERE module=? LIMIT 1").get(moduleName);
     if (!existingFlag) {
@@ -757,6 +760,21 @@ function enqueueBotCommand(db, { targetBot, actionName, payload, requesterId }) 
   const info = db.prepare(`INSERT INTO bot_command_queue (${insertCols.map(sqlIdent).join(", ")}) VALUES (${placeholders})`).run(...values);
   return { id: info.lastInsertRowid, target_bot: targetBot, action: actionName, status: "pending" };
 }
+
+const BOT_COMMAND_QUEUE_COLUMNS = [
+  "id",
+  "target_bot",
+  "action",
+  "payload",
+  "status",
+  "requester_id",
+  "created_at",
+  "claimed_at",
+  "claimed_by",
+  "completed_at",
+  "result_text",
+  "error_text",
+];
 
 const ACTIVE_BLACKJACK_COLUMNS = [
   "id",
@@ -2850,12 +2868,12 @@ function readCanonicalBotAudit(db) {
 
 app.get("/api/bot-control", requireAuth, (req, res) => {
   const auditResult = readCanonicalBotAudit(req.db);
-  const pendingCommands = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+  const pendingCommands = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
     where: "status IN ('pending','queued','claimed','running')",
     orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
     limit: "25",
   });
-  const recentCommands = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+  const recentCommands = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
     orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
     limit: "25",
   });
@@ -2873,12 +2891,12 @@ app.get("/api/bot-control", requireAuth, (req, res) => {
 app.get("/api/bot-audit", requireAuth, (req, res) => {
   if (req.user?.role !== "owner") return json(res, { error: "forbidden", permission: "owner" }, 403);
   const auditResult = readCanonicalBotAudit(req.db);
-  const pendingCommands = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+  const pendingCommands = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
     where: "status IN ('pending','queued','claimed','running')",
     orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
     limit: "25",
   });
-  const recentCommands = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+  const recentCommands = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
     orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
     limit: "25",
   });
@@ -2979,12 +2997,12 @@ app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_contro
 }, closeDb);
 
 app.get("/api/bot-command-queue", requireAuth, (req, res) => {
-  const pending = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+  const pending = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
     where: "status IN ('pending','queued','claimed','running')",
     orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
     limit: "50",
   });
-  const recent = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+  const recent = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
     orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
     limit: "50",
   });

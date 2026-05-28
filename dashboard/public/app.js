@@ -1542,7 +1542,9 @@ function renderQueuedBotCommands(queue) {
           { key: "action", label: "Action" },
           { key: "status", label: "Status", render: (r) => pill(r.status || "pending") },
           { key: "requester_id", label: "Requester" },
+          { key: "claimed_by", label: "Claimed By" },
           { key: "created_at", label: "Created" },
+          { key: "error_text", label: "Error" },
         ]) : `<div class="notice">No pending bot commands.</div>`}
       </div>
       <div>
@@ -1554,7 +1556,10 @@ function renderQueuedBotCommands(queue) {
           { key: "status", label: "Status", render: (r) => pill(r.status || "unknown") },
           { key: "requester_id", label: "Requester" },
           { key: "created_at", label: "Created" },
+          { key: "claimed_by", label: "Claimed By" },
           { key: "completed_at", label: "Completed" },
+          { key: "result_text", label: "Result" },
+          { key: "error_text", label: "Error" },
         ]) : `<div class="notice">No recent bot commands.</div>`}
       </div>
     </div>

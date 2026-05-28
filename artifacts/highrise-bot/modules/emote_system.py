@@ -828,7 +828,7 @@ async def _dispatch_emote_to_other_bot(bot, uid, raw_target: str,
     while asyncio.get_event_loop().time() < deadline:
         await asyncio.sleep(0.5)
         final_status = db.get_bot_command_status(cmd_id)
-        if final_status in ("completed", "error", "unknown_action"):
+        if final_status in ("completed", "failed", "error", "unknown_action"):
             break
     if final_status == "completed":
         return
@@ -940,7 +940,7 @@ async def _dispatch_stop_to_other_bot(bot, uid, raw_target: str) -> None:
     while asyncio.get_event_loop().time() < deadline:
         await asyncio.sleep(0.5)
         final_status = db.get_bot_command_status(cmd_id)
-        if final_status in ("completed", "error", "unknown_action"):
+        if final_status in ("completed", "failed", "error", "unknown_action"):
             break
     if final_status == "completed":
         return

@@ -1309,6 +1309,8 @@ def _migrate_db():
         "ALTER TABLE bot_instances ADD COLUMN last_error          TEXT    NOT NULL DEFAULT ''",
         "ALTER TABLE bot_instances ADD COLUMN current_room_id     TEXT    NOT NULL DEFAULT ''",
         "ALTER TABLE bot_instances ADD COLUMN last_heartbeat_at   TEXT    NOT NULL DEFAULT ''",
+        "ALTER TABLE bot_command_queue ADD COLUMN result_text     TEXT    NOT NULL DEFAULT ''",
+        "ALTER TABLE bot_command_queue ADD COLUMN error_text      TEXT    NOT NULL DEFAULT ''",
         "ALTER TABLE poker_active_table ADD COLUMN hand_number          INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE poker_active_table ADD COLUMN small_blind_username TEXT",
         "ALTER TABLE poker_active_table ADD COLUMN big_blind_username   TEXT",
@@ -1492,7 +1494,9 @@ def _migrate_db():
         "created_at TEXT NOT NULL DEFAULT '', "
         "claimed_at TEXT NOT NULL DEFAULT '', "
         "claimed_by TEXT NOT NULL DEFAULT '', "
-        "completed_at TEXT NOT NULL DEFAULT '')",
+        "completed_at TEXT NOT NULL DEFAULT '', "
+        "result_text TEXT NOT NULL DEFAULT '', "
+        "error_text TEXT NOT NULL DEFAULT '')",
         "CREATE INDEX IF NOT EXISTS idx_bot_cmd_queue_pending "
         "ON bot_command_queue (status, target_bot)",
         # ── Casino integrity checker ──────────────────────────────────────────
@@ -3831,6 +3835,75 @@ def enqueue_bot_command(target_bot: str, action: str, payload_json: str,
     return int(cmd_id)
 
 
+def _bot_command_queue_columns(conn) -> set:
+    try:
+        return {row["name"] for row in conn.execute("PRAGMA table_info(bot_command_queue)").fetchall()}
+    except Exception:
+        return set()
+
+
+def _ensure_bot_command_result_columns(conn) -> set:
+    cols = _bot_command_queue_columns(conn)
+    for col in ("result_text", "error_text"):
+        if col in cols:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE bot_command_queue ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+            cols.add(col)
+        except Exception:
+            pass
+    return _bot_command_queue_columns(conn)
+
+
+def get_pending_bot_commands(targets: list, limit: int = 25) -> list:
+    """Return pending queue rows for normalized target aliases."""
+    if not targets:
+        return []
+    norm = [a.strip().lower().lstrip("@") for a in targets if a]
+    norm = sorted({a for a in norm if a})
+    if not norm:
+        return []
+    placeholders = ",".join("?" for _ in norm)
+    conn = get_connection()
+    try:
+        _ensure_bot_command_result_columns(conn)
+        rows = conn.execute(
+            f"SELECT * FROM bot_command_queue "
+            f"WHERE status='pending' AND lower(target_bot) IN ({placeholders}) "
+            f"ORDER BY id ASC LIMIT ?",
+            (*norm, int(limit)),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def claim_bot_command(command_id: int, claimed_by: str) -> dict | None:
+    """Atomically claim a single pending command row."""
+    import datetime as _dt
+    now = _dt.datetime.utcnow().isoformat()
+    conn = get_connection()
+    try:
+        _ensure_bot_command_result_columns(conn)
+        cur = conn.execute(
+            "UPDATE bot_command_queue "
+            "SET status='claimed', claimed_at=?, claimed_by=? "
+            "WHERE id=? AND status='pending'",
+            (now, claimed_by, int(command_id)),
+        )
+        if cur.rowcount != 1:
+            conn.commit()
+            return None
+        row = conn.execute(
+            "SELECT * FROM bot_command_queue WHERE id=? LIMIT 1",
+            (int(command_id),),
+        ).fetchone()
+        conn.commit()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def claim_pending_bot_commands(aliases: list, claimer: str,
                                 limit: int = 25) -> list:
     """Atomically claim any pending commands whose target_bot is in aliases.
@@ -3839,54 +3912,58 @@ def claim_pending_bot_commands(aliases: list, claimer: str,
     """
     if not aliases:
         return []
-    import datetime as _dt
-    now = _dt.datetime.utcnow().isoformat()
     norm = [a.strip().lower().lstrip("@") for a in aliases if a]
     if not norm:
         return []
-    placeholders = ",".join("?" for _ in norm)
-    conn = get_connection()
-    try:
-        rows = conn.execute(
-            f"SELECT id, target_bot, action, payload, requester_id, created_at "
-            f"FROM bot_command_queue "
-            f"WHERE status='pending' AND target_bot IN ({placeholders}) "
-            f"ORDER BY id ASC LIMIT ?",
-            (*norm, limit),
-        ).fetchall()
-        claimed: list = []
-        for r in rows:
-            cur = conn.execute(
-                "UPDATE bot_command_queue "
-                "SET status='claimed', claimed_at=?, claimed_by=? "
-                "WHERE id=? AND status='pending'",
-                (now, claimer, r["id"]),
-            )
-            if cur.rowcount == 1:
-                claimed.append({
-                    "id":           r["id"],
-                    "target_bot":   r["target_bot"],
-                    "action":       r["action"],
-                    "payload":      r["payload"],
-                    "requester_id": r["requester_id"],
-                    "created_at":   r["created_at"],
-                })
-        conn.commit()
-    finally:
-        conn.close()
+    claimed: list = []
+    for row in get_pending_bot_commands(norm, limit=limit):
+        fresh = claim_bot_command(row["id"], claimer)
+        if fresh:
+            claimed.append(fresh)
     return claimed
 
 
-def mark_bot_command_completed(cmd_id: int, status: str = "completed") -> None:
+def _finish_bot_command(cmd_id: int, status: str, result: str = "",
+                        error: str = "") -> None:
     import datetime as _dt
     now = _dt.datetime.utcnow().isoformat()
     conn = get_connection()
-    conn.execute(
-        "UPDATE bot_command_queue SET status=?, completed_at=? WHERE id=?",
-        (status, now, cmd_id),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        cols = _ensure_bot_command_result_columns(conn)
+        assignments = ["status=?", "completed_at=?"]
+        params: list = [status, now]
+        if "result_text" in cols:
+            assignments.append("result_text=?")
+            params.append((result or "")[:1000])
+        if "error_text" in cols:
+            assignments.append("error_text=?")
+            params.append((error or "")[:1000])
+        params.append(int(cmd_id))
+        conn.execute(
+            f"UPDATE bot_command_queue SET {', '.join(assignments)} WHERE id=?",
+            tuple(params),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def complete_bot_command(cmd_id: int, result: str = "") -> None:
+    _finish_bot_command(cmd_id, "completed", result=result, error="")
+
+
+def fail_bot_command(cmd_id: int, error: str = "") -> None:
+    _finish_bot_command(cmd_id, "failed", result="", error=error)
+
+
+def mark_bot_command_completed(cmd_id: int, status: str = "completed",
+                               message: str = "") -> None:
+    if status == "completed":
+        complete_bot_command(cmd_id, message)
+    elif status in ("failed", "error", "unknown_action"):
+        _finish_bot_command(cmd_id, status, result="", error=message)
+    else:
+        _finish_bot_command(cmd_id, status, result=message, error="")
 
 
 def get_bot_command_status(cmd_id: int) -> str:
