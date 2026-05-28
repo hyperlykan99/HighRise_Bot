@@ -1716,10 +1716,21 @@ function buildLeaderboardsBase(db) {
 }
 
 function buildLeaderboards(db) {
-  const base = buildLeaderboardsBase(db);
+  let base;
+  try {
+    base = buildLeaderboardsBase(db);
+  } catch (err) {
+    base = {
+      rich: [], xp: [], casino: [], blackjack: [], poker: [], mining: [], fishing: [], events: [], radio: [], radio_songs: [], reputation: [],
+      metadata: { sources: { base: { table: "multiple", columns: [], status: "error", notes: err.message, row_count: 0 } }, missing_tables: [], missing_columns: [] },
+    };
+  }
   const sources = { ...(base.metadata?.sources || {}) };
   const missingTables = new Set(base.metadata?.missing_tables || []);
   const missingColumns = new Set(base.metadata?.missing_columns || []);
+  const sourceErrors = Object.entries(sources)
+    .filter(([, info]) => info?.status === "error")
+    .map(([name, info]) => ({ name, table: info.table, error: info.notes || "source_error" }));
   const limit = 50;
   const menu = [
     { command: "!toprich", label: "Richest", category: "Economy", source: "users.balance" },
@@ -1740,6 +1751,10 @@ function buildLeaderboards(db) {
 
   function source(name, table, columns, status = "connected", notes = "") {
     sources[name] = { table, columns, status, notes, row_count: rowCountSafe(db, table) ?? 0 };
+    if (status === "error") sourceErrors.push({ name, table, error: notes });
+  }
+  function aliasSource(from, to, notes = "") {
+    if (sources[from] && !sources[to]) sources[to] = { ...sources[from], notes: notes || sources[from].notes };
   }
   function markMissingTable(name, table) {
     missingTables.add(table);
@@ -1762,6 +1777,20 @@ function buildLeaderboards(db) {
   }
   function addRank(rows) {
     return rows.map((row, index) => ({ rank: index + 1, ...row }));
+  }
+  function directRows(name, table, columns, sql, params = [], notes = "") {
+    try {
+      if (!tableExists(db, table)) return markMissingTable(name, table);
+      const cols = tableColumns(db, table);
+      const missing = columns.filter((col) => !cols.includes(col));
+      if (missing.length) return markMissingColumns(name, table, missing);
+      const rows = db.prepare(sql).all(...params);
+      source(name, table, columns, rows.length ? "connected" : "empty", notes);
+      return addRank(rows);
+    } catch (err) {
+      source(name, table, columns, "error", err.message);
+      return [];
+    }
   }
   function runSql(name, table, requiredColumns, sql, params = [], notes = "") {
     try {
@@ -1802,17 +1831,14 @@ function buildLeaderboards(db) {
 
   const userCols = tableExists(db, "users") ? tableColumns(db, "users") : [];
   const balanceCol = choose(userCols, ["balance", "coins"]);
-  const level = tableExists(db, "users") && userCols.includes("username") && userCols.includes("level")
-    ? addRank(safeRows(db, "users", ["username", "level", "xp"], {
-        where: `${numericExpr("level")} > 0`,
-        orderBy: `${numericExpr("level")} DESC${userCols.includes("xp") ? `, ${numericExpr("xp")} DESC` : ""}`,
-        limit: String(limit),
-      }).map((row) => ({ username: row.username, level: row.level ?? 0, xp: row.xp ?? "" })))
-    : (tableExists(db, "users") ? markMissingColumns("level", "users", [userCols.includes("username") ? "level" : "username"]) : markMissingTable("level", "users"));
-  if (level.length) source("level", "users", ["username", "level", "xp"].filter((col) => userCols.includes(col)), "connected", "Top level from users.level.");
-
-  const mostGamesWon = base.casino || [];
-  source("most_games_won", "users", ["username", "total_games_won", "total_coins_earned"].filter((col) => userCols.includes(col)), mostGamesWon.length ? "connected" : "empty", "Most games won from users.total_games_won.");
+  const rich = balanceCol
+    ? directRows("rich", "users", ["username", balanceCol], `SELECT username, ${sqlIdent(balanceCol)} AS balance FROM users ORDER BY COALESCE(CAST(${sqlIdent(balanceCol)} AS REAL),0) DESC LIMIT 10`, [], "Exact public richest query from users.balance.")
+    : (tableExists(db, "users") ? markMissingColumns("rich", "users", ["balance"]) : markMissingTable("rich", "users"));
+  source("richest", "users", ["username", balanceCol || "balance"], sources.rich?.status || "empty", "Alias for !toprich / rich.");
+  const xp = directRows("xp", "users", ["username", "xp", "level"], "SELECT username, xp, level FROM users ORDER BY COALESCE(CAST(xp AS REAL),0) DESC LIMIT 10", [], "Exact public XP query from users.xp.");
+  source("top_xp", "users", ["username", "xp", "level"], sources.xp?.status || "empty", "Alias for top XP.");
+  const level = directRows("level", "users", ["username", "level", "xp"], "SELECT username, level, xp FROM users ORDER BY COALESCE(CAST(level AS REAL),0) DESC, COALESCE(CAST(xp AS REAL),0) DESC LIMIT 10", [], "Exact public level query from users.level/users.xp.");
+  const mostGamesWon = directRows("most_games_won", "users", ["username", "total_games_won"], "SELECT username, total_games_won AS wins FROM users ORDER BY COALESCE(CAST(total_games_won AS REAL),0) DESC LIMIT 10", [], "Exact public games-won query from users.total_games_won.");
 
   const miningHeaviestOre = (() => {
     if (!tableExists(db, "ore_weight_records")) return markMissingTable("mining_heaviest_ore", "ore_weight_records");
@@ -1960,8 +1986,9 @@ function buildLeaderboards(db) {
   if (profiles.length) source("profiles", "users", ["username", "level", "xp", balanceCol, "total_games_won", "total_coins_earned"].filter(Boolean), "connected", "Public-safe !profile summary fields.");
 
   const leaderboards = {
-    richest: base.rich || [],
-    xp: base.xp || [],
+    richest: rich,
+    xp,
+    top_xp: xp,
     level,
     most_games_won: mostGamesWon,
     casino_overall: base.casino || [],
@@ -1993,7 +2020,10 @@ function buildLeaderboards(db) {
   const sourceRows = Object.entries(sources).map(([name, info]) => ({ name, ...info }));
   const diagnostics = {
     generated_at: nowIso(),
+    db_path: DB_PATH,
     connected_sources: sourceRows.filter((row) => row.status === "connected"),
+    source_errors: sourceErrors,
+    row_counts: Object.fromEntries([...new Set(sourceRows.map((row) => row.table).filter((table) => table && table !== "multiple"))].map((table) => [table, rowCountSafe(db, table) ?? 0])),
     missing_tables: [...missingTables],
     missing_columns: [...missingColumns].filter(Boolean),
     empty_sources: sourceRows.filter((row) => row.status === "empty" || (row.status === "connected" && Array.isArray(leaderboards[row.name]) && leaderboards[row.name].length === 0)).map((row) => row.name),
@@ -2004,7 +2034,12 @@ function buildLeaderboards(db) {
     ...base,
     menu,
     leaderboards,
+    rich,
+    rich_list: rich,
+    xp,
+    top_xp: xp,
     level,
+    most_games_won: mostGamesWon,
     mining_heaviest_ore: miningHeaviestOre,
     mining_most_valuable: miningMostValuable,
     mining_rarest: miningRarest,
@@ -2022,10 +2057,16 @@ function buildLeaderboards(db) {
     streaks,
     profiles,
     diagnostics,
+    miners: base.mining || [],
+    fishers: base.fishing || [],
+    top_requesters: base.radio || [],
     metadata: {
       generated_at: diagnostics.generated_at,
+      db_path: diagnostics.db_path,
       missing_tables: diagnostics.missing_tables,
       missing_columns: diagnostics.missing_columns,
+      source_errors: diagnostics.source_errors,
+      row_counts: diagnostics.row_counts,
       sources,
     },
   };
@@ -3756,24 +3797,76 @@ app.get("/api/public/room-info", async (_req, res) => {
 
 app.get("/api/public/rankings", async (req, res) => {
   let db = null;
+  const scrubUserIds = (value) => {
+    if (Array.isArray(value)) return value.map(scrubUserIds);
+    if (!value || typeof value !== "object") return value;
+    const out = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "user_id") continue;
+      out[key] = scrubUserIds(item);
+    }
+    return out;
+  };
+  const minimalRankings = (errorMessage = "") => {
+    const addRank = (rows) => rows.map((row, index) => ({ rank: index + 1, ...row }));
+    const query = (name, table, sql) => {
+      try {
+        if (!tableExists(db, table)) return [];
+        return addRank(db.prepare(sql).all());
+      } catch {
+        return [];
+      }
+    };
+    const rich = query("rich", "users", "SELECT username, balance FROM users ORDER BY COALESCE(CAST(balance AS REAL),0) DESC LIMIT 10");
+    const xp = query("xp", "users", "SELECT username, xp, level FROM users ORDER BY COALESCE(CAST(xp AS REAL),0) DESC LIMIT 10");
+    const level = query("level", "users", "SELECT username, level, xp FROM users ORDER BY COALESCE(CAST(level AS REAL),0) DESC, COALESCE(CAST(xp AS REAL),0) DESC LIMIT 10");
+    const games = query("most_games_won", "users", "SELECT username, total_games_won AS wins FROM users ORDER BY COALESCE(CAST(total_games_won AS REAL),0) DESC LIMIT 10");
+    const mining = query("mining", "mining_players", "SELECT username, mining_xp AS xp, mining_level AS level, total_ores AS total_mined FROM mining_players ORDER BY COALESCE(CAST(mining_xp AS REAL),0) DESC LIMIT 10");
+    const fishing = query("fishing", "fish_profiles", "SELECT username, total_catches, fishing_level AS level FROM fish_profiles ORDER BY COALESCE(CAST(total_catches AS REAL),0) DESC LIMIT 10");
+    const radio = query("radio", "radio_user_stats", "SELECT username, requests_count AS requests FROM radio_user_stats ORDER BY COALESCE(CAST(requests_count AS REAL),0) DESC LIMIT 10");
+    const leaderboards = { richest: rich, xp, top_xp: xp, level, most_games_won: games, mining_top: mining, fishing_top: fishing, radio_requesters: radio };
+    return {
+      menu: [],
+      leaderboards,
+      rich,
+      rich_list: rich,
+      xp,
+      top_xp: xp,
+      level,
+      most_games_won: games,
+      mining,
+      miners: mining,
+      fishing,
+      fishers: fishing,
+      radio,
+      top_requesters: radio,
+      casino: games,
+      blackjack: [],
+      poker: [],
+      events: [],
+      reputation: [],
+      diagnostics: {
+        generated_at: nowIso(),
+        db_path: DB_PATH,
+        connected_sources: [],
+        source_errors: errorMessage ? [{ name: "public_rankings", table: "multiple", error: errorMessage }] : [],
+        row_counts: Object.fromEntries(["users", "mining_players", "fish_profiles", "radio_user_stats"].map((table) => [table, rowCountSafe(db, table) ?? 0])),
+        missing_tables: [],
+        missing_columns: [],
+        empty_sources: [],
+        sources: {},
+      },
+      metadata: { generated_at: nowIso(), db_path: DB_PATH, missing_tables: [], missing_columns: [], source_errors: errorMessage ? [{ name: "public_rankings", table: "multiple", error: errorMessage }] : [], row_counts: {} },
+    };
+  };
   try {
     db = await openDb({ readonly: true });
-    const scrubUserIds = (value) => {
-      if (Array.isArray(value)) return value.map(scrubUserIds);
-      if (!value || typeof value !== "object") return value;
-      const out = {};
-      for (const [key, item] of Object.entries(value)) {
-        if (key === "user_id") continue;
-        out[key] = scrubUserIds(item);
-      }
-      return out;
-    };
     json(res, scrubUserIds(buildLeaderboards(db)));
   } catch (err) {
-    json(res, {
+    json(res, db ? scrubUserIds(minimalRankings(err.message)) : {
       rich: [], xp: [], casino: [], blackjack: [], poker: [], mining: [], fishing: [], events: [], radio: [], reputation: [],
       rich_list: [], miners: [], fishers: [], top_requesters: [],
-      metadata: { generated_at: nowIso(), missing_tables: [], missing_columns: [], error: err.message },
+      metadata: { generated_at: nowIso(), db_path: DB_PATH, missing_tables: [], missing_columns: [], source_errors: [{ name: "public_rankings", table: "multiple", error: err.message }] },
     });
   } finally {
     if (db) try { db.close(); } catch {}
