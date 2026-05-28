@@ -11,6 +11,7 @@ const PUBLIC_NAV = [
   { id: "casino",    icon: "🎲", label: "Casino" },
   { id: "mining",    icon: "⛏️", label: "Mining" },
   { id: "fishing",   icon: "🎣", label: "Fishing" },
+  { id: "quests",    icon: "📜", label: "Quests" },
   { id: "events",    icon: "🎉", label: "Events" },
   { id: "rankings",  icon: "🏆", label: "Rankings" },
   { id: "roominfo",  icon: "ℹ️",  label: "Room Info" },
@@ -29,6 +30,7 @@ const OWNER_NAV = [
   { id: "Emotes",            icon: "💃", label: "Emotes",            group: "Control" },
   { id: "Mining",            icon: "⛏️", label: "Mining",            group: "Control" },
   { id: "Fishing",           icon: "🎣", label: "Fishing",           group: "Control" },
+  { id: "Quests & Missions", icon: "📜", label: "Quests & Missions", group: "Control" },
   { id: "Events",            icon: "🎉", label: "Events",            group: "Control" },
   { id: "Economy & Rewards", icon: "💰", label: "Economy & Rewards", group: "Control" },
   { id: "Staff",             icon: "👥", label: "Staff",             group: "Admin" },
@@ -153,6 +155,17 @@ const FISHING_TABS = [
   { id: "Logs", api: "/api/fishing/logs" },
   { id: "Advanced", api: "/api/fishing" },
 ];
+const QUEST_TABS = [
+  { id: "Overview", api: "/api/quests" },
+  { id: "Quest Catalog", api: "/api/quests" },
+  { id: "Daily Quests", api: "/api/quests" },
+  { id: "Weekly Quests", api: "/api/quests" },
+  { id: "Event Quests", api: "/api/quests" },
+  { id: "Player Progress", api: "/api/quests" },
+  { id: "Rewards", api: "/api/quests" },
+  { id: "Logs", api: "/api/quests" },
+  { id: "Advanced", api: "/api/quests" },
+];
 const EMOTE_TABS = [
   { id: "Overview", api: "/api/emotes/overview" },
   { id: "Emote Registry", api: "/api/emotes/registry" },
@@ -208,6 +221,7 @@ const TAB_REGISTRY = {
   "Economy & Rewards": ECONOMY_TABS,
   "Mining": MINING_TABS,
   "Fishing": FISHING_TABS,
+  "Quests & Missions": QUEST_TABS,
   "System": SYSTEM_TABS,
 };
 const PAGE_TABS = Object.fromEntries(
@@ -227,6 +241,7 @@ const PAGE_DESC = {
   "Emotes":            "DJ DUDU emote registry, bot loops, dancefloor, sync and social controls",
   "Mining":            "Mining catalog, settings, drop chances and logs",
   "Fishing":           "Fishing catalog, settings, catch chances and logs",
+  "Quests & Missions": "Daily, weekly, event and player mission progress",
   "Economy & Rewards": "Coins, VIP, shop, titles, badges, quests and grants",
   "Staff":             "Dashboard users, permissions and bot roles",
   "System":            "Health monitoring, logs and emergency controls",
@@ -623,6 +638,7 @@ function pageApi(page, tab) {
   return ({
     "Command Center":                     "/api/overview",
     "Casino":                             "/api/casino",
+    "Quests & Missions":                  "/api/quests",
     "Staff":                              "/api/staff",
     "Staff Home":                         "/api/overview",
     "Radio Queue":                        "/api/radio",
@@ -654,6 +670,7 @@ const state = {
   maintenanceTab: "Overview",
   howToPlayTab: "Quick Start",
   publicRankingTab: "Overview",
+  questSearch: "",
   securityPlayer: null,
   modal: null,
   sidebarOpen: false,
@@ -775,6 +792,7 @@ async function loadPublic() {
     home: "/api/public/home", radio: "/api/public/radio",
     casino: "/api/public/casino", mining: "/api/public/mining",
     fishing: "/api/public/fishing",
+    quests: "/api/public/quests",
     events: "/api/public/events", rankings: "/api/public/rankings",
     howtoplay: "/api/public/how-to-play", roominfo: "/api/public/room-info",
   };
@@ -936,6 +954,7 @@ function renderPublicPage() {
     case "casino":    return renderPublicCasino(d);
     case "mining":    return renderPublicMining(d);
     case "fishing":   return renderPublicFishing(d);
+    case "quests":    return renderPublicQuests(d);
     case "events":    return renderPublicEvents(d);
     case "rankings":  return renderPublicRankings(d);
     case "roominfo":  return renderPublicRoomInfo(d);
@@ -1022,6 +1041,7 @@ function renderPublicHome(d) {
         ["🎲", "Casino", "Play Blackjack with AceSinatra or Poker with ChipSoprano.", "casino"],
         ["⛏️", "Mining", "Mine ores, chase rare finds, and earn rewards.", "mining"],
         ["🎣", "Fishing", "Catch fish, hunt big weights, and build your profile.", "fishing"],
+        ["📜", "Quests", "Complete daily and weekly missions for extra rewards.", "quests"],
         ["🎉", "Events", "Join room events for points, wins, and prizes.", "events"],
         ["⭐", "Rewards / VIP", "Earn coins, titles, badges, and VIP perks.", "roominfo"],
       ].map(([icon, title, text, page]) => `<button class="card pub-system-card" data-pub-page="${page}"><span>${icon}</span><strong>${esc(title)}</strong><em>${esc(text)}</em></button>`).join("")}
@@ -1407,6 +1427,61 @@ function renderPublicFishing(d) {
         { key: "luck_bonus", label: "Luck" },
         { key: "speed_bonus", label: "Speed" },
       ])}
+    </div>
+  `;
+}
+
+function renderPublicQuests(d) {
+  const overview = d.overview || {};
+  const active = d.active_quests || [];
+  const daily = d.daily_quests || [];
+  const weekly = d.weekly_quests || [];
+  const event = d.event_quests || [];
+  const commands = d.commands || [];
+  const questName = (r) => r.name || r.title || r.quest_id || r.mission_id || "Quest";
+  const questDetail = (r) => [
+    r.description,
+    r.category,
+    r.target_amount ? `Target ${publicFmt(r.target_amount)}` : "",
+    r.reward_coins ? `${publicCoins(r.reward_coins)} reward` : "",
+    r.reward_xp ? `${publicFmt(r.reward_xp)} XP` : "",
+  ].filter(Boolean).join(" · ");
+  const questList = (rows, empty = "No quests listed yet.") => rows.length
+    ? rows.slice(0, 10).map((r) => `<div class="pub-event-item">
+        <div class="pub-event-name">${esc(questName(r))}</div>
+        ${questDetail(r) ? `<div class="muted text-sm">${esc(questDetail(r))}</div>` : ""}
+      </div>`).join("")
+    : `<div class="notice">${esc(empty)}</div>`;
+  return `
+    <div class="pub-section-title"><h2>📜 Quests & Missions</h2>
+      <p>Daily, weekly, event, and activity challenges from the live quest tables.</p></div>
+    <div class="pub-grid2">
+      <div class="card">
+        <h3>How Quests Work</h3>
+        <p class="manual-copy">Complete room activities like mining, fishing, events, radio requests, casino play, and daily claims to earn quest progress and rewards when the mission system is active.</p>
+        ${publicCommandChips(commands.map((cmd) => cmd.command))}
+      </div>
+      <div class="card">
+        <h3>Quest Snapshot</h3>
+        ${publicMetricGrid([
+          ["Active Quests", overview.active_quests ?? 0],
+          ["Daily", overview.daily_quests ?? 0],
+          ["Weekly", overview.weekly_quests ?? 0],
+          ["Event", overview.event_quests ?? 0],
+          ["Players Progressing", overview.players_with_progress ?? 0],
+          ["Pending Rewards", overview.pending_rewards ?? 0],
+        ])}
+      </div>
+    </div>
+    <div class="pub-rankings-grid">
+      <div class="card"><h3>Active Quests</h3>${questList(active)}</div>
+      <div class="card"><h3>Daily Quests</h3>${questList(daily, "No daily quests listed yet.")}</div>
+      <div class="card"><h3>Weekly Quests</h3>${questList(weekly, "No weekly quests listed yet.")}</div>
+      <div class="card"><h3>Event Quests</h3>${questList(event, "No event quests listed yet.")}</div>
+    </div>
+    <div class="card">
+      <h3>Player Commands</h3>
+      <p class="manual-copy">Use ${commandChip("!quests")} or ${commandChip("!missions")} if enabled, ${commandChip("!daily")} for daily rewards, and ${commandChip("!profile")} to check progress.</p>
     </div>
   `;
 }
@@ -1864,6 +1939,7 @@ function renderOwnerPage(page) {
     case "Emotes":            return renderEmotesOwnerPage(activeTab("Emotes"));
     case "Mining":            return renderMiningOwnerPage(activeTab("Mining"));
     case "Fishing":           return renderFishingOwnerPage(activeTab("Fishing"));
+    case "Quests & Missions": return renderQuestsMissionsPage(activeTab("Quests & Missions"));
     case "Events":            return renderEventsOwnerPage();
     case "Economy & Rewards": return renderEconomyRewards(activeTab("Economy & Rewards"));
     case "Staff":             return renderStaffPage_shared();
@@ -3970,6 +4046,216 @@ function renderFishingAdvancedPage() {
   `;
 }
 
+/* ── Quests & Missions ──────────────────────────────── */
+function renderQuestsMissionsPage(tab) {
+  return `
+    <div class="card page-hero-card">
+      <div>
+        <h2>📜 Quests & Missions</h2>
+        <p class="muted">Daily, weekly, event, player progress and reward tables. Writes only appear when a verified quest catalog exists.</p>
+      </div>
+      <button class="btn ghost sm" data-admin-page="Economy & Rewards">Economy Summary</button>
+    </div>
+    ${tabNav("Quests & Missions")}
+    ${tab === "Overview"        ? renderQuestOverviewPage() : ""}
+    ${tab === "Quest Catalog"   ? renderQuestCatalogPage() : ""}
+    ${tab === "Daily Quests"    ? renderQuestListPage("Daily Quests", state.data?.daily_quests || []) : ""}
+    ${tab === "Weekly Quests"   ? renderQuestListPage("Weekly Quests", state.data?.weekly_quests || []) : ""}
+    ${tab === "Event Quests"    ? renderQuestListPage("Event Quests", state.data?.event_quests || []) : ""}
+    ${tab === "Player Progress" ? renderQuestProgressPage() : ""}
+    ${tab === "Rewards"         ? renderQuestRewardsPage() : ""}
+    ${tab === "Logs"            ? renderQuestLogsPage() : ""}
+    ${tab === "Advanced"        ? renderQuestAdvancedPage() : ""}
+  `;
+}
+
+function questColumns() {
+  return [
+    { key: "quest_id", label: "Quest ID", render: (r) => esc(r.quest_id || r.mission_id || r.id || r.key || "—") },
+    { key: "name", label: "Name", render: (r) => esc(r.name || r.title || r.display_name || "—") },
+    { key: "category", label: "Category", render: (r) => esc(r.category || r.quest_type || r.target_type || "—") },
+    { key: "period", label: "Period", render: (r) => esc(r.period || r.quest_period || r.frequency || r.period_key || "—") },
+    { key: "target_amount", label: "Target", render: (r) => esc(r.target_amount ?? r.required_amount ?? r.goal_amount ?? r.target ?? "—") },
+    { key: "reward_coins", label: "Coins", render: (r) => Number(r.reward_coins ?? r.coins ?? 0).toLocaleString() },
+    { key: "reward_xp", label: "XP", render: (r) => Number(r.reward_xp ?? r.xp_reward ?? 0).toLocaleString() },
+    { key: "enabled", label: "Status", render: (r) => pill(String(r.enabled ?? r.active ?? r.is_active ?? "read-only")) },
+  ];
+}
+
+function questProgressColumns() {
+  return [
+    { key: "username", label: "Player", render: (r) => `${esc(r.username || "Unknown Player")}${r.fallback_id ? `<div class="muted text-sm">id ${esc(r.fallback_id)}...</div>` : ""}` },
+    { key: "quest_id", label: "Quest", render: (r) => esc(r.quest_id || r.mission_id || r.name || r.title || "—") },
+    { key: "progress", label: "Progress", render: (r) => {
+      const pct = r.completion_percent;
+      const current = r.current_progress ?? r.progress ?? r.current_amount ?? "—";
+      const target = r.target_progress ?? r.target_amount ?? r.required_amount ?? "";
+      return `<div>${esc(current)}${target !== "" ? ` / ${esc(target)}` : ""}</div>${pct != null ? `<div class="mini-progress"><span style="width:${Math.max(0, Math.min(100, Number(pct)))}%"></span></div><div class="muted text-sm">${pct}%</div>` : ""}`;
+    } },
+    { key: "period_key", label: "Period", render: (r) => esc(r.period_key || r.period || "—") },
+    { key: "claimed", label: "Reward", render: (r) => r.claimed ? pill("claimed") : pill("pending") },
+    { key: "updated_at", label: "Updated", render: (r) => esc(r.updated_at || r.completed_at || r.claimed_at || r.created_at || "—") },
+  ];
+}
+
+function renderQuestOverviewPage() {
+  const d = state.data || {};
+  const o = d.overview || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+      ${metricCard("Active Quests", o.active_quests ?? 0, "verified catalog rows", "accent-green", "📜")}
+      ${metricCard("Daily Quests", o.daily_quests ?? 0, "daily/mission rows", "", "☀️")}
+      ${metricCard("Weekly Quests", o.weekly_quests ?? 0, "weekly rows", "", "📅")}
+      ${metricCard("Event Quests", o.event_quests ?? 0, "event rows", "", "🎉")}
+      ${metricCard("Players Progressing", o.players_with_progress ?? 0, "quest_progress + player_missions", "accent-cyan", "👤")}
+      ${metricCard("Pending Rewards", o.pending_rewards ?? 0, "pending_coin_rewards", "", "🎁")}
+      ${metricCard("Completed Today", o.completed_today ?? 0, "completed rows", "", "✅")}
+      ${metricCard("Claimed Today", o.claimed_rewards_today ?? 0, "reward claims", "", "🏆")}
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Daily Quests</h2>${table((d.daily_quests || []).slice(0, 8), questColumns())}</div>
+      <div class="card"><h2>Recent Player Progress</h2>${table((d.progress?.rows || d.quest_progress || []).slice(0, 12), questProgressColumns())}</div>
+    </div>
+    <div class="card">
+      <h2>Quest Source Status</h2>
+      ${table(Object.entries(d.table_status || {}).map(([table_name, exists]) => ({ table_name, status: exists ? "present" : "missing" })), [
+        { key: "table_name", label: "Table" },
+        { key: "status", label: "Status", render: (r) => pill(r.status) },
+      ])}
+    </div>
+  `;
+}
+
+function renderQuestCatalogPage() {
+  const d = state.data || {};
+  const catalog = d.catalog || {};
+  const rows = catalog.rows || d.player_mission_sets || [];
+  const writable = state.user?.role === "owner" && catalog.writable;
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Quest Catalog</h2>
+          <div class="muted text-sm">Source: <code>${esc(catalog.table || "no verified catalog")}</code></div>
+        </div>
+        ${pill(writable ? "writable" : "read only")}
+      </div>
+      ${table(rows, questColumns(), writable ? (r) => {
+        const id = r.quest_id || r.mission_id || r.id || r.key;
+        return `<button class="btn danger sm" data-quest-disable="${esc(id)}">Disable</button>`;
+      } : null)}
+    </div>
+    ${writable ? `<div class="card">
+      <h2>Add Quest</h2>
+      <form id="questCatalogCreateForm" class="settings-form">
+        <div class="field"><label class="field-label">Quest ID</label><input name="quest_id" required placeholder="daily_mine_10" /></div>
+        <div class="field"><label class="field-label">Name</label><input name="name" required placeholder="Mine 10 Times" /></div>
+        <div class="field"><label class="field-label">Description</label><input name="description" /></div>
+        <div class="field"><label class="field-label">Category</label><input name="category" placeholder="mining" /></div>
+        <div class="field"><label class="field-label">Target Type</label><input name="target_type" placeholder="mine" /></div>
+        <div class="field"><label class="field-label">Target Amount</label><input name="target_amount" type="number" min="0" /></div>
+        <div class="field"><label class="field-label">Reward Coins</label><input name="reward_coins" type="number" min="0" /></div>
+        <div class="field"><label class="field-label">Reward XP</label><input name="reward_xp" type="number" min="0" /></div>
+        <div class="field"><label class="field-label">Reward Item</label><input name="reward_item" /></div>
+        <div class="field"><label class="field-label">Period</label><select name="period"><option>daily</option><option>weekly</option><option>event</option><option>one-time</option></select></div>
+        <label class="switch"><input type="checkbox" name="enabled" checked /><span>Enabled</span></label>
+        <div class="field"><label class="field-label">Reason</label><input name="reason" required placeholder="Required audit reason" /></div>
+        <button class="btn primary">Add Quest</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Edit Quest</h2>
+      <form id="questCatalogUpdateForm" class="settings-form">
+        <div class="field"><label class="field-label">Quest ID</label><input name="quest_id" required placeholder="existing quest_id" /></div>
+        <div class="field"><label class="field-label">Name</label><input name="name" /></div>
+        <div class="field"><label class="field-label">Description</label><input name="description" /></div>
+        <div class="field"><label class="field-label">Category</label><input name="category" /></div>
+        <div class="field"><label class="field-label">Target Amount</label><input name="target_amount" type="number" min="0" /></div>
+        <div class="field"><label class="field-label">Reward Coins</label><input name="reward_coins" type="number" min="0" /></div>
+        <div class="field"><label class="field-label">Reward XP</label><input name="reward_xp" type="number" min="0" /></div>
+        <label class="switch"><input type="checkbox" name="enabled" checked /><span>Enabled</span></label>
+        <div class="field"><label class="field-label">Reason</label><input name="reason" required placeholder="Required audit reason" /></div>
+        <button class="btn primary">Save Quest Changes</button>
+      </form>
+    </div>` : futureControls([
+      { endpoint: "POST /api/quests/catalog", purpose: "Add/edit quest definitions", status: catalog.message || "Unverified schema" },
+      { endpoint: "DELETE /api/quests/catalog/:id", purpose: "Soft-disable/archive quest definitions", status: "Hidden until catalog schema is verified" },
+    ], "Advanced / Future Quest Catalog Controls")}
+  `;
+}
+
+function renderQuestListPage(title, rows) {
+  return `<div class="card">
+    <div class="card-header">
+      <h2>${esc(title)}</h2>
+      <span class="pill def">${rows.length} rows</span>
+    </div>
+    ${table(rows, questColumns())}
+  </div>`;
+}
+
+function renderQuestProgressPage() {
+  const d = state.data || {};
+  const p = d.progress || {};
+  const rows = state.questSearch ? (p.player_rows || []) : [...(p.rows || []), ...(p.player_missions || [])].slice(0, 300);
+  return `
+    <div class="card">
+      <h2>Player Quest Progress</h2>
+      <form id="questPlayerSearchForm" class="toolbar" style="flex-wrap:wrap;margin-bottom:12px">
+        <input name="query" value="${esc(state.questSearch || "")}" placeholder="Search username, user ID, quest ID" style="flex:1;min-width:220px" />
+        <button class="btn primary">Search Progress</button>
+        ${state.questSearch ? `<button class="btn ghost" type="button" id="questSearchClear">Clear</button>` : ""}
+      </form>
+      ${table(rows, questProgressColumns())}
+    </div>
+    ${futureControls([
+      { endpoint: "mark quest complete", purpose: "Requires exact bot-side reward/progress semantics", status: "Unverified schema" },
+      { endpoint: "reset player quest", purpose: "Preserve live progress until reset source is confirmed", status: "Future" },
+      { endpoint: "grant quest reward", purpose: "Use Player Grants for coins/items until quest reward flow is verified", status: "Future" },
+    ], "Advanced / Future Progress Controls")}
+  `;
+}
+
+function renderQuestRewardsPage() {
+  const r = state.data?.rewards || {};
+  return `<div class="grid">
+    <div class="card"><h2>Pending Coin Rewards</h2>${table(r.pending_coin_rewards || [])}</div>
+    <div class="card"><h2>Weekly Rewards</h2>${table(r.weekly_rewards || [])}</div>
+    <div class="card"><h2>Weekly Snapshots</h2>${table(r.weekly_snapshots || [])}</div>
+    <div class="card"><h2>Event Points</h2>${table(r.event_points || [])}</div>
+  </div>
+  ${futureControls([
+    { endpoint: "clear pending reward", purpose: "Needs authoritative reward lifecycle source", status: "Unverified schema" },
+    { endpoint: "weekly reward editor", purpose: "Only after reward columns are verified", status: "Future" },
+  ], "Advanced / Future Reward Controls")}`;
+}
+
+function renderQuestLogsPage() {
+  const logs = state.data?.logs || {};
+  return `<div class="grid">
+    <div class="card"><h2>Quest / Reward Audit Logs</h2>${table(logs.audit_logs || [])}</div>
+    <div class="card"><h2>Quest Ledger Rows</h2>${table(logs.ledger || [])}</div>
+  </div>`;
+}
+
+function renderQuestAdvancedPage() {
+  const d = state.data || {};
+  const tables = d.tables || {};
+  return `
+    ${futureControls(d.future_controls || [
+      { endpoint: "quest catalog writes", purpose: "Create/edit/disable quests", status: "Unverified schema" },
+      { endpoint: "quest reward actions", purpose: "Grant/reset/clear quest rewards", status: "Unverified schema" },
+    ], "Advanced / Unverified Quest Controls")}
+    <div class="card"><h2>Raw Quest Tables</h2>
+      <h3>quest_progress</h3>${table(tables.quest_progress?.rows || [])}
+      <h3>player_missions</h3>${table(tables.player_missions?.rows || [])}
+      <h3>player_mission_sets</h3>${table(tables.player_mission_sets?.rows || [])}
+      <h3>event_settings</h3>${table(tables.event_settings?.rows || [])}
+    </div>
+    <div class="card"><h2>Schema Warnings</h2>${table(Object.entries(d.columns || {}).map(([table_name, cols]) => ({ table_name, columns: (cols || []).join(", ") || "missing" })))}</div>
+  `;
+}
+
 /* ── Economy & Rewards ───────────────────────────────── */
 function renderEconomyRewards(tab) {
   return `
@@ -4612,14 +4898,26 @@ function renderShopTab() {
 
 function renderQuestsTab() {
   const d = state.data || {};
-  return `<div class="grid">
-    <div class="card"><h2>Quest Progress</h2>${table(d.quest_progress || [])}</div>
-    <div class="card"><h2>Player Missions</h2>${table(d.player_missions || [])}</div>
-    <div class="card"><h2>Mission Sets</h2>${table(d.player_mission_sets || [])}</div>
-  </div>
-  ${futureControls([
-    { endpoint: "quest reward edits", purpose: "Only after mission set reward columns are verified", status: "Unverified schema" },
-  ])}`;
+  const o = d.overview || {};
+  return `
+    <div class="card page-hero-card">
+      <div>
+        <h2>Quests & Missions Summary</h2>
+        <p class="muted">Full quest catalog, player progress, rewards and logs live in the dedicated owner page.</p>
+      </div>
+      <button class="btn primary sm" data-admin-page="Quests & Missions">Open Quests & Missions</button>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+      ${metricCard("Active Quests", o.active_quests ?? 0, "catalog rows", "", "📜")}
+      ${metricCard("Players Progressing", o.players_with_progress ?? 0, "progress rows", "accent-cyan", "👤")}
+      ${metricCard("Pending Rewards", o.pending_rewards ?? 0, "pending_coin_rewards", "", "🎁")}
+      ${metricCard("Completed Today", o.completed_today ?? 0, "completed progress", "", "✅")}
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Daily Quests</h2>${table(d.daily_quests || [], questColumns())}</div>
+      <div class="card"><h2>Recent Progress</h2>${table((d.progress?.rows || []).slice(0, 20), questProgressColumns())}</div>
+    </div>
+  `;
 }
 
 function renderPlayerGrantsTab() {
@@ -5904,6 +6202,70 @@ function bindAdminPageEvents() {
     });
     await action("Fishing settings saved.", () =>
       api("/api/fishing-settings", { method: "PUT", body: JSON.stringify(body) }));
+  });
+
+  document.getElementById("questCatalogCreateForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Quest saved.", async () => {
+      await api("/api/quests/catalog", { method: "POST", body: JSON.stringify(body) });
+      state.data = await api("/api/quests");
+    });
+  });
+
+  document.getElementById("questCatalogUpdateForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    const questId = String(body.quest_id || "").trim();
+    if (!questId) return;
+    await action("Quest updated.", async () => {
+      await api(`/api/quests/catalog/${encodeURIComponent(questId)}`, { method: "PUT", body: JSON.stringify(body) });
+      state.data = await api("/api/quests");
+    });
+  });
+
+  document.querySelectorAll("[data-quest-disable]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const questId = btn.dataset.questDisable;
+      const reason = prompt(`Reason for disabling quest ${questId}?`);
+      if (!reason) return;
+      confirmAction("Disable Quest", `Soft-disable/archive quest ${questId}?`, async () => {
+        await action("Quest disabled.", async () => {
+          await api(`/api/quests/catalog/${encodeURIComponent(questId)}`, { method: "DELETE", body: JSON.stringify({ reason }) });
+          state.data = await api("/api/quests");
+        });
+      });
+    });
+  });
+
+  document.getElementById("questPlayerSearchForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const query = e.currentTarget.querySelector("[name='query']")?.value.trim() || "";
+    state.questSearch = query;
+    try {
+      state.data = await api(`/api/quests${query ? `?q=${encodeURIComponent(query)}` : ""}`);
+      state.notice = query ? `Loaded quest progress for ${query}.` : "Showing all quest progress.";
+      state.error = "";
+      render();
+    } catch (err) {
+      state.error = err.message;
+      render();
+    }
+  });
+  document.getElementById("questSearchClear")?.addEventListener("click", async () => {
+    state.questSearch = "";
+    state.data = await api("/api/quests").catch(() => state.data);
+    render();
   });
 
   document.querySelectorAll("[data-table-search], [data-rarity-filter], [data-enabled-filter]").forEach((control) => {

@@ -2894,6 +2894,237 @@ function readRewardsDashboard(db) {
   };
 }
 
+const QUEST_TABLES = [
+  "quest_progress",
+  "player_missions",
+  "player_mission_sets",
+  "pending_coin_rewards",
+  "weekly_rewards",
+  "weekly_leaderboard_snapshots",
+  "event_points",
+  "event_settings",
+  "ledger",
+  "audit_logs",
+];
+
+function chooseColumn(cols, candidates) {
+  return candidates.find((col) => cols.includes(col)) || "";
+}
+
+function userLookupMap(db) {
+  if (!tableExists(db, "users") || !columnExists(db, "users", "user_id") || !columnExists(db, "users", "username")) return new Map();
+  return new Map(safeRows(db, "users", ["user_id", "username"], { limit: "10000" }).map((row) => [String(row.user_id), row.username]));
+}
+
+function resolveQuestUsername(row, users) {
+  const direct = row.username || row.user_name || row.player || row.player_name || row.display_name;
+  if (direct) return direct;
+  const id = row.user_id || row.player_id || row.uid || row.user || "";
+  if (id && users.has(String(id))) return users.get(String(id));
+  return id ? "Unknown Player" : "";
+}
+
+function shortQuestId(row) {
+  const id = row.user_id || row.player_id || row.uid || row.user || "";
+  return id ? String(id).slice(0, 8) : "";
+}
+
+function normalizeQuestRows(rows, users) {
+  return (rows || []).map((row) => {
+    const current = Number(row.progress ?? row.current_amount ?? row.current_value ?? row.amount ?? row.count ?? 0);
+    const target = Number(row.target_amount ?? row.required_amount ?? row.goal_amount ?? row.target ?? row.required ?? 0);
+    const completion = Number.isFinite(current) && Number.isFinite(target) && target > 0
+      ? Math.max(0, Math.min(100, Math.round((current / target) * 100)))
+      : null;
+    return {
+      ...row,
+      username: resolveQuestUsername(row, users),
+      fallback_id: shortQuestId(row),
+      current_progress: Number.isFinite(current) ? current : null,
+      target_progress: Number.isFinite(target) && target > 0 ? target : null,
+      completion_percent: completion,
+      claimed: row.claimed ?? row.reward_claimed ?? row.claimed_at ?? row.completed_at ?? "",
+      period_key: row.period_key ?? row.day_key ?? row.week_key ?? row.period ?? "",
+    };
+  });
+}
+
+function questTableRows(db, table, limit = "500") {
+  if (!tableExists(db, table)) return [];
+  const info = tableInfo(db, table, limit);
+  return info.rows || [];
+}
+
+function questCatalogSpec(db) {
+  const candidateTables = ["quest_catalog", "quest_definitions", "mission_definitions", "missions_catalog", "daily_quests", "weekly_quests"];
+  for (const table of candidateTables) {
+    if (!tableExists(db, table)) continue;
+    const cols = tableColumns(db, table);
+    const idCol = chooseColumn(cols, ["quest_id", "mission_id", "id", "key"]);
+    const nameCol = chooseColumn(cols, ["name", "title", "display_name"]);
+    if (!idCol || !nameCol) continue;
+    const enabledCol = chooseColumn(cols, ["enabled", "active", "is_active", "disabled"]);
+    return {
+      table,
+      exists: true,
+      columns: cols,
+      id_col: idCol,
+      name_col: nameCol,
+      enabled_col: enabledCol,
+      archive_col: chooseColumn(cols, ["archived", "is_archived", "deleted", "disabled"]),
+      period_col: chooseColumn(cols, ["period", "quest_period", "frequency", "type", "category"]),
+      category_col: chooseColumn(cols, ["category", "quest_type", "target_type", "module"]),
+      target_col: chooseColumn(cols, ["target_amount", "required_amount", "goal_amount", "target", "amount"]),
+      writable: Boolean(enabledCol),
+    };
+  }
+  const fallbackTable = tableExists(db, "player_mission_sets") ? "player_mission_sets" : tableExists(db, "quest_progress") ? "quest_progress" : "";
+  return {
+    table: fallbackTable,
+    exists: Boolean(fallbackTable),
+    columns: fallbackTable ? tableColumns(db, fallbackTable) : [],
+    writable: false,
+    message: fallbackTable
+      ? `${fallbackTable} exists, but no verified editable quest catalog table was found. Showing read-only mission/progress rows.`
+      : "No quest catalog/progress table found.",
+  };
+}
+
+function classifyQuestRows(rows, period) {
+  const needle = String(period || "").toLowerCase();
+  return (rows || []).filter((row) => {
+    const text = [
+      row.period,
+      row.quest_period,
+      row.frequency,
+      row.type,
+      row.category,
+      row.quest_type,
+      row.period_key,
+      row.name,
+      row.title,
+      row.quest_id,
+    ].filter(Boolean).join(" ").toLowerCase();
+    return text.includes(needle);
+  });
+}
+
+function readQuestsDashboard(db, query = {}) {
+  const users = userLookupMap(db);
+  const table_status = tableStatusMap(db, QUEST_TABLES);
+  const columns = tableColumnsMap(db, QUEST_TABLES);
+  const catalogSpec = questCatalogSpec(db);
+  const rawProgress = questTableRows(db, "quest_progress", "1000");
+  const rawMissions = questTableRows(db, "player_missions", "1000");
+  const rawSets = questTableRows(db, "player_mission_sets", "500");
+  const catalogRows = catalogSpec.table
+    ? safeTableRows(db, catalogSpec.table, {
+        orderBy: catalogSpec.columns?.includes("updated_at") ? "updated_at DESC"
+          : catalogSpec.columns?.includes("created_at") ? "created_at DESC"
+          : catalogSpec.id_col ? sqlIdent(catalogSpec.id_col)
+          : "",
+        limit: "500",
+      })
+    : [];
+  const progress = normalizeQuestRows(rawProgress, users);
+  const missions = normalizeQuestRows(rawMissions, users);
+  const sets = normalizeQuestRows(rawSets, users);
+  const catalog = normalizeQuestRows(catalogRows, users);
+  const playerQuery = String(query.q || query.player || "").trim().toLowerCase();
+  const playerRows = playerQuery
+    ? [...progress, ...missions].filter((row) => [
+        row.username,
+        row.user_id,
+        row.player_id,
+        row.quest_id,
+        row.mission_id,
+      ].filter(Boolean).some((value) => String(value).toLowerCase().includes(playerQuery)))
+    : [];
+  const completedToday = [...progress, ...missions].filter((row) => {
+    const doneAt = String(row.completed_at || row.updated_at || row.claimed_at || "");
+    return doneAt.startsWith(nowIso().slice(0, 10)) && (row.completed || row.completed_at || Number(row.completion_percent) >= 100);
+  }).length;
+  const claimedToday = [...progress, ...missions].filter((row) => String(row.claimed_at || "").startsWith(nowIso().slice(0, 10))).length;
+  const activeQuestRows = catalog.filter((row) => {
+    const enabled = row.enabled ?? row.active ?? row.is_active;
+    const disabled = row.disabled ?? row.archived ?? row.is_archived;
+    return String(enabled ?? "1").toLowerCase() !== "0" && String(enabled ?? "true").toLowerCase() !== "false" && String(disabled ?? "0") !== "1";
+  });
+  const daily = classifyQuestRows([...catalog, ...sets, ...missions], "daily");
+  const weekly = classifyQuestRows([...catalog, ...sets, ...missions], "weekly");
+  const event = classifyQuestRows([...catalog, ...sets, ...missions], "event");
+  const pendingRewards = safeTableRows(db, "pending_coin_rewards", { limit: "500" });
+  const weeklyRewards = safeTableRows(db, "weekly_rewards", { limit: "300" });
+  const snapshots = safeTableRows(db, "weekly_leaderboard_snapshots", { limit: "200" });
+  const eventPoints = normalizeQuestRows(safeTableRows(db, "event_points", { limit: "300" }), users);
+  return {
+    overview: {
+      active_quests: activeQuestRows.length,
+      daily_quests: daily.length,
+      weekly_quests: weekly.length,
+      event_quests: event.length,
+      players_with_progress: new Set([...progress, ...missions].map((row) => row.user_id || row.player_id || row.username).filter(Boolean)).size,
+      pending_rewards: pendingRewards.length,
+      completed_today: completedToday,
+      claimed_rewards_today: claimedToday,
+    },
+    catalog: {
+      ...catalogSpec,
+      rows: catalog,
+      schema_verified: Boolean(catalogSpec.writable),
+      writable: Boolean(catalogSpec.writable),
+    },
+    daily_quests: daily,
+    weekly_quests: weekly,
+    event_quests: event,
+    progress: {
+      rows: progress,
+      player_missions: missions,
+      player_rows: playerRows,
+      query: playerQuery,
+    },
+    rewards: {
+      pending_coin_rewards: normalizeQuestRows(pendingRewards, users),
+      weekly_rewards: normalizeQuestRows(weeklyRewards, users),
+      weekly_snapshots: normalizeQuestRows(snapshots, users),
+      event_points: eventPoints,
+    },
+    logs: {
+      ledger: safeRows(db, "ledger", ["id", "user_id", "username", "change_amount", "amount", "reason", "source", "created_at", "timestamp"], {
+        where: tableExists(db, "ledger") && tableColumns(db, "ledger").includes("reason") ? "lower(reason) LIKE '%quest%' OR lower(reason) LIKE '%mission%' OR lower(reason) LIKE '%daily%'" : "",
+        orderBy: columnExists(db, "ledger", "created_at") ? "created_at DESC" : columnExists(db, "ledger", "timestamp") ? "timestamp DESC" : "",
+        limit: "200",
+      }),
+      audit_logs: safeRows(db, "audit_logs", ["id", "actor", "action_type", "target_type", "target_id", "old_value", "new_value", "ip_address", "created_at"], {
+        where: "action_type LIKE '%quest%' OR action_type LIKE '%mission%' OR action_type LIKE '%reward%' OR target_type IN ('quest_catalog','quest_progress','player_missions','pending_coin_rewards')",
+        orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "",
+        limit: "200",
+      }),
+    },
+    tables: Object.fromEntries(QUEST_TABLES.map((table) => [table, tableInfo(db, table, table === "audit_logs" ? "100" : "250")])),
+    table_status,
+    columns,
+    future_controls: [
+      {
+        endpoint: "POST/PUT /api/quests/catalog",
+        purpose: "Create or edit quest definitions",
+        status: catalogSpec.writable ? "Connected" : "Unverified schema",
+      },
+      {
+        endpoint: "quest reward grants/resets",
+        purpose: "Grant rewards, mark complete, or reset player quest progress",
+        status: "Unverified schema",
+      },
+    ],
+  };
+}
+
+function questCatalogWriteSpec(db) {
+  const spec = questCatalogSpec(db);
+  if (!spec.writable || !spec.table || !spec.id_col || !spec.name_col) return null;
+  return spec;
+}
+
 function playerByInput(db, body) {
   const query = String(body?.user_id || body?.username || body?.query || "").trim();
   return query ? readPlayerProfile(db, query) : null;
@@ -3226,6 +3457,24 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     notes: "Active rod stats are runtime constants; ownership is stored in player_rods. Dashboard shows rods read-only.",
   }),
   ...[
+    ["!quests / !missions", "Player Quest Progress", "quest_progress", "user_id,quest_id,progress,claimed"],
+    ["!missions", "Player Missions", "player_missions", "user_id,mission_id,progress,completed"],
+    ["!missions", "Mission Sets", "player_mission_sets", "set_id,name,period,reward"],
+    ["!daily / reward claim", "Pending Coin Rewards", "pending_coin_rewards", "user_id,amount,reason,status"],
+    ["weekly reward job", "Weekly Rewards", "weekly_rewards", "user_id,amount,period_key"],
+  ].map(([command, displayName, table, key]) => auditRow({
+    module: "quests",
+    command,
+    display_name: displayName,
+    dashboard_page: "Quests & Missions",
+    dashboard_section: table === "quest_progress" ? "Player Progress" : table === "player_mission_sets" ? "Quest Catalog" : "Rewards",
+    db_table: table,
+    db_key_or_column: key,
+    readSource: `SELECT * FROM ${table} LIMIT 500`,
+    status: "READ ONLY",
+    notes: "Quest dashboard reads this live table. Writes stay hidden unless an editable quest catalog schema is verified.",
+  })),
+  ...[
     ["!setroomsetting", "Room Setting", "room_settings", "<dynamic key>"],
     ["!setwelcome", "Welcome Message", "room_settings", "welcome_message"],
     ["!setemoteloopinterval", "Emote Loop Interval", "room_settings", "emote_loop_interval"],
@@ -3398,6 +3647,7 @@ function buildQaAudit() {
     ["Casino", "/api/public/casino"],
     ["Mining", "/api/public/mining"],
     ["Fishing", "/api/public/fishing"],
+    ["Quests", "/api/public/quests"],
     ["Events", "/api/public/events"],
     ["Rankings", "/api/public/rankings"],
     ["Room Info", "/api/public/room-info"],
@@ -3410,6 +3660,7 @@ function buildQaAudit() {
     ["Casino", "/api/casino"],
     ["Mining", "/api/mining"],
     ["Fishing", "/api/fishing"],
+    ["Quests & Missions", "/api/quests"],
     ["Economy & Rewards", "/api/economy/overview"],
     ["Room & Content", "/api/room-control"],
     ["Emotes", "/api/emotes/overview"],
@@ -3433,8 +3684,8 @@ function buildQaAudit() {
     ["Logs", "/api/logs"],
   ].map(([page, api]) => ({ page, api, status: !api || hasEndpoint(api) ? "ok" : "missing" }));
   const expectedRenderers = [
-    "renderPublicHome", "renderPublicRadio", "renderPublicHowToPlay", "renderPublicCasino", "renderPublicMining", "renderPublicFishing", "renderPublicEvents", "renderPublicRankings", "renderPublicRoomInfo",
-    "renderCommandCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit",
+    "renderPublicHome", "renderPublicRadio", "renderPublicHowToPlay", "renderPublicCasino", "renderPublicMining", "renderPublicFishing", "renderPublicQuests", "renderPublicEvents", "renderPublicRankings", "renderPublicRoomInfo",
+    "renderCommandCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderQuestsMissionsPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit",
     "renderStaffHome", "renderStaffRadioQueue", "renderStaffPlayers", "renderStaffEvents", "renderStaffRoomTools", "renderStaffLogs",
   ];
   const missingRenderers = expectedRenderers.filter((name) => !new RegExp(`function\\s+${name}\\s*\\(`).test(appSource));
@@ -3458,6 +3709,7 @@ function buildQaAudit() {
     "settings-group", "sg-api", "sg-opts", "sf-toggle", "raw-edit-key", "raw-edit-val", "raw-edit-src",
     "table-search", "rarity-filter", "enabled-filter", "room-toggle", "room-edit",
     "staff-id", "remove-staff", "enabled", "room-val", "key", "vip-remove", "vip-user",
+    "quest-disable",
   ]);
   const buttonsWithoutHandlers = dataAttrs
     .filter((attr) => !handledAttrs.has(attr))
@@ -4400,6 +4652,42 @@ app.get("/api/public/fishing", async (_req, res) => {
   }
 });
 
+app.get("/api/public/quests", async (_req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const quests = readQuestsDashboard(db);
+    const active = quests.catalog.rows.filter((row) => {
+      const enabled = row.enabled ?? row.active ?? row.is_active;
+      const disabled = row.disabled ?? row.archived ?? row.is_archived;
+      return String(enabled ?? "1").toLowerCase() !== "0" && String(enabled ?? "true").toLowerCase() !== "false" && String(disabled ?? "0") !== "1";
+    });
+    json(res, {
+      overview: quests.overview,
+      daily_quests: quests.daily_quests.slice(0, 25),
+      weekly_quests: quests.weekly_quests.slice(0, 25),
+      event_quests: quests.event_quests.slice(0, 25),
+      active_quests: active.slice(0, 50),
+      rewards: {
+        pending_count: quests.overview.pending_rewards,
+        weekly_rewards: quests.rewards.weekly_rewards.slice(0, 25),
+      },
+      commands: [
+        { command: "!quests", description: "View active quests or missions if enabled." },
+        { command: "!missions", description: "Check your personal mission list if supported." },
+        { command: "!daily", description: "Claim daily rewards and streak progress." },
+        { command: "!profile", description: "View your profile, level, and progress." },
+      ],
+      source: quests.catalog.table || "quest_progress",
+      diagnostics: { generated_at: nowIso() },
+    });
+  } catch (err) {
+    json(res, { overview: {}, daily_quests: [], weekly_quests: [], event_quests: [], active_quests: [], rewards: {}, commands: [], diagnostics: { generated_at: nowIso(), error: err.message } });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
 app.get("/api/public/room-info", async (_req, res) => {
   let db = null;
   try {
@@ -5166,8 +5454,114 @@ app.post("/api/shop/items", requireAuth, requireOwner, (_req, res) => unverified
 app.put("/api/shop/items/:id", requireAuth, requireOwner, (_req, res) => unverifiedSchema(res, "No verified shop item catalog table exists in the live schema."));
 
 app.get("/api/quests", requireAuth, requireAnyPermission("manage_rewards", "manage_economy", "manage_players"), (req, res) => {
-  const rewards = readRewardsDashboard(req.db);
-  json(res, { ...rewards.quests, table_status: rewards.table_status, columns: rewards.columns, writable: false });
+  json(res, readQuestsDashboard(req.db, req.query || {}));
+}, closeDb);
+
+app.post("/api/quests/catalog", requireAuth, requireOwner, (req, res) => {
+  const spec = questCatalogWriteSpec(req.db);
+  if (!spec) return unverifiedSchema(res, "No verified editable quest catalog table exists in the live schema.");
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const id = String(req.body?.quest_id || req.body?.mission_id || req.body?.id || "").trim();
+  const name = String(req.body?.name || req.body?.title || "").trim();
+  if (!id || !name || !validCatalogId(id)) return json(res, { error: "valid_quest_id_and_name_required" }, 400);
+  const cols = spec.columns;
+  const allowed = [
+    spec.id_col,
+    spec.name_col,
+    "description",
+    "category",
+    "target_type",
+    "target_amount",
+    "reward_coins",
+    "reward_xp",
+    "reward_item",
+    "period",
+    "enabled",
+    "created_at",
+    "updated_at",
+  ].filter(Boolean);
+  const values = {
+    [spec.id_col]: id,
+    [spec.name_col]: name,
+    description: req.body?.description || "",
+    category: req.body?.category || "",
+    target_type: req.body?.target_type || "",
+    target_amount: req.body?.target_amount || "",
+    reward_coins: req.body?.reward_coins || "",
+    reward_xp: req.body?.reward_xp || "",
+    reward_item: req.body?.reward_item || "",
+    period: req.body?.period || "",
+    enabled: req.body?.enabled === false ? 0 : 1,
+    created_at: nowIso(),
+    updated_at: nowIso(),
+  };
+  const insertCols = [...new Set(allowed.filter((col) => cols.includes(col) && values[col] !== undefined))];
+  if (!insertCols.includes(spec.id_col) || !insertCols.includes(spec.name_col)) return unverifiedSchema(res, "Quest catalog table does not expose writable id/name columns.");
+  const placeholders = insertCols.map(() => "?").join(", ");
+  req.db.prepare(`INSERT INTO ${sqlIdent(spec.table)} (${insertCols.map(sqlIdent).join(", ")}) VALUES (${placeholders})`).run(...insertCols.map((col) => values[col]));
+  audit(req.db, req.user.username, "quest_catalog_create", spec.table, id, "", { values: Object.fromEntries(insertCols.map((col) => [col, values[col]])), reason }, req.ip);
+  json(res, { ok: true, catalog: readQuestsDashboard(req.db).catalog });
+}, closeDb);
+
+app.put("/api/quests/catalog/:id", requireAuth, requireOwner, (req, res) => {
+  const spec = questCatalogWriteSpec(req.db);
+  if (!spec) return unverifiedSchema(res, "No verified editable quest catalog table exists in the live schema.");
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const questId = String(req.params.id || "").trim();
+  if (!validCatalogId(questId)) return json(res, { error: "invalid_quest_id" }, 400);
+  const before = safeOne(req.db, spec.table, spec.columns, { where: `${sqlIdent(spec.id_col)}=?`, params: [questId] });
+  if (!before) return json(res, { error: "not_found" }, 404);
+  const allowed = [
+    spec.name_col,
+    "description",
+    "category",
+    "target_type",
+    "target_amount",
+    "reward_coins",
+    "reward_xp",
+    "reward_item",
+    "period",
+    "enabled",
+    "updated_at",
+  ].filter(Boolean);
+  const values = {
+    [spec.name_col]: req.body?.name ?? req.body?.title,
+    description: req.body?.description,
+    category: req.body?.category,
+    target_type: req.body?.target_type,
+    target_amount: req.body?.target_amount,
+    reward_coins: req.body?.reward_coins,
+    reward_xp: req.body?.reward_xp,
+    reward_item: req.body?.reward_item,
+    period: req.body?.period,
+    enabled: req.body?.enabled,
+    updated_at: nowIso(),
+  };
+  const updateCols = allowed.filter((col) => spec.columns.includes(col) && values[col] !== undefined);
+  if (!updateCols.length) return json(res, { error: "no_verified_columns" }, 400);
+  req.db.prepare(`UPDATE ${sqlIdent(spec.table)} SET ${updateCols.map((col) => `${sqlIdent(col)}=?`).join(", ")} WHERE ${sqlIdent(spec.id_col)}=?`).run(...updateCols.map((col) => values[col]), questId);
+  const after = safeOne(req.db, spec.table, spec.columns, { where: `${sqlIdent(spec.id_col)}=?`, params: [questId] });
+  audit(req.db, req.user.username, "quest_catalog_update", spec.table, questId, before, { after, reason }, req.ip);
+  json(res, { ok: true, row: after });
+}, closeDb);
+
+app.delete("/api/quests/catalog/:id", requireAuth, requireOwner, (req, res) => {
+  const spec = questCatalogWriteSpec(req.db);
+  if (!spec) return unverifiedSchema(res, "No verified editable quest catalog table exists in the live schema.");
+  const questId = String(req.params.id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!validCatalogId(questId)) return json(res, { error: "invalid_quest_id" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = safeOne(req.db, spec.table, spec.columns, { where: `${sqlIdent(spec.id_col)}=?`, params: [questId] });
+  if (!before) return json(res, { error: "not_found" }, 404);
+  const col = spec.enabled_col || spec.archive_col;
+  if (!col) return unverifiedSchema(res, "Quest catalog table has no verified enabled/archive column for soft-disable.");
+  const value = col === "disabled" || col === "archived" || col === "is_archived" || col === "deleted" ? 1 : 0;
+  req.db.prepare(`UPDATE ${sqlIdent(spec.table)} SET ${sqlIdent(col)}=? WHERE ${sqlIdent(spec.id_col)}=?`).run(value, questId);
+  audit(req.db, req.user.username, "quest_catalog_disable", spec.table, questId, before, { [col]: value, reason }, req.ip);
+  json(res, { ok: true, disabled: true });
 }, closeDb);
 
 app.get("/api/rewards/logs", requireAuth, requireAnyPermission("manage_rewards", "view_logs"), (req, res) => {
