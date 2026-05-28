@@ -63,17 +63,19 @@ const PAGE_DESC = {
 const SETTINGS_SCHEMA = {
   casino: [
     {
-      title: "Blackjack Settings",
+      title: "Blackjack Settings — AceSinatra",
       description: "Primary shoe-based blackjack rules.",
-      api: "/api/casino/:key",
+      api: "/api/casino/blackjack-settings",
       keys: [
-        { key: "rbj_enabled",         label: "Enabled",         type: "toggle" },
-        { key: "rbj_min_bet",         label: "Min Bet",         type: "number", suffix: "coins" },
-        { key: "rbj_max_bet",         label: "Max Bet",         type: "number", suffix: "coins" },
-        { key: "rbj_max_players",     label: "Max Players",     type: "number" },
-        { key: "rbj_action_timer",    label: "Action Timer",    type: "number", suffix: "sec" },
-        { key: "rbj_num_decks",       label: "Number of Decks", type: "number", placeholder: "6" },
-        { key: "rbj_daily_win_limit", label: "Daily Win Limit", type: "number", suffix: "coins" },
+        { key: "rbj_enabled",          label: "Enabled",              type: "toggle" },
+        { key: "min_bet",              label: "Min Bet",              type: "number", suffix: "coins" },
+        { key: "max_bet",              label: "Max Bet",              type: "number", suffix: "coins" },
+        { key: "max_players",          label: "Max Players",          type: "number" },
+        { key: "rbj_action_timer",     label: "Action Timer",         type: "number", suffix: "sec" },
+        { key: "decks",                label: "Number of Decks",      type: "number", placeholder: "6" },
+        { key: "shuffle_used_percent", label: "Shuffle Used Percent", type: "number", suffix: "%" },
+        { key: "win_payout",           label: "Win Payout",           type: "number", suffix: "x" },
+        { key: "blackjack_payout",     label: "Blackjack Payout",     type: "number", suffix: "x" },
       ],
     },
     {
@@ -1712,24 +1714,7 @@ function renderCasinoTab() {
   const settings = d.settings || [];
   const valMap = settingsMapFrom(settings);
   const flag = d.module_flag;
-  const legacyBlackjack = {
-    title: "Legacy Blackjack Settings",
-    description: "Old standard BJ settings retained for compatibility.",
-    api: "/api/casino/:key",
-    keys: [
-      { key: "bj_enabled",          label: "Enabled",              type: "toggle" },
-      { key: "bj_min_bet",          label: "Min Bet",              type: "number", suffix: "coins", placeholder: "10" },
-      { key: "bj_max_bet",          label: "Max Bet",              type: "number", suffix: "coins", placeholder: "5000" },
-      { key: "bj_max_players",      label: "Max Players",          type: "number", placeholder: "6" },
-      { key: "bj_action_timer",     label: "Action Timer",         type: "number", suffix: "sec", placeholder: "30" },
-      { key: "bj_daily_win_limit",  label: "Daily Win Limit",      type: "number", suffix: "coins" },
-      { key: "bj_bonus_enabled",    label: "Pair Bonus",           type: "toggle" },
-      { key: "bj_bonus_cap",        label: "Pair Bonus Cap",       type: "number", suffix: "coins" },
-      { key: "bj_bonus_pair_pct",   label: "Pair Bonus %",         type: "number", suffix: "%" },
-      { key: "bj_bonus_color_pct",  label: "Color Pair Bonus %",   type: "number", suffix: "%" },
-      { key: "bj_bonus_perfect_pct",label: "Perfect Pair Bonus %", type: "number", suffix: "%" },
-    ],
-  };
+  const casinoGroups = (SETTINGS_SCHEMA.casino || []).filter((g) => g.title !== "Blackjack Settings — AceSinatra");
   return `
     <div class="card">
       <div class="card-header">
@@ -1740,18 +1725,45 @@ function renderCasinoTab() {
         <button class="btn cyan" data-toggle-module="casino" data-enabled="${flag?.enabled ? "0" : "1"}">${flag?.enabled ? "Disable Casino" : "Enable Casino"}</button>
       </div>
     </div>
-    ${renderSchemaGroups("casino", valMap)}
+    ${renderBlackjackSettingsCard(d.blackjack_settings || {})}
+    ${casinoGroups.map((g, i) => renderSettingsGroup(g, valMap, `casino${i + 1}`)).join("")}
     <details class="advanced-collapse">
       <summary class="advanced-summary">
         <span class="pill def">Legacy</span> Legacy Blackjack Settings
-        <span class="muted text-sm">Old bj_* keys</span>
+        <span class="muted text-sm">Old bj_settings row</span>
       </summary>
       <div class="advanced-content">
-        ${renderSettingsGroup(legacyBlackjack, valMap, "legacyBlackjack")}
+        ${d.legacy_blackjack_settings ? table(Object.entries(d.legacy_blackjack_settings).map(([key, value]) => ({ key, value })), [
+          { key: "key", label: "Column" },
+          { key: "value", label: "Value" },
+        ]) : `<div class="notice">No legacy <code>bj_settings</code> row found.</div>`}
       </div>
     </details>
     ${renderAdvancedCollapse(settings)}
   `;
+}
+
+function renderBlackjackSettingsCard(settings) {
+  const group = (SETTINGS_SCHEMA.casino || []).find((g) => g.title === "Blackjack Settings — AceSinatra");
+  if (!group) return "";
+  const values = { ...settings };
+  return `<div class="card">
+    <div class="card-header">
+      <div>
+        <h2>🃏 Blackjack Settings — AceSinatra</h2>
+        <div class="muted text-sm">Source: <code>${esc(settings.source || "rbj_settings")}</code></div>
+      </div>
+      <span class="pill info">Realistic BJ</span>
+    </div>
+    <form id="blackjackSettingsForm">
+      <div class="settings-fields">
+        ${group.keys.map((f) => renderSettingsField(f, values[f.key])).join("")}
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn primary sm" type="submit">💾 Save Blackjack Settings</button>
+      </div>
+    </form>
+  </div>`;
 }
 
 function renderGamesTab() {
@@ -2327,6 +2339,18 @@ function bindAdminPageEvents() {
         await action("Request removed.", () => api(`/api/radio/requests/${id}/remove`, { method: "POST", body: JSON.stringify({}) }));
       });
     });
+  });
+
+  document.getElementById("blackjackSettingsForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Blackjack settings saved.", () =>
+      api("/api/casino/blackjack-settings", { method: "PUT", body: JSON.stringify(body) }));
   });
 
   document.getElementById("announcementForm")?.addEventListener("submit", async (e) => {

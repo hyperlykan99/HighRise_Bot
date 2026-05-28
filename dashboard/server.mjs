@@ -758,6 +758,74 @@ function enqueueBotCommand(db, { targetBot, actionName, payload, requesterId }) 
   return { id: info.lastInsertRowid, target_bot: targetBot, action: actionName, status: "pending" };
 }
 
+const ACTIVE_BLACKJACK_COLUMNS = [
+  "id",
+  "rbj_enabled",
+  "min_bet",
+  "max_bet",
+  "max_players",
+  "rbj_action_timer",
+  "decks",
+  "shuffle_used_percent",
+  "win_payout",
+  "blackjack_payout",
+  "rbj_daily_win_limit",
+];
+
+function readActiveBlackjackSettings(db) {
+  const fallback = {
+    source: "rbj_settings",
+    bot_username: "AceSinatra",
+    rbj_enabled: 1,
+    min_bet: 10,
+    max_bet: 1000,
+    max_players: 6,
+    rbj_action_timer: 30,
+    decks: 6,
+    shuffle_used_percent: 75,
+    win_payout: 2.0,
+    blackjack_payout: 2.5,
+    rbj_daily_win_limit: 5000,
+  };
+  if (!tableExists(db, "rbj_settings")) return fallback;
+  const row = safeOne(db, "rbj_settings", ACTIVE_BLACKJACK_COLUMNS, { where: "id=1" });
+  return { ...fallback, ...(row || {}), source: "rbj_settings", bot_username: "AceSinatra" };
+}
+
+function normalizeBlackjackSettingsBody(body) {
+  const num = (key, fallback = 0) => {
+    const raw = body?.[key];
+    if (raw === undefined || raw === null || raw === "") return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw new Error(`${key}_must_be_number`);
+    return n;
+  };
+  const out = {
+    rbj_enabled: body?.rbj_enabled === true || body?.rbj_enabled === "true" || body?.rbj_enabled === "1" || body?.rbj_enabled === 1 ? 1 : 0,
+    min_bet: Math.trunc(num("min_bet", 10)),
+    max_bet: Math.trunc(num("max_bet", 1000)),
+    max_players: Math.trunc(num("max_players", 6)),
+    rbj_action_timer: Math.trunc(num("rbj_action_timer", 30)),
+    decks: Math.trunc(num("decks", 6)),
+    shuffle_used_percent: num("shuffle_used_percent", 75),
+    win_payout: num("win_payout", 2.0),
+    blackjack_payout: num("blackjack_payout", 2.5),
+  };
+  if (body?.rbj_daily_win_limit !== undefined && body?.rbj_daily_win_limit !== "") {
+    out.rbj_daily_win_limit = Math.trunc(num("rbj_daily_win_limit", 5000));
+  }
+  if (out.min_bet < 1) throw new Error("min_bet_too_low");
+  if (out.max_bet !== 0 && out.max_bet < out.min_bet) throw new Error("max_bet_less_than_min_bet");
+  if (out.max_players < 1 || out.max_players > 20) throw new Error("max_players_out_of_range");
+  if (out.rbj_action_timer < 5 || out.rbj_action_timer > 300) throw new Error("action_timer_out_of_range");
+  if (out.decks < 1 || out.decks > 8) throw new Error("decks_out_of_range");
+  if (out.shuffle_used_percent < 1 || out.shuffle_used_percent > 100) throw new Error("shuffle_percent_out_of_range");
+  if (out.win_payout < 1 || out.win_payout > 5) throw new Error("win_payout_out_of_range");
+  if (out.blackjack_payout < 1 || out.blackjack_payout > 5) throw new Error("blackjack_payout_out_of_range");
+  if (out.rbj_daily_win_limit !== undefined && out.rbj_daily_win_limit < 1) throw new Error("daily_win_limit_out_of_range");
+  return out;
+}
+
 const app = express();
 app.disable("x-powered-by");
 app.use(rateLimit({ key: "dashboard", windowMs: 60_000, max: 180 }));
@@ -1247,6 +1315,10 @@ app.put("/api/radio/requests-enabled", requireAuth, requirePermission("manage_ra
 }, closeDb);
 
 app.get("/api/casino", requireAuth, requirePermission("manage_casino"), (req, res) => {
+  const blackjackSettings = readActiveBlackjackSettings(req.db);
+  const legacyBlackjackSettings = tableExists(req.db, "bj_settings")
+    ? safeTableRows(req.db, "bj_settings", { limit: "1" })[0] || null
+    : null;
   const roomKeys = rowsOrEmpty(
     req.db,
     "room_settings",
@@ -1262,7 +1334,35 @@ app.get("/api/casino", requireAuth, requirePermission("manage_casino"), (req, re
       seen.add(row.key);
       return true;
     });
-  json(res, { settings, module_flag: req.db.prepare("SELECT * FROM module_flags WHERE module='casino'").get() ?? null });
+  json(res, {
+    settings,
+    blackjack_settings: blackjackSettings,
+    active_blackjack_source: "rbj_settings",
+    legacy_blackjack_settings: legacyBlackjackSettings,
+    module_flag: req.db.prepare("SELECT * FROM module_flags WHERE module='casino'").get() ?? null,
+  });
+}, closeDb);
+
+app.put("/api/casino/blackjack-settings", requireAuth, requirePermission("manage_casino"), (req, res) => {
+  if (!tableExists(req.db, "rbj_settings")) return json(res, { error: "rbj_settings_missing" }, 404);
+  let next;
+  try {
+    next = normalizeBlackjackSettingsBody(req.body || {});
+  } catch (err) {
+    return json(res, { error: err.message || "invalid_blackjack_settings" }, 400);
+  }
+  try {
+    req.db.prepare("INSERT OR IGNORE INTO rbj_settings (id) VALUES (1)").run();
+    const cols = tableColumns(req.db, "rbj_settings");
+    const updates = Object.entries(next).filter(([key]) => cols.includes(key));
+    for (const [key, value] of updates) {
+      req.db.prepare(`UPDATE rbj_settings SET ${sqlIdent(key)}=? WHERE id=1`).run(value);
+    }
+    audit(req.db, req.user.username, "casino_blackjack_settings_update", "rbj_settings", "1", "", next, req.ip);
+    json(res, { ok: true, source: "rbj_settings", blackjack_settings: readActiveBlackjackSettings(req.db) });
+  } catch (err) {
+    json(res, { error: err.message || "blackjack_settings_update_failed" }, 500);
+  }
 }, closeDb);
 
 app.put("/api/casino/:key", requireAuth, requirePermission("manage_casino"), (req, res) => {
@@ -1484,8 +1584,8 @@ const CANONICAL_BOTS = [
   { username: "DJ_DUDU", mode: "dj", card_title: "DJ Bot", modules: ["DJ Queue", "Radio"] },
   { username: "ChillTopiaMC", mode: "host", card_title: "Room Host", modules: ["Host", "Announcements", "Event Host"] },
   { username: "KeanuShield", mode: "security", card_title: "Security", modules: ["Security", "Moderation"] },
-  { username: "ChipSoprano", mode: "blackjack", card_title: "Casino Dealer", modules: ["Blackjack", "Realistic Blackjack"] },
-  { username: "AceSinatra", mode: "poker", card_title: "Poker Host", modules: ["Poker"] },
+  { username: "AceSinatra", mode: "blackjack", card_title: "Casino Dealer", modules: ["BlackJack", "Realistic BlackJack"] },
+  { username: "ChipSoprano", mode: "poker", card_title: "Poker Host", modules: ["Poker"] },
   { username: "GreatestProspector", mode: "miner", card_title: "Miner", modules: ["Mining"] },
   { username: "MasterAngler", mode: "fisher", card_title: "Fisher", modules: ["Fishing"] },
   { username: "BankingBot", mode: "banker", card_title: "Banking Bot", modules: ["Bank", "Economy", "Daily", "Shop"] },
