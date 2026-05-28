@@ -848,6 +848,15 @@ function setRoomSetting(db, key, value) {
   db.prepare("INSERT OR REPLACE INTO room_settings (key, value) VALUES (?, ?)").run(key, value);
 }
 
+function boolFromSetting(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  return ["1", "true", "yes", "on", "enabled"].includes(String(value).trim().toLowerCase());
+}
+
+function publicRankingsHideStaffBots(db) {
+  return boolFromSetting(getSetting(db, "public_rankings_hide_staff_bots", "true"), true);
+}
+
 function getDashboardSetting(db, key) {
   return db.prepare("SELECT * FROM bot_settings WHERE key=? LIMIT 1").get(key) ?? null;
 }
@@ -1777,6 +1786,10 @@ function buildLeaderboards(db, options = {}) {
   function textExpr(col) {
     return `LOWER(COALESCE(${sqlIdent(col)},''))`;
   }
+  function timeExpr(cols, candidates) {
+    const col = choose(cols, candidates);
+    return col ? `, COALESCE(${sqlIdent(col)}, '') DESC` : "";
+  }
   function addRank(rows) {
     return rows.map((row, index) => ({ rank: index + 1, ...row }));
   }
@@ -1787,8 +1800,9 @@ function buildLeaderboards(db, options = {}) {
   function hiddenNameSet() {
     const names = new Set();
     if (hideBots) {
-      for (const name of ["dj", "host", "banker", "blackjack", "poker", "miner", "fisher", "security", "main", "all"]) names.add(name);
+      for (const name of ["dj", "host", "banker", "blackjack", "poker", "miner", "fisher", "security", "main", "all", "shopkeeper", "eventhost", "arcadiaradio"]) names.add(name);
       for (const bot of CANONICAL_BOTS) names.add(String(bot.username).toLowerCase());
+      names.add("arcadiaradio");
       try {
         for (const bot of readCanonicalBotAudit(db).bots || []) names.add(String(bot.bot_username || bot.username || "").toLowerCase());
       } catch {}
@@ -1857,6 +1871,51 @@ function buildLeaderboards(db, options = {}) {
   aliasSource("radio", "radio_requesters", "Radio requester leaderboard.");
   aliasSource("radio_songs", "radio_tracks", "Radio song stats leaderboard.");
 
+  function activeBlackjackStats() {
+    function statsFromTable(table, prefix, label) {
+      if (!tableExists(db, table)) return null;
+      const cols = tableColumns(db, table);
+      if (!cols.includes("user_id")) return markMissingColumns("blackjack", table, ["user_id"]);
+      const wins = choose(cols, [`${prefix}_wins`, "wins", "games_won", "total_wins"]);
+      const losses = choose(cols, [`${prefix}_losses`, "losses"]);
+      const blackjacks = choose(cols, [`${prefix}_blackjacks`, "blackjacks"]);
+      const totalBet = choose(cols, [`${prefix}_total_bet`, "total_bet", "bet"]);
+      const totalWon = choose(cols, [`${prefix}_total_won`, "total_won", "coins_won", "winnings"]);
+      const totalLost = choose(cols, [`${prefix}_total_lost`, "total_lost", "lost"]);
+      if (!wins && !totalWon && !totalBet) return markMissingColumns("blackjack", table, [`${prefix}_wins`, `${prefix}_total_won`]);
+      const joinUsers = tableExists(db, "users") && columnExists(db, "users", "user_id") && columnExists(db, "users", "username");
+      const usernameExpr = joinUsers ? "COALESCE(NULLIF(u.username,''), 'Unknown Player')" : "'Unknown Player'";
+      const joinSql = joinUsers ? "LEFT JOIN users u ON u.user_id = s.user_id" : "";
+      const netExpr = totalWon && totalBet ? `(${numericExpr(totalWon, "s.")} - ${numericExpr(totalBet, "s.")})` : (totalWon ? numericExpr(totalWon, "s.") : "0");
+      const whereParts = [wins ? `${numericExpr(wins, "s.")}>0` : "", totalBet ? `${numericExpr(totalBet, "s.")}>0` : "", totalWon ? `${numericExpr(totalWon, "s.")}>0` : ""].filter(Boolean);
+      const sql = `SELECT ${usernameExpr} AS username, s.user_id AS user_id, ${wins ? `s.${sqlIdent(wins)}` : "0"} AS wins, ${losses ? `s.${sqlIdent(losses)}` : "''"} AS losses, ${blackjacks ? `s.${sqlIdent(blackjacks)}` : "0"} AS blackjacks, ${totalWon ? `s.${sqlIdent(totalWon)}` : "0"} AS total_won, ${netExpr} AS net FROM ${sqlIdent(table)} s ${joinSql} ${whereParts.length ? `WHERE ${whereParts.join(" OR ")}` : ""} ORDER BY ${netExpr} DESC, ${wins ? numericExpr(wins, "s.") : "0"} DESC LIMIT ?`;
+      const rows = runSql("blackjack", table, ["user_id", wins, losses, blackjacks, totalWon, totalBet].filter(Boolean), sql, [limit], `${label} active Blackjack/RBJ stats.`);
+      if (rows.length) return rows;
+      return [];
+    }
+    const rbj = statsFromTable("rbj_stats", "rbj", "Active RBJ");
+    if (rbj?.length) return rbj;
+    const roundRows = (() => {
+      if (!tableExists(db, "casino_round_results")) return null;
+      const cols = tableColumns(db, "casino_round_results");
+      const required = ["mode", "username", "user_id", "result", "payout", "net"];
+      const missing = required.filter((col) => !cols.includes(col));
+      if (missing.length) return markMissingColumns("blackjack", "casino_round_results", missing);
+      const joinUsers = tableExists(db, "users") && columnExists(db, "users", "user_id") && columnExists(db, "users", "username");
+      const usernameExpr = joinUsers ? "COALESCE(NULLIF(cr.username,''), NULLIF(u.username,''), 'Unknown Player')" : "COALESCE(NULLIF(cr.username,''), 'Unknown Player')";
+      const sql = `SELECT ${usernameExpr} AS username, cr.user_id AS user_id, SUM(CASE WHEN LOWER(cr.result) IN ('win','blackjack','natural','bj') THEN 1 ELSE 0 END) AS wins, SUM(CASE WHEN LOWER(cr.result) IN ('loss','lose','lost') THEN 1 ELSE 0 END) AS losses, SUM(CASE WHEN LOWER(cr.result) IN ('blackjack','natural','bj') THEN 1 ELSE 0 END) AS blackjacks, SUM(${numericExpr("payout", "cr.")}) AS total_won, SUM(${numericExpr("net", "cr.")}) AS net, MAX(${numericExpr("net", "cr.")}) AS biggest_win FROM casino_round_results cr ${joinUsers ? "LEFT JOIN users u ON u.user_id = cr.user_id" : ""} WHERE LOWER(cr.mode) IN ('rbj','realistic_blackjack','realistic blackjack','blackjack') GROUP BY cr.user_id, cr.username ORDER BY net DESC, wins DESC LIMIT ?`;
+      return runSql("blackjack", "casino_round_results", required, sql, [limit], "Fallback active blackjack round results.");
+    })();
+    if (roundRows?.length) return roundRows;
+    const legacy = statsFromTable("bj_stats", "bj", "Legacy BJ");
+    if (legacy) return legacy;
+    if (rbj) {
+      source("blackjack", "rbj_stats", tableExists(db, "rbj_stats") ? tableColumns(db, "rbj_stats") : [], "empty", "Active RBJ stats table exists but has no public leaderboard rows.");
+      return rbj;
+    }
+    return markMissingTable("blackjack", "rbj_stats");
+  }
+
   const userCols = tableExists(db, "users") ? tableColumns(db, "users") : [];
   const balanceCol = choose(userCols, ["balance", "coins"]);
   const rich = balanceCol
@@ -1897,7 +1956,7 @@ function buildLeaderboards(db, options = {}) {
     const missing = ["username", "ore_name", "rarity"].filter((col) => !cols.includes(col));
     if (missing.length) return markMissingColumns("mining_rarest", "ore_weight_records", missing);
     const valueCol = choose(cols, ["final_value", "base_value"]);
-    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("ore_name")} AS ore, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("mined_at") ? `, ${sqlIdent("mined_at")} AS mined_at` : ""} FROM ${sqlIdent("ore_weight_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'prismatic' THEN 1 WHEN 'exotic' THEN 2 WHEN 'legendary' THEN 3 WHEN 'epic' THEN 4 WHEN 'rare' THEN 5 WHEN 'uncommon' THEN 6 WHEN 'common' THEN 7 ELSE 20 END ASC${cols.includes("weight") ? `, ${numericExpr("weight")} DESC` : ""}${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""} LIMIT ?`;
+    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("ore_name")} AS ore, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("mined_at") ? `, ${sqlIdent("mined_at")} AS mined_at` : ""} FROM ${sqlIdent("ore_weight_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'prismatic' THEN 1 WHEN 'exotic' THEN 2 WHEN 'legendary' THEN 3 WHEN 'mythic' THEN 4 WHEN 'epic' THEN 5 WHEN 'rare' THEN 6 WHEN 'uncommon' THEN 7 WHEN 'common' THEN 8 ELSE 20 END ASC${cols.includes("weight") ? `, ${numericExpr("weight")} DESC` : ""}${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""}${timeExpr(cols, ["mined_at", "created_at", "found_at"])} LIMIT ?`;
     return runSql("mining_rarest", "ore_weight_records", ["username", "ore_name", "rarity", "weight", valueCol, "mined_at"].filter(Boolean), sql, [limit], "Rarest ore finds by rarity rank.");
   })();
   const miningStreaks = tableExists(db, "mining_players") && columnExists(db, "mining_players", "streak_days")
@@ -1947,7 +2006,7 @@ function buildLeaderboards(db, options = {}) {
     const missing = ["username", "fish_name", "rarity"].filter((col) => !cols.includes(col));
     if (missing.length) return markMissingColumns("fishing_rarest", "fish_catch_records", missing);
     const valueCol = choose(cols, ["final_value", "base_value"]);
-    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("fish_name")} AS fish, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("caught_at") ? `, ${sqlIdent("caught_at")} AS caught_at` : ""} FROM ${sqlIdent("fish_catch_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'mythic' THEN 1 WHEN 'legendary' THEN 2 WHEN 'exotic' THEN 3 WHEN 'epic' THEN 4 WHEN 'rare' THEN 5 WHEN 'uncommon' THEN 6 WHEN 'common' THEN 7 ELSE 20 END ASC${cols.includes("weight") ? `, ${numericExpr("weight")} DESC` : ""}${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""} LIMIT ?`;
+    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("fish_name")} AS fish, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("caught_at") ? `, ${sqlIdent("caught_at")} AS caught_at` : ""} FROM ${sqlIdent("fish_catch_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'mythic' THEN 1 WHEN 'legendary' THEN 2 WHEN 'exotic' THEN 3 WHEN 'epic' THEN 4 WHEN 'rare' THEN 5 WHEN 'uncommon' THEN 6 WHEN 'common' THEN 7 ELSE 20 END ASC${cols.includes("weight") ? `, ${numericExpr("weight")} DESC` : ""}${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""}${timeExpr(cols, ["caught_at", "created_at"])} LIMIT ?`;
     return runSql("fishing_rarest", "fish_catch_records", ["username", "fish_name", "rarity", "weight", valueCol, "caught_at"].filter(Boolean), sql, [limit], "Rarest fish catches by rarity rank.");
   })();
   const fishProfileCols = tableExists(db, "fish_profiles") ? tableColumns(db, "fish_profiles") : [];
@@ -2143,6 +2202,7 @@ function buildLeaderboards(db, options = {}) {
     }
     return markMissingTable("radio_liked_requesters", "dj_ratings");
   })();
+  const blackjackStats = activeBlackjackStats();
 
   const leaderboards = {
     richest: rich,
@@ -2151,7 +2211,7 @@ function buildLeaderboards(db, options = {}) {
     level,
     most_games_won: mostGamesWon,
     casino_overall: base.casino || [],
-    blackjack: base.blackjack || [],
+    blackjack: blackjackStats,
     poker: base.poker || [],
     mining_top: base.mining || [],
     mining_heaviest_ore: miningHeaviestOre,
@@ -2207,6 +2267,8 @@ function buildLeaderboards(db, options = {}) {
     });
     normalizedLeaderboards[key] = addRank(filteredRows.map(({ rank, ...row }) => row));
     const sourceInfo = sources[key] || sources[key.replace(/^radio_tracks$/, "radio_songs")] || {};
+    const hiddenCount = before - filteredRows.length;
+    const rawStatus = sourceInfo.status ? String(sourceInfo.status).toUpperCase() : (before ? "CONNECTED" : "EMPTY");
     leaderboardDiagnostics.push({
       key,
       title: key.replaceAll("_", " "),
@@ -2214,7 +2276,8 @@ function buildLeaderboards(db, options = {}) {
       source_columns: sourceInfo.columns || [],
       row_count_before_filter: before,
       row_count_after_filter: normalizedLeaderboards[key].length,
-      status: sourceInfo.status ? String(sourceInfo.status).toUpperCase() : (before ? "CONNECTED" : "EMPTY"),
+      hidden_staff_bot_count: hiddenCount,
+      status: before > 0 && filteredRows.length === 0 && hiddenCount > 0 ? "FILTERED_EMPTY" : rawStatus,
       notes: sourceInfo.notes || "",
     });
   }
@@ -3338,6 +3401,28 @@ app.get("/api/permissions/audit", requireAuth, requireOwner, (_req, res) => {
   json(res, buildPermissionsAudit());
 }, closeDb);
 
+app.get("/api/public-settings", requireAuth, requireOwner, (req, res) => {
+  const key = "public_rankings_hide_staff_bots";
+  json(res, {
+    settings: {
+      [key]: publicRankingsHideStaffBots(req.db),
+    },
+    sources: {
+      [key]: { table: "room_settings", key, default: true },
+    },
+  });
+}, closeDb);
+
+app.put("/api/public-settings", requireAuth, requireOwner, (req, res) => {
+  const key = "public_rankings_hide_staff_bots";
+  const oldValue = getSetting(req.db, key, "true");
+  const raw = req.body?.[key];
+  const nextValue = raw === false || raw === "false" || raw === 0 || raw === "0" ? "false" : "true";
+  setRoomSetting(req.db, key, nextValue);
+  audit(req.db, req.user.username, "public_settings_update", "room_settings", key, oldValue, nextValue, req.ip);
+  json(res, { ok: true, settings: { [key]: nextValue === "true" }, source: "room_settings" });
+}, closeDb);
+
 app.get("/api/maintenance/overview", requireAuth, requireOwner, async (req, res) => {
   json(res, await maintenanceOverview(req.db));
 }, closeDb);
@@ -4070,8 +4155,9 @@ app.get("/api/public/rankings", async (req, res) => {
   };
   try {
     db = await openDb({ readonly: true });
-    const hideStaff = req.query.hide_staff !== "0";
-    const hideBots = req.query.hide_bots !== "0";
+    const defaultHide = publicRankingsHideStaffBots(db);
+    const hideStaff = req.query.hide_staff === undefined ? defaultHide : req.query.hide_staff !== "0";
+    const hideBots = req.query.hide_bots === undefined ? defaultHide : req.query.hide_bots !== "0";
     json(res, scrubUserIds(buildLeaderboards(db, { hideStaff, hideBots })));
   } catch (err) {
     json(res, db ? scrubUserIds(minimalRankings(err.message)) : {

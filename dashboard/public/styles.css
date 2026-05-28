@@ -1498,24 +1498,6 @@ pre.mono-block {
   margin-bottom: 16px;
 }
 
-.pub-ranking-filter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  padding: 12px 14px;
-}
-
-.pub-ranking-filter label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
-}
-
 .pub-ranking-hub {
   display: grid;
   gap: 16px;
@@ -1589,7 +1571,8 @@ pre.mono-block {
 }
 
 .pub-lb-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 9px 0;
@@ -1600,6 +1583,10 @@ pre.mono-block {
 
 .pub-lb-row.rich {
   align-items: flex-start;
+}
+
+.pub-lb-row.song-row {
+  grid-template-columns: 28px minmax(0, 1fr) max-content;
 }
 
 .pub-lb-rank {
@@ -1671,9 +1658,13 @@ pre.mono-block {
   color: var(--cyan);
   white-space: nowrap;
   text-align: right;
-  max-width: 42%;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
+  border: 1px solid rgba(34,215,255,0.18);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: rgba(34,215,255,0.07);
 }
 
 .pub-empty {
@@ -1684,6 +1675,11 @@ pre.mono-block {
   color: var(--muted);
   font-size: 13px;
   background: rgba(10,12,28,0.28);
+}
+
+.pub-empty.compact {
+  padding: 10px 12px;
+  max-width: 320px;
 }
 
 /* ── Room Info ───────────────────────────────────────── */
@@ -1818,7 +1814,9 @@ pre.mono-block {
   .pub-brand span { display: none; }
   .pub-stats-row { grid-template-columns: repeat(2, 1fr); }
   .manual-command-row { grid-template-columns: 1fr; }
-  .pub-ranking-filter { align-items: flex-start; flex-direction: column; }
+  .pub-lb-row,
+  .pub-lb-row.song-row { grid-template-columns: 26px minmax(0, 1fr) max-content; }
+  .pub-lb-val { max-width: 112px; }
 }
 
 /* ── Tab Navigation ──────────────────────────────────── */

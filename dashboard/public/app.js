@@ -162,6 +162,7 @@ const EMOTE_TABS = [
 const SYSTEM_TABS = [
   { id: "Health", api: "/api/healthz" },
   { id: "Logs", api: null },
+  { id: "Public Settings", api: "/api/public-settings" },
   { id: "Settings Audit", api: "/api/settings-audit" },
   { id: "Permissions Audit", api: "/api/permissions/audit" },
   { id: "Maintenance Center", api: "/api/maintenance/overview" },
@@ -645,7 +646,6 @@ const state = {
   maintenanceTab: "Overview",
   howToPlayTab: "Quick Start",
   publicRankingTab: "Overview",
-  publicRankingsHideStaffBots: true,
   securityPlayer: null,
   modal: null,
   sidebarOpen: false,
@@ -763,10 +763,9 @@ function activeTab(page) {
 
 /* ── Loading ─────────────────────────────────────────── */
 async function loadPublic() {
-  const rankingQuery = `?hide_staff=${state.publicRankingsHideStaffBots ? "1" : "0"}&hide_bots=${state.publicRankingsHideStaffBots ? "1" : "0"}`;
   const apiMap = {
     home: "/api/public/home", radio: "/api/public/radio",
-    events: "/api/public/events", rankings: `/api/public/rankings${rankingQuery}`,
+    events: "/api/public/events", rankings: "/api/public/rankings",
     howtoplay: "/api/public/how-to-play", roominfo: "/api/public/room-info",
   };
   try {
@@ -1201,8 +1200,12 @@ function renderPublicRankings(d) {
     return Number.isFinite(n) ? n.toLocaleString() : (v ?? "—");
   };
   const coins = (v) => `${fmtNum(v)} coins`;
-  const kg = (v) => `${fmtNum(v)} kg`;
   const lbs = (v) => `${fmtNum(v)} lbs`;
+  const cleanSongTitle = (v) => String(v || "Unknown Track")
+    .replace(/\s*[\[(](official\s+(music\s+)?video|official\s+audio|lyrics?|lyric\s+video)[\])]\s*/ig, " ")
+    .replace(/\s*\b(official\s+(music\s+)?video|official\s+audio|lyric\s+video|lyrics?|4k|hd)\b\s*/ig, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "Unknown Track";
   const playerName = (r) => {
     const name = r.username || r.player || r.requester || r.name;
     if (!name || looksLikeId(name)) return "Unknown Player";
@@ -1210,15 +1213,21 @@ function renderPublicRankings(d) {
   };
   const valueText = (r, keys) => keys.map((k) => r[k]).find((v) => v !== undefined && v !== null && v !== "") ?? "";
   const songDetail = (r) => [r.artist, r.requester ? `requested by ${r.requester}` : ""].filter(Boolean).join(" · ");
+  const rareDetail = (r, foundLabel) => [
+    r.rarity || "rare",
+    r.weight !== undefined && r.weight !== "" ? lbs(r.weight) : "",
+    r.value !== undefined && r.value !== "" ? coins(r.value) : "",
+    `${foundLabel} ${playerName(r)}`,
+  ].filter(Boolean).join(" · ");
   const cleanRows = (rows, titleKeys = ["username", "title", "ore", "fish", "name"]) => (rows || [])
     .filter((row) => titleKeys.some((key) => row[key] !== undefined && row[key] !== null && row[key] !== ""))
     .slice(0, 10);
-  function leaderboard(title, icon, rows, { name = (r) => playerName(r), value = (r) => valueText(r, ["value", "points", "balance", "xp"]), detail = null, empty = "No data yet." } = {}) {
+  function leaderboard(title, icon, rows, { name = (r) => playerName(r), value = (r) => valueText(r, ["value", "points", "balance", "xp"]), detail = null, empty = "No data yet.", rowClass = "" } = {}) {
     const list = cleanRows(rows);
     return `<div class="card pub-rank-card">
       <div class="card-header"><h3>${icon} ${esc(title)}</h3><span class="pill info">Top 10</span></div>
       ${list.length ? `<div class="pub-leaderboard">
-        ${list.map((r, i) => `<div class="pub-lb-row rich">
+        ${list.map((r, i) => `<div class="pub-lb-row rich ${esc(rowClass)}">
           <span class="pub-lb-rank ${i < 3 ? "top" + i : ""}">${["🥇","🥈","🥉"][i] || (i + 1)}</span>
           <span class="pub-lb-main">
             <span class="pub-lb-name leaderboard-title-marquee" title="${esc(name(r) || "—")}"><span>${esc(name(r) || "—")}</span></span>
@@ -1230,7 +1239,11 @@ function renderPublicRankings(d) {
       </div>` : `<div class="pub-empty">${esc(empty)}</div>`}
     </div>`;
   }
-  const section = (title, cards) => `<div class="pub-ranking-section"><h3>${esc(title)}</h3><div class="pub-rankings-grid">${cards.filter(Boolean).join("")}</div></div>`;
+  const maybeLeaderboard = (title, icon, rows, opts = {}) => has(rows) ? leaderboard(title, icon, rows, opts) : "";
+  const section = (title, cards) => {
+    const visible = cards.filter(Boolean);
+    return `<div class="pub-ranking-section"><h3>${esc(title)}</h3>${visible.length ? `<div class="pub-rankings-grid">${visible.join("")}</div>` : `<div class="pub-empty compact">No data yet.</div>`}</div>`;
+  };
   const has = (rows) => Array.isArray(rows) && rows.length > 0;
   const top = (rows) => (rows || [])[0] || {};
   function featured(title, icon, row, valueKeys, subtitleFn = playerName) {
@@ -1251,54 +1264,52 @@ function renderPublicRankings(d) {
         ${featured("Casino Leader", "🎲", top(lb.casino_overall || d.casino || lb.most_games_won), ["wins", "total_won"])}
       </div>`,
     Economy: section("Economy Leaders", [
-      leaderboard("Richest Players", "💰", lb.richest || d.rich, { value: (r) => coins(r.balance) }),
-      leaderboard("Top XP / Level", "⭐", lb.xp, { value: (r) => `${fmtNum(r.xp ?? 0)} XP`, detail: (r) => `Level ${fmtNum(r.level ?? "—")}` }),
-      leaderboard("Daily Streaks", "🔥", lb.streaks, { value: (r) => `${r.streak ?? 0} days`, detail: (r) => r.total_claims ? `${r.total_claims} claims` : "" }),
-      leaderboard("Gold Supporters", "🥇", lb.topdonators, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} entries` }),
-      leaderboard("Top P2P Senders", "💸", lb.toptippers, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} tips` }),
-      leaderboard("Top P2P Receivers", "🤝", lb.toptipped, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} tips` }),
+      maybeLeaderboard("Richest Players", "💰", lb.richest || d.rich, { value: (r) => coins(r.balance) }),
+      maybeLeaderboard("Top XP / Level", "⭐", lb.xp, { value: (r) => `${fmtNum(r.xp ?? 0)} XP`, detail: (r) => `Level ${fmtNum(r.level ?? "—")}` }),
+      maybeLeaderboard("Daily Streaks", "🔥", lb.streaks, { value: (r) => `${r.streak ?? 0} days`, detail: (r) => r.total_claims ? `${r.total_claims} claims` : "" }),
+      maybeLeaderboard("Gold Supporters", "🥇", lb.topdonators, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} entries` }),
+      maybeLeaderboard("Top P2P Senders", "💸", lb.toptippers, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} tips` }),
+      maybeLeaderboard("Top P2P Receivers", "🤝", lb.toptipped, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} tips` }),
     ]),
     Mining: section("Mining Leaders", [
-      leaderboard("Top Miners", "⛏️", lb.mining_top || d.mining, { value: (r) => r.total_mined ?? r.xp ?? "", detail: (r) => `Level ${r.level ?? "—"} · ${r.rare_finds ?? 0} rare` }),
-      leaderboard("Heaviest Ores", "🪨", lb.mining_heaviest_ore, { name: (r) => r.ore, value: (r) => kg(r.weight), detail: (r) => `Found by ${playerName(r)} · ${r.rarity || "ore"}` }),
-      leaderboard("Most Valuable Ores", "💎", lb.mining_most_valuable, { name: (r) => r.ore, value: (r) => coins(r.value), detail: (r) => `${playerName(r)} · ${r.rarity || "ore"}` }),
-      has(lb.mining_rarest) ? leaderboard("Best Rare Finds", "✨", lb.mining_rarest, { name: (r) => r.ore, value: (r) => r.weight ? kg(r.weight) : coins(r.value), detail: (r) => `${r.rarity || "rare"} · ${playerName(r)}` }) : "",
+      maybeLeaderboard("Top Miners", "⛏️", lb.mining_top || d.mining, { value: (r) => r.total_mined ?? r.xp ?? "", detail: (r) => `Level ${r.level ?? "—"} · ${r.rare_finds ?? 0} rare` }),
+      maybeLeaderboard("Heaviest Ores", "🪨", lb.mining_heaviest_ore, { name: (r) => r.ore, value: (r) => lbs(r.weight), detail: (r) => `Found by ${playerName(r)} · ${r.rarity || "ore"}` }),
+      maybeLeaderboard("Most Valuable Ores", "💎", lb.mining_most_valuable, { name: (r) => r.ore, value: (r) => coins(r.value), detail: (r) => `${playerName(r)} · ${r.rarity || "ore"}` }),
+      maybeLeaderboard("Rarest Mining Finds", "✨", lb.mining_rarest, { name: (r) => r.ore, value: (r) => r.rarity || "rare", detail: (r) => rareDetail(r, "found by") }),
     ]),
     Fishing: section("Fishing Leaders", [
-      leaderboard("Top Fishers", "🎣", lb.fishing_top || d.fishing, { value: (r) => `${r.total_catches ?? 0} catches`, detail: (r) => `Level ${r.level ?? "—"}` }),
-      leaderboard("Heaviest Fish", "🐟", lb.fishing_heaviest_fish, { name: (r) => r.fish, value: (r) => lbs(r.weight), detail: (r) => `Caught by ${playerName(r)} · ${r.rarity || "fish"}` }),
-      leaderboard("Most Valuable Fish", "💧", lb.fishing_most_valuable, { name: (r) => r.fish, value: (r) => coins(r.value), detail: (r) => `${playerName(r)} · ${r.rarity || "fish"}` }),
-      has(lb.fishing_rarest) ? leaderboard("Best Rare Catches", "✨", lb.fishing_rarest, { name: (r) => r.fish, value: (r) => r.weight ? lbs(r.weight) : coins(r.value), detail: (r) => `${r.rarity || "rare"} · ${playerName(r)}` }) : "",
+      maybeLeaderboard("Top Fishers", "🎣", lb.fishing_top || d.fishing, { value: (r) => `${r.total_catches ?? 0} catches`, detail: (r) => `Level ${r.level ?? "—"}` }),
+      maybeLeaderboard("Heaviest Fish", "🐟", lb.fishing_heaviest_fish, { name: (r) => r.fish, value: (r) => lbs(r.weight), detail: (r) => `Caught by ${playerName(r)} · ${r.rarity || "fish"}` }),
+      maybeLeaderboard("Most Valuable Fish", "💧", lb.fishing_most_valuable, { name: (r) => r.fish, value: (r) => coins(r.value), detail: (r) => `${playerName(r)} · ${r.rarity || "fish"}` }),
+      maybeLeaderboard("Rarest Fishing Catches", "✨", lb.fishing_rarest, { name: (r) => r.fish, value: (r) => r.rarity || "rare", detail: (r) => rareDetail(r, "caught by") }),
     ]),
     Casino: section("Casino Leaders", [
-      leaderboard("Most Casino Wins", "🎲", lb.casino_overall || lb.most_games_won || d.casino, { value: (r) => `${fmtNum(r.wins ?? 0)} wins`, detail: (r) => r.total_won ? coins(r.total_won) : "" }),
+      maybeLeaderboard("Most Games Won", "🎲", lb.casino_overall || lb.most_games_won || d.casino, { value: (r) => `${fmtNum(r.wins ?? 0)} wins`, detail: (r) => r.total_won ? coins(r.total_won) : "" }),
       has(lb.poker) ? leaderboard("Poker Wins", "♠️", lb.poker, { value: (r) => `${fmtNum(r.wins ?? 0)} wins`, detail: (r) => `${fmtNum(r.hands_played || 0)} hands` }) : "",
       has(lb.poker) ? leaderboard("Poker Net Profit/Loss", "📈", lb.poker.filter((r) => r.net !== ""), { value: (r) => coins(r.net), detail: (r) => playerName(r) }) : "",
       has(lb.poker) ? leaderboard("Biggest Poker Pots", "🏦", lb.poker.filter((r) => r.biggest_pot).sort((a, b) => Number(b.biggest_pot || 0) - Number(a.biggest_pot || 0)), { value: (r) => coins(r.biggest_pot), detail: (r) => playerName(r) }) : "",
       has(lb.blackjack) ? leaderboard("Blackjack Wins", "🃏", lb.blackjack, { value: (r) => `${fmtNum(r.wins ?? 0)} wins`, detail: (r) => r.blackjacks ? `${fmtNum(r.blackjacks)} natural blackjacks` : "" }) : leaderboard("Blackjack / RBJ", "🃏", [], { empty: "No blackjack rounds recorded yet." }),
+      has(lb.blackjack) ? leaderboard("Natural Blackjacks", "✨", lb.blackjack.filter((r) => Number(r.blackjacks || 0) > 0), { value: (r) => `${fmtNum(r.blackjacks)} naturals`, detail: (r) => playerName(r) }) : "",
       has(lb.blackjack) ? leaderboard("Blackjack Net Winnings", "💵", lb.blackjack.filter((r) => r.net !== ""), { value: (r) => coins(r.net), detail: (r) => playerName(r) }) : "",
+      has(lb.blackjack) ? leaderboard("Biggest Blackjack Wins", "🏆", lb.blackjack.filter((r) => r.biggest_win).sort((a, b) => Number(b.biggest_win || 0) - Number(a.biggest_win || 0)), { value: (r) => coins(r.biggest_win), detail: (r) => playerName(r) }) : "",
     ]),
     Radio: section("Radio Leaders", [
-      leaderboard("Top Requesters", "🎵", lb.radio_requesters || d.radio, { value: (r) => `${fmtNum(r.requests ?? 0)} requests` }),
-      leaderboard("Top Liked Songs", "👍", lb.radio_liked, { name: (r) => r.title || r.name, value: (r) => `${fmtNum(r.likes ?? 0)} likes`, detail: songDetail }),
-      leaderboard("Top Disliked Songs", "👎", lb.radio_disliked, { name: (r) => r.title || r.name, value: (r) => `${fmtNum(r.dislikes ?? 0)} dislikes`, detail: songDetail }),
-      leaderboard("Most Liked Requesters", "💜", lb.radio_liked_requesters, { value: (r) => `${fmtNum(r.likes ?? 0)} likes` }),
-      has(lb.radio_tracks) ? leaderboard("Most Played Songs", "📻", lb.radio_tracks, { name: (r) => r.title || r.name, value: (r) => `${fmtNum(r.plays ?? r.requests ?? 0)} plays`, detail: (r) => r.artist || "" }) : "",
+      maybeLeaderboard("Top Requesters", "🎵", lb.radio_requesters || d.radio, { value: (r) => `${fmtNum(r.requests ?? 0)} requests` }),
+      maybeLeaderboard("Top Liked Songs", "👍", lb.radio_liked, { name: (r) => cleanSongTitle(r.title || r.name), value: (r) => `${fmtNum(r.likes ?? 0)} likes`, detail: songDetail, rowClass: "song-row" }),
+      maybeLeaderboard("Top Disliked Songs", "👎", lb.radio_disliked, { name: (r) => cleanSongTitle(r.title || r.name), value: (r) => `${fmtNum(r.dislikes ?? 0)} dislikes`, detail: songDetail, rowClass: "song-row" }),
+      maybeLeaderboard("Most Liked Requesters", "💜", lb.radio_liked_requesters, { value: (r) => `${fmtNum(r.likes ?? 0)} likes received` }),
+      has(lb.radio_tracks) ? leaderboard("Most Played Songs", "📻", lb.radio_tracks, { name: (r) => cleanSongTitle(r.title || r.name), value: (r) => `${fmtNum(r.plays ?? r.requests ?? 0)} plays`, detail: (r) => r.artist || "", rowClass: "song-row" }) : "",
     ]),
     Events: section("Event Leaders", [
-      leaderboard("Event Points", "🎉", lb.event_points || d.events, { value: (r) => `${r.points ?? 0} pts`, detail: (r) => r.fallback_id ? `id ${String(r.fallback_id).slice(0, 8)}…` : "" }),
+      maybeLeaderboard("Event Points", "🎉", lb.event_points || d.events, { value: (r) => `${r.points ?? 0} pts`, detail: (r) => r.fallback_id ? `id ${String(r.fallback_id).slice(0, 8)}…` : "" }),
     ]),
     Social: section("Social Leaders", [
-      leaderboard("Reputation", "💜", lb.reputation, { value: (r) => `${r.rep_received ?? 0} received`, detail: (r) => r.rep_given ? `${r.rep_given} given` : "" }),
+      maybeLeaderboard("Reputation", "💜", lb.reputation, { value: (r) => `${r.rep_received ?? 0} received`, detail: (r) => r.rep_given ? `${r.rep_given} given` : "" }),
     ]),
   };
   return `
     <div class="pub-section-title"><h2>🏆 Rankings</h2>
       <p>Clean leaderboard categories backed by live ChillTopia data.</p></div>
-    <div class="pub-ranking-filter card">
-      <label><input type="checkbox" id="hideStaffBotsToggle" ${state.publicRankingsHideStaffBots ? "checked" : ""} /> Hide staff & bots</label>
-      <span class="muted text-sm">Public view defaults to player-only rankings.</span>
-    </div>
     <div class="tab-nav pub-ranking-tabs">
       ${tabs.map((name) => `<button class="tab-btn ${name === current ? "active" : ""}" data-ranking-tab="${esc(name)}">${esc(name)}</button>`).join("")}
     </div>
@@ -1397,11 +1408,6 @@ function bindPublicEvents() {
   document.querySelectorAll("[data-ranking-tab]").forEach((btn) => btn.addEventListener("click", () => {
     state.publicRankingTab = btn.dataset.rankingTab; state.error = ""; render();
   }));
-  document.getElementById("hideStaffBotsToggle")?.addEventListener("change", (e) => {
-    state.publicRankingsHideStaffBots = !!e.target.checked;
-    state.error = "";
-    loadPublic();
-  });
   document.getElementById("pubLoginBtn")?.addEventListener("click", () => {
     state.showLoginOverlay = true; state.error = ""; render();
   });
@@ -4302,12 +4308,46 @@ function renderSystemPage(tab) {
     ${tabNav("System")}
     ${tab === "Health" ? renderSystemHealth() : ""}
     ${tab === "Logs" ? renderSystemLogs() : ""}
+    ${tab === "Public Settings" ? renderPublicSettings() : ""}
     ${tab === "Settings Audit" ? renderSettingsAudit() : ""}
     ${tab === "Permissions Audit" ? renderPermissionsAudit() : ""}
     ${tab === "Maintenance Center" ? renderMaintenanceCenter() : ""}
     ${tab === "Database" ? renderSystemDatabase() : ""}
     ${tab === "Emergency" ? renderEmergency() : ""}
     ${tab === "Missing/Future Controls" ? renderSystemFutureControls() : ""}
+  `;
+}
+
+function renderPublicSettings() {
+  const d = state.data || {};
+  const settings = d.settings || {};
+  const sources = d.sources || {};
+  const enabled = settings.public_rankings_hide_staff_bots !== false;
+  return `
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>Public Rankings</h2>
+          ${pill(enabled ? "enabled" : "disabled")}
+        </div>
+        <form id="publicSettingsForm" style="display:grid;gap:14px">
+          <label class="switch">
+            <input type="checkbox" name="public_rankings_hide_staff_bots" ${enabled ? "checked" : ""} />
+            <span>Hide staff, owners, and bots from public leaderboards</span>
+          </label>
+          <div class="notice">Public rankings apply this server-side before data reaches the public portal. Owner diagnostics can still use unfiltered leaderboard data.</div>
+          <button class="btn primary">Save Public Settings</button>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Verified Source</h2>
+        ${table(Object.entries(sources).map(([key, source]) => ({ key, table: source.table, default: source.default ? "true" : "false" })), [
+          { key: "key", label: "Setting" },
+          { key: "table", label: "Table" },
+          { key: "default", label: "Default" },
+        ])}
+      </div>
+    </div>
   `;
 }
 
@@ -5009,6 +5049,16 @@ function permissionChecks(perms) {
    EVENT BINDING
 ══════════════════════════════════════════════════════ */
 function bindAdminPageEvents() {
+  document.getElementById("publicSettingsForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    await action("Public settings saved.", () => api("/api/public-settings", {
+      method: "PUT",
+      body: JSON.stringify({ public_rankings_hide_staff_bots: fd.get("public_rankings_hide_staff_bots") === "on" }),
+    }));
+    await loadAdmin();
+  });
+
   ["settingsAuditStatus", "settingsAuditModule", "settingsAuditPage"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", (e) => {
       const key = id.replace("settingsAudit", "").toLowerCase();
