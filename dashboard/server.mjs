@@ -1985,6 +1985,119 @@ function buildLeaderboards(db) {
     : (tableExists(db, "users") ? markMissingColumns("profiles", "users", [userCols.includes("username") ? "xp" : "username"]) : markMissingTable("profiles", "users"));
   if (profiles.length) source("profiles", "users", ["username", "level", "xp", balanceCol, "total_games_won", "total_coins_earned"].filter(Boolean), "connected", "Public-safe !profile summary fields.");
 
+  const eventPoints = (() => {
+    if (!tableExists(db, "event_points")) return markMissingTable("event_points", "event_points");
+    const cols = tableColumns(db, "event_points");
+    const pointsCol = choose(cols, ["points", "total_points", "score"]);
+    if (!pointsCol) return markMissingColumns("event_points", "event_points", ["points"]);
+    if (cols.includes("username")) {
+      return runSql(
+        "event_points",
+        "event_points",
+        ["username", pointsCol],
+        `SELECT NULLIF(username,'') AS username, ${sqlIdent(pointsCol)} AS points FROM event_points ORDER BY ${numericExpr(pointsCol)} DESC LIMIT ?`,
+        [limit],
+        "Event points with stored username.",
+      ).map((row) => ({ ...row, username: row.username || "Unknown Player" }));
+    }
+    if (cols.includes("user_id") && tableExists(db, "users") && columnExists(db, "users", "user_id") && columnExists(db, "users", "username")) {
+      return runSql(
+        "event_points",
+        "event_points",
+        ["user_id", pointsCol],
+        `SELECT COALESCE(NULLIF(u.username,''), 'Unknown Player') AS username, ep.user_id AS fallback_id, ep.${sqlIdent(pointsCol)} AS points FROM event_points ep LEFT JOIN users u ON u.user_id = ep.user_id ORDER BY ${numericExpr(pointsCol, "ep.")} DESC LIMIT ?`,
+        [limit],
+        "Event points joined to users for public display names.",
+      );
+    }
+    return markMissingColumns("event_points", "event_points", ["username"]);
+  })();
+
+  const radioRequesters = (() => {
+    if (tableExists(db, "radio_user_stats") && columnExists(db, "radio_user_stats", "username") && columnExists(db, "radio_user_stats", "requests_count")) {
+      return runSql(
+        "radio_requesters",
+        "radio_user_stats",
+        ["username", "requests_count"],
+        "SELECT username, requests_count AS requests FROM radio_user_stats WHERE COALESCE(username,'')<>'' AND COALESCE(CAST(requests_count AS REAL),0)>0 ORDER BY COALESCE(CAST(requests_count AS REAL),0) DESC LIMIT ?",
+        [limit],
+        "Top requesters from radio_user_stats.requests_count.",
+      );
+    }
+    return base.radio || [];
+  })();
+
+  const radioTracks = (() => {
+    if (!tableExists(db, "radio_song_stats")) return markMissingTable("radio_tracks", "radio_song_stats");
+    const cols = tableColumns(db, "radio_song_stats");
+    const countCol = choose(cols, ["play_count", "played_count", "plays"]);
+    if (!countCol) return markMissingColumns("radio_tracks", "radio_song_stats", ["play_count"]);
+    return runSql(
+      "radio_tracks",
+      "radio_song_stats",
+      ["song_key", "title", cols.includes("artist") ? "artist" : "", countCol].filter(Boolean),
+      `SELECT COALESCE(NULLIF(title,''), NULLIF(song_key,''), 'Unknown Track') AS title${cols.includes("artist") ? ", artist" : ""}, ${sqlIdent(countCol)} AS plays FROM radio_song_stats WHERE COALESCE(NULLIF(title,''), NULLIF(song_key,''), '')<>'' AND ${numericExpr(countCol)}>0 ORDER BY ${numericExpr(countCol)} DESC LIMIT ?`,
+      [limit],
+      "Most played/requested songs from radio_song_stats.",
+    );
+  })();
+
+  function radioRatingRows(name, rating, outCol, notes) {
+    if (!tableExists(db, "dj_ratings")) {
+      const statCol = rating === "like" ? "like_count" : "dislike_count";
+      if (tableExists(db, "radio_song_stats") && columnExists(db, "radio_song_stats", statCol)) {
+        return runSql(
+          name,
+          "radio_song_stats",
+          ["song_key", "title", statCol],
+          `SELECT COALESCE(NULLIF(title,''), NULLIF(song_key,''), 'Unknown Track') AS title${columnExists(db, "radio_song_stats", "artist") ? ", artist" : ""}, ${sqlIdent(statCol)} AS ${sqlIdent(outCol)} FROM radio_song_stats WHERE COALESCE(NULLIF(title,''), NULLIF(song_key,''), '')<>'' AND ${numericExpr(statCol)}>0 ORDER BY ${numericExpr(statCol)} DESC LIMIT ?`,
+          [limit],
+          `${notes} Fallback source: radio_song_stats.${statCol}.`,
+        );
+      }
+      return markMissingTable(name, "dj_ratings");
+    }
+    const cols = tableColumns(db, "dj_ratings");
+    const missing = ["song_key", "rating"].filter((col) => !cols.includes(col));
+    if (missing.length) return markMissingColumns(name, "dj_ratings", missing);
+    const hasSongStats = tableExists(db, "radio_song_stats") && columnExists(db, "radio_song_stats", "song_key");
+    const hasSongArtist = hasSongStats && columnExists(db, "radio_song_stats", "artist");
+    const sql = hasSongStats
+      ? `SELECT COALESCE(NULLIF(rss.title,''), NULLIF(dr.song_key,''), 'Unknown Track') AS title${hasSongArtist ? ", COALESCE(NULLIF(rss.artist,''), '') AS artist" : ""}, COUNT(*) AS ${sqlIdent(outCol)} FROM dj_ratings dr LEFT JOIN radio_song_stats rss ON rss.song_key = dr.song_key WHERE LOWER(dr.rating)=? AND COALESCE(NULLIF(dr.song_key,''),'')<>'' GROUP BY dr.song_key ORDER BY ${sqlIdent(outCol)} DESC LIMIT ?`
+      : `SELECT COALESCE(NULLIF(song_key,''), 'Unknown Track') AS title, COUNT(*) AS ${sqlIdent(outCol)} FROM dj_ratings WHERE LOWER(rating)=? AND COALESCE(NULLIF(song_key,''),'')<>'' GROUP BY song_key ORDER BY ${sqlIdent(outCol)} DESC LIMIT ?`;
+    return runSql(name, "dj_ratings", ["song_key", "rating"], sql, [rating, limit], notes)
+      .filter((row) => row.title && row.title !== "Unknown Track");
+  }
+  const radioLikedSongs = radioRatingRows("radio_liked", "like", "likes", "Top liked songs from dj_ratings joined to radio_song_stats titles.");
+  const radioDislikedSongs = radioRatingRows("radio_disliked", "dislike", "dislikes", "Top disliked songs from dj_ratings joined to radio_song_stats titles.");
+  const radioLikedRequesters = (() => {
+    if (tableExists(db, "yt_request_jobs") && tableExists(db, "dj_ratings") && columnExists(db, "yt_request_jobs", "username") && columnExists(db, "yt_request_jobs", "title") && columnExists(db, "dj_ratings", "song_key") && columnExists(db, "dj_ratings", "rating")) {
+      const hasArtist = columnExists(db, "yt_request_jobs", "artist");
+      const joinExpr = hasArtist
+        ? "(dr.song_key = LOWER(SUBSTR(rj.title,1,150)) OR dr.song_key = LOWER(SUBSTR(rj.title || '|' || COALESCE(rj.artist,''),1,150)))"
+        : "dr.song_key = LOWER(SUBSTR(rj.title,1,150))";
+      return runSql(
+        "radio_liked_requesters",
+        "yt_request_jobs",
+        ["username", "title"],
+        `SELECT rj.username AS username, COUNT(*) AS likes FROM yt_request_jobs rj JOIN dj_ratings dr ON ${joinExpr} WHERE LOWER(dr.rating)='like' AND COALESCE(rj.username,'')<>'' GROUP BY rj.username ORDER BY likes DESC LIMIT ?`,
+        [limit],
+        "Requesters whose requested songs accumulated likes.",
+      );
+    }
+    if (tableExists(db, "radio_user_stats") && columnExists(db, "radio_user_stats", "likes_count")) {
+      return runSql(
+        "radio_liked_requesters",
+        "radio_user_stats",
+        ["username", "likes_count"],
+        "SELECT username, likes_count AS likes FROM radio_user_stats WHERE COALESCE(username,'')<>'' AND COALESCE(CAST(likes_count AS REAL),0)>0 ORDER BY COALESCE(CAST(likes_count AS REAL),0) DESC LIMIT ?",
+        [limit],
+        "Fallback: radio_user_stats.likes_count.",
+      );
+    }
+    return markMissingTable("radio_liked_requesters", "dj_ratings");
+  })();
+
   const leaderboards = {
     richest: rich,
     xp,
@@ -2004,11 +2117,12 @@ function buildLeaderboards(db) {
     fishing_most_valuable: fishingMostValuable,
     fishing_rarest: fishingRarest,
     fishing_streaks: fishingStreaks,
-    event_points: base.events || [],
-    radio_requesters: base.radio || [],
-    radio_tracks: base.radio_songs || [],
-    radio_liked: radioLiked,
-    radio_disliked: radioDisliked,
+    event_points: eventPoints,
+    radio_requesters: radioRequesters,
+    radio_tracks: radioTracks,
+    radio_liked: radioLikedSongs,
+    radio_disliked: radioDislikedSongs,
+    radio_liked_requesters: radioLikedRequesters,
     reputation: base.reputation || [],
     topdonators,
     toptippers,
@@ -2048,8 +2162,9 @@ function buildLeaderboards(db) {
     fishing_most_valuable: fishingMostValuable,
     fishing_rarest: fishingRarest,
     fishing_streaks: fishingStreaks,
-    radio_liked: radioLiked,
-    radio_disliked: radioDisliked,
+    radio_liked: radioLikedSongs,
+    radio_disliked: radioDislikedSongs,
+    radio_liked_requesters: radioLikedRequesters,
     topdonators,
     toptippers,
     toptipped,
@@ -2059,7 +2174,8 @@ function buildLeaderboards(db) {
     diagnostics,
     miners: base.mining || [],
     fishers: base.fishing || [],
-    top_requesters: base.radio || [],
+    events: eventPoints,
+    top_requesters: radioRequesters,
     metadata: {
       generated_at: diagnostics.generated_at,
       db_path: diagnostics.db_path,

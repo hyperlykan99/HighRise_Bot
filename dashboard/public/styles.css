@@ -1494,10 +1494,74 @@ pre.mono-block {
 }
 
 /* ── Rankings ────────────────────────────────────────── */
+.pub-ranking-tabs {
+  margin-bottom: 16px;
+}
+
+.pub-ranking-hub {
+  display: grid;
+  gap: 16px;
+}
+
+.pub-ranking-section {
+  display: grid;
+  gap: 12px;
+}
+
+.pub-ranking-section > h3 {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 800;
+}
+
 .pub-rankings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 16px;
+}
+
+.pub-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.pub-feature-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 102px;
+}
+
+.pub-feature-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: rgba(34,215,255,0.1);
+  border: 1px solid rgba(34,215,255,0.18);
+}
+
+.pub-feature-card span,
+.pub-feature-card em {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.pub-feature-card strong {
+  display: block;
+  color: var(--text);
+  font-size: 15px;
+  margin: 3px 0;
+  overflow-wrap: anywhere;
+}
+
+.pub-rank-card {
+  min-width: 0;
 }
 
 .pub-leaderboard {
@@ -1515,6 +1579,10 @@ pre.mono-block {
 }
 
 .pub-lb-row:last-child { border-bottom: none; }
+
+.pub-lb-row.rich {
+  align-items: flex-start;
+}
 
 .pub-lb-rank {
   width: 28px;
@@ -1534,10 +1602,25 @@ pre.mono-block {
 .pub-lb-rank.top2 { background: rgba(205,127,50,0.15); color: #cd7f32; }
 
 .pub-lb-name {
-  flex: 1;
+  display: block;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pub-lb-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.pub-lb-detail {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1548,6 +1631,20 @@ pre.mono-block {
   font-weight: 700;
   color: var(--cyan);
   white-space: nowrap;
+  text-align: right;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pub-empty {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px dashed rgba(120,100,220,0.22);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  background: rgba(10,12,28,0.28);
 }
 
 /* ── Room Info ───────────────────────────────────────── */

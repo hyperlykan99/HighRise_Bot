@@ -644,6 +644,7 @@ const state = {
   settingsAudit: { status: "all", module: "", page: "" },
   maintenanceTab: "Overview",
   howToPlayTab: "Quick Start",
+  publicRankingTab: "Overview",
   securityPlayer: null,
   modal: null,
   sidebarOpen: false,
@@ -1189,55 +1190,103 @@ function renderPublicEvents(d) {
 function renderPublicRankings(d) {
   const lb = d.leaderboards || d || {};
   const metadata = d.diagnostics || d.metadata || {};
-  function leaderboard(title, icon, rows, cols) {
-    const list = (rows || []).slice(0, 10);
-    return `<div class="card"><h3>${icon} ${title}</h3>
+  const tabs = ["Overview", "Economy", "Mining", "Fishing", "Casino", "Radio", "Events", "Social"];
+  if (!tabs.includes(state.publicRankingTab)) state.publicRankingTab = "Overview";
+  const current = state.publicRankingTab;
+  const looksLikeId = (v) => /^[a-z0-9_-]{18,}$/i.test(String(v || ""));
+  const playerName = (r) => {
+    const name = r.username || r.player || r.requester || r.name;
+    if (!name || looksLikeId(name)) return "Unknown Player";
+    return name;
+  };
+  const valueText = (r, keys) => keys.map((k) => r[k]).find((v) => v !== undefined && v !== null && v !== "") ?? "";
+  const cleanRows = (rows, titleKeys = ["username", "title", "ore", "fish", "name"]) => (rows || [])
+    .filter((row) => titleKeys.some((key) => row[key] !== undefined && row[key] !== null && row[key] !== ""))
+    .slice(0, 10);
+  function leaderboard(title, icon, rows, { name = (r) => playerName(r), value = (r) => valueText(r, ["value", "points", "balance", "xp"]), detail = null, empty = "No data yet." } = {}) {
+    const list = cleanRows(rows);
+    return `<div class="card pub-rank-card">
+      <div class="card-header"><h3>${icon} ${esc(title)}</h3><span class="pill info">Top 10</span></div>
       ${list.length ? `<div class="pub-leaderboard">
-        ${list.map((r, i) => `<div class="pub-lb-row">
+        ${list.map((r, i) => `<div class="pub-lb-row rich">
           <span class="pub-lb-rank ${i < 3 ? "top" + i : ""}">${["🥇","🥈","🥉"][i] || (i + 1)}</span>
-          <span class="pub-lb-name">${esc(r[cols[0]] || r.username || r.title || "—")}</span>
-          <span class="pub-lb-val">${esc(String(r[cols[1]] ?? r[cols[2]] ?? ""))}</span>
+          <span class="pub-lb-main">
+            <span class="pub-lb-name">${esc(name(r) || "—")}</span>
+            ${detail ? `<span class="pub-lb-detail">${esc(detail(r) || "")}</span>` : ""}
+          </span>
+          <span class="pub-lb-val">${esc(String(value(r) ?? ""))}</span>
         </div>`).join("")}
         ${(rows || []).length > 10 ? `<div class="muted text-sm" style="margin-top:10px;text-align:center">Showing top 10 of ${rows.length}</div>` : ""}
-      </div>` : `<div class="notice">No data yet — be the first on the leaderboard!</div>`}
+      </div>` : `<div class="pub-empty">${esc(empty)}</div>`}
     </div>`;
   }
-  function menuCard() {
-    const menu = d.menu || [];
-    return `<div class="card">
-      <div class="card-header"><h3>📜 In-Room Leaderboard Menu</h3><span class="pill info">${menu.length} commands</span></div>
-      <div class="chip-row">
-        ${menu.map((item) => `<span class="chip"><code>${esc(item.command)}</code> ${esc(item.label)}</span>`).join("")}
-      </div>
+  const section = (title, cards) => `<div class="pub-ranking-section"><h3>${esc(title)}</h3><div class="pub-rankings-grid">${cards.filter(Boolean).join("")}</div></div>`;
+  const has = (rows) => Array.isArray(rows) && rows.length > 0;
+  const top = (rows) => (rows || [])[0] || {};
+  function featured(title, icon, row, valueKeys, subtitleFn = playerName) {
+    return `<div class="card pub-feature-card">
+      <div class="pub-feature-icon">${icon}</div>
+      <div><span>${esc(title)}</span><strong>${esc(subtitleFn(row) || "No data yet")}</strong><em>${esc(String(valueText(row, valueKeys) || ""))}</em></div>
     </div>`;
   }
+  const panels = {
+    Overview: `
+      <div class="pub-feature-grid">
+        ${featured("Richest Player", "💰", top(lb.richest || d.rich), ["balance"])}
+        ${featured("Highest Level", "⬆️", top(lb.level), ["level", "xp"])}
+        ${featured("Top Miner", "⛏️", top(lb.mining_top || d.mining), ["total_mined", "xp"])}
+        ${featured("Top Fisher", "🎣", top(lb.fishing_top || d.fishing), ["total_catches", "biggest_catch"])}
+        ${featured("Top Requester", "🎵", top(lb.radio_requesters || d.radio), ["requests"])}
+        ${featured("Casino Leader", "🎲", top(lb.casino_overall || d.casino || lb.most_games_won), ["wins", "total_won"])}
+      </div>`,
+    Economy: section("Economy Leaders", [
+      leaderboard("Richest Players", "💰", lb.richest || d.rich, { value: (r) => r.balance }),
+      leaderboard("Top XP / Level", "⭐", lb.xp, { value: (r) => `${r.xp ?? 0} XP`, detail: (r) => `Level ${r.level ?? "—"}` }),
+      leaderboard("Daily Streaks", "🔥", lb.streaks, { value: (r) => `${r.streak ?? 0} days`, detail: (r) => r.total_claims ? `${r.total_claims} claims` : "" }),
+      leaderboard("Gold Supporters", "🥇", lb.topdonators, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} entries` }),
+      leaderboard("Top P2P Senders", "💸", lb.toptippers, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} tips` }),
+      leaderboard("Top P2P Receivers", "🤝", lb.toptipped, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} tips` }),
+    ]),
+    Mining: section("Mining Leaders", [
+      leaderboard("Top Miners", "⛏️", lb.mining_top || d.mining, { value: (r) => r.total_mined ?? r.xp ?? "", detail: (r) => `Level ${r.level ?? "—"} · ${r.rare_finds ?? 0} rare` }),
+      leaderboard("Heaviest Ores", "🪨", lb.mining_heaviest_ore, { name: (r) => r.ore, value: (r) => `${r.weight ?? "—"} wt`, detail: (r) => `${playerName(r)} · ${r.rarity || "ore"}` }),
+      leaderboard("Most Valuable Ores", "💎", lb.mining_most_valuable, { name: (r) => r.ore, value: (r) => r.value, detail: (r) => `${playerName(r)} · ${r.rarity || "ore"}` }),
+      has(lb.mining_rarest) ? leaderboard("Rarest Finds", "✨", lb.mining_rarest, { name: (r) => r.ore, value: (r) => r.rarity, detail: (r) => playerName(r) }) : "",
+    ]),
+    Fishing: section("Fishing Leaders", [
+      leaderboard("Top Fishers", "🎣", lb.fishing_top || d.fishing, { value: (r) => `${r.total_catches ?? 0} catches`, detail: (r) => `Level ${r.level ?? "—"}` }),
+      leaderboard("Heaviest Fish", "🐟", lb.fishing_heaviest_fish, { name: (r) => r.fish, value: (r) => `${r.weight ?? "—"} wt`, detail: (r) => `${playerName(r)} · ${r.rarity || "fish"}` }),
+      leaderboard("Most Valuable Fish", "💧", lb.fishing_most_valuable, { name: (r) => r.fish, value: (r) => r.value, detail: (r) => `${playerName(r)} · ${r.rarity || "fish"}` }),
+      has(lb.fishing_rarest) ? leaderboard("Rarest Catches", "✨", lb.fishing_rarest, { name: (r) => r.fish, value: (r) => r.rarity, detail: (r) => playerName(r) }) : "",
+    ]),
+    Casino: section("Casino Leaders", [
+      leaderboard("Overall", "🎲", lb.casino_overall || lb.most_games_won || d.casino, { value: (r) => `${r.wins ?? 0} wins`, detail: (r) => r.total_won ? `${r.total_won} won` : "" }),
+      has(lb.blackjack) ? leaderboard("Blackjack / RBJ", "🃏", lb.blackjack, { value: (r) => `${r.wins ?? 0} wins`, detail: (r) => r.blackjacks ? `${r.blackjacks} blackjacks` : "" }) : leaderboard("Blackjack / RBJ", "🃏", [], {}),
+      has(lb.poker) ? leaderboard("Poker", "♠️", lb.poker, { value: (r) => r.net || r.total_won || r.wins, detail: (r) => r.biggest_pot ? `Biggest pot ${r.biggest_pot}` : `${r.hands_played || 0} hands` }) : leaderboard("Poker", "♠️", [], {}),
+      has(lb.poker) ? leaderboard("Biggest Pots", "🏦", lb.poker.filter((r) => r.biggest_pot).sort((a, b) => Number(b.biggest_pot || 0) - Number(a.biggest_pot || 0)), { value: (r) => r.biggest_pot, detail: (r) => playerName(r) }) : "",
+    ]),
+    Radio: section("Radio Leaders", [
+      leaderboard("Top Requesters", "🎵", lb.radio_requesters || d.radio, { value: (r) => `${r.requests ?? 0} requests` }),
+      leaderboard("Top Liked Songs", "👍", lb.radio_liked, { name: (r) => r.title || r.name, value: (r) => `${r.likes ?? 0} likes`, detail: (r) => r.artist || "" }),
+      leaderboard("Top Disliked Songs", "👎", lb.radio_disliked, { name: (r) => r.title || r.name, value: (r) => `${r.dislikes ?? 0} dislikes`, detail: (r) => r.artist || "" }),
+      leaderboard("Most Liked Requesters", "💜", lb.radio_liked_requesters, { value: (r) => `${r.likes ?? 0} likes` }),
+      has(lb.radio_tracks) ? leaderboard("Most Played Songs", "📻", lb.radio_tracks, { name: (r) => r.title || r.name, value: (r) => `${r.plays ?? r.requests ?? 0} plays`, detail: (r) => r.artist || "" }) : "",
+    ]),
+    Events: section("Event Leaders", [
+      leaderboard("Event Points", "🎉", lb.event_points || d.events, { value: (r) => `${r.points ?? 0} pts`, detail: (r) => r.fallback_id ? `id ${String(r.fallback_id).slice(0, 8)}…` : "" }),
+    ]),
+    Social: section("Social Leaders", [
+      leaderboard("Reputation", "💜", lb.reputation, { value: (r) => `${r.rep_received ?? 0} received`, detail: (r) => r.rep_given ? `${r.rep_given} given` : "" }),
+    ]),
+  };
   return `
     <div class="pub-section-title"><h2>🏆 Rankings</h2>
-      <p>Top players across all ChillTopia activities, matched to the in-room leaderboard commands.</p></div>
-    ${menuCard()}
-    <div class="pub-rankings-grid">
-      ${leaderboard("Richest Players", "💰", lb.richest || d.rich || d.rich_list, ["username","balance"])}
-      ${leaderboard("Top XP / Level", "⭐", lb.xp || d.xp, ["username","level","xp"])}
-      ${leaderboard("Top Level", "⬆️", lb.level, ["username","level","xp"])}
-      ${leaderboard("Most Games Won", "🏆", lb.most_games_won || d.casino, ["username","wins","total_won"])}
-      ${leaderboard("Top Miners", "⛏️", lb.mining_top || d.mining || d.miners, ["username","total_mined","xp"])}
-      ${leaderboard("Heaviest Ores", "🪨", lb.mining_heaviest_ore || d.mining_heaviest_ore, ["ore","weight","username"])}
-      ${leaderboard("Top Fishers", "🎣", lb.fishing_top || d.fishing || d.fishers, ["username","total_catches","biggest_catch"])}
-      ${leaderboard("Heaviest Fish", "🐟", lb.fishing_heaviest_fish || d.fishing_heaviest_fish, ["fish","weight","username"])}
-      ${leaderboard("Casino Overall", "🎲", lb.casino_overall || d.casino, ["username","wins","total_won"])}
-      ${leaderboard("Blackjack / RBJ", "🃏", lb.blackjack || d.blackjack, ["username","wins","total_won"])}
-      ${leaderboard("Poker", "♠️", lb.poker || d.poker, ["username","wins","net"])}
-      ${leaderboard("Radio Requesters", "🎵", lb.radio_requesters || d.radio || d.top_requesters, ["username","requests","count"])}
-      ${leaderboard("Radio Songs", "📻", lb.radio_tracks || d.radio_songs, ["title","plays","requests"])}
-      ${leaderboard("Event Points", "🎉", lb.event_points || d.events, ["username","points"])}
-      ${leaderboard("Gold Supporters", "🥇", lb.topdonators || d.topdonators, ["username","total_gold","entries"])}
-      ${leaderboard("Top P2P Senders", "💸", lb.toptippers || d.toptippers, ["username","total_gold","entries"])}
-      ${leaderboard("Top P2P Receivers", "🤝", lb.toptipped || d.toptipped, ["username","total_gold","entries"])}
-      ${leaderboard("Daily Streaks", "🔥", lb.streaks || d.streaks, ["username","streak","total_claims"])}
-      ${leaderboard("Reputation", "💜", lb.reputation || d.reputation, ["username","rep_received","rep_given"])}
-      ${leaderboard("Profiles", "👤", lb.profiles || d.profiles, ["username","level","xp"])}
+      <p>Clean leaderboard categories backed by live ChillTopia data.</p></div>
+    <div class="tab-nav pub-ranking-tabs">
+      ${tabs.map((name) => `<button class="tab-btn ${name === current ? "active" : ""}" data-ranking-tab="${esc(name)}">${esc(name)}</button>`).join("")}
     </div>
-    ${(metadata.missing_tables || []).length ? `<div class="notice" style="margin-top:16px">Some leaderboard sources are not connected yet: ${esc(metadata.missing_tables.slice(0, 8).join(", "))}</div>` : ""}
+    <div class="pub-ranking-hub">${panels[current] || panels.Overview}</div>
+    ${(metadata.source_errors || []).length ? `<div class="notice" style="margin-top:16px">Some leaderboard sources had errors, but the rest of the page is still live.</div>` : ""}
   `;
 }
 
@@ -1327,6 +1376,9 @@ function bindPublicEvents() {
   }));
   document.querySelectorAll("[data-manual-tab]").forEach((btn) => btn.addEventListener("click", () => {
     state.howToPlayTab = btn.dataset.manualTab; state.error = ""; render();
+  }));
+  document.querySelectorAll("[data-ranking-tab]").forEach((btn) => btn.addEventListener("click", () => {
+    state.publicRankingTab = btn.dataset.rankingTab; state.error = ""; render();
   }));
   document.getElementById("pubLoginBtn")?.addEventListener("click", () => {
     state.showLoginOverlay = true; state.error = ""; render();
