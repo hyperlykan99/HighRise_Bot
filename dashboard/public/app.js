@@ -116,15 +116,20 @@ const RADIO_TABS = [
 ];
 const ECONOMY_TABS = [
   { id: "Overview", api: "/api/economy/overview" },
+  { id: "VIP", api: "/api/vip" },
+  { id: "Titles", api: "/api/titles" },
+  { id: "Badges", api: "/api/badges/catalog" },
+  { id: "Rewards", api: "/api/rewards" },
+  { id: "Shop", api: "/api/shop" },
+  { id: "Quests", api: "/api/quests" },
+  { id: "Player Grants", api: "/api/rewards" },
+  { id: "Logs", api: "/api/rewards/logs" },
+  { id: "Advanced", api: "/api/rewards" },
   { id: "Casino", api: "/api/casino" },
   { id: "Mining", api: "/api/mining-settings" },
   { id: "Fishing", api: "/api/fishing-settings" },
   { id: "Games", api: "/api/games" },
   { id: "Economy", api: "/api/economy/overview" },
-  { id: "VIP", api: null },
-  { id: "Titles", api: "/api/titles" },
-  { id: "Badges", api: null },
-  { id: "Rewards", api: null },
 ];
 const MINING_TABS = [
   { id: "Overview", api: "/api/mining" },
@@ -1328,6 +1333,7 @@ function renderPublicRoomInfo(d = state.data || {}) {
   const vip = lines(info.vip_info, "Priority song queue slots\nBonus daily coin rewards\nExclusive VIP badge\nSpecial room access\nPersonal bot shoutout");
   const staff = lines(info.staff_list, "");
   const announcements = d.announcements || [];
+  const rewardInfo = d.rewards || {};
   return `
     <div class="pub-section-title"><h2>ℹ️ Room Info</h2>
       <p>Everything you need to know about ChillTopia</p></div>
@@ -1343,6 +1349,7 @@ function renderPublicRoomInfo(d = state.data || {}) {
         <div class="pub-vip-list">
           ${vip.map((item) => `<div class="pub-vip-item">${esc(item)}</div>`).join("")}
         </div>
+        <p class="muted text-sm" style="margin-top:10px">VIP status is tracked as a player reward and may unlock bonus perks when enabled by the room.</p>
       </div>
       <div class="card">
         <h3>🤖 Key Commands</h3>
@@ -1367,6 +1374,23 @@ function renderPublicRoomInfo(d = state.data || {}) {
       <div class="card">
         <h3>📢 Room Updates</h3>
         ${announcements.length ? announcements.map((a) => `<div class="pub-event-item">${esc(a.message)}</div>`).join("") : `<div class="notice">No public announcements posted.</div>`}
+      </div>
+    </div>
+    <div class="pub-grid2">
+      <div class="card">
+        <h3>📚 Public Titles</h3>
+        ${(rewardInfo.titles || []).length ? smallTable((rewardInfo.titles || []).slice(0, 10), [
+          { key: "name", label: "Title" },
+          { key: "tier", label: "Tier" },
+          { key: "description", label: "How to Earn" },
+        ]) : `<div class="notice">Titles are earned through events, rewards, and staff grants when available.</div>`}
+      </div>
+      <div class="card">
+        <h3>🏅 Public Badges</h3>
+        ${(rewardInfo.badges || []).length ? smallTable((rewardInfo.badges || []).slice(0, 10), [
+          { key: "name", label: "Badge" },
+          { key: "description", label: "Info" },
+        ]) : `<div class="notice">Badges are earned from achievements, events, and special room rewards.</div>`}
       </div>
     </div>
   `;
@@ -2280,7 +2304,7 @@ function renderPlayerInventoryTab() {
       ${state.user?.role === "owner" ? `<form id="playerItemForm" class="settings-form">
         <div class="field"><label class="field-label">Item ID</label><input name="item_id" required /></div>
         <div class="field"><label class="field-label">Item Type</label><input name="item_type" required placeholder="vip, rod, pickaxe, badge, item" /></div>
-        <div class="field"><label class="field-label">Reason</label><input name="reason" placeholder="Audit reason" /></div>
+        <div class="field"><label class="field-label">Reason</label><input name="reason" required placeholder="Required audit reason" /></div>
         <button class="btn primary">Add Item</button>
       </form>
       <div class="inline-actions" style="margin-top:12px">
@@ -2315,7 +2339,7 @@ function renderPlayerTitlesBadgesTab() {
         { key: "source", label: "Source" },
         { key: "unlocked_at", label: "Unlocked" },
       ], state.user?.role === "owner" ? (r) => r.title_id ? `<button class="btn danger sm" data-remove-title="${esc(r.title_id)}">Remove</button>` : "" : null)}
-      ${state.user?.role === "owner" ? `<form id="playerTitleForm" class="toolbar" style="margin-top:12px"><input name="title_id" required placeholder="title_id" /><input name="reason" placeholder="reason" /><button class="btn primary">Give Title</button></form>` : ""}
+      ${state.user?.role === "owner" ? `<form id="playerTitleForm" class="toolbar" style="margin-top:12px"><input name="title_id" required placeholder="title_id" /><input name="reason" required placeholder="reason" /><button class="btn primary">Give Title</button></form>` : ""}
     </div>
     <div class="card">
       <h2>Badges</h2>
@@ -2325,7 +2349,7 @@ function renderPlayerTitlesBadgesTab() {
         { key: "equipped", label: "Equipped" },
         { key: "locked", label: "Locked" },
       ], state.user?.role === "owner" ? (r) => `<button class="btn danger sm" data-remove-badge="${esc(r.badge_id)}">Remove</button>` : null)}
-      ${state.user?.role === "owner" ? `<form id="playerBadgeForm" class="toolbar" style="margin-top:12px"><input name="badge_id" required placeholder="badge_id" /><input name="reason" placeholder="reason" /><button class="btn primary">Give Badge</button></form>` : ""}
+      ${state.user?.role === "owner" ? `<form id="playerBadgeForm" class="toolbar" style="margin-top:12px"><input name="badge_id" required placeholder="badge_id" /><input name="reason" required placeholder="reason" /><button class="btn primary">Give Badge</button></form>` : ""}
     </div>
   </div>`;
 }
@@ -3671,6 +3695,11 @@ function renderEconomyRewards(tab) {
     ${tab === "Titles"          ? renderTitlesTab() : ""}
     ${tab === "Badges"          ? renderBadgesTab() : ""}
     ${tab === "Rewards"         ? renderRewardsTab() : ""}
+    ${tab === "Shop"            ? renderShopTab() : ""}
+    ${tab === "Quests"          ? renderQuestsTab() : ""}
+    ${tab === "Player Grants"   ? renderPlayerGrantsTab() : ""}
+    ${tab === "Logs"            ? renderRewardLogsTab() : ""}
+    ${tab === "Advanced"        ? renderRewardsAdvancedTab() : ""}
   `;
 }
 
@@ -4157,54 +4186,167 @@ function renderCoinsTab() {
 }
 
 function renderVipTab() {
-  return `<div class="card">
-    <h2>⭐ VIP Summary</h2>
-    <p class="muted text-sm">VIP status is stored in <code>owned_items</code> with <code>item_id='vip'</code>. Use Player Search to inspect individual inventories.</p>
-  </div>
-  ${futureControls([
-    { endpoint: "Player → Inventory", purpose: "Grant/remove VIP using owned_items item_id='vip'", status: "Connected" },
-    { endpoint: "GET /api/vip/list", purpose: "List all VIP players", status: "Future" },
-  ])}`;
+  const d = state.data || {};
+  const rows = d.vip_players || [];
+  return `<div class="grid">
+    <div class="card">
+      <div class="card-header">
+        <h2>⭐ VIP Players</h2>
+        <span class="pill info">owned_items.item_id=vip</span>
+      </div>
+      ${table(rows, [
+        { key: "username", label: "Player" },
+        { key: "user_id", label: "User ID" },
+        { key: "item_type", label: "Type" },
+        { key: "acquired_at", label: "Acquired" },
+      ], state.user?.role === "owner" ? (r) => `<button class="btn danger sm" data-vip-remove="${esc(r.user_id)}" data-vip-user="${esc(r.username)}">Remove VIP</button>` : null)}
+    </div>
+    <div class="card">
+      <h2>Grant VIP</h2>
+      ${state.user?.role === "owner" ? `<form id="vipGrantForm" class="settings-form">
+        <div class="field"><label class="field-label">Username or User ID</label><input name="query" required /></div>
+        <div class="field"><label class="field-label">Reason</label><input name="reason" required placeholder="Required audit reason" /></div>
+        <button class="btn primary">Grant VIP</button>
+      </form>` : `<div class="notice">Owner role required for VIP writes.</div>`}
+      <div class="notice" style="margin-top:12px">VIP is verified as an owned item: <code>owned_items.item_id='vip'</code>. Duplicate VIP rows are avoided.</div>
+    </div>
+  </div>`;
 }
 
 function renderTitlesTab() {
   const d = state.data || {};
+  const catalog = d.catalog || d.titles?.catalog || [];
+  const assigned = d.assigned || d.titles?.assigned || [];
+  const dashboardTitles = d.dashboard_titles || d.titles?.dashboard_titles || [];
   return `
     <div class="card">
       <h2>📚 Title Catalog</h2>
-      ${table(d.catalog || [])}
+      ${table(catalog)}
     </div>
+    ${state.user?.role === "owner" ? `<div class="card">
+      <h2>Add / Edit Title Catalog</h2>
+      <form id="titleCatalogForm" class="settings-form">
+        <div class="field"><label class="field-label">Title ID</label><input name="title_id" required placeholder="founder" /></div>
+        <div class="field"><label class="field-label">Display / Name</label><input name="display" placeholder="Founder" /></div>
+        <div class="field"><label class="field-label">Tier / Rarity</label><input name="tier" placeholder="rare" /></div>
+        <div class="field"><label class="field-label">Color</label><input name="color" placeholder="#a855f7" /></div>
+        <div class="field"><label class="field-label">Description</label><input name="description" /></div>
+        <div class="field"><label class="field-label">Reason</label><input name="reason" required /></div>
+        <button class="btn primary">Add Title If Schema Allows</button>
+      </form>
+      <div class="notice" style="margin-top:12px">Writes only when <code>title_catalog.title_id</code> exists. Otherwise the endpoint returns <code>unverified_schema</code>.</div>
+    </div>` : ""}
     <div class="card">
       <h2>📋 Assigned Titles</h2>
-      ${table(d.assigned || [])}
+      ${table([...(assigned || []), ...(dashboardTitles || [])])}
     </div>
     ${futureControls([
-      { endpoint: "Player → Titles & Badges", purpose: "Give/remove verified player titles from the Players page", status: "Connected" },
+      { endpoint: "Player Grants", purpose: "Give/remove verified user_titles through the selected player workflow", status: "Connected" },
+      { endpoint: "set equipped title", purpose: "Only enabled if users equipped title source is verified for writes", status: "Future" },
     ])}
   `;
 }
 
 function renderBadgesTab() {
-  return `<div class="card">
-    <h2>🏅 Badges</h2>
-    <p class="muted text-sm">Equipped badge data is available in Player Search. Badge write actions are hidden until the dashboard has a dedicated workflow.</p>
+  const d = state.data || {};
+  return `<div class="grid">
+    <div class="card"><h2>🏅 Owned Badges</h2>${table(d.owned || d.badges?.owned || [])}</div>
+    <div class="card"><h2>Badge Claims</h2>${table(d.claims || d.badges?.claims || [])}</div>
+    <div class="card"><h2>Badge Market Listings</h2>${table(d.market_listings || [])}</div>
+    <div class="card"><h2>Badge Trades</h2>${table(d.trades || [])}</div>
   </div>
   ${futureControls([
-    { endpoint: "GET /api/badges", purpose: "List available badge types", status: "Future" },
-    { endpoint: "Player → Titles & Badges", purpose: "Give/remove verified user_badges", status: "Connected" },
+    { endpoint: "Player Grants", purpose: "Give/remove verified user_badges through the selected player workflow", status: "Connected" },
+    { endpoint: "badge catalog writes", purpose: "No verified badge catalog table exists in live schema", status: "Unverified schema" },
   ])}`;
 }
 
 function renderRewardsTab() {
-  return `<div class="card">
-    <h2>🎁 Rewards</h2>
-    <p class="muted text-sm">Reward editing is kept out of the normal dashboard surface until the backing endpoints are wired.</p>
+  const d = state.data || {};
+  const o = d.overview || {};
+  const r = d.rewards || {};
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+    ${metricCard("Pending Rewards", o.pending_rewards ?? 0, "pending_coin_rewards", "", "🎁")}
+    ${metricCard("Weekly Rewards", o.weekly_rewards ?? 0, "weekly_rewards", "", "📅")}
+    ${metricCard("VIP Players", o.vip_players ?? 0, "owned_items", "accent-green", "⭐")}
+    ${metricCard("Owned Items", o.owned_items ?? 0, "owned_items", "", "🎒")}
+  </div>
+  <div class="grid">
+    <div class="card"><h2>Pending Coin Rewards</h2>${table(r.pending_coin_rewards || [])}</div>
+    <div class="card"><h2>Weekly Rewards</h2>${table(r.weekly_rewards || [])}</div>
+    <div class="card"><h2>Onboarding Rewards</h2>${table(r.onboarding || [])}</div>
+    <div class="card"><h2>Weekly Snapshots</h2>${table(r.weekly_snapshots || [])}</div>
   </div>
   ${futureControls([
-    { endpoint: "GET /api/rewards", purpose: "List reward configurations", status: "Future" },
-    { endpoint: "PUT /api/rewards/:id", purpose: "Update daily/event rewards", status: "Future" },
-    { endpoint: "GET /api/quests", purpose: "List quest configs", status: "Future" },
+    { endpoint: "reward amount edits", purpose: "Edit reward amounts only after exact source keys are verified", status: "Unverified source" },
+    { endpoint: "daily reward settings", purpose: "Daily settings are not exposed here until command-source mapping is exact", status: "Future" },
   ])}`;
+}
+
+function renderShopTab() {
+  const d = state.data || {};
+  return `<div class="grid">
+    <div class="card"><h2>Purchase History</h2>${table(d.purchases || [])}</div>
+    <div class="card"><h2>Premium Balances</h2>${table(d.premium_balances || [])}</div>
+    <div class="card"><h2>Premium Transactions</h2>${table(d.premium_transactions || [])}</div>
+    <div class="card"><h2>Shop View Sessions</h2>${table(d.sessions || [])}</div>
+  </div>
+  ${futureControls([
+    { endpoint: "POST /api/shop/items", purpose: "Shop item writes", status: "Unverified schema" },
+    { endpoint: "PUT /api/shop/items/:id", purpose: "Shop item edits/disable", status: "Unverified schema" },
+  ])}`;
+}
+
+function renderQuestsTab() {
+  const d = state.data || {};
+  return `<div class="grid">
+    <div class="card"><h2>Quest Progress</h2>${table(d.quest_progress || [])}</div>
+    <div class="card"><h2>Player Missions</h2>${table(d.player_missions || [])}</div>
+    <div class="card"><h2>Mission Sets</h2>${table(d.player_mission_sets || [])}</div>
+  </div>
+  ${futureControls([
+    { endpoint: "quest reward edits", purpose: "Only after mission set reward columns are verified", status: "Unverified schema" },
+  ])}`;
+}
+
+function renderPlayerGrantsTab() {
+  const p = state.playerResult;
+  return `
+    <div class="card">
+      <h2>Player Grants</h2>
+      <form id="rewardPlayerSearchForm" class="toolbar" style="flex-wrap:wrap;margin-bottom:12px">
+        <input name="query" placeholder="Search username or user ID" required style="flex:1;min-width:200px" />
+        <button class="btn primary">Search Player</button>
+      </form>
+      ${p ? renderPlayerCard(p) : `<div class="notice">Search a player before granting or removing rewards.</div>`}
+    </div>
+    ${p ? `<div class="grid">
+      <div class="card"><h2>Grant Coins</h2><form id="grantCoinsForm" class="settings-form"><input type="hidden" name="action" value="add_balance" /><div class="field"><label class="field-label">Amount</label><input name="amount" type="number" required /></div><div class="field"><label class="field-label">Reason</label><input name="reason" required /></div><button class="btn primary">Grant Coins</button></form></div>
+      <div class="card"><h2>VIP</h2><form id="grantVipForm" class="settings-form"><input name="reason" required placeholder="Reason" /><button class="btn primary">Grant VIP</button><button class="btn danger" type="button" id="removeVipGrantBtn">Remove VIP</button></form></div>
+      <div class="card"><h2>Grant Item</h2><form id="grantItemForm" class="settings-form"><div class="field"><label class="field-label">Item ID</label><input name="item_id" required /></div><div class="field"><label class="field-label">Item Type</label><input name="item_type" required /></div><div class="field"><label class="field-label">Reason</label><input name="reason" required /></div><button class="btn primary">Grant Item</button></form></div>
+      <div class="card"><h2>Grant Title</h2><form id="grantTitleForm" class="settings-form"><input name="title_id" required placeholder="title_id" /><input name="reason" required placeholder="Reason" /><button class="btn primary">Grant Title</button></form></div>
+      <div class="card"><h2>Grant Badge</h2><form id="grantBadgeForm" class="settings-form"><input name="badge_id" required placeholder="badge_id" /><input name="reason" required placeholder="Reason" /><button class="btn primary">Grant Badge</button></form></div>
+    </div>` : ""}
+  `;
+}
+
+function renderRewardLogsTab() {
+  const d = state.data || {};
+  return `<div class="grid">
+    <div class="card"><h2>Reward Audit Logs</h2>${table(d.audit_logs || [])}</div>
+    <div class="card"><h2>Purchase History</h2>${table(d.purchase_history || [])}</div>
+    <div class="card"><h2>Premium Transactions</h2>${table(d.premium_transactions || [])}</div>
+  </div>`;
+}
+
+function renderRewardsAdvancedTab() {
+  const d = state.data || {};
+  const statusRows = Object.entries(d.table_status || {}).map(([table_name, present]) => ({ table_name, status: present ? "present" : "missing", columns: (d.columns?.[table_name] || []).join(", ") }));
+  return `<div class="grid">
+    <div class="card"><h2>Reward Table Status</h2>${table(statusRows)}</div>
+    <div class="card"><h2>Owned Items Raw</h2>${table(d.owned_items || [])}</div>
+    <div class="card"><h2>Subscriber Users</h2>${table((d.rewards?.subscriber_users || d.subscriber_users || []))}</div>
+  </div>`;
 }
 
 /* ── Staff Page (shared for owner Staff page) ────────── */
@@ -5021,12 +5163,12 @@ function permissionChecks(perms) {
   const all = state.data?.permissions || [
     "view_dashboard","manage_radio","manage_casino","manage_games","manage_mining","manage_fishing",
     "manage_room","manage_events","manage_emotes","manage_players","manage_economy","manage_inventory",
-    "manage_moderation","manage_staff","manage_bots","manage_bot_config","view_logs","emergency_controls","db_admin",
+    "manage_rewards","manage_moderation","manage_staff","manage_bots","manage_bot_config","view_logs","emergency_controls","db_admin",
   ];
   const groups = {
     Radio: ["manage_radio"],
     Players: ["manage_players", "manage_inventory", "manage_moderation"],
-    Economy: ["manage_economy"],
+    Economy: ["manage_economy", "manage_rewards"],
     Games: ["manage_casino", "manage_games", "manage_mining", "manage_fishing"],
     Room: ["manage_room", "manage_events", "manage_emotes"],
     Bots: ["manage_bots", "manage_bot_config"],
@@ -5049,6 +5191,88 @@ function permissionChecks(perms) {
    EVENT BINDING
 ══════════════════════════════════════════════════════ */
 function bindAdminPageEvents() {
+  document.getElementById("vipGrantForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Grant VIP", `Grant VIP to ${data.query}?`, async () => {
+      await action("VIP granted.", () => api("/api/vip/add", { method: "POST", body: JSON.stringify(data) }));
+      await loadAdmin();
+    });
+  });
+  document.querySelectorAll("[data-vip-remove]").forEach((btn) => btn.addEventListener("click", () => {
+    const user_id = btn.dataset.vipRemove;
+    const username = btn.dataset.vipUser || user_id;
+    const reason = prompt(`Reason for removing VIP from ${username}?`);
+    if (!reason) return;
+    confirmAction("Remove VIP", `Remove VIP from ${username}?`, async () => {
+      await action("VIP removed.", () => api("/api/vip/remove", { method: "POST", body: JSON.stringify({ user_id, reason }) }));
+      await loadAdmin();
+    });
+  }));
+  document.getElementById("titleCatalogForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Add Title", `Add title ${data.title_id}?`, async () => {
+      await action("Title catalog updated.", () => api("/api/titles/catalog", { method: "POST", body: JSON.stringify(data) }));
+      await loadAdmin();
+    });
+  });
+  document.getElementById("rewardPlayerSearchForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const query = new FormData(e.currentTarget).get("query");
+    const data = await api(`/api/player/search?q=${encodeURIComponent(query)}`);
+    state.playerResult = data.player || null;
+    render();
+  });
+  document.getElementById("grantCoinsForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Grant Coins", `Grant ${data.amount} coins to @${p?.username}?`, async () => {
+      await applyPlayerWrite("Coins granted.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/economy`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+  document.getElementById("grantVipForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Grant VIP", `Grant VIP to @${p?.username}?`, async () => {
+      await applyPlayerWrite("VIP granted.", () => api("/api/vip/add", { method: "POST", body: JSON.stringify({ user_id: p.user_id, reason: data.reason }) }));
+    });
+  });
+  document.getElementById("removeVipGrantBtn")?.addEventListener("click", () => {
+    const p = state.playerResult;
+    const reason = document.querySelector("#grantVipForm input[name='reason']")?.value?.trim();
+    if (!reason) return action("Reason required.", () => Promise.reject(new Error("reason_required")));
+    confirmAction("Remove VIP", `Remove VIP from @${p?.username}?`, async () => {
+      await applyPlayerWrite("VIP removed.", () => api("/api/vip/remove", { method: "POST", body: JSON.stringify({ user_id: p.user_id, reason }) }));
+    });
+  });
+  document.getElementById("grantItemForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Grant Item", `Grant ${data.item_id} to @${p?.username}?`, async () => {
+      await applyPlayerWrite("Item granted.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/items`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+  document.getElementById("grantTitleForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Grant Title", `Grant ${data.title_id} to @${p?.username}?`, async () => {
+      await applyPlayerWrite("Title granted.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/titles`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+  document.getElementById("grantBadgeForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Grant Badge", `Grant ${data.badge_id} to @${p?.username}?`, async () => {
+      await applyPlayerWrite("Badge granted.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/badges`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+
   document.getElementById("publicSettingsForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -5750,8 +5974,10 @@ function bindAdminPageEvents() {
   document.querySelectorAll("[data-remove-item]").forEach((btn) => btn.addEventListener("click", () => {
     const p = state.playerResult;
     const itemId = btn.dataset.removeItem;
+    const reason = prompt(`Reason for removing ${itemId} from @${p?.username}?`);
+    if (!reason) return;
     confirmAction("Remove Item", `Remove ${itemId} from @${p?.username}?`, async () => {
-      await applyPlayerWrite("Item removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" }));
+      await applyPlayerWrite("Item removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE", body: JSON.stringify({ reason }) }));
     });
   }));
   document.getElementById("playerTitleForm")?.addEventListener("submit", (e) => {
@@ -5765,8 +5991,10 @@ function bindAdminPageEvents() {
   document.querySelectorAll("[data-remove-title]").forEach((btn) => btn.addEventListener("click", () => {
     const p = state.playerResult;
     const titleId = btn.dataset.removeTitle;
+    const reason = prompt(`Reason for removing title ${titleId} from @${p?.username}?`);
+    if (!reason) return;
     confirmAction("Remove Title", `Remove title ${titleId} from @${p?.username}?`, async () => {
-      await applyPlayerWrite("Title removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/titles/${encodeURIComponent(titleId)}`, { method: "DELETE" }));
+      await applyPlayerWrite("Title removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/titles/${encodeURIComponent(titleId)}`, { method: "DELETE", body: JSON.stringify({ reason }) }));
     });
   }));
   document.getElementById("playerBadgeForm")?.addEventListener("submit", (e) => {
@@ -5780,8 +6008,10 @@ function bindAdminPageEvents() {
   document.querySelectorAll("[data-remove-badge]").forEach((btn) => btn.addEventListener("click", () => {
     const p = state.playerResult;
     const badgeId = btn.dataset.removeBadge;
+    const reason = prompt(`Reason for removing badge ${badgeId} from @${p?.username}?`);
+    if (!reason) return;
     confirmAction("Remove Badge", `Remove badge ${badgeId} from @${p?.username}?`, async () => {
-      await applyPlayerWrite("Badge removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/badges/${encodeURIComponent(badgeId)}`, { method: "DELETE" }));
+      await applyPlayerWrite("Badge removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/badges/${encodeURIComponent(badgeId)}`, { method: "DELETE", body: JSON.stringify({ reason }) }));
     });
   }));
   document.getElementById("playerModerationForm")?.addEventListener("submit", (e) => {

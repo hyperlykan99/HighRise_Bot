@@ -74,6 +74,7 @@ const PERMISSION_REGISTRY = {
   manage_players: { group: "Players", label: "Manage Players" },
   manage_economy: { group: "Economy", label: "Manage Economy" },
   manage_inventory: { group: "Players", label: "Manage Inventory" },
+  manage_rewards: { group: "Economy", label: "Manage Rewards" },
   manage_moderation: { group: "Players", label: "Manage Moderation" },
   manage_staff: { group: "Staff", label: "Manage Staff" },
   manage_bots: { group: "Bots", label: "Manage Bots" },
@@ -2803,6 +2804,101 @@ function validCatalogId(id) {
   return /^[a-zA-Z0-9_.:-]{1,80}$/.test(String(id || ""));
 }
 
+function tableStatusMap(db, tables) {
+  return Object.fromEntries(tables.map((table) => [table, tableExists(db, table)]));
+}
+
+function tableColumnsMap(db, tables) {
+  return Object.fromEntries(tables.map((table) => [table, tableExists(db, table) ? tableColumns(db, table) : []]));
+}
+
+function vipRows(db, limit = 500) {
+  if (!tableExists(db, "owned_items")) return [];
+  const cols = tableColumns(db, "owned_items");
+  if (!cols.includes("user_id") || !cols.includes("item_id")) return [];
+  const hasType = cols.includes("item_type");
+  const joinUsers = tableExists(db, "users") && columnExists(db, "users", "user_id") && columnExists(db, "users", "username");
+  const createdCol = ["created_at", "acquired_at", "added_at"].find((col) => cols.includes(col));
+  const sql = `SELECT oi.user_id AS user_id, ${joinUsers ? "COALESCE(NULLIF(u.username,''), oi.user_id)" : "oi.user_id"} AS username, oi.item_id AS item_id${hasType ? ", oi.item_type AS item_type" : ""}${createdCol ? `, oi.${sqlIdent(createdCol)} AS acquired_at` : ""} FROM owned_items oi ${joinUsers ? "LEFT JOIN users u ON u.user_id=oi.user_id" : ""} WHERE lower(oi.item_id)='vip' ORDER BY ${joinUsers ? "username" : "oi.user_id"} LIMIT ?`;
+  return rowsOrEmpty(db, "owned_items", sql, limit);
+}
+
+function readRewardsDashboard(db) {
+  const tables = [
+    "owned_items", "user_badges", "user_titles", "player_titles", "title_catalog", "title_loadouts",
+    "badge_claims", "badge_market_listings", "badge_market_logs", "badge_trades", "badge_wishlist",
+    "onboarding_rewards_log", "pending_coin_rewards", "weekly_rewards", "weekly_leaderboard_snapshots",
+    "quest_progress", "player_missions", "player_mission_sets", "shop_view_sessions", "purchase_history",
+    "premium_balances", "premium_transactions", "subscriber_users", "subscriber_announcements",
+  ];
+  const ownedItems = safeTableRows(db, "owned_items", { limit: "500" });
+  const vipPlayers = vipRows(db);
+  return {
+    overview: {
+      vip_players: vipPlayers.length,
+      owned_items: rowCountSafe(db, "owned_items") ?? 0,
+      title_catalog: rowCountSafe(db, "title_catalog") ?? 0,
+      user_titles: rowCountSafe(db, "user_titles") ?? 0,
+      player_titles: rowCountSafe(db, "player_titles") ?? 0,
+      user_badges: rowCountSafe(db, "user_badges") ?? 0,
+      pending_rewards: rowCountSafe(db, "pending_coin_rewards") ?? 0,
+      purchases: rowCountSafe(db, "purchase_history") ?? 0,
+      quests: (rowCountSafe(db, "quest_progress") ?? 0) + (rowCountSafe(db, "player_missions") ?? 0),
+    },
+    vip_players: vipPlayers,
+    owned_items: ownedItems,
+    titles: {
+      catalog: safeTableRows(db, "title_catalog", { orderBy: columnExists(db, "title_catalog", "tier") ? "tier, title_id" : "", limit: "500" }),
+      assigned: safeTableRows(db, "user_titles", { orderBy: columnExists(db, "user_titles", "unlocked_at") ? "unlocked_at DESC" : "", limit: "500" }),
+      dashboard_titles: safeTableRows(db, "player_titles", { orderBy: "id DESC", limit: "500" }),
+      loadouts: safeTableRows(db, "title_loadouts", { limit: "200" }),
+    },
+    badges: {
+      owned: safeTableRows(db, "user_badges", { orderBy: columnExists(db, "user_badges", "acquired_at") ? "acquired_at DESC" : "", limit: "500" }),
+      claims: safeTableRows(db, "badge_claims", { limit: "500" }),
+      market_listings: safeTableRows(db, "badge_market_listings", { limit: "200" }),
+      market_logs: safeTableRows(db, "badge_market_logs", { limit: "200" }),
+      trades: safeTableRows(db, "badge_trades", { limit: "200" }),
+      wishlist: safeTableRows(db, "badge_wishlist", { limit: "200" }),
+    },
+    rewards: {
+      onboarding: safeTableRows(db, "onboarding_rewards_log", { limit: "200" }),
+      pending_coin_rewards: safeTableRows(db, "pending_coin_rewards", { limit: "200" }),
+      weekly_rewards: safeTableRows(db, "weekly_rewards", { limit: "200" }),
+      weekly_snapshots: safeTableRows(db, "weekly_leaderboard_snapshots", { limit: "200" }),
+      subscriber_users: safeTableRows(db, "subscriber_users", { limit: "200" }),
+      subscriber_announcements: safeTableRows(db, "subscriber_announcements", { limit: "100" }),
+    },
+    shop: {
+      sessions: safeTableRows(db, "shop_view_sessions", { limit: "200" }),
+      purchases: safeTableRows(db, "purchase_history", { orderBy: columnExists(db, "purchase_history", "created_at") ? "created_at DESC" : "", limit: "500" }),
+      premium_balances: safeTableRows(db, "premium_balances", { limit: "200" }),
+      premium_transactions: safeTableRows(db, "premium_transactions", { orderBy: columnExists(db, "premium_transactions", "created_at") ? "created_at DESC" : "", limit: "500" }),
+    },
+    quests: {
+      quest_progress: safeTableRows(db, "quest_progress", { limit: "500" }),
+      player_missions: safeTableRows(db, "player_missions", { limit: "500" }),
+      player_mission_sets: safeTableRows(db, "player_mission_sets", { limit: "200" }),
+    },
+    logs: {
+      audit_logs: safeRows(db, "audit_logs", ["id", "actor", "action_type", "target_type", "target_id", "old_value", "new_value", "ip_address", "created_at"], {
+        where: "action_type LIKE '%vip%' OR action_type LIKE '%title%' OR action_type LIKE '%badge%' OR action_type LIKE '%reward%' OR action_type LIKE '%item%' OR target_type IN ('owned_items','user_titles','player_titles','user_badges','title_catalog')",
+        orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "",
+        limit: "200",
+      }),
+      premium_transactions: safeTableRows(db, "premium_transactions", { limit: "100" }),
+      purchase_history: safeTableRows(db, "purchase_history", { limit: "100" }),
+    },
+    table_status: tableStatusMap(db, tables),
+    columns: tableColumnsMap(db, tables),
+  };
+}
+
+function playerByInput(db, body) {
+  const query = String(body?.user_id || body?.username || body?.query || "").trim();
+  return query ? readPlayerProfile(db, query) : null;
+}
+
 function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
@@ -4081,9 +4177,17 @@ app.get("/api/public/room-info", async (_req, res) => {
       id: row.id,
       message: row.message || row.text || row.body || row.content || "",
     })).filter((row) => row.message);
-    json(res, { info, announcements });
+    const titleCols = tableExists(db, "title_catalog") ? tableColumns(db, "title_catalog") : [];
+    const titles = titleCols.includes("title_id")
+      ? safeRows(db, "title_catalog", ["title_id", "display", "display_name", "name", "tier", "rarity", "description"], { limit: "50" })
+          .map((row) => ({ title_id: row.title_id, name: row.display || row.display_name || row.name || row.title_id, tier: row.tier || row.rarity || "", description: row.description || "" }))
+      : [];
+    const badges = tableExists(db, "badge_claims")
+      ? safeTableRows(db, "badge_claims", { limit: "50" }).map((row) => ({ badge_id: row.badge_id || row.id || row.badge || "", name: row.name || row.badge_name || row.badge_id || row.id || "", description: row.description || row.reason || "" })).filter((row) => row.badge_id || row.name)
+      : [];
+    json(res, { info, announcements, rewards: { titles, badges, vip_source: "owned_items.item_id=vip" } });
   } catch {
-    json(res, { info: {}, announcements: [] });
+    json(res, { info: {}, announcements: [], rewards: { titles: [], badges: [] } });
   } finally {
     if (db) try { db.close(); } catch {}
   }
@@ -4726,11 +4830,111 @@ app.get("/api/fishing/logs", requireAuth, requireAnyPermission("manage_fishing",
   });
 }, closeDb);
 
-app.get("/api/titles", requireAuth, requireAnyPermission("manage_players", "manage_inventory"), (req, res) => {
-  const catalog = rowsOrEmpty(req.db, "title_catalog", "SELECT * FROM title_catalog ORDER BY tier, title_id LIMIT 500");
-  const assigned = rowsOrEmpty(req.db, "user_titles", "SELECT * FROM user_titles ORDER BY unlocked_at DESC LIMIT 250");
-  const dashboardTitles = req.db.prepare("SELECT * FROM player_titles ORDER BY id DESC LIMIT 250").all();
-  json(res, { catalog, assigned, dashboard_titles: dashboardTitles });
+app.get("/api/rewards", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy", "manage_players", "view_logs"), (req, res) => {
+  json(res, readRewardsDashboard(req.db));
+}, closeDb);
+
+app.get("/api/vip", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_players"), (req, res) => {
+  json(res, { vip_players: vipRows(req.db), source: "owned_items.item_id=vip", table_status: { owned_items: tableExists(req.db, "owned_items") } });
+}, closeDb);
+
+app.post("/api/vip/add", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory"), (req, res) => {
+  if (req.user?.role !== "owner" && !req.permissions?.manage_inventory) return json(res, { error: "forbidden", permission: "manage_inventory" }, 403);
+  if (!tableExists(req.db, "owned_items")) return json(res, { error: "owned_items_missing" }, 404);
+  if (!["user_id", "item_id", "item_type"].every((col) => columnExists(req.db, "owned_items", col))) return unverifiedSchema(res, "owned_items requires user_id, item_id, and item_type for VIP writes.");
+  const player = playerByInput(req.db, req.body);
+  const reason = String(req.body?.reason || "").trim();
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = safeOne(req.db, "owned_items", ["user_id","item_id","item_type"], { where: "user_id=? AND lower(item_id)='vip'", params: [player.user_id] });
+  req.db.prepare("INSERT OR IGNORE INTO owned_items (user_id, item_id, item_type) VALUES (?, 'vip', 'vip')").run(player.user_id);
+  audit(req.db, req.user.username, "vip_add", "owned_items", player.user_id, before, { username: player.username, reason }, req.ip);
+  json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id), vip_players: vipRows(req.db) });
+}, closeDb);
+
+app.post("/api/vip/remove", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory"), (req, res) => {
+  if (req.user?.role !== "owner" && !req.permissions?.manage_inventory) return json(res, { error: "forbidden", permission: "manage_inventory" }, 403);
+  if (!tableExists(req.db, "owned_items")) return json(res, { error: "owned_items_missing" }, 404);
+  if (!["user_id", "item_id"].every((col) => columnExists(req.db, "owned_items", col))) return unverifiedSchema(res, "owned_items requires user_id and item_id for VIP writes.");
+  const player = playerByInput(req.db, req.body);
+  const reason = String(req.body?.reason || "").trim();
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = safeOne(req.db, "owned_items", ["user_id","item_id","item_type"], { where: "user_id=? AND lower(item_id)='vip'", params: [player.user_id] });
+  const info = req.db.prepare("DELETE FROM owned_items WHERE user_id=? AND lower(item_id)='vip'").run(player.user_id);
+  audit(req.db, req.user.username, "vip_remove", "owned_items", player.user_id, before, { username: player.username, removed: info.changes, reason }, req.ip);
+  json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id), vip_players: vipRows(req.db) });
+}, closeDb);
+
+app.get("/api/titles", requireAuth, requireAnyPermission("manage_players", "manage_inventory", "manage_rewards"), (req, res) => {
+  const rewards = readRewardsDashboard(req.db);
+  json(res, { ...rewards.titles, table_status: rewards.table_status, columns: rewards.columns });
+}, closeDb);
+
+app.get("/api/titles/catalog", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_players"), (req, res) => {
+  json(res, { rows: safeTableRows(req.db, "title_catalog", { orderBy: columnExists(req.db, "title_catalog", "tier") ? "tier, title_id" : "", limit: "500" }), table: "title_catalog", columns: tableExists(req.db, "title_catalog") ? tableColumns(req.db, "title_catalog") : [] });
+}, closeDb);
+
+app.post("/api/titles/catalog", requireAuth, requireOwner, (req, res) => {
+  if (!tableExists(req.db, "title_catalog")) return json(res, { error: "title_catalog_missing" }, 404);
+  const cols = tableColumns(req.db, "title_catalog");
+  if (!cols.includes("title_id")) return unverifiedSchema(res, "title_catalog.title_id is required before dashboard writes are safe.");
+  const titleId = String(req.body?.title_id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!validCatalogId(titleId)) return json(res, { error: "bad_title_id" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const allowed = ["title_id", "display", "display_name", "name", "description", "tier", "rarity", "color", "enabled", "archived"];
+  const insertCols = allowed.filter((col) => cols.includes(col) && (col === "title_id" || req.body?.[col] !== undefined));
+  const values = insertCols.map((col) => col === "title_id" ? titleId : String(req.body[col] ?? ""));
+  req.db.prepare(`INSERT OR IGNORE INTO title_catalog (${insertCols.map(sqlIdent).join(",")}) VALUES (${insertCols.map(() => "?").join(",")})`).run(...values);
+  audit(req.db, req.user.username, "title_catalog_create", "title_catalog", titleId, "", { title_id: titleId, reason }, req.ip);
+  json(res, { ok: true, rows: safeTableRows(req.db, "title_catalog", { limit: "500" }) });
+}, closeDb);
+
+app.put("/api/titles/catalog/:id", requireAuth, requireOwner, (req, res) => {
+  if (!tableExists(req.db, "title_catalog")) return json(res, { error: "title_catalog_missing" }, 404);
+  const cols = tableColumns(req.db, "title_catalog");
+  if (!cols.includes("title_id")) return unverifiedSchema(res, "title_catalog.title_id is required before dashboard writes are safe.");
+  const titleId = String(req.params.id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!validCatalogId(titleId)) return json(res, { error: "bad_title_id" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = safeOne(req.db, "title_catalog", cols, { where: "title_id=?", params: [titleId] });
+  const allowed = ["display", "display_name", "name", "description", "tier", "rarity", "color", "enabled", "archived"];
+  const updateCols = allowed.filter((col) => cols.includes(col) && req.body?.[col] !== undefined);
+  if (!updateCols.length) return json(res, { error: "no_verified_columns" }, 400);
+  req.db.prepare(`UPDATE title_catalog SET ${updateCols.map((col) => `${sqlIdent(col)}=?`).join(", ")} WHERE title_id=?`).run(...updateCols.map((col) => String(req.body[col] ?? "")), titleId);
+  audit(req.db, req.user.username, "title_catalog_update", "title_catalog", titleId, before, { updates: Object.fromEntries(updateCols.map((col) => [col, req.body[col]])), reason }, req.ip);
+  json(res, { ok: true, row: safeOne(req.db, "title_catalog", cols, { where: "title_id=?", params: [titleId] }) });
+}, closeDb);
+
+app.get("/api/badges/catalog", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_players"), (req, res) => {
+  const rewards = readRewardsDashboard(req.db);
+  json(res, { ...rewards.badges, table_status: rewards.table_status, columns: rewards.columns, writable: false, message: "No verified badge catalog table found; user_badges and badge market/claim tables are read-only here." });
+}, closeDb);
+
+app.post("/api/badges/catalog", requireAuth, requireOwner, (_req, res) => unverifiedSchema(res, "No verified badge catalog table exists in the live schema."));
+app.put("/api/badges/catalog/:id", requireAuth, requireOwner, (_req, res) => unverifiedSchema(res, "No verified badge catalog table exists in the live schema."));
+
+app.get("/api/shop", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy"), (req, res) => {
+  const rewards = readRewardsDashboard(req.db);
+  json(res, { ...rewards.shop, table_status: rewards.table_status, columns: rewards.columns, writable: false });
+}, closeDb);
+
+app.get("/api/shop/purchases", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy", "view_logs"), (req, res) => {
+  json(res, { purchases: safeTableRows(req.db, "purchase_history", { limit: "500" }), premium_transactions: safeTableRows(req.db, "premium_transactions", { limit: "500" }) });
+}, closeDb);
+
+app.post("/api/shop/items", requireAuth, requireOwner, (_req, res) => unverifiedSchema(res, "No verified shop item catalog table exists in the live schema."));
+app.put("/api/shop/items/:id", requireAuth, requireOwner, (_req, res) => unverifiedSchema(res, "No verified shop item catalog table exists in the live schema."));
+
+app.get("/api/quests", requireAuth, requireAnyPermission("manage_rewards", "manage_economy", "manage_players"), (req, res) => {
+  const rewards = readRewardsDashboard(req.db);
+  json(res, { ...rewards.quests, table_status: rewards.table_status, columns: rewards.columns, writable: false });
+}, closeDb);
+
+app.get("/api/rewards/logs", requireAuth, requireAnyPermission("manage_rewards", "view_logs"), (req, res) => {
+  json(res, readRewardsDashboard(req.db).logs);
 }, closeDb);
 
 app.post("/api/titles/assign", requireAuth, requireOwner, (req, res) => {
@@ -5526,10 +5730,12 @@ app.post("/api/player/:id/items", requireAuth, requireOwner, (req, res) => {
   if (!tableExists(req.db, "owned_items")) return json(res, { error: "owned_items_missing" }, 404);
   const itemId = String(req.body?.item_id || "").trim().slice(0, 120);
   const itemType = String(req.body?.item_type || "").trim().slice(0, 80);
+  const reason = String(req.body?.reason || "").trim();
   if (!itemId || !itemType) return json(res, { error: "item_id_and_type_required" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
   const before = safeOne(req.db, "owned_items", ["user_id","item_id","item_type"], { where: "user_id=? AND item_id=?", params: [player.user_id, itemId] });
   req.db.prepare("INSERT OR IGNORE INTO owned_items (user_id, item_id, item_type) VALUES (?, ?, ?)").run(player.user_id, itemId, itemType);
-  audit(req.db, req.user.username, "player_item_add", "owned_items", `${player.user_id}:${itemId}`, before, { item_id: itemId, item_type: itemType, reason: req.body?.reason || "" }, req.ip);
+  audit(req.db, req.user.username, "player_item_add", "owned_items", `${player.user_id}:${itemId}`, before, { item_id: itemId, item_type: itemType, reason }, req.ip);
   json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
@@ -5538,9 +5744,11 @@ app.delete("/api/player/:id/items/:item_id", requireAuth, requireOwner, (req, re
   if (!player) return json(res, { error: "not_found" }, 404);
   if (!tableExists(req.db, "owned_items")) return json(res, { error: "owned_items_missing" }, 404);
   const itemId = String(req.params.item_id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) return json(res, { error: "reason_required" }, 400);
   const before = safeOne(req.db, "owned_items", ["user_id","item_id","item_type"], { where: "user_id=? AND item_id=?", params: [player.user_id, itemId] });
   const info = req.db.prepare("DELETE FROM owned_items WHERE user_id=? AND item_id=?").run(player.user_id, itemId);
-  audit(req.db, req.user.username, "player_item_remove", "owned_items", `${player.user_id}:${itemId}`, before, { removed: info.changes, reason: req.body?.reason || "" }, req.ip);
+  audit(req.db, req.user.username, "player_item_remove", "owned_items", `${player.user_id}:${itemId}`, before, { removed: info.changes, reason }, req.ip);
   json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
@@ -5549,9 +5757,11 @@ app.post("/api/player/:id/titles", requireAuth, requireOwner, (req, res) => {
   if (!player) return json(res, { error: "not_found" }, 404);
   if (!tableExists(req.db, "user_titles")) return json(res, { error: "user_titles_missing" }, 404);
   const titleId = String(req.body?.title_id || "").trim().slice(0, 120);
+  const reason = String(req.body?.reason || "").trim();
   if (!titleId) return json(res, { error: "title_id_required" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
   req.db.prepare("INSERT OR IGNORE INTO user_titles (user_id, username, title_id, source) VALUES (?, ?, ?, 'dashboard')").run(player.user_id, player.username, titleId);
-  audit(req.db, req.user.username, "player_title_add", "user_titles", `${player.user_id}:${titleId}`, "", { title_id: titleId, reason: req.body?.reason || "" }, req.ip);
+  audit(req.db, req.user.username, "player_title_add", "user_titles", `${player.user_id}:${titleId}`, "", { title_id: titleId, reason }, req.ip);
   json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
@@ -5559,9 +5769,11 @@ app.delete("/api/player/:id/titles/:title_id", requireAuth, requireOwner, (req, 
   const player = readPlayerProfile(req.db, req.params.id);
   if (!player) return json(res, { error: "not_found" }, 404);
   const titleId = String(req.params.title_id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) return json(res, { error: "reason_required" }, 400);
   const before = safeOne(req.db, "user_titles", ["user_id","username","title_id","source","unlocked_at"], { where: "user_id=? AND title_id=?", params: [player.user_id, titleId] });
   const info = tableExists(req.db, "user_titles") ? req.db.prepare("DELETE FROM user_titles WHERE user_id=? AND title_id=?").run(player.user_id, titleId) : { changes: 0 };
-  audit(req.db, req.user.username, "player_title_remove", "user_titles", `${player.user_id}:${titleId}`, before, { removed: info.changes, reason: req.body?.reason || "" }, req.ip);
+  audit(req.db, req.user.username, "player_title_remove", "user_titles", `${player.user_id}:${titleId}`, before, { removed: info.changes, reason }, req.ip);
   json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
@@ -5570,9 +5782,11 @@ app.post("/api/player/:id/badges", requireAuth, requireOwner, (req, res) => {
   if (!player) return json(res, { error: "not_found" }, 404);
   if (!tableExists(req.db, "user_badges")) return json(res, { error: "user_badges_missing" }, 404);
   const badgeId = String(req.body?.badge_id || "").trim().slice(0, 120);
+  const reason = String(req.body?.reason || "").trim();
   if (!badgeId) return json(res, { error: "badge_id_required" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
   req.db.prepare("INSERT OR IGNORE INTO user_badges (username, badge_id, acquired_at, source) VALUES (?, ?, CURRENT_TIMESTAMP, 'dashboard')").run(player.username, badgeId);
-  audit(req.db, req.user.username, "player_badge_add", "user_badges", `${player.username}:${badgeId}`, "", { badge_id: badgeId, reason: req.body?.reason || "" }, req.ip);
+  audit(req.db, req.user.username, "player_badge_add", "user_badges", `${player.username}:${badgeId}`, "", { badge_id: badgeId, reason }, req.ip);
   json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
@@ -5580,9 +5794,11 @@ app.delete("/api/player/:id/badges/:badge_id", requireAuth, requireOwner, (req, 
   const player = readPlayerProfile(req.db, req.params.id);
   if (!player) return json(res, { error: "not_found" }, 404);
   const badgeId = String(req.params.badge_id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) return json(res, { error: "reason_required" }, 400);
   const before = safeOne(req.db, "user_badges", ["id","username","badge_id","acquired_at","source","equipped","locked"], { where: "lower(username)=lower(?) AND badge_id=?", params: [player.username, badgeId] });
   const info = tableExists(req.db, "user_badges") ? req.db.prepare("DELETE FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?").run(player.username, badgeId) : { changes: 0 };
-  audit(req.db, req.user.username, "player_badge_remove", "user_badges", `${player.username}:${badgeId}`, before, { removed: info.changes, reason: req.body?.reason || "" }, req.ip);
+  audit(req.db, req.user.username, "player_badge_remove", "user_badges", `${player.username}:${badgeId}`, before, { removed: info.changes, reason }, req.ip);
   json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
