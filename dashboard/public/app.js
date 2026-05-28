@@ -17,6 +17,7 @@ const PUBLIC_NAV = [
 const OWNER_NAV = [
   { id: "Command Center",    icon: "⚡", label: "Command Center",    group: "Monitor" },
   { id: "Bots",              icon: "🤖", label: "Bots",              group: "Control" },
+  { id: "Radio",             icon: "📻", label: "Radio",             group: "Control" },
   { id: "Players",           icon: "👤", label: "Players",           group: "Control" },
   { id: "Room & Content",    icon: "🏠", label: "Room & Content",    group: "Control" },
   { id: "Mining",            icon: "⛏️", label: "Mining",            group: "Control" },
@@ -65,6 +66,19 @@ const ROOM_TABS = [
   { id: "Sync", api: "/api/room-control" },
   { id: "Advanced", api: "/api/room-control" },
 ];
+const RADIO_TABS = [
+  { id: "Overview", api: "/api/radio/overview" },
+  { id: "Queue", api: "/api/radio/queue" },
+  { id: "Requests", api: "/api/radio" },
+  { id: "Now Playing", api: "/api/radio" },
+  { id: "Recently Played", api: "/api/radio/recent" },
+  { id: "Blocklist", api: "/api/radio/blocklist" },
+  { id: "Rewards / Stats", api: "/api/radio/stats" },
+  { id: "Local Library", api: "/api/radio" },
+  { id: "AzuraCast / Stream", api: "/api/radio" },
+  { id: "Logs", api: "/api/radio/logs" },
+  { id: "Advanced", api: "/api/radio" },
+];
 const ECONOMY_TABS = [
   { id: "Overview", api: "/api/economy/overview" },
   { id: "Casino", api: "/api/casino" },
@@ -109,6 +123,7 @@ const SYSTEM_TABS = [
 ];
 const TAB_REGISTRY = {
   "Bots": BOT_TABS,
+  "Radio": RADIO_TABS,
   "Players": PLAYER_TABS,
   "Room & Content": ROOM_TABS,
   "Economy & Rewards": ECONOMY_TABS,
@@ -123,6 +138,7 @@ const PAGE_TABS = Object.fromEntries(
 /* ── Page Descriptions ───────────────────────────────── */
 const PAGE_DESC = {
   "Command Center":    "All systems at a glance — quick actions and health overview",
+  "Radio":             "DJ DUDU queue, request gate, stream status and radio maintenance",
   "Bots":              "Bot status, configuration and control",
   "Players":           "Player search, titles, moderation",
   "Room & Content":    "Room settings, radio, events and announcements",
@@ -505,6 +521,13 @@ function renderAdvancedCollapse(rawSettings) {
 function renderSchemaGroups(schemaKey, valuesMap) {
   const groups = SETTINGS_SCHEMA[schemaKey] || [];
   return groups.map((g, i) => renderSettingsGroup(g, valuesMap, `${schemaKey}${i}`)).join("");
+}
+
+function settingInput(name, label, value) {
+  return `<div class="field">
+    <label class="field-label">${esc(label)}</label>
+    <input type="number" name="${esc(name)}" value="${esc(value ?? "")}" />
+  </div>`;
 }
 
 /* ── API Map ─────────────────────────────────────────── */
@@ -1170,7 +1193,7 @@ function renderAdminPage() {
   const page = state.adminPage;
   const role = state.user?.role;
   const nullDataOk = ["Players", "Bots", "Room & Content", "Economy & Rewards",
-    "System", "Staff Home", "Players", "Events", "Room Tools", "Logs"];
+    "Radio", "System", "Staff Home", "Players", "Events", "Room Tools", "Logs"];
   if (!d && state.error && !nullDataOk.includes(page)) return `<div class="card"><div class="empty-state"><div class="empty-state-icon">⚠️</div><strong style="color:var(--red);margin-bottom:4px">Failed to load</strong><span>${esc(state.error)}</span></div></div>`;
   if (!d && !nullDataOk.includes(page)) return `<div class="card"><div class="loading-state"><div class="loading-spinner"></div><span class="muted text-sm">Loading…</span></div></div>`;
   return role === "owner" ? renderOwnerPage(page) : renderStaffPage(page);
@@ -1196,6 +1219,7 @@ function renderOwnerPage(page) {
   switch (page) {
     case "Command Center":    return renderCommandCenter();
     case "Bots":              return renderBotsPage(activeTab("Bots"));
+    case "Radio":             return renderRadioOwnerPage(activeTab("Radio"));
     case "Players":           return renderOwnerPlayersPage(activeTab("Players"));
     case "Room & Content":    return renderRoomContent(activeTab("Room & Content"));
     case "Mining":            return renderMiningOwnerPage(activeTab("Mining"));
@@ -1233,7 +1257,7 @@ function renderCommandCenter() {
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:4px">
         <button class="btn primary" id="qaRestartBots">🔄 Restart Bots</button>
         <button class="btn cyan" id="qaToggleRequests">${r.queue_open ? "🚫 Close Requests" : "✅ Open Requests"}</button>
-        <button class="btn" data-admin-page="Room & Content">📻 Radio Controls</button>
+        <button class="btn" data-admin-page="Radio">📻 Radio Controls</button>
       </div>
     </div>
     <div class="card danger-zone">
@@ -1746,6 +1770,262 @@ function renderRadioTab() {
     </div>
     ${renderSchemaGroups("radio", {})}
   `;
+}
+
+function radioSourceLabel(row) {
+  const src = String(row?.source_type || "").trim();
+  if (src) return src.replaceAll("_", " ");
+  return row?.url ? "YouTube" : "Auto DJ";
+}
+
+function renderRadioOwnerPage(tab) {
+  const d = state.data || {};
+  return `
+    ${tabNav("Radio")}
+    ${tab === "Overview" ? renderRadioOverview(d) : ""}
+    ${tab === "Queue" ? renderRadioQueue(d, true) : ""}
+    ${tab === "Requests" ? renderRadioRequests(d) : ""}
+    ${tab === "Now Playing" ? renderRadioNowPlaying(d) : ""}
+    ${tab === "Recently Played" ? renderRadioRecent(d) : ""}
+    ${tab === "Blocklist" ? renderRadioBlocklist(d) : ""}
+    ${tab === "Rewards / Stats" ? renderRadioStats(d) : ""}
+    ${tab === "Local Library" ? renderRadioLocalLibrary(d) : ""}
+    ${tab === "AzuraCast / Stream" ? renderRadioStream(d) : ""}
+    ${tab === "Logs" ? renderRadioLogs(d) : ""}
+    ${tab === "Advanced" ? renderRadioAdvanced(d) : ""}
+  `;
+}
+
+function renderRadioOverview(d) {
+  const h = d.health || {};
+  const np = d.now_playing || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+      ${metricCard("Radio", h.radio_online ? "Online" : "Offline", "DJ_DUDU status", h.radio_online ? "accent-green" : "accent-red", "📻")}
+      ${metricCard("Request Gate", d.queue_open ? "Open" : "Closed", "dashboard + radio setting", d.queue_open ? "accent-green" : "accent-red", "🎛")}
+      ${metricCard("Queue Size", h.queue_size ?? (d.queue || []).length, "upcoming songs", "accent-cyan", "🎵")}
+      ${metricCard("In Pipeline", h.in_pipeline ?? 0, "preparing / uploading", "", "⚙️")}
+      ${metricCard("Failed Today", h.failed_today ?? 0, "terminal failures", "accent-red", "⚠️")}
+      ${metricCard("Played Today", h.played_today ?? 0, "completed plays", "accent-green", "▶️")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="card-header"><h2>Now Playing</h2><span class="pill info">${esc(np.status || "stream")}</span></div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:4px">${esc(np.title || "Auto DJ")}</div>
+        ${np.artist ? `<div class="muted text-sm">${esc(np.artist)}</div>` : ""}
+        ${np.username ? `<div class="muted text-sm">Requested by ${esc(np.username)}</div>` : ""}
+        <div class="inline-actions" style="margin-top:12px">
+          <button class="btn danger sm" data-action="radio-skip">Queue Skip</button>
+          <button class="btn sm" data-action="radio-refresh">Refresh</button>
+        </div>
+        ${queueHelp()}
+      </div>
+      <div class="card">
+        <h2>Health</h2>
+        ${table([
+          { label: "Top Requester", value: h.top_requester?.username ? `${h.top_requester.username} (${h.top_requester.requests})` : "—" },
+          { label: "AzuraCast", value: h.azuracast?.status || "unknown" },
+          { label: "Stream URL", value: d.radio_url ? "configured" : "not configured" },
+          { label: "Queue Worker Heartbeat", value: h.worker_health?.queue_heartbeat || "—" },
+          { label: "Playback Heartbeat", value: h.worker_health?.playback_heartbeat || "—" },
+        ], [{ key: "label", label: "Signal" }, { key: "value", label: "Value" }])}
+      </div>
+    </div>
+    <div class="card">
+      <h2>Queued Bot Commands</h2>
+      ${renderQueuedBotCommands(d.command_queue || {})}
+    </div>
+  `;
+}
+
+function renderRadioQueue(d, controls = true) {
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>Current Playing</h2>
+        ${d.now_playing ? table([d.now_playing], radioJobColumns()) : `<div class="notice">Nothing currently marked as playing.</div>`}
+      </div>
+      <div class="card">
+        <h2>Queue Controls</h2>
+        ${controls ? `<div class="inline-actions">
+          <button class="btn danger" data-action="radio-skip">Queue Skip</button>
+          <button class="btn danger" data-action="radio-clear">Queue Clear</button>
+          <button class="btn" data-action="radio-refresh">Refresh</button>
+        </div>${queueHelp()}` : `<div class="notice">Read-only queue view.</div>`}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>Upcoming Queue (${(d.queue || []).length})</h2><span class="pill def">Live DB</span></div>
+      ${table(d.queue || [], radioJobColumns(), controls ? (r) => `<button class="btn danger sm" data-remove-request="${r.id}">Remove</button>` : null)}
+    </div>
+  `;
+}
+
+function radioJobColumns() {
+  return [
+    { key: "pos", label: "#" },
+    { key: "title", label: "Title" },
+    { key: "artist", label: "Artist" },
+    { key: "username", label: "Requester" },
+    { key: "source_type", label: "Source", render: radioSourceLabel },
+    { key: "status", label: "Status", render: (r) => pill(r.status || "unknown") },
+    { key: "started_at", label: "Started" },
+  ];
+}
+
+function renderRadioRequests(d) {
+  const s = d.settings || {};
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>Request Gate</h2>
+        <label class="switch" style="margin-bottom:16px">
+          <input type="checkbox" id="requestsEnabled" ${d.queue_open ? "checked" : ""} />
+          <span>Requests enabled</span>
+        </label>
+        <div class="notice">Writes the dashboard gate and <code>room_settings.radio_requests_enabled</code>, the source read by DJ_DUDU.</div>
+      </div>
+      <div class="card">
+        <h2>Request Limits</h2>
+        <form id="radioSettingsForm" class="settings-form">
+          ${settingInput("max_active_queue", "Queue Limit", s.max_active_queue ?? 20)}
+          ${settingInput("per_user_queue_limit", "Per User Limit", s.per_user_queue_limit ?? 3)}
+          ${settingInput("request_cooldown", "Request Cooldown", s.request_cooldown ?? 300)}
+          ${settingInput("request_price", "Request Price", s.request_price ?? 500)}
+          ${settingInput("voteskip_threshold", "Voteskip Threshold", s.voteskip_threshold ?? 3)}
+          <label class="switch"><input type="checkbox" name="skip_on_leave" ${String(s.skip_on_leave) !== "false" ? "checked" : ""}/><span>Skip if requester leaves</span></label>
+          <label class="switch"><input type="checkbox" name="refund_on_leave" ${String(s.refund_on_leave) !== "false" ? "checked" : ""}/><span>Refund if requester leaves</span></label>
+          <label class="switch"><input type="checkbox" name="admin_ignore_leave" ${String(s.admin_ignore_leave) !== "false" ? "checked" : ""}/><span>Staff requests ignore leave</span></label>
+          <button class="btn primary">Save Request Settings</button>
+        </form>
+      </div>
+    </div>
+    ${futureControls([
+      { endpoint: "playlist move up/down", purpose: "Reorder queue safely", status: "Future" },
+      { endpoint: "local-only / YouTube disable toggle", purpose: "Needs verified active bot setting", status: "Unverified source" },
+    ])}
+  `;
+}
+
+function renderRadioNowPlaying(d) {
+  return `<div class="card">
+    <h2>Now Playing</h2>
+    ${d.now_playing ? table([d.now_playing], [
+      { key: "title", label: "Title" },
+      { key: "artist", label: "Artist" },
+      { key: "username", label: "Requester" },
+      { key: "source_type", label: "Source", render: radioSourceLabel },
+      { key: "status", label: "Status", render: (r) => pill(r.status) },
+      { key: "started_at", label: "Started" },
+      { key: "azura_song_id", label: "Azura Song ID" },
+    ]) : `<div class="notice">No current request row is marked playing.</div>`}
+    ${d.radio_url ? `<div class="notice" style="margin-top:12px">Stream URL configured. AzuraCast API keys are never exposed.</div>` : ""}
+  </div>`;
+}
+
+function renderRadioRecent(d) {
+  return `<div class="card">
+    <h2>Recently Played</h2>
+    ${table(d.recently_played || d.recent || [], [
+      { key: "title", label: "Title" },
+      { key: "artist", label: "Artist" },
+      { key: "username", label: "Requester" },
+      { key: "status", label: "Status", render: (r) => pill(r.status) },
+      { key: "played_at", label: "Played" },
+      { key: "finished_at", label: "Finished" },
+    ])}
+  </div>`;
+}
+
+function renderRadioBlocklist(d) {
+  return `<div class="grid">
+    <div class="card">
+      <h2>Blocked Requesters</h2>
+      <form id="radioBlockRequesterForm" class="toolbar" style="margin-bottom:12px">
+        <input name="username" placeholder="username" required />
+        <button class="btn primary">Block Requester</button>
+      </form>
+      ${table(d.blocklist?.requesters || [], [
+        { key: "username", label: "Username" },
+        { key: "added_by", label: "Added By" },
+        { key: "added_at", label: "Added" },
+      ], (r) => `<button class="btn danger sm" data-unblock-requester="${esc(r.username)}">Remove</button>`)}
+    </div>
+    <div class="card">
+      <h2>Blocked Tracks</h2>
+      <form id="radioBlockTrackForm" class="toolbar" style="margin-bottom:12px">
+        <input name="pattern" placeholder="title, URL, or pattern" required />
+        <button class="btn primary">Block Track</button>
+      </form>
+      ${table(d.blocklist?.tracks || [], [
+        { key: "id", label: "ID" },
+        { key: "pattern", label: "Pattern" },
+        { key: "added_by", label: "Added By" },
+        { key: "added_at", label: "Added" },
+      ], (r) => `<button class="btn danger sm" data-unblock-track="${r.id}">Remove</button>`)}
+    </div>
+  </div>`;
+}
+
+function renderRadioStats(d) {
+  const st = d.stats || {};
+  return `<div class="grid">
+    <div class="card"><h2>Top Requesters</h2>${table(st.top_requesters || [], [{ key: "username", label: "Username" }, { key: "requests", label: "Requests" }])}</div>
+    <div class="card"><h2>User Stats</h2>${table(st.radio_user_stats || [])}</div>
+    <div class="card"><h2>Song Stats</h2>${table(st.radio_song_stats || [])}</div>
+    <div class="card"><h2>Rewards Paid</h2>${table(st.rewards || [])}</div>
+  </div>`;
+}
+
+function renderRadioLocalLibrary(d) {
+  const lib = d.local_library || {};
+  return `<div class="grid">
+    <div class="card"><h2>Playlists</h2>${table(lib.playlists || [])}</div>
+    <div class="card"><h2>Playlist Songs</h2>${table(lib.songs || [])}</div>
+    <div class="card"><h2>Local Replay Jobs</h2>${table(lib.replay_jobs || [])}</div>
+  </div>`;
+}
+
+function renderRadioStream(d) {
+  const h = d.health || {};
+  return `<div class="grid">
+    <div class="card">
+      <h2>AzuraCast / Stream</h2>
+      ${table([
+        { label: "Stream URL", value: d.radio_url || "Not configured" },
+        { label: "Azura Status", value: h.azuracast?.status || "unknown" },
+        { label: "API Keys Exposed", value: "No" },
+        { label: "DJ Bot", value: h.dj_bot?.bot_username || "DJ_DUDU" },
+        { label: "DJ Status", value: h.dj_bot?.status || "unknown" },
+      ], [{ key: "label", label: "Field" }, { key: "value", label: "Value" }])}
+    </div>
+    <div class="card">
+      <h2>Maintenance</h2>
+      <div class="inline-actions">
+        <button class="btn danger" data-action="radio-cleanup">Queue Cleanup</button>
+        <button class="btn" data-action="radio-reload">Queue Reload</button>
+      </div>
+      ${queueHelp()}
+    </div>
+  </div>`;
+}
+
+function renderRadioLogs(d) {
+  return `<div class="grid">
+    <div class="card"><h2>Radio Audit Logs</h2>${table(d.logs?.audit || [])}</div>
+    <div class="card"><h2>Command Errors</h2>${table(d.logs?.command_errors || [])}</div>
+  </div>`;
+}
+
+function renderRadioAdvanced(d) {
+  return `<div class="grid">
+    <div class="card"><h2>Raw Counts</h2>${table(Object.entries(d.counts || {}).map(([status, count]) => ({ status, count })))}</div>
+    <div class="card"><h2>Queued Bot Commands</h2>${renderQueuedBotCommands(d.command_queue || {})}</div>
+  </div>
+  ${futureControls([
+    { endpoint: "hard delete media", purpose: "Not exposed from dashboard", status: "Hidden" },
+    { endpoint: "Azura credential edits", purpose: "Use .env/VPS config only", status: "Hidden" },
+  ])}`;
 }
 
 function renderEventsTab() {
@@ -3260,25 +3540,81 @@ function bindAdminPageEvents() {
   });
   document.getElementById("qaClearQueue")?.addEventListener("click", () => {
     confirmAction("Clear Queue", "Cancel all pending song requests?", async () => {
-      await action("Queue cleared.", () =>
+      await action("Queue clear queued for DJ_DUDU.", () =>
         api("/api/radio/clear", { method: "POST", body: JSON.stringify({}) }));
     });
   });
 
   /* Radio controls */
-  document.querySelector('[data-action="radio-skip"]')?.addEventListener("click", () => {
+  document.querySelectorAll('[data-action="radio-refresh"]').forEach((btn) => btn.addEventListener("click", () => loadAdmin()));
+  document.querySelectorAll('[data-action="radio-skip"]').forEach((btn) => btn.addEventListener("click", () => {
     confirmAction("Skip Song", "Request a skip of the current song.", async () => {
-      await action("Skip requested.", () => api("/api/radio/skip", { method: "POST", body: JSON.stringify({}) }));
+      await action("Skip queued for DJ_DUDU.", () => api("/api/radio/skip", { method: "POST", body: JSON.stringify({}) }));
     });
-  });
-  document.querySelector('[data-action="radio-clear"]')?.addEventListener("click", () => {
-    confirmAction("Clear Queue", "Cancel all pending song requests?", async () => {
-      await action("Queue cleared.", () => api("/api/radio/clear", { method: "POST", body: JSON.stringify({}) }));
+  }));
+  document.querySelectorAll('[data-action="radio-clear"]').forEach((btn) => btn.addEventListener("click", () => {
+    confirmAction("Clear Queue", "Queue a DJ_DUDU cleanup-aware clear of all pending song requests?", async () => {
+      await action("Queue clear queued for DJ_DUDU.", () => api("/api/radio/clear", { method: "POST", body: JSON.stringify({}) }));
     });
-  });
+  }));
+  document.querySelectorAll('[data-action="radio-cleanup"]').forEach((btn) => btn.addEventListener("click", () => {
+    confirmAction("Cleanup Radio", "Queue DJ_DUDU to reconcile the Requests playlist and cleanup stale request files?", async () => {
+      await action("Radio cleanup queued for DJ_DUDU.", () => api("/api/radio/maintenance/cleanup", { method: "POST", body: JSON.stringify({}) }));
+    });
+  }));
+  document.querySelectorAll('[data-action="radio-reload"]').forEach((btn) => btn.addEventListener("click", () => {
+    confirmAction("Reload Radio", "Queue DJ_DUDU to reload safe radio runtime caches?", async () => {
+      await action("Radio reload queued for DJ_DUDU.", () => api("/api/bot-command", { method: "POST", body: JSON.stringify({ target_bot: "dj", action: "radio_reload", payload: {} }) }));
+    });
+  }));
   document.getElementById("requestsEnabled")?.addEventListener("change", async (e) => {
     await action(e.target.checked ? "Requests enabled." : "Requests disabled.", () =>
       api("/api/radio/requests-enabled", { method: "PUT", body: JSON.stringify({ enabled: e.target.checked }) }));
+  });
+  document.getElementById("radioSettingsForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const data = Object.fromEntries(new FormData(form));
+    await action("Radio settings saved.", () =>
+      api("/api/radio/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          max_active_queue: data.max_active_queue,
+          per_user_queue_limit: data.per_user_queue_limit,
+          request_cooldown: data.request_cooldown,
+          request_price: data.request_price,
+          voteskip_threshold: data.voteskip_threshold,
+          skip_on_leave: form.elements.skip_on_leave?.checked,
+          refund_on_leave: form.elements.refund_on_leave?.checked,
+          admin_ignore_leave: form.elements.admin_ignore_leave?.checked,
+        }),
+      }));
+  });
+  document.getElementById("radioBlockRequesterForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = new FormData(e.currentTarget).get("username");
+    await action("Requester blocked.", () => api("/api/radio/blocklist/requester", { method: "POST", body: JSON.stringify({ username }) }));
+  });
+  document.getElementById("radioBlockTrackForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pattern = new FormData(e.currentTarget).get("pattern");
+    await action("Track blocked.", () => api("/api/radio/blocklist/track", { method: "POST", body: JSON.stringify({ pattern }) }));
+  });
+  document.querySelectorAll("[data-unblock-requester]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.unblockRequester;
+      confirmAction("Remove Block", `Allow @${username} to request songs again?`, async () => {
+        await action("Requester removed from blocklist.", () => api(`/api/radio/blocklist/requester/${encodeURIComponent(username)}`, { method: "DELETE" }));
+      });
+    });
+  });
+  document.querySelectorAll("[data-unblock-track]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.unblockTrack;
+      confirmAction("Remove Track Block", `Remove blocked track pattern #${id}?`, async () => {
+        await action("Track removed from blocklist.", () => api(`/api/radio/blocklist/track/${encodeURIComponent(id)}`, { method: "DELETE" }));
+      });
+    });
   });
   document.querySelectorAll("[data-remove-request]").forEach((btn) => {
     btn.addEventListener("click", () => {

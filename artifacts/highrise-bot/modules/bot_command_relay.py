@@ -216,6 +216,63 @@ async def _do_trigger_emote(bot: "BaseBot", payload: dict, requester_id: str) ->
     return f"triggered {alias}"
 
 
+def _require_dj_action(action: str) -> None:
+    if _current_mode() != "dj":
+        raise PermissionError(f"{action} may only run on DJ_DUDU")
+
+
+async def _do_radio_skip(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_dj_action("radio_skip")
+    import modules.azuracast_controller as azura
+    import modules.playback_engine as engine
+    import modules.request_queue as rq
+
+    loop = asyncio.get_running_loop()
+    np = await loop.run_in_executor(None, azura.fetch_nowplaying)
+    np_match = engine.match_nowplaying_to_job(np) if np else None
+    current = np_match or rq.currently_playing()
+    ok = await loop.run_in_executor(None, azura.skip_current)
+    if not ok:
+        raise RuntimeError("AzuraCast skip failed")
+    if current and current.get("id"):
+        asyncio.create_task(engine.on_request_skipped(bot, int(current["id"])))
+    return f"radio skip requested; matched_request={current.get('id') if current else 'none'}"
+
+
+async def _do_radio_clear(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_dj_action("radio_clear")
+    import modules.request_queue as rq
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None,
+        lambda: rq.queue_clear_all(command="dashboard_clear", refund=True),
+    )
+    return (
+        f"radio queue cleared; before={result.get('count_before', 0)} "
+        f"after={result.get('count_after', 0)} refunded={result.get('refunded_coins', 0)}"
+    )
+
+
+async def _do_radio_cleanup(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_dj_action("radio_cleanup")
+    import modules.azuracast_controller as azura
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, azura.reconcile_requests_playlist)
+    return f"radio cleanup completed; result={result}"
+
+
+async def _do_radio_reload(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_dj_action("radio_reload")
+    try:
+        from modules import config_store
+        config_store.clear_vibe_scan_cache()
+    except Exception:
+        pass
+    return "radio reload acknowledged; cached vibe scan cleared where supported"
+
+
 async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> str:
     """Start a registry-timed emote loop on this bot for the given emote_id."""
     from modules.emote_system import _bot_loops
@@ -289,6 +346,10 @@ DISPATCH = {
     "restart_requested": _do_restart_requested,
     "announce": _do_announce,
     "trigger_emote": _do_trigger_emote,
+    "radio_skip": _do_radio_skip,
+    "radio_clear": _do_radio_clear,
+    "radio_cleanup": _do_radio_cleanup,
+    "radio_reload": _do_radio_reload,
     # Legacy in-room cross-bot emote relay actions.
     "botemote": _do_botemote,
     "stopbotemote": _do_stopbotemote,

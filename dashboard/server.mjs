@@ -656,8 +656,11 @@ function readLocalRadioStatus(db) {
   let queue = [];
   let recent = [];
   let counts = {};
+  let failedToday = 0;
+  let playedToday = 0;
+  let topRequester = null;
   if (hasYtJobs) {
-    const desired = ["id", "title", "artist", "username", "user_id", "status", "azura_file_id", "azura_song_id", "filename", "source_type", "started_at", "played_at", "cleaned_at"];
+    const desired = ["id", "title", "artist", "username", "user_id", "url", "status", "error", "azura_file_id", "azura_song_id", "filename", "source_type", "payment_type", "coins_charged", "priority", "started_at", "finished_at", "played_at", "cleaned_at"];
     const orderId = columnExists(db, "yt_request_jobs", "id") ? "id DESC" : "rowid DESC";
     nowPlaying = safeOne(db, "yt_request_jobs", desired, { where: "status='playing'", orderBy: orderId });
     const ph = UPCOMING_REQUEST_STATUSES.map(() => "?").join(",");
@@ -671,9 +674,9 @@ function readLocalRadioStatus(db) {
       limit: "50",
     }).map((row, i) => ({ ...row, artist: row.artist || "", pos: i + 1 }));
     recent = safeRows(db, "yt_request_jobs", desired, {
-      where: "status IN ('played','cleaned','skipped')",
+      where: "status IN ('played','cleaned','skipped','failed','error','cancelled')",
       orderBy: orderId,
-      limit: "20",
+      limit: "50",
     });
     try {
       counts = Object.fromEntries(
@@ -682,19 +685,94 @@ function readLocalRadioStatus(db) {
           .all()
           .map((r) => [r.status, r.n]),
       );
+      const dateExpr = columnExists(db, "yt_request_jobs", "played_at") ? "COALESCE(played_at, finished_at, started_at)" : "started_at";
+      playedToday = db.prepare(`SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status IN ('played','cleaned') AND date(${dateExpr})=date('now')`).get().n ?? 0;
+      failedToday = db.prepare(`SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status IN ('failed','failed_download','error','cancelled') AND date(${dateExpr})=date('now')`).get().n ?? 0;
+      topRequester = db.prepare("SELECT username, COUNT(*) AS requests FROM yt_request_jobs WHERE COALESCE(username,'')!='' GROUP BY username ORDER BY requests DESC LIMIT 1").get() ?? null;
     } catch (err) {
       console.error(`[DASHBOARD_DB] radio_counts_failed error=${err.message}`);
     }
   }
   const radioUrl = AZURACAST_STREAM_URL ?? getSetting(db, "dj_radio_url", "");
+  const dashboardGate = getDashboardSettingValue(db, "requests_enabled", "true") !== "false";
+  const roomGate = getSetting(db, "radio_requests_enabled", "true").toLowerCase() !== "false";
+  const djBot = safeOne(db, "bot_instances", ["bot_username","bot_mode","status","last_seen_at","last_heartbeat_at","last_error"], {
+    where: "lower(bot_mode)='dj' OR lower(bot_username)='dj_dudu'",
+    orderBy: columnExists(db, "bot_instances", "last_seen_at") ? "last_seen_at DESC" : "",
+  });
+  const pendingCommands = safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
+    where: "target_bot='dj' AND status IN ('pending','claimed','running','queued')",
+    orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "20",
+  });
+  const recentCommands = safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
+    where: "target_bot='dj'",
+    orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "30",
+  });
+  const settings = {
+    requests_enabled: dashboardGate && roomGate,
+    dashboard_requests_enabled: dashboardGate,
+    radio_requests_enabled: roomGate,
+    max_active_queue: getSetting(db, "radio_max_active_queue", "20"),
+    per_user_queue_limit: getSetting(db, "radio_per_user_queue_limit", "3"),
+    request_cooldown: getSetting(db, "radio_request_cooldown", "300"),
+    request_price: getSetting(db, "radio_request_price", "500"),
+    voteskip_threshold: getSetting(db, "radio_voteskip_threshold", "3"),
+    skip_on_leave: getSetting(db, "radio_skip_on_leave", "true"),
+    refund_on_leave: getSetting(db, "radio_refund_on_leave", "true"),
+    admin_ignore_leave: getSetting(db, "radio_admin_ignore_leave", "true"),
+  };
+  const blocklist = {
+    requesters: safeTableRows(db, "request_blocked_requesters", { orderBy: columnExists(db, "request_blocked_requesters", "added_at") ? "added_at DESC" : "", limit: "200" }),
+    tracks: safeTableRows(db, "request_blocked_tracks", { orderBy: columnExists(db, "request_blocked_tracks", "added_at") ? "added_at DESC" : "", limit: "200" }),
+  };
+  const localLibrary = {
+    playlists: safeRows(db, "radio_playlists", ["id","user_id","username","name","created_at","updated_at"], { orderBy: columnExists(db, "radio_playlists", "updated_at") ? "updated_at DESC" : "", limit: "100" }),
+    songs: safeRows(db, "radio_playlist_songs", ["id","playlist_id","user_id","source_type","title","artist","youtube_url","video_id","azura_song_id","azura_file_id","position","added_at"], { orderBy: columnExists(db, "radio_playlist_songs", "added_at") ? "added_at DESC" : "", limit: "100" }),
+    replay_jobs: safeTableRows(db, "local_replay_jobs", { orderBy: columnExists(db, "local_replay_jobs", "created_at") ? "created_at DESC" : "", limit: "100" }),
+  };
+  const stats = {
+    radio_user_stats: safeTableRows(db, "radio_user_stats", { orderBy: columnExists(db, "radio_user_stats", "updated_at") ? "updated_at DESC" : "", limit: "100" }),
+    radio_song_stats: safeTableRows(db, "radio_song_stats", { orderBy: columnExists(db, "radio_song_stats", "updated_at") ? "updated_at DESC" : "", limit: "100" }),
+    rewards: safeTableRows(db, "radio_reward_log", { orderBy: columnExists(db, "radio_reward_log", "created_at") ? "created_at DESC" : "", limit: "100" }),
+    top_requesters: hasYtJobs ? rowsOrEmpty(db, "yt_request_jobs", "SELECT username, COUNT(*) AS requests FROM yt_request_jobs WHERE COALESCE(username,'')!='' GROUP BY username ORDER BY requests DESC LIMIT 20") : [],
+  };
+  const workerHealth = {
+    queue_heartbeat: getSetting(db, "radio_worker_heartbeat_queue", ""),
+    playback_heartbeat: getSetting(db, "radio_worker_heartbeat_playback", ""),
+    cleanup_requested: getSetting(db, "cleanup_requested", "0"),
+  };
   return {
     now_playing: nowPlaying,
     queue,
     recent,
+    recently_played: recent,
     counts,
+    settings,
+    blocklist,
+    stats,
+    local_library: localLibrary,
+    logs: {
+      audit: safeRows(db, "audit_logs", ["id","actor","action_type","target_type","target_id","old_value","new_value","ip_address","created_at"], { where: "action_type LIKE 'radio_%' OR target_type='yt_request_jobs' OR target_type='bot_command_queue'", orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "", limit: "100" }),
+      command_errors: safeTableRows(db, "command_error_logs", { orderBy: columnExists(db, "command_error_logs", "created_at") ? "created_at DESC" : "", limit: "100" }),
+    },
+    command_queue: { pending: pendingCommands, recent: recentCommands },
+    health: {
+      radio_online: String(djBot?.status || "").toLowerCase() === "online",
+      dj_bot: djBot,
+      queue_size: queue.length,
+      in_pipeline: queue.filter((row) => !["ready","queued","submitted"].includes(String(row.status || ""))).length,
+      failed_today: failedToday,
+      played_today: playedToday,
+      top_requester: topRequester,
+      worker_health: workerHealth,
+      azuracast: { stream_configured: Boolean(radioUrl), status: radioUrl ? "stream_url_configured" : "not_configured" },
+    },
     terminal_statuses: TERMINAL_REQUEST_STATUSES,
-    queue_open: getDashboardSettingValue(db, "requests_enabled", getSetting(db, "requests_enabled", "true")) !== "false",
+    queue_open: dashboardGate && roomGate,
     radio_url: radioUrl || null,
+    stream: { radio_url: radioUrl || null, azuracast_api_keys_exposed: false },
     updated_at: nowIso(),
   };
 }
@@ -2097,9 +2175,24 @@ app.post("/api/bot-config/restart", requireAuth, (req, res) => {
   json(res, { ok: true, note: "Restart flag written to DB. Bot will restart on next heartbeat check." });
 }, closeDb);
 
-app.get("/api/radio", requireAuth, requirePermission("manage_radio"), (req, res) => {
+app.get("/api/radio", requireAuth, (req, res) => {
   json(res, readLocalRadioStatus(req.db));
 }, closeDb);
+
+for (const radioReadPath of [
+  "/api/radio/overview",
+  "/api/radio/queue",
+  "/api/radio/recent",
+  "/api/radio/stats",
+  "/api/radio/blocklist",
+  "/api/radio/logs",
+  "/api/radio/status",
+  "/api/dj/status",
+]) {
+  app.get(radioReadPath, requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
+    json(res, readLocalRadioStatus(req.db));
+  }, closeDb);
+}
 
 app.post("/api/radio/requests/:id/remove", requireAuth, requirePermission("manage_radio"), (req, res) => {
   const id = Number(req.params.id);
@@ -2118,25 +2211,103 @@ app.post("/api/radio/requests/:id/remove", requireAuth, requirePermission("manag
 }, closeDb);
 
 app.post("/api/radio/clear", requireAuth, requirePermission("manage_radio"), (req, res) => {
-  if (!tableExists(req.db, "yt_request_jobs")) return json(res, { error: "radio_table_missing" }, 404);
-  const ph = UPCOMING_REQUEST_STATUSES.map(() => "?").join(",");
-  const before = req.db.prepare(`SELECT COUNT(*) AS n FROM yt_request_jobs WHERE status IN (${ph})`).get(...UPCOMING_REQUEST_STATUSES).n;
-  req.db
-    .prepare(`UPDATE yt_request_jobs SET status='cancelled', error=? WHERE status IN (${ph})`)
-    .run(`cleared_by_dashboard:${req.user.username}`, ...UPCOMING_REQUEST_STATUSES);
-  audit(req.db, req.user.username, "radio_queue_clear", "yt_request_jobs", "active_queue", String(before), "cancelled", req.ip);
-  json(res, { ok: true, cancelled: before });
+  try {
+    const queued = enqueueBotCommand(req.db, { targetBot: "dj", actionName: "radio_clear", payload: {}, requesterId: req.user.username });
+    audit(req.db, req.user.username, "radio_queue_clear_enqueue", "bot_command_queue", queued.id, "", { target_bot: "dj", action: "radio_clear" }, req.ip);
+    json(res, { ok: true, command: queued, message: "Radio clear queued for DJ_DUDU. Bot must consume bot_command_queue." });
+  } catch (err) {
+    json(res, { error: err.message || "enqueue_failed" }, 500);
+  }
 }, closeDb);
 
 app.post("/api/radio/skip", requireAuth, requirePermission("manage_radio"), (req, res) => {
-  upsertDashboardSetting(req.db, "radio.skip_requested", nowIso(), "radio", req.user.username, "Bot should consume this flag if dashboard skip support is enabled.");
-  json(res, { ok: true, note: "skip request stored in bot_settings; radio bot must consume radio.skip_requested" });
+  try {
+    const queued = enqueueBotCommand(req.db, { targetBot: "dj", actionName: "radio_skip", payload: {}, requesterId: req.user.username });
+    audit(req.db, req.user.username, "radio_skip_enqueue", "bot_command_queue", queued.id, "", { target_bot: "dj", action: "radio_skip" }, req.ip);
+    json(res, { ok: true, command: queued, message: "Radio skip queued for DJ_DUDU. Bot must consume bot_command_queue." });
+  } catch (err) {
+    json(res, { error: err.message || "enqueue_failed" }, 500);
+  }
 }, closeDb);
 
 app.put("/api/radio/requests-enabled", requireAuth, requirePermission("manage_radio"), (req, res) => {
   const enabled = req.body?.enabled ? "true" : "false";
   upsertDashboardSetting(req.db, "requests_enabled", enabled, "radio", req.user.username, "Dashboard radio request gate consumed by bot modules.");
+  setRoomSetting(req.db, "radio_requests_enabled", enabled);
+  audit(req.db, req.user.username, "radio_requests_enabled_update", "room_settings", "radio_requests_enabled", "", enabled, req.ip);
   json(res, { ok: true, enabled: enabled === "true" });
+}, closeDb);
+
+app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const schema = {
+    max_active_queue: { key: "radio_max_active_queue", min: 1, max: 50 },
+    per_user_queue_limit: { key: "radio_per_user_queue_limit", min: 0, max: 20 },
+    request_cooldown: { key: "radio_request_cooldown", min: 30, max: 86400 },
+    request_price: { key: "radio_request_price", min: 0, max: 1000000 },
+    voteskip_threshold: { key: "radio_voteskip_threshold", min: 2, max: 25 },
+  };
+  const updates = {};
+  for (const [field, cfg] of Object.entries(schema)) {
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, field)) continue;
+    const value = Number(req.body[field]);
+    if (!Number.isFinite(value)) return json(res, { error: "invalid_number", field }, 400);
+    const clamped = Math.min(cfg.max, Math.max(cfg.min, Math.trunc(value)));
+    setRoomSetting(req.db, cfg.key, String(clamped));
+    updates[cfg.key] = String(clamped);
+  }
+  for (const field of ["skip_on_leave", "refund_on_leave", "admin_ignore_leave"]) {
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, field)) continue;
+    const key = `radio_${field}`;
+    const value = req.body[field] ? "true" : "false";
+    setRoomSetting(req.db, key, value);
+    updates[key] = value;
+  }
+  audit(req.db, req.user.username, "radio_settings_update", "room_settings", "radio", "", updates, req.ip);
+  json(res, { ok: true, updates, radio: readLocalRadioStatus(req.db) });
+}, closeDb);
+
+app.post("/api/radio/blocklist/requester", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  if (!tableExists(req.db, "request_blocked_requesters")) return json(res, { error: "blocklist_table_missing" }, 404);
+  const username = String(req.body?.username || "").trim().replace(/^@/, "").slice(0, 80);
+  if (!username) return json(res, { error: "username_required" }, 400);
+  req.db.prepare("INSERT OR IGNORE INTO request_blocked_requesters (username, added_by) VALUES (?, ?)").run(username, req.user.username);
+  audit(req.db, req.user.username, "radio_block_requester", "request_blocked_requesters", username, "", username, req.ip);
+  json(res, { ok: true, blocklist: readLocalRadioStatus(req.db).blocklist });
+}, closeDb);
+
+app.delete("/api/radio/blocklist/requester/:username", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  if (!tableExists(req.db, "request_blocked_requesters")) return json(res, { error: "blocklist_table_missing" }, 404);
+  const username = String(req.params.username || "").trim().replace(/^@/, "");
+  const info = req.db.prepare("DELETE FROM request_blocked_requesters WHERE lower(username)=lower(?)").run(username);
+  audit(req.db, req.user.username, "radio_unblock_requester", "request_blocked_requesters", username, "", { removed: info.changes }, req.ip);
+  json(res, { ok: true, removed: info.changes });
+}, closeDb);
+
+app.post("/api/radio/blocklist/track", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  if (!tableExists(req.db, "request_blocked_tracks")) return json(res, { error: "blocklist_table_missing" }, 404);
+  const pattern = String(req.body?.pattern || "").trim().slice(0, 200);
+  if (!pattern) return json(res, { error: "pattern_required" }, 400);
+  req.db.prepare("INSERT OR IGNORE INTO request_blocked_tracks (pattern, added_by) VALUES (?, ?)").run(pattern, req.user.username);
+  audit(req.db, req.user.username, "radio_block_track", "request_blocked_tracks", pattern, "", pattern, req.ip);
+  json(res, { ok: true, blocklist: readLocalRadioStatus(req.db).blocklist });
+}, closeDb);
+
+app.delete("/api/radio/blocklist/track/:id", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  if (!tableExists(req.db, "request_blocked_tracks")) return json(res, { error: "blocklist_table_missing" }, 404);
+  const id = Number(req.params.id);
+  const info = req.db.prepare("DELETE FROM request_blocked_tracks WHERE id=?").run(id);
+  audit(req.db, req.user.username, "radio_unblock_track", "request_blocked_tracks", id, "", { removed: info.changes }, req.ip);
+  json(res, { ok: true, removed: info.changes });
+}, closeDb);
+
+app.post("/api/radio/maintenance/cleanup", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  try {
+    const queued = enqueueBotCommand(req.db, { targetBot: "dj", actionName: "radio_cleanup", payload: {}, requesterId: req.user.username });
+    audit(req.db, req.user.username, "radio_cleanup_enqueue", "bot_command_queue", queued.id, "", { target_bot: "dj", action: "radio_cleanup" }, req.ip);
+    json(res, { ok: true, command: queued, message: "Radio cleanup queued for DJ_DUDU. Bot must consume bot_command_queue." });
+  } catch (err) {
+    json(res, { error: err.message || "enqueue_failed" }, 500);
+  }
 }, closeDb);
 
 app.get("/api/casino", requireAuth, requirePermission("manage_casino"), (req, res) => {
@@ -2978,7 +3149,7 @@ app.get("/api/bot-spawns", requireAuth, (req, res) => {
   json(res, { spawns: rows, grouped });
 }, closeDb);
 
-const ALLOWED_BOT_COMMAND_ACTIONS = new Set(["return_home", "stop_emote", "restart_requested", "announce", "trigger_emote"]);
+const ALLOWED_BOT_COMMAND_ACTIONS = new Set(["return_home", "stop_emote", "restart_requested", "announce", "trigger_emote", "radio_skip", "radio_clear", "radio_cleanup", "radio_reload"]);
 
 app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games"), (req, res) => {
   const targetBot = String(req.body?.target_bot || "").trim().slice(0, 80);
