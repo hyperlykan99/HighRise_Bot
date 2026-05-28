@@ -35,13 +35,64 @@ const STAFF_NAV = [
 ];
 
 /* ── Page Tabs ───────────────────────────────────────── */
-const PAGE_TABS = {
-  "Bots":              ["Bot Status", "Bot Config", "Bot Settings", "Bot Spawns", "Advanced Debug"],
-  "Players":           ["Search", "Titles & Badges", "Moderation"],
-  "Room & Content":    ["Room Settings", "Radio", "Events", "Announcements", "Welcome", "Emotes"],
-  "Economy & Rewards": ["Coins & Tickets", "Casino", "Mining", "Fishing", "Games", "VIP", "Titles", "Badges", "Rewards"],
-  "System":            ["Health", "Logs", "Settings Audit", "Emergency", "Database"],
+const BOT_TABS = [
+  { id: "Bot Status", api: "/api/bot-control" },
+  { id: "Bot Config", api: "/api/bot-config" },
+  { id: "Bot Settings", api: "/api/settings" },
+  { id: "Bot Spawns", api: "/api/bot-spawns" },
+  { id: "Bot Audit", api: "/api/bot-audit" },
+  { id: "Queued Commands", api: "/api/bot-command-queue" },
+  { id: "Advanced Debug", api: "/api/bot-audit" },
+];
+const PLAYER_TABS = [
+  { id: "Search", api: null },
+  { id: "Economy", api: null },
+  { id: "Inventory", api: null },
+  { id: "Titles & Badges", api: "/api/titles" },
+  { id: "Moderation", api: null },
+  { id: "History", api: null },
+];
+const ROOM_TABS = [
+  { id: "Room Settings", api: "/api/room-control" },
+  { id: "Radio", api: "/api/radio" },
+  { id: "Events", api: "/api/events" },
+  { id: "Announcements", api: "/api/room-control" },
+  { id: "Welcome", api: "/api/room-control" },
+  { id: "Emotes", api: "/api/room-control" },
+  { id: "Dancefloor", api: "/api/room-control" },
+  { id: "Sync", api: "/api/room-control" },
+  { id: "Advanced", api: "/api/room-control" },
+];
+const ECONOMY_TABS = [
+  { id: "Overview", api: "/api/economy/overview" },
+  { id: "Casino", api: "/api/casino" },
+  { id: "Mining", api: "/api/mining-settings" },
+  { id: "Fishing", api: "/api/fishing-settings" },
+  { id: "Games", api: "/api/games" },
+  { id: "Economy", api: "/api/economy/overview" },
+  { id: "VIP", api: null },
+  { id: "Titles", api: "/api/titles" },
+  { id: "Badges", api: null },
+  { id: "Rewards", api: null },
+];
+const SYSTEM_TABS = [
+  { id: "Health", api: "/api/healthz" },
+  { id: "Logs", api: null },
+  { id: "Settings Audit", api: "/api/settings-audit" },
+  { id: "Database", api: "/api/db/inspect" },
+  { id: "Emergency", api: "/api/settings" },
+  { id: "Missing/Future Controls", api: null },
+];
+const TAB_REGISTRY = {
+  "Bots": BOT_TABS,
+  "Players": PLAYER_TABS,
+  "Room & Content": ROOM_TABS,
+  "Economy & Rewards": ECONOMY_TABS,
+  "System": SYSTEM_TABS,
 };
+const PAGE_TABS = Object.fromEntries(
+  Object.entries(TAB_REGISTRY).map(([page, tabs]) => [page, tabs.map((tab) => tab.id)]),
+);
 
 /* ── Page Descriptions ───────────────────────────────── */
 const PAGE_DESC = {
@@ -430,39 +481,19 @@ function renderSchemaGroups(schemaKey, valuesMap) {
 
 /* ── API Map ─────────────────────────────────────────── */
 function pageApi(page, tab) {
-  const key = tab ? `${page}/${tab}` : page;
+  if (tab && TAB_REGISTRY[page]) {
+    const tabDef = TAB_REGISTRY[page].find((item) => item.id === tab);
+    if (tabDef) return tabDef.api;
+  }
   return ({
     "Command Center":                     "/api/overview",
-    "Bots/Bot Status":                    "/api/bot-control",
-    "Bots/Bot Config":                    "/api/bot-config",
-    "Bots/Bot Settings":                  "/api/settings",
-    "Bots/Bot Spawns":                    "/api/bot-spawns",
-    "Bots/Advanced Debug":                "/api/bot-audit",
-    "Players/Titles & Badges":            "/api/titles",
-    "Room & Content/Room Settings":       "/api/room-control",
-    "Room & Content/Radio":               "/api/radio",
-    "Room & Content/Events":              "/api/events",
-    "Room & Content/Announcements":       "/api/room-control",
-    "Room & Content/Welcome":             "/api/room-control",
-    "Room & Content/Emotes":              "/api/room-control",
-    "Economy & Rewards/Coins & Tickets":  "/api/economy/overview",
-    "Economy & Rewards/Casino":           "/api/casino",
-    "Economy & Rewards/Mining":           "/api/mining-settings",
-    "Economy & Rewards/Fishing":          "/api/fishing-settings",
-    "Economy & Rewards/Games":            "/api/games",
-    "Economy & Rewards/Titles":           "/api/titles",
     "Staff":                              "/api/staff",
-    "System/Health":                      "/api/healthz",
-    "System/Logs":                        null,
-    "System/Settings Audit":              "/api/settings-audit",
-    "System/Emergency":                   "/api/settings",
-    "System/Database":                    "/api/db/inspect",
     "Staff Home":                         "/api/overview",
     "Radio Queue":                        "/api/radio",
     "Events":                             "/api/events",
     "Room Tools":                         "/api/room-control",
     "Logs":                               null,
-  })[key] ?? null;
+  })[page] ?? null;
 }
 
 /* ── State ───────────────────────────────────────────── */
@@ -565,6 +596,17 @@ function futureControls(rows, title = "Advanced / Future Controls") {
       ]) : `<div class="notice">No future controls listed.</div>`}
     </div>
   </details>`;
+}
+
+function notConnectedCard(title, rows = []) {
+  return `<div class="card">
+    <div class="card-header">
+      <h2>${esc(title)}</h2>
+      <span class="pill warn">Not connected yet</span>
+    </div>
+    <div class="notice">This tab is registered in navigation, but normal working controls are hidden until exact endpoints and DB sources are verified.</div>
+  </div>
+  ${futureControls(rows)}`;
 }
 
 function queueHelp() {
@@ -1201,6 +1243,8 @@ function renderBotsPage(tab) {
     ${tab === "Bot Config"   ? renderBotConfig() : ""}
     ${tab === "Bot Settings" ? renderBotSettingsTab() : ""}
     ${tab === "Bot Spawns"   ? renderBotSpawns() : ""}
+    ${tab === "Bot Audit"    ? renderBotAuditTab() : ""}
+    ${tab === "Queued Commands" ? renderQueuedCommandsTab() : ""}
     ${tab === "Advanced Debug" ? renderBotAdvanced() : ""}
   `;
 }
@@ -1404,6 +1448,57 @@ function renderBotAdvanced() {
   `;
 }
 
+function renderBotAuditTab() {
+  const d = state.data || {};
+  const rawRows = d.raw_bot_instances || [];
+  const cleanupPreview = d.cleanup_preview || [];
+  const canonical = d.canonical_bots || d.bots || [];
+  const summary = d.summary || {};
+  return `
+    <div class="card">
+      <div class="card-header" style="margin-bottom:10px">
+        <h2>Bot Audit</h2>
+        <span class="pill info">Read-only</span>
+      </div>
+      <div class="audit-summary-grid">
+        ${auditStat("Canonical Bots", summary.canonical_count ?? canonical.length ?? 0, "expected accounts")}
+        ${auditStat("Raw Rows", summary.raw_count ?? rawRows.length ?? 0, "bot_instances")}
+        ${auditStat("Merged Rows", summary.merged_count ?? 0, "aliases / duplicates")}
+        ${auditStat("Cleanup Preview", cleanupPreview.length, "no deletes exposed")}
+      </div>
+      ${table(canonical, [
+        { key: "display_name", label: "Canonical Bot" },
+        { key: "bot_username", label: "Username" },
+        { key: "bot_mode", label: "Mode" },
+        { key: "status", label: "Status", render: (r) => pill(r.status || "unknown") },
+        { key: "raw_row_count", label: "Raw Rows" },
+        { key: "source_bot_mode", label: "Source Mode" },
+      ])}
+    </div>
+    <div class="card">
+      <h2>Cleanup Preview</h2>
+      ${cleanupPreview.length ? table(cleanupPreview, [
+        { key: "action", label: "Preview Action" },
+        { key: "canonical_username", label: "Canonical Bot" },
+        { key: "bot_mode", label: "Raw Mode" },
+        { key: "bot_username", label: "Raw Username" },
+        { key: "reason", label: "Reason" },
+      ]) : `<div class="notice">No alias, duplicate, or debug-only rows detected.</div>`}
+    </div>
+  `;
+}
+
+function renderQueuedCommandsTab() {
+  return `<div class="card">
+    <div class="card-header">
+      <h2>Queued Bot Commands</h2>
+      <span class="pill def">Read-only</span>
+    </div>
+    ${queueHelp()}
+    ${renderQueuedBotCommands(state.data || {})}
+  </div>`;
+}
+
 function renderQueuedBotCommands(queue) {
   const pending = queue?.pending || [];
   const recent = queue?.recent || [];
@@ -1441,9 +1536,24 @@ function renderOwnerPlayersPage(tab) {
   return `
     ${tabNav("Players")}
     ${tab === "Search" ? renderPlayerSearch() : ""}
+    ${tab === "Economy" ? renderPlayerFutureTab("Player Economy", [
+      { endpoint: "GET /api/player/search?q=", purpose: "Use Search to inspect live balance, XP, and earnings", status: "Connected" },
+      { endpoint: "POST /api/player/:id/economy", purpose: "Adjust player economy fields", status: "Future" },
+    ]) : ""}
+    ${tab === "Inventory" ? renderPlayerFutureTab("Player Inventory", [
+      { endpoint: "GET /api/player/search?q=", purpose: "Use Search to inspect owned_items preview", status: "Connected" },
+      { endpoint: "POST /api/player/:id/inventory", purpose: "Grant or remove inventory items", status: "Future" },
+    ]) : ""}
     ${tab === "Titles & Badges" ? renderTitlesTab() : ""}
     ${tab === "Moderation" ? renderModerationTab() : ""}
+    ${tab === "History" ? renderPlayerFutureTab("Player History", [
+      { endpoint: "GET /api/player/:id/history", purpose: "Moderation, economy, and command history", status: "Future" },
+    ]) : ""}
   `;
+}
+
+function renderPlayerFutureTab(title, rows) {
+  return notConnectedCard(title, rows);
 }
 
 function renderPlayerSearch() {
@@ -1547,6 +1657,9 @@ function renderRoomContent(tab) {
     ${tab === "Announcements" ? renderAnnouncementsTab() : ""}
     ${tab === "Welcome" ? renderWelcomeTab() : ""}
     ${tab === "Emotes" ? renderEmotesTab() : ""}
+    ${tab === "Dancefloor" ? renderDancefloorTab() : ""}
+    ${tab === "Sync" ? renderSyncTab() : ""}
+    ${tab === "Advanced" ? renderRoomAdvancedTab() : ""}
   `;
 }
 
@@ -1702,19 +1815,94 @@ function renderEmotesTab() {
   `;
 }
 
+function renderDancefloorTab() {
+  const d = state.data || {};
+  const known = d.known_settings || {};
+  const extra = d.extra_settings || [];
+  const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
+  return `
+    ${notConnectedCard("Dancefloor", [
+      { endpoint: "room_settings dancefloor_*", purpose: "Dancefloor rules and automation", status: "Unverified source" },
+      { endpoint: "POST /api/dancefloor/*", purpose: "Start/stop dancefloor workflows", status: "Future" },
+    ])}
+    ${renderAdvancedCollapse(allRaw.filter((s) => String(s.key || "").includes("dance")))}
+  `;
+}
+
+function renderSyncTab() {
+  const d = state.data || {};
+  const known = d.known_settings || {};
+  const extra = d.extra_settings || [];
+  const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
+  return `
+    ${notConnectedCard("Sync", [
+      { endpoint: "sync_relations", purpose: "Read and manage emote sync relations", status: "Future" },
+      { endpoint: "room_settings sync_*", purpose: "Sync timing settings", status: "Unverified source" },
+    ])}
+    ${renderAdvancedCollapse(allRaw.filter((s) => String(s.key || "").includes("sync")))}
+  `;
+}
+
+function renderRoomAdvancedTab() {
+  const d = state.data || {};
+  const known = d.known_settings || {};
+  const extra = d.extra_settings || [];
+  const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
+  return `
+    ${futureControls([
+      { endpoint: "POST /api/events/start", purpose: "Start event", status: "Future" },
+      { endpoint: "POST /api/events/stop", purpose: "Stop current event", status: "Future" },
+      { endpoint: "POST /api/room/emote-packs", purpose: "Manage emote packs", status: "Future" },
+    ], "Advanced / Future Room Controls")}
+    ${renderAdvancedCollapse(allRaw)}
+  `;
+}
+
 /* ── Economy & Rewards ───────────────────────────────── */
 function renderEconomyRewards(tab) {
   return `
     ${tabNav("Economy & Rewards")}
-    ${tab === "Coins & Tickets" ? renderCoinsTab() : ""}
+    ${tab === "Overview"        ? renderEconomyOverview() : ""}
     ${tab === "Casino"          ? renderCasinoTab() : ""}
     ${tab === "Mining"          ? renderMiningTab() : ""}
     ${tab === "Fishing"         ? renderFishingTab() : ""}
     ${tab === "Games"           ? renderGamesTab() : ""}
+    ${tab === "Economy"         ? renderCoinsTab() : ""}
     ${tab === "VIP"             ? renderVipTab() : ""}
     ${tab === "Titles"          ? renderTitlesTab() : ""}
     ${tab === "Badges"          ? renderBadgesTab() : ""}
     ${tab === "Rewards"         ? renderRewardsTab() : ""}
+  `;
+}
+
+function renderEconomyOverview() {
+  const d = state.data || {};
+  const s = d.stats || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      ${metricCard("Players", s.player_count ?? "—", "in database", "", "👤")}
+      ${metricCard("Total Balance", s.total_balance != null ? Number(s.total_balance).toLocaleString() : "—", "coins", "accent-green", "💰")}
+      ${metricCard("Average Balance", s.avg_balance != null ? Math.round(Number(s.avg_balance)).toLocaleString() : "—", "per player", "", "📊")}
+      ${metricCard("Richest Balance", s.richest_balance != null ? Number(s.richest_balance).toLocaleString() : "—", "single player", "", "🏆")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Rich List</h2>
+        ${table(d.top_rich || [], [
+          { key: "username", label: "Player" },
+          { key: "balance", label: "Balance", render: (r) => Number(r.balance ?? 0).toLocaleString() },
+          { key: "level", label: "Level" },
+        ])}
+      </div>
+      <div class="card">
+        <h2>Top XP</h2>
+        ${table(d.top_xp || [], [
+          { key: "username", label: "Player" },
+          { key: "xp", label: "XP", render: (r) => Number(r.xp ?? 0).toLocaleString() },
+          { key: "level", label: "Level" },
+        ])}
+      </div>
+    </div>
   `;
 }
 
@@ -2267,8 +2455,9 @@ function renderSystemPage(tab) {
     ${tab === "Health" ? renderSystemHealth() : ""}
     ${tab === "Logs" ? renderSystemLogs() : ""}
     ${tab === "Settings Audit" ? renderSettingsAudit() : ""}
-    ${tab === "Emergency" ? renderEmergency() : ""}
     ${tab === "Database" ? renderSystemDatabase() : ""}
+    ${tab === "Emergency" ? renderEmergency() : ""}
+    ${tab === "Missing/Future Controls" ? renderSystemFutureControls() : ""}
   `;
 }
 
@@ -2431,6 +2620,17 @@ function renderSystemDatabase() {
         ]
       ) : `<div class="notice">No table data — DB may not be connected.</div>`}
     </div>
+  `;
+}
+
+function renderSystemFutureControls() {
+  return `
+    ${futureControls([
+      { endpoint: "dashboard tab registry", purpose: "Add future tabs in one place via TAB_REGISTRY arrays", status: "Connected" },
+      { endpoint: "unverified setting writes", purpose: "Keep hidden until Settings Audit maps exact DB sources", status: "Policy" },
+      { endpoint: "destructive DB cleanup", purpose: "No delete endpoint exposed from dashboard", status: "Blocked" },
+      { endpoint: "runtime bot API calls", purpose: "Use bot_command_queue instead of calling HighRise APIs directly", status: "Policy" },
+    ], "Missing / Future Controls")}
   `;
 }
 

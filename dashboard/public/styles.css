@@ -1570,17 +1570,20 @@ pre.mono-block {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+  align-items: stretch;
   padding: 6px;
   background: rgba(10,12,28,0.7);
   border: 1px solid var(--border);
   border-radius: 16px;
   backdrop-filter: blur(12px);
+  overflow-x: auto;
 }
 
 .tab-btn {
-  flex-shrink: 0;
+  flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   background: transparent;
   border: 0;
@@ -1593,6 +1596,7 @@ pre.mono-block {
   transition: all 0.15s;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  max-width: 100%;
 }
 
 .tab-btn:hover {
@@ -1609,7 +1613,7 @@ pre.mono-block {
 
 @media (max-width: 600px) {
   .tab-nav { gap: 2px; padding: 4px; }
-  .tab-btn { padding: 7px 10px; font-size: 12px; }
+  .tab-btn { padding: 7px 10px; font-size: 12px; white-space: normal; }
 }
 
 /* ── Settings Groups & Fields ───────────────────────── */
