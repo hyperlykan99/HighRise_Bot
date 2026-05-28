@@ -64,25 +64,7 @@ const SETTINGS_SCHEMA = {
   casino: [
     {
       title: "Blackjack Settings",
-      description: "Main BJ table rules — read by blackjack.py on startup",
-      api: "/api/casino/:key",
-      keys: [
-        { key: "bj_enabled",          label: "Enabled",              type: "toggle" },
-        { key: "bj_min_bet",          label: "Min Bet",              type: "number", suffix: "coins", placeholder: "10" },
-        { key: "bj_max_bet",          label: "Max Bet",              type: "number", suffix: "coins", placeholder: "5000" },
-        { key: "bj_max_players",      label: "Max Players",          type: "number", placeholder: "6" },
-        { key: "bj_action_timer",     label: "Action Timer",         type: "number", suffix: "sec",   placeholder: "30" },
-        { key: "bj_daily_win_limit",  label: "Daily Win Limit",      type: "number", suffix: "coins" },
-        { key: "bj_bonus_enabled",    label: "Pair Bonus",           type: "toggle" },
-        { key: "bj_bonus_cap",        label: "Pair Bonus Cap",       type: "number", suffix: "coins" },
-        { key: "bj_bonus_pair_pct",   label: "Pair Bonus %",         type: "number", suffix: "%" },
-        { key: "bj_bonus_color_pct",  label: "Color Pair Bonus %",   type: "number", suffix: "%" },
-        { key: "bj_bonus_perfect_pct",label: "Perfect Pair Bonus %", type: "number", suffix: "%" },
-      ],
-    },
-    {
-      title: "Realistic Blackjack Settings",
-      description: "Shoe-based BJ with advanced rules",
+      description: "Primary shoe-based blackjack rules.",
       api: "/api/casino/:key",
       keys: [
         { key: "rbj_enabled",         label: "Enabled",         type: "toggle" },
@@ -555,8 +537,29 @@ function auditStat(label, value, hint = "") {
   </div>`;
 }
 
-function endpointNeeded(label) {
-  return `<div class="endpoint-needed"><span class="pill warn">Endpoint needed</span><p class="muted text-sm">${esc(label)}</p></div>`;
+function futureControls(rows, title = "Advanced / Future Controls") {
+  const data = (rows || []).map((row) => ({
+    endpoint: row.endpoint || row[0] || "",
+    purpose: row.purpose || row[1] || "",
+    status: row.status || row[2] || "Not wired",
+  }));
+  return `<details class="advanced-collapse future-controls">
+    <summary class="advanced-summary">
+      <span class="pill def">Future</span> ${esc(title)}
+      <span class="muted text-sm">(${data.length} item${data.length === 1 ? "" : "s"})</span>
+    </summary>
+    <div class="advanced-content">
+      ${data.length ? table(data, [
+        { key: "endpoint", label: "Endpoint" },
+        { key: "purpose", label: "Purpose" },
+        { key: "status", label: "Status", render: (r) => `<span class="pill warn">${esc(r.status)}</span>` },
+      ]) : `<div class="notice">No future controls listed.</div>`}
+    </div>
+  </details>`;
+}
+
+function queueHelp() {
+  return `<p class="muted text-sm control-note">Queued commands require bot-side command queue consumer.</p>`;
 }
 
 function tabNav(page) {
@@ -1209,6 +1212,7 @@ function renderBotStatus() {
   const rawCount = state.data?.raw_count ?? bots.length;
   const rawDebugRows = state.data?.raw_duplicate_rows || [];
   const auditSummary = state.data?.audit_summary || {};
+  const queue = state.data?.command_queue || {};
 
   if (!bots.length) return `<div class="card">
     <h2>🤖 Bot Status</h2>
@@ -1251,12 +1255,17 @@ function renderBotStatus() {
             ${b.last_error ? `<span style="color:var(--red)">⚠ ${esc(String(b.last_error).slice(0, 120))}</span>` : ""}
           </div>
           <div class="inline-actions">
-            <button class="btn sm" data-bot-command="return_home" data-target-bot="${esc(b.bot_username)}">🏠 Home</button>
-            <button class="btn sm" data-bot-command="stop_emote" data-target-bot="${esc(b.bot_username)}">⏹ Stop</button>
-            <button class="btn danger sm" data-bot-command="restart_requested" data-target-bot="${esc(b.bot_username)}">🔄 Restart</button>
+            <button class="btn sm" data-bot-command="return_home" data-target-bot="${esc(b.bot_username)}">🏠 Queue Home</button>
+            <button class="btn sm" data-bot-command="stop_emote" data-target-bot="${esc(b.bot_username)}">⏹ Queue Stop</button>
+            <button class="btn danger sm" data-bot-command="restart_requested" data-target-bot="${esc(b.bot_username)}">🔄 Queue Restart</button>
           </div>
         </div>`;
       }).join("")}
+    </div>
+    ${queueHelp()}
+    <div class="card">
+      <h2>Queued Bot Commands</h2>
+      ${renderQueuedBotCommands(queue)}
     </div>
   `;
 }
@@ -1293,9 +1302,9 @@ function renderBotConfig() {
             <span class="token-name">${esc(key)}</span>
             ${pill(status)}
           </div>`).join("")}
-        <div style="margin-top:12px;display:grid;gap:6px">
-          ${endpointNeeded("PUT /api/bot-config/token/:key — update token (manage via Replit Secrets instead)")}
-        </div>
+        ${futureControls([
+          { endpoint: "PUT /api/bot-config/token/:key", purpose: "Token rotation; use environment secrets instead", status: "Hidden" },
+        ])}
       </div>
     </div>
   `;
@@ -1319,10 +1328,10 @@ function renderBotSpawns() {
       { key: "set_by", label: "Set By" },
       { key: "set_at", label: "Set At" },
     ]) : `<div class="notice">No saved bot spawns found.</div>`}
-    <div style="display:grid;gap:8px;margin-top:14px">
-      ${endpointNeeded("POST /api/bot-spawns — set spawn point")}
-      ${endpointNeeded("DELETE /api/bot-spawns/:bot/:name — remove spawn point")}
-    </div>
+    ${futureControls([
+      { endpoint: "POST /api/bot-spawns", purpose: "Set spawn point", status: "Not wired" },
+      { endpoint: "DELETE /api/bot-spawns/:bot/:name", purpose: "Remove spawn point", status: "Not wired" },
+    ])}
   </div>`;
 }
 
@@ -1438,14 +1447,11 @@ function renderPlayerSearch() {
       </form>
       <div id="playerSearchResult" style="margin-top:16px"></div>
     </div>
-    <div class="card">
-      <h2>🔧 Player Edit Actions</h2>
-      <div style="display:grid;gap:8px">
-        ${endpointNeeded("POST /api/player/:id/economy — adjust coins/tickets/XP")}
-        ${endpointNeeded("POST /api/player/:id/badges — give/remove badge")}
-        ${endpointNeeded("POST /api/player/:id/inventory — edit inventory")}
-      </div>
-    </div>
+    ${futureControls([
+      { endpoint: "POST /api/player/:id/economy", purpose: "Adjust balance, tickets, or XP", status: "Future" },
+      { endpoint: "POST /api/player/:id/badges", purpose: "Give or remove badges", status: "Future" },
+      { endpoint: "POST /api/player/:id/inventory", purpose: "Edit owned items", status: "Future" },
+    ])}
   `;
 }
 
@@ -1493,40 +1499,33 @@ function renderPlayerCard(p) {
 function renderTitlesTab() {
   const d = state.data || {};
   return `
-    <div class="grid">
-      <div class="card">
-        <h2>🏅 Assign Title</h2>
-        <form id="assignTitleForm">
-          <div class="field"><label class="field-label">User ID</label><input name="user_id" placeholder="Optional if username known" /></div>
-          <div class="field"><label class="field-label">Username</label><input name="username" /></div>
-          <div class="field"><label class="field-label">Title ID</label><input name="title_id" required /></div>
-          <div class="field"><label class="field-label">Display Text</label><input name="display" /></div>
-          <div class="field" style="margin-bottom:16px"><label class="field-label">Color</label><input name="color" placeholder="#9b5eff" /></div>
-          <button class="btn primary">Assign Title</button>
-        </form>
-      </div>
-      <div class="card">
-        <h2>📚 Title Catalog</h2>
-        ${table(d.catalog || [])}
-      </div>
+    <div class="card">
+      <h2>📚 Title Catalog</h2>
+      ${table(d.catalog || [])}
     </div>
     <div class="card">
       <h2>📋 Assigned Titles</h2>
       ${table(d.assigned || [])}
     </div>
+    ${futureControls([
+      { endpoint: "POST /api/titles/assign", purpose: "Assign titles from the dashboard", status: "Hidden" },
+      { endpoint: "POST /api/player/:id/badges", purpose: "Give or remove badges", status: "Future" },
+    ])}
   `;
 }
 
 function renderModerationTab() {
   return `<div class="card">
     <h2>🛡 Moderation Actions</h2>
-    <p class="muted text-sm" style="margin-bottom:16px">Search for a player first, then moderation actions will appear here.</p>
-    ${endpointNeeded("POST /api/player/:id/warn — issue warning")}
-    ${endpointNeeded("POST /api/player/:id/mute — mute player")}
-    ${endpointNeeded("POST /api/player/:id/ban — ban player")}
-    ${endpointNeeded("POST /api/player/:id/kick — kick from room")}
-    ${endpointNeeded("GET /api/player/:id/history — moderation history")}
-  </div>`;
+    <p class="muted text-sm">Moderation writes are not exposed on the normal dashboard surface yet.</p>
+  </div>
+  ${futureControls([
+    { endpoint: "POST /api/player/:id/warn", purpose: "Issue warning", status: "Future" },
+    { endpoint: "POST /api/player/:id/mute", purpose: "Mute player", status: "Future" },
+    { endpoint: "POST /api/player/:id/ban", purpose: "Ban player", status: "Future" },
+    { endpoint: "POST /api/player/:id/kick", purpose: "Kick from room", status: "Future" },
+    { endpoint: "GET /api/player/:id/history", purpose: "Moderation history", status: "Future" },
+  ])}`;
 }
 
 /* ── Room & Content ──────────────────────────────────── */
@@ -1589,7 +1588,6 @@ function renderRadioTab() {
       ], (r) => `<button class="btn danger sm" data-remove-request="${r.id}">Remove</button>`)}
     </div>
     ${renderSchemaGroups("radio", {})}
-    ${renderAdvancedCollapse([])}
   `;
 }
 
@@ -1603,12 +1601,6 @@ function renderEventsTab() {
         <h2>📅 Scheduled Events</h2>
         ${renderEventRows(tables.scheduled_events?.rows || d.scheduled || [])}
       </div>
-      <div class="card">
-        <h2>⚡ Event Controls</h2>
-        ${endpointNeeded("POST /api/events/start — start an event")}
-        ${endpointNeeded("POST /api/events/stop — stop current event")}
-        ${endpointNeeded("POST /api/events/schedule — schedule an event")}
-      </div>
     </div>
     ${hasRows ? `
       ${renderEventTableCard("Event Definitions", tables.event_definitions)}
@@ -1617,6 +1609,11 @@ function renderEventsTab() {
       ${renderEventTableCard("Event Settings", tables.event_settings)}
       ${renderEventTableCard("Event Votes", tables.event_votes)}
     ` : `<div class="card"><div class="notice">No event rows found in the live DB tables.</div></div>`}
+    ${futureControls([
+      { endpoint: "POST /api/events/start", purpose: "Start event", status: "Future" },
+      { endpoint: "POST /api/events/stop", purpose: "Stop current event", status: "Future" },
+      { endpoint: "POST /api/events/schedule", purpose: "Schedule event", status: "Future" },
+    ])}
   `;
 }
 
@@ -1651,8 +1648,9 @@ function renderAnnouncementsTab() {
       <p class="muted text-sm" style="margin-bottom:12px">Queues a room-wide message for the host bot.</p>
       <form id="announcementForm" style="display:grid;gap:10px">
         <textarea name="message" rows="4" required maxlength="500" placeholder="Announcement message"></textarea>
-        <button class="btn primary">Send Announcement</button>
+        <button class="btn primary">Queue Announcement</button>
       </form>
+      ${queueHelp()}
     </div>
   `;
 }
@@ -1685,8 +1683,11 @@ function renderEmotesTab() {
         <input name="emote" placeholder="Emote name or ID" required style="flex:1;min-width:160px" />
         <button class="btn primary">Queue Emote</button>
       </form>
+      ${queueHelp()}
     </div>
-    ${endpointNeeded("GET /api/room/emote-packs — list / manage custom emote packs")}
+    ${futureControls([
+      { endpoint: "GET /api/room/emote-packs", purpose: "List and manage emote packs", status: "Future" },
+    ])}
     ${renderAdvancedCollapse(allRaw.filter((s) =>
       s.key?.includes("emote") || s.key?.includes("dance") || s.key?.includes("react")))}
   `;
@@ -1711,6 +1712,24 @@ function renderCasinoTab() {
   const settings = d.settings || [];
   const valMap = settingsMapFrom(settings);
   const flag = d.module_flag;
+  const legacyBlackjack = {
+    title: "Legacy Blackjack Settings",
+    description: "Old standard BJ settings retained for compatibility.",
+    api: "/api/casino/:key",
+    keys: [
+      { key: "bj_enabled",          label: "Enabled",              type: "toggle" },
+      { key: "bj_min_bet",          label: "Min Bet",              type: "number", suffix: "coins", placeholder: "10" },
+      { key: "bj_max_bet",          label: "Max Bet",              type: "number", suffix: "coins", placeholder: "5000" },
+      { key: "bj_max_players",      label: "Max Players",          type: "number", placeholder: "6" },
+      { key: "bj_action_timer",     label: "Action Timer",         type: "number", suffix: "sec", placeholder: "30" },
+      { key: "bj_daily_win_limit",  label: "Daily Win Limit",      type: "number", suffix: "coins" },
+      { key: "bj_bonus_enabled",    label: "Pair Bonus",           type: "toggle" },
+      { key: "bj_bonus_cap",        label: "Pair Bonus Cap",       type: "number", suffix: "coins" },
+      { key: "bj_bonus_pair_pct",   label: "Pair Bonus %",         type: "number", suffix: "%" },
+      { key: "bj_bonus_color_pct",  label: "Color Pair Bonus %",   type: "number", suffix: "%" },
+      { key: "bj_bonus_perfect_pct",label: "Perfect Pair Bonus %", type: "number", suffix: "%" },
+    ],
+  };
   return `
     <div class="card">
       <div class="card-header">
@@ -1722,6 +1741,15 @@ function renderCasinoTab() {
       </div>
     </div>
     ${renderSchemaGroups("casino", valMap)}
+    <details class="advanced-collapse">
+      <summary class="advanced-summary">
+        <span class="pill def">Legacy</span> Legacy Blackjack Settings
+        <span class="muted text-sm">Old bj_* keys</span>
+      </summary>
+      <div class="advanced-content">
+        ${renderSettingsGroup(legacyBlackjack, valMap, "legacyBlackjack")}
+      </div>
+    </details>
     ${renderAdvancedCollapse(settings)}
   `;
 }
@@ -1776,43 +1804,48 @@ function renderCoinsTab() {
         ])}
       </div>
     </div>
-    <div class="card">
-      <h2>🔧 Economy Write Actions</h2>
-      <div style="display:grid;gap:8px">
-        ${endpointNeeded("POST /api/player/:id/economy — adjust coins/tickets/XP")}
-        ${endpointNeeded("POST /api/economy/adjust — bulk adjustment")}
-        ${endpointNeeded("GET /api/economy/transactions — transaction history")}
-      </div>
-    </div>
+    ${futureControls([
+      { endpoint: "POST /api/player/:id/economy", purpose: "Adjust balance, tickets, or XP", status: "Future" },
+      { endpoint: "POST /api/economy/adjust", purpose: "Bulk economy adjustment", status: "Future" },
+      { endpoint: "GET /api/economy/transactions", purpose: "Transaction history", status: "Future" },
+    ])}
   `;
 }
 
 function renderVipTab() {
   return `<div class="card">
-    <h2>⭐ VIP Management</h2>
-    <p class="muted text-sm" style="margin-bottom:12px">VIP status is stored in the <code>owned_items</code> table with <code>item_id='vip'</code>. Use Staff → Bot Role Management to add/remove VIP.</p>
-    ${endpointNeeded("GET /api/vip/list — list all VIP players")}
-    ${endpointNeeded("POST /api/vip/add — grant VIP to player")}
-    ${endpointNeeded("POST /api/vip/remove — revoke VIP from player")}
-  </div>`;
+    <h2>⭐ VIP Summary</h2>
+    <p class="muted text-sm">VIP status is stored in <code>owned_items</code> with <code>item_id='vip'</code>. Use Player Search to inspect individual inventories.</p>
+  </div>
+  ${futureControls([
+    { endpoint: "GET /api/vip/list", purpose: "List all VIP players", status: "Future" },
+    { endpoint: "POST /api/vip/add", purpose: "Grant VIP", status: "Future" },
+    { endpoint: "POST /api/vip/remove", purpose: "Remove VIP", status: "Future" },
+  ])}`;
 }
 
 function renderBadgesTab() {
   return `<div class="card">
-    <h2>🏅 Badge Management</h2>
-    ${endpointNeeded("GET /api/badges — list available badge types")}
-    ${endpointNeeded("POST /api/player/:id/badges — give badge to player")}
-    ${endpointNeeded("DELETE /api/player/:id/badges/:badge — remove badge")}
-  </div>`;
+    <h2>🏅 Badges</h2>
+    <p class="muted text-sm">Equipped badge data is available in Player Search. Badge write actions are hidden until the dashboard has a dedicated workflow.</p>
+  </div>
+  ${futureControls([
+    { endpoint: "GET /api/badges", purpose: "List available badge types", status: "Future" },
+    { endpoint: "POST /api/player/:id/badges", purpose: "Give badge to player", status: "Future" },
+    { endpoint: "DELETE /api/player/:id/badges/:badge", purpose: "Remove badge", status: "Future" },
+  ])}`;
 }
 
 function renderRewardsTab() {
   return `<div class="card">
-    <h2>🎁 Rewards & Daily Config</h2>
-    ${endpointNeeded("GET /api/rewards — list reward configurations")}
-    ${endpointNeeded("PUT /api/rewards/:id — update daily/event reward amounts")}
-    ${endpointNeeded("GET /api/quests — list quest configs")}
-  </div>`;
+    <h2>🎁 Rewards</h2>
+    <p class="muted text-sm">Reward editing is kept out of the normal dashboard surface until the backing endpoints are wired.</p>
+  </div>
+  ${futureControls([
+    { endpoint: "GET /api/rewards", purpose: "List reward configurations", status: "Future" },
+    { endpoint: "PUT /api/rewards/:id", purpose: "Update daily/event rewards", status: "Future" },
+    { endpoint: "GET /api/quests", purpose: "List quest configs", status: "Future" },
+  ])}`;
 }
 
 /* ── Staff Page (shared for owner Staff page) ────────── */
@@ -2089,15 +2122,14 @@ function renderStaffEvents() {
         <h2>📅 Scheduled Events</h2>
         ${renderEventRows(scheduled)}
       </div>
-      <div class="card">
-        <h2>⚡ Event Actions</h2>
-        ${endpointNeeded("POST /api/events/start — start an event (owner only)")}
-        ${endpointNeeded("POST /api/events/stop — stop current event (owner only)")}
-      </div>
     </div>
     ${renderEventTableCard("Event Definitions", tables.event_definitions)}
     ${renderEventTableCard("Event History", tables.event_history)}
     ${renderEventTableCard("Event Points", tables.event_points)}
+    ${futureControls([
+      { endpoint: "POST /api/events/start", purpose: "Start event", status: "Owner future" },
+      { endpoint: "POST /api/events/stop", purpose: "Stop current event", status: "Owner future" },
+    ])}
   `;
 }
 
@@ -2138,7 +2170,7 @@ function renderStaffRoomTools() {
             >${esc(known.welcome_message ?? "")}</textarea>
             <button class="btn primary sm">💾 Save</button>
           </form>
-        ` : `${endpointNeeded("PUT /api/settings/welcome_message — requires emergency_controls permission")}`}
+        ` : `<div class="notice">Requires <code>emergency_controls</code> permission.</div>`}
       </div>
     </div>
     <div class="card">
@@ -2146,8 +2178,9 @@ function renderStaffRoomTools() {
       ${hasPerms ? `
         <form id="announcementForm" style="display:grid;gap:10px">
           <textarea name="message" rows="4" required maxlength="500" placeholder="Announcement message"></textarea>
-          <button class="btn primary">Send Announcement</button>
+          <button class="btn primary">Queue Announcement</button>
         </form>
+        ${queueHelp()}
       ` : `<div class="notice">Requires <code>emergency_controls</code> permission to queue announcements.</div>`}
     </div>
   `;

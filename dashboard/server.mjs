@@ -1633,6 +1633,15 @@ function readCanonicalBotAudit(db) {
 
 app.get("/api/bot-control", requireAuth, (req, res) => {
   const auditResult = readCanonicalBotAudit(req.db);
+  const pendingCommands = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+    where: "status IN ('pending','queued','claimed','running')",
+    orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "25",
+  });
+  const recentCommands = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+    orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "25",
+  });
   json(res, {
     bots: auditResult.bots,
     raw_count: auditResult.raw_rows.length,
@@ -1640,6 +1649,7 @@ app.get("/api/bot-control", requireAuth, (req, res) => {
     raw_duplicate_rows: auditResult.raw_debug_rows,
     cleanup_preview: auditResult.cleanup_preview,
     audit_summary: auditResult.summary,
+    command_queue: { pending: pendingCommands, recent: recentCommands },
   });
 }, closeDb);
 

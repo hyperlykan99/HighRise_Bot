@@ -281,7 +281,7 @@ body {
 /* ── Main Content ────────────────────────────────────── */
 .content {
   min-width: 0;
-  padding: 28px;
+  padding: 28px 28px calc(28px + env(safe-area-inset-bottom));
   overflow-x: hidden;
 }
 
@@ -384,13 +384,14 @@ body {
 }
 
 .btn.sm {
-  padding: 5px 10px;
+  padding: 6px 10px;
   font-size: 12px;
   border-radius: 8px;
+  min-height: 34px;
 }
 
 /* ── Cards ───────────────────────────────────────────── */
-.page { display: grid; gap: 18px; }
+.page { display: grid; gap: 16px; align-content: start; }
 
 .grid {
   display: grid;
@@ -404,7 +405,7 @@ body {
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 18px;
   padding: 20px;
   min-width: 0;
   backdrop-filter: blur(12px);
@@ -429,11 +430,20 @@ body {
 .card h2 { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 14px; letter-spacing: -0.02em; }
 .card h3 { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px; }
 
+.control-note {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.future-controls {
+  margin-top: 0;
+}
+
 /* ── Metric Cards ────────────────────────────────────── */
 .metric-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 18px;
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -865,7 +875,7 @@ pre.mono-block {
 
   .hamburger { display: flex; align-items: center; }
 
-  .content { padding: 70px 16px 24px; }
+  .content { padding: 70px 16px calc(24px + env(safe-area-inset-bottom)); }
 
   .topbar { flex-direction: column; gap: 10px; }
 
@@ -877,7 +887,7 @@ pre.mono-block {
 }
 
 @media (max-width: 480px) {
-  .content { padding: 70px 12px 20px; }
+  .content { padding: 70px 12px calc(20px + env(safe-area-inset-bottom)); }
   .card { border-radius: 16px; padding: 16px; }
   .metric-card { border-radius: 16px; padding: 16px; }
 }
