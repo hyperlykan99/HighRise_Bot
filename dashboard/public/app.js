@@ -1789,7 +1789,7 @@ function renderPokerSettingsCard(settings) {
     <div class="card-header">
       <div>
         <h2>♠️ Poker Settings — ChipSoprano</h2>
-        <div class="muted text-sm">Source: <code>${esc(settings.source || "poker_settings")}</code>. Enabled maps to <code>v2_paused</code>.</div>
+        <div class="muted text-sm">Source: <code>poker_settings.max_buyin</code> for the !join buy-in limit. V2 mirror keys stay in Advanced.</div>
       </div>
       <span class="pill info">Poker V2</span>
     </div>
@@ -1806,7 +1806,7 @@ function renderPokerSettingsCard(settings) {
 }
 
 function renderPokerRawSettings(rows) {
-  const verified = new Set(["v2_paused", "v2_min_buyin", "v2_max_buyin", "v2_max_players", "v2_turn_seconds", "v2_small_blind", "v2_big_blind"]);
+  const verified = new Set(["poker_enabled", "min_buyin", "max_buyin", "max_players", "turn_timer", "small_blind", "big_blind"]);
   const raw = (rows || [])
     .filter((r) => !verified.has(r.key))
     .map((r) => ({

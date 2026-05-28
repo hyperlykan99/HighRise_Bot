@@ -834,13 +834,13 @@ function normalizeBlackjackSettingsBody(body) {
 }
 
 const ACTIVE_POKER_FIELDS = [
-  { field: "enabled", dbKey: "v2_paused", type: "inverse_toggle", fallback: 1 },
-  { field: "min_buyin", dbKey: "v2_min_buyin", type: "int", fallback: 1000, min: 1 },
-  { field: "max_buyin", dbKey: "v2_max_buyin", type: "int", fallback: 50000, min: 1 },
-  { field: "max_players", dbKey: "v2_max_players", type: "int", fallback: 6, min: 2, max: 6 },
-  { field: "turn_timer", dbKey: "v2_turn_seconds", type: "int", fallback: 30, min: 10, max: 120 },
-  { field: "small_blind", dbKey: "v2_small_blind", type: "int", fallback: 50, min: 1 },
-  { field: "big_blind", dbKey: "v2_big_blind", type: "int", fallback: 100, min: 2 },
+  { field: "enabled", dbKey: "poker_enabled", mirrorKey: "v2_paused", mirrorType: "inverse_toggle", type: "toggle", fallback: "1" },
+  { field: "min_buyin", dbKey: "min_buyin", mirrorKey: "v2_min_buyin", type: "int", fallback: 100, min: 1 },
+  { field: "max_buyin", dbKey: "max_buyin", mirrorKey: "v2_max_buyin", type: "int", fallback: 50000, min: 1 },
+  { field: "max_players", dbKey: "max_players", mirrorKey: "v2_max_players", type: "int", fallback: 6, min: 2, max: 6 },
+  { field: "turn_timer", dbKey: "turn_timer", mirrorKey: "v2_turn_seconds", type: "int", fallback: 30, min: 10, max: 120 },
+  { field: "small_blind", dbKey: "small_blind", mirrorKey: "v2_small_blind", type: "int", fallback: 50, min: 1 },
+  { field: "big_blind", dbKey: "big_blind", mirrorKey: "v2_big_blind", type: "int", fallback: 100, min: 2 },
 ];
 
 function readPokerSettingsMap(db) {
@@ -855,10 +855,12 @@ function readActivePokerSettings(db) {
   const out = { source: "poker_settings", bot_username: "ChipSoprano", raw };
   for (const spec of ACTIVE_POKER_FIELDS) {
     const value = raw[spec.dbKey];
-    if (spec.type === "inverse_toggle") {
-      const paused = value === undefined ? !spec.fallback : ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
-      out[spec.field] = paused ? 0 : 1;
-      out[spec.dbKey] = paused ? "1" : "0";
+    if (spec.type === "toggle") {
+      const enabled = value === undefined
+        ? ["1", "true", "yes", "on"].includes(String(spec.fallback).toLowerCase())
+        : ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+      out[spec.field] = enabled ? 1 : 0;
+      out[spec.dbKey] = enabled ? "1" : "0";
     } else {
       out[spec.field] = value === undefined ? spec.fallback : value;
       out[spec.dbKey] = value === undefined ? String(spec.fallback) : value;
@@ -879,21 +881,23 @@ function normalizePokerSettingsBody(body) {
   const out = {};
   for (const spec of ACTIVE_POKER_FIELDS) {
     if (!has(spec.field)) continue;
-    if (spec.type === "inverse_toggle") {
+    if (spec.type === "toggle") {
       const enabled = body?.[spec.field] === true || body?.[spec.field] === "true" || body?.[spec.field] === "1" || body?.[spec.field] === 1;
-      out[spec.dbKey] = enabled ? "0" : "1";
+      out[spec.dbKey] = enabled ? "1" : "0";
+      if (spec.mirrorKey && spec.mirrorType === "inverse_toggle") out[spec.mirrorKey] = enabled ? "0" : "1";
       continue;
     }
     const value = num(spec.field, spec.fallback);
     if (spec.min !== undefined && value < spec.min) throw new Error(`${spec.field}_too_low`);
     if (spec.max !== undefined && value > spec.max) throw new Error(`${spec.field}_too_high`);
     out[spec.dbKey] = String(value);
+    if (spec.mirrorKey) out[spec.mirrorKey] = String(value);
   }
-  const minBuyin = Number(out.v2_min_buyin ?? body?.min_buyin);
-  const maxBuyin = Number(out.v2_max_buyin ?? body?.max_buyin);
+  const minBuyin = Number(out.min_buyin ?? body?.min_buyin);
+  const maxBuyin = Number(out.max_buyin ?? body?.max_buyin);
   if (Number.isFinite(minBuyin) && Number.isFinite(maxBuyin) && maxBuyin < minBuyin) throw new Error("max_buyin_less_than_min_buyin");
-  const smallBlind = Number(out.v2_small_blind ?? body?.small_blind);
-  const bigBlind = Number(out.v2_big_blind ?? body?.big_blind);
+  const smallBlind = Number(out.small_blind ?? body?.small_blind);
+  const bigBlind = Number(out.big_blind ?? body?.big_blind);
   if (Number.isFinite(smallBlind) && Number.isFinite(bigBlind) && bigBlind <= smallBlind) throw new Error("big_blind_must_exceed_small_blind");
   return out;
 }
@@ -1057,13 +1061,13 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     notes: "Legacy standard blackjack source. Not used for the visible AceSinatra/RBJ dashboard card.",
   })),
   ...[
-    ["!poker minbuyin", "Min Buy-In", "v2_min_buyin"],
-    ["!poker maxbuyin", "Max Buy-In", "v2_max_buyin"],
-    ["!poker maxplayers", "Max Players", "v2_max_players"],
-    ["!poker blinds", "Small Blind", "v2_small_blind"],
-    ["!poker blinds", "Big Blind", "v2_big_blind"],
-    ["!poker timer", "Turn Timer", "v2_turn_seconds"],
-    ["!poker pause/resume", "Enabled", "v2_paused"],
+    ["!join buy-in min / !poker minbuyin", "Min Buy-In", "min_buyin"],
+    ["!join buy-in max / !poker maxbuyin", "Max Buy-In", "max_buyin"],
+    ["!poker maxplayers", "Max Players", "max_players"],
+    ["!poker blinds", "Small Blind", "small_blind"],
+    ["!poker blinds", "Big Blind", "big_blind"],
+    ["!poker timer", "Turn Timer", "turn_timer"],
+    ["!poker on|off", "Enabled", "poker_enabled"],
   ].map(([command, displayName, key]) => auditRow({
     module: "poker_v2",
     command,
@@ -1075,7 +1079,28 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     writeEndpoint: "PUT /api/casino/poker-settings",
     dashboardConnected: true,
     status: "CONNECTED",
-    notes: "Verified Poker V2 source. ChipSoprano loads this key through database.get_poker_settings().",
+    notes: key === "max_buyin"
+      ? "The !join rejection uses _T.max_buyin. Dashboard writes poker_settings.max_buyin and mirrors v2_max_buyin for Poker V2 restart compatibility."
+      : "Visible dashboard source for active poker controls; V2 mirror keys are kept in Advanced for compatibility.",
+  })),
+  ...[
+    ["Poker V2 mirror", "Min Buy-In Mirror", "v2_min_buyin"],
+    ["Poker V2 mirror", "Max Buy-In Mirror", "v2_max_buyin"],
+    ["Poker V2 mirror", "Max Players Mirror", "v2_max_players"],
+    ["Poker V2 mirror", "Small Blind Mirror", "v2_small_blind"],
+    ["Poker V2 mirror", "Big Blind Mirror", "v2_big_blind"],
+    ["Poker V2 mirror", "Turn Timer Mirror", "v2_turn_seconds"],
+    ["Poker V2 mirror", "Paused Mirror", "v2_paused"],
+  ].map(([command, displayName, key]) => auditRow({
+    module: "poker_v2",
+    command,
+    display_name: displayName,
+    dashboard_page: "Casino",
+    dashboard_section: "Advanced / Poker Raw Settings",
+    db_table: "poker_settings",
+    db_key_or_column: key,
+    status: "LEGACY",
+    notes: "Compatibility mirror key. Not the visible dashboard source.",
   })),
   ...[
     ["setpokerplayers", "Min Players", "min_players"],
