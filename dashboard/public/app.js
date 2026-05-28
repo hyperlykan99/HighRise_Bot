@@ -645,6 +645,7 @@ const state = {
   maintenanceTab: "Overview",
   howToPlayTab: "Quick Start",
   publicRankingTab: "Overview",
+  publicRankingsHideStaffBots: true,
   securityPlayer: null,
   modal: null,
   sidebarOpen: false,
@@ -762,9 +763,10 @@ function activeTab(page) {
 
 /* ── Loading ─────────────────────────────────────────── */
 async function loadPublic() {
+  const rankingQuery = `?hide_staff=${state.publicRankingsHideStaffBots ? "1" : "0"}&hide_bots=${state.publicRankingsHideStaffBots ? "1" : "0"}`;
   const apiMap = {
     home: "/api/public/home", radio: "/api/public/radio",
-    events: "/api/public/events", rankings: "/api/public/rankings",
+    events: "/api/public/events", rankings: `/api/public/rankings${rankingQuery}`,
     howtoplay: "/api/public/how-to-play", roominfo: "/api/public/room-info",
   };
   try {
@@ -1194,12 +1196,20 @@ function renderPublicRankings(d) {
   if (!tabs.includes(state.publicRankingTab)) state.publicRankingTab = "Overview";
   const current = state.publicRankingTab;
   const looksLikeId = (v) => /^[a-z0-9_-]{18,}$/i.test(String(v || ""));
+  const fmtNum = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toLocaleString() : (v ?? "—");
+  };
+  const coins = (v) => `${fmtNum(v)} coins`;
+  const kg = (v) => `${fmtNum(v)} kg`;
+  const lbs = (v) => `${fmtNum(v)} lbs`;
   const playerName = (r) => {
     const name = r.username || r.player || r.requester || r.name;
     if (!name || looksLikeId(name)) return "Unknown Player";
     return name;
   };
   const valueText = (r, keys) => keys.map((k) => r[k]).find((v) => v !== undefined && v !== null && v !== "") ?? "";
+  const songDetail = (r) => [r.artist, r.requester ? `requested by ${r.requester}` : ""].filter(Boolean).join(" · ");
   const cleanRows = (rows, titleKeys = ["username", "title", "ore", "fish", "name"]) => (rows || [])
     .filter((row) => titleKeys.some((key) => row[key] !== undefined && row[key] !== null && row[key] !== ""))
     .slice(0, 10);
@@ -1211,7 +1221,7 @@ function renderPublicRankings(d) {
         ${list.map((r, i) => `<div class="pub-lb-row rich">
           <span class="pub-lb-rank ${i < 3 ? "top" + i : ""}">${["🥇","🥈","🥉"][i] || (i + 1)}</span>
           <span class="pub-lb-main">
-            <span class="pub-lb-name">${esc(name(r) || "—")}</span>
+            <span class="pub-lb-name leaderboard-title-marquee" title="${esc(name(r) || "—")}"><span>${esc(name(r) || "—")}</span></span>
             ${detail ? `<span class="pub-lb-detail">${esc(detail(r) || "")}</span>` : ""}
           </span>
           <span class="pub-lb-val">${esc(String(value(r) ?? ""))}</span>
@@ -1224,9 +1234,10 @@ function renderPublicRankings(d) {
   const has = (rows) => Array.isArray(rows) && rows.length > 0;
   const top = (rows) => (rows || [])[0] || {};
   function featured(title, icon, row, valueKeys, subtitleFn = playerName) {
+    const hasRow = row && Object.keys(row).length;
     return `<div class="card pub-feature-card">
       <div class="pub-feature-icon">${icon}</div>
-      <div><span>${esc(title)}</span><strong>${esc(subtitleFn(row) || "No data yet")}</strong><em>${esc(String(valueText(row, valueKeys) || ""))}</em></div>
+      <div><span>${esc(title)}</span><strong>${esc(hasRow ? subtitleFn(row) : "No data yet")}</strong><em>${esc(String(hasRow ? valueText(row, valueKeys) : ""))}</em></div>
     </div>`;
   }
   const panels = {
@@ -1240,8 +1251,8 @@ function renderPublicRankings(d) {
         ${featured("Casino Leader", "🎲", top(lb.casino_overall || d.casino || lb.most_games_won), ["wins", "total_won"])}
       </div>`,
     Economy: section("Economy Leaders", [
-      leaderboard("Richest Players", "💰", lb.richest || d.rich, { value: (r) => r.balance }),
-      leaderboard("Top XP / Level", "⭐", lb.xp, { value: (r) => `${r.xp ?? 0} XP`, detail: (r) => `Level ${r.level ?? "—"}` }),
+      leaderboard("Richest Players", "💰", lb.richest || d.rich, { value: (r) => coins(r.balance) }),
+      leaderboard("Top XP / Level", "⭐", lb.xp, { value: (r) => `${fmtNum(r.xp ?? 0)} XP`, detail: (r) => `Level ${fmtNum(r.level ?? "—")}` }),
       leaderboard("Daily Streaks", "🔥", lb.streaks, { value: (r) => `${r.streak ?? 0} days`, detail: (r) => r.total_claims ? `${r.total_claims} claims` : "" }),
       leaderboard("Gold Supporters", "🥇", lb.topdonators, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} entries` }),
       leaderboard("Top P2P Senders", "💸", lb.toptippers, { value: (r) => `${r.total_gold ?? 0} gold`, detail: (r) => `${r.entries ?? 0} tips` }),
@@ -1249,28 +1260,30 @@ function renderPublicRankings(d) {
     ]),
     Mining: section("Mining Leaders", [
       leaderboard("Top Miners", "⛏️", lb.mining_top || d.mining, { value: (r) => r.total_mined ?? r.xp ?? "", detail: (r) => `Level ${r.level ?? "—"} · ${r.rare_finds ?? 0} rare` }),
-      leaderboard("Heaviest Ores", "🪨", lb.mining_heaviest_ore, { name: (r) => r.ore, value: (r) => `${r.weight ?? "—"} wt`, detail: (r) => `${playerName(r)} · ${r.rarity || "ore"}` }),
-      leaderboard("Most Valuable Ores", "💎", lb.mining_most_valuable, { name: (r) => r.ore, value: (r) => r.value, detail: (r) => `${playerName(r)} · ${r.rarity || "ore"}` }),
-      has(lb.mining_rarest) ? leaderboard("Rarest Finds", "✨", lb.mining_rarest, { name: (r) => r.ore, value: (r) => r.rarity, detail: (r) => playerName(r) }) : "",
+      leaderboard("Heaviest Ores", "🪨", lb.mining_heaviest_ore, { name: (r) => r.ore, value: (r) => kg(r.weight), detail: (r) => `Found by ${playerName(r)} · ${r.rarity || "ore"}` }),
+      leaderboard("Most Valuable Ores", "💎", lb.mining_most_valuable, { name: (r) => r.ore, value: (r) => coins(r.value), detail: (r) => `${playerName(r)} · ${r.rarity || "ore"}` }),
+      has(lb.mining_rarest) ? leaderboard("Best Rare Finds", "✨", lb.mining_rarest, { name: (r) => r.ore, value: (r) => r.weight ? kg(r.weight) : coins(r.value), detail: (r) => `${r.rarity || "rare"} · ${playerName(r)}` }) : "",
     ]),
     Fishing: section("Fishing Leaders", [
       leaderboard("Top Fishers", "🎣", lb.fishing_top || d.fishing, { value: (r) => `${r.total_catches ?? 0} catches`, detail: (r) => `Level ${r.level ?? "—"}` }),
-      leaderboard("Heaviest Fish", "🐟", lb.fishing_heaviest_fish, { name: (r) => r.fish, value: (r) => `${r.weight ?? "—"} wt`, detail: (r) => `${playerName(r)} · ${r.rarity || "fish"}` }),
-      leaderboard("Most Valuable Fish", "💧", lb.fishing_most_valuable, { name: (r) => r.fish, value: (r) => r.value, detail: (r) => `${playerName(r)} · ${r.rarity || "fish"}` }),
-      has(lb.fishing_rarest) ? leaderboard("Rarest Catches", "✨", lb.fishing_rarest, { name: (r) => r.fish, value: (r) => r.rarity, detail: (r) => playerName(r) }) : "",
+      leaderboard("Heaviest Fish", "🐟", lb.fishing_heaviest_fish, { name: (r) => r.fish, value: (r) => lbs(r.weight), detail: (r) => `Caught by ${playerName(r)} · ${r.rarity || "fish"}` }),
+      leaderboard("Most Valuable Fish", "💧", lb.fishing_most_valuable, { name: (r) => r.fish, value: (r) => coins(r.value), detail: (r) => `${playerName(r)} · ${r.rarity || "fish"}` }),
+      has(lb.fishing_rarest) ? leaderboard("Best Rare Catches", "✨", lb.fishing_rarest, { name: (r) => r.fish, value: (r) => r.weight ? lbs(r.weight) : coins(r.value), detail: (r) => `${r.rarity || "rare"} · ${playerName(r)}` }) : "",
     ]),
     Casino: section("Casino Leaders", [
-      leaderboard("Overall", "🎲", lb.casino_overall || lb.most_games_won || d.casino, { value: (r) => `${r.wins ?? 0} wins`, detail: (r) => r.total_won ? `${r.total_won} won` : "" }),
-      has(lb.blackjack) ? leaderboard("Blackjack / RBJ", "🃏", lb.blackjack, { value: (r) => `${r.wins ?? 0} wins`, detail: (r) => r.blackjacks ? `${r.blackjacks} blackjacks` : "" }) : leaderboard("Blackjack / RBJ", "🃏", [], {}),
-      has(lb.poker) ? leaderboard("Poker", "♠️", lb.poker, { value: (r) => r.net || r.total_won || r.wins, detail: (r) => r.biggest_pot ? `Biggest pot ${r.biggest_pot}` : `${r.hands_played || 0} hands` }) : leaderboard("Poker", "♠️", [], {}),
-      has(lb.poker) ? leaderboard("Biggest Pots", "🏦", lb.poker.filter((r) => r.biggest_pot).sort((a, b) => Number(b.biggest_pot || 0) - Number(a.biggest_pot || 0)), { value: (r) => r.biggest_pot, detail: (r) => playerName(r) }) : "",
+      leaderboard("Most Casino Wins", "🎲", lb.casino_overall || lb.most_games_won || d.casino, { value: (r) => `${fmtNum(r.wins ?? 0)} wins`, detail: (r) => r.total_won ? coins(r.total_won) : "" }),
+      has(lb.poker) ? leaderboard("Poker Wins", "♠️", lb.poker, { value: (r) => `${fmtNum(r.wins ?? 0)} wins`, detail: (r) => `${fmtNum(r.hands_played || 0)} hands` }) : "",
+      has(lb.poker) ? leaderboard("Poker Net Profit/Loss", "📈", lb.poker.filter((r) => r.net !== ""), { value: (r) => coins(r.net), detail: (r) => playerName(r) }) : "",
+      has(lb.poker) ? leaderboard("Biggest Poker Pots", "🏦", lb.poker.filter((r) => r.biggest_pot).sort((a, b) => Number(b.biggest_pot || 0) - Number(a.biggest_pot || 0)), { value: (r) => coins(r.biggest_pot), detail: (r) => playerName(r) }) : "",
+      has(lb.blackjack) ? leaderboard("Blackjack Wins", "🃏", lb.blackjack, { value: (r) => `${fmtNum(r.wins ?? 0)} wins`, detail: (r) => r.blackjacks ? `${fmtNum(r.blackjacks)} natural blackjacks` : "" }) : leaderboard("Blackjack / RBJ", "🃏", [], { empty: "No blackjack rounds recorded yet." }),
+      has(lb.blackjack) ? leaderboard("Blackjack Net Winnings", "💵", lb.blackjack.filter((r) => r.net !== ""), { value: (r) => coins(r.net), detail: (r) => playerName(r) }) : "",
     ]),
     Radio: section("Radio Leaders", [
-      leaderboard("Top Requesters", "🎵", lb.radio_requesters || d.radio, { value: (r) => `${r.requests ?? 0} requests` }),
-      leaderboard("Top Liked Songs", "👍", lb.radio_liked, { name: (r) => r.title || r.name, value: (r) => `${r.likes ?? 0} likes`, detail: (r) => r.artist || "" }),
-      leaderboard("Top Disliked Songs", "👎", lb.radio_disliked, { name: (r) => r.title || r.name, value: (r) => `${r.dislikes ?? 0} dislikes`, detail: (r) => r.artist || "" }),
-      leaderboard("Most Liked Requesters", "💜", lb.radio_liked_requesters, { value: (r) => `${r.likes ?? 0} likes` }),
-      has(lb.radio_tracks) ? leaderboard("Most Played Songs", "📻", lb.radio_tracks, { name: (r) => r.title || r.name, value: (r) => `${r.plays ?? r.requests ?? 0} plays`, detail: (r) => r.artist || "" }) : "",
+      leaderboard("Top Requesters", "🎵", lb.radio_requesters || d.radio, { value: (r) => `${fmtNum(r.requests ?? 0)} requests` }),
+      leaderboard("Top Liked Songs", "👍", lb.radio_liked, { name: (r) => r.title || r.name, value: (r) => `${fmtNum(r.likes ?? 0)} likes`, detail: songDetail }),
+      leaderboard("Top Disliked Songs", "👎", lb.radio_disliked, { name: (r) => r.title || r.name, value: (r) => `${fmtNum(r.dislikes ?? 0)} dislikes`, detail: songDetail }),
+      leaderboard("Most Liked Requesters", "💜", lb.radio_liked_requesters, { value: (r) => `${fmtNum(r.likes ?? 0)} likes` }),
+      has(lb.radio_tracks) ? leaderboard("Most Played Songs", "📻", lb.radio_tracks, { name: (r) => r.title || r.name, value: (r) => `${fmtNum(r.plays ?? r.requests ?? 0)} plays`, detail: (r) => r.artist || "" }) : "",
     ]),
     Events: section("Event Leaders", [
       leaderboard("Event Points", "🎉", lb.event_points || d.events, { value: (r) => `${r.points ?? 0} pts`, detail: (r) => r.fallback_id ? `id ${String(r.fallback_id).slice(0, 8)}…` : "" }),
@@ -1282,6 +1295,10 @@ function renderPublicRankings(d) {
   return `
     <div class="pub-section-title"><h2>🏆 Rankings</h2>
       <p>Clean leaderboard categories backed by live ChillTopia data.</p></div>
+    <div class="pub-ranking-filter card">
+      <label><input type="checkbox" id="hideStaffBotsToggle" ${state.publicRankingsHideStaffBots ? "checked" : ""} /> Hide staff & bots</label>
+      <span class="muted text-sm">Public view defaults to player-only rankings.</span>
+    </div>
     <div class="tab-nav pub-ranking-tabs">
       ${tabs.map((name) => `<button class="tab-btn ${name === current ? "active" : ""}" data-ranking-tab="${esc(name)}">${esc(name)}</button>`).join("")}
     </div>
@@ -1380,6 +1397,11 @@ function bindPublicEvents() {
   document.querySelectorAll("[data-ranking-tab]").forEach((btn) => btn.addEventListener("click", () => {
     state.publicRankingTab = btn.dataset.rankingTab; state.error = ""; render();
   }));
+  document.getElementById("hideStaffBotsToggle")?.addEventListener("change", (e) => {
+    state.publicRankingsHideStaffBots = !!e.target.checked;
+    state.error = "";
+    loadPublic();
+  });
   document.getElementById("pubLoginBtn")?.addEventListener("click", () => {
     state.showLoginOverlay = true; state.error = ""; render();
   });

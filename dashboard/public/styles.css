@@ -1498,6 +1498,24 @@ pre.mono-block {
   margin-bottom: 16px;
 }
 
+.pub-ranking-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+}
+
+.pub-ranking-filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .pub-ranking-hub {
   display: grid;
   gap: 16px;
@@ -1609,6 +1627,27 @@ pre.mono-block {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.leaderboard-title-marquee {
+  position: relative;
+  max-width: 100%;
+}
+
+.leaderboard-title-marquee span {
+  display: inline-block;
+  min-width: 100%;
+  vertical-align: top;
+}
+
+.leaderboard-title-marquee:hover span,
+.leaderboard-title-marquee:focus-within span {
+  animation: leaderboard-marquee 8s linear infinite;
+}
+
+@keyframes leaderboard-marquee {
+  0%, 12% { transform: translateX(0); }
+  88%, 100% { transform: translateX(calc(-100% + 100px)); }
 }
 
 .pub-lb-main {
@@ -1779,6 +1818,7 @@ pre.mono-block {
   .pub-brand span { display: none; }
   .pub-stats-row { grid-template-columns: repeat(2, 1fr); }
   .manual-command-row { grid-template-columns: 1fr; }
+  .pub-ranking-filter { align-items: flex-start; flex-direction: column; }
 }
 
 /* ── Tab Navigation ──────────────────────────────────── */

@@ -1715,7 +1715,7 @@ function buildLeaderboardsBase(db) {
   };
 }
 
-function buildLeaderboards(db) {
+function buildLeaderboards(db, options = {}) {
   let base;
   try {
     base = buildLeaderboardsBase(db);
@@ -1732,6 +1732,8 @@ function buildLeaderboards(db) {
     .filter(([, info]) => info?.status === "error")
     .map(([name, info]) => ({ name, table: info.table, error: info.notes || "source_error" }));
   const limit = 50;
+  const hideStaff = !!options.hideStaff;
+  const hideBots = !!options.hideBots;
   const menu = [
     { command: "!toprich", label: "Richest", category: "Economy", source: "users.balance" },
     { command: "!xpleaderboard", label: "XP / Level", category: "Economy", source: "users.xp" },
@@ -1777,6 +1779,32 @@ function buildLeaderboards(db) {
   }
   function addRank(rows) {
     return rows.map((row, index) => ({ rank: index + 1, ...row }));
+  }
+  function userNameMap() {
+    if (!tableExists(db, "users") || !columnExists(db, "users", "user_id") || !columnExists(db, "users", "username")) return new Map();
+    return new Map(safeRows(db, "users", ["user_id", "username"], { limit: "100000" }).map((row) => [String(row.user_id), row.username]));
+  }
+  function hiddenNameSet() {
+    const names = new Set();
+    if (hideBots) {
+      for (const name of ["dj", "host", "banker", "blackjack", "poker", "miner", "fisher", "security", "main", "all"]) names.add(name);
+      for (const bot of CANONICAL_BOTS) names.add(String(bot.username).toLowerCase());
+      try {
+        for (const bot of readCanonicalBotAudit(db).bots || []) names.add(String(bot.bot_username || bot.username || "").toLowerCase());
+      } catch {}
+    }
+    if (hideStaff) {
+      if (tableExists(db, "dashboard_users") && columnExists(db, "dashboard_users", "username")) {
+        for (const row of safeRows(db, "dashboard_users", ["username", "role", "disabled"], { limit: "10000" })) {
+          if (["owner", "admin", "staff", "moderator"].includes(String(row.role || "").toLowerCase())) names.add(String(row.username || "").toLowerCase());
+        }
+      }
+      if (tableExists(db, "admin_users") && columnExists(db, "admin_users", "username")) {
+        for (const row of safeRows(db, "admin_users", ["username"], { limit: "10000" })) names.add(String(row.username || "").toLowerCase());
+      }
+    }
+    names.delete("");
+    return names;
   }
   function directRows(name, table, columns, sql, params = [], notes = "") {
     try {
@@ -1868,8 +1896,8 @@ function buildLeaderboards(db) {
     const cols = tableColumns(db, "ore_weight_records");
     const missing = ["username", "ore_name", "rarity"].filter((col) => !cols.includes(col));
     if (missing.length) return markMissingColumns("mining_rarest", "ore_weight_records", missing);
-    const valueCol = choose(cols, ["final_value", "base_value", "weight"]);
-    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("ore_name")} AS ore, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("mined_at") ? `, ${sqlIdent("mined_at")} AS mined_at` : ""} FROM ${sqlIdent("ore_weight_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'prismatic' THEN 1 WHEN 'exotic' THEN 2 WHEN 'mythic' THEN 3 WHEN 'legendary' THEN 4 WHEN 'epic' THEN 5 WHEN 'rare' THEN 6 ELSE 20 END ASC${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""} LIMIT ?`;
+    const valueCol = choose(cols, ["final_value", "base_value"]);
+    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("ore_name")} AS ore, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("mined_at") ? `, ${sqlIdent("mined_at")} AS mined_at` : ""} FROM ${sqlIdent("ore_weight_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'prismatic' THEN 1 WHEN 'exotic' THEN 2 WHEN 'legendary' THEN 3 WHEN 'epic' THEN 4 WHEN 'rare' THEN 5 WHEN 'uncommon' THEN 6 WHEN 'common' THEN 7 ELSE 20 END ASC${cols.includes("weight") ? `, ${numericExpr("weight")} DESC` : ""}${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""} LIMIT ?`;
     return runSql("mining_rarest", "ore_weight_records", ["username", "ore_name", "rarity", "weight", valueCol, "mined_at"].filter(Boolean), sql, [limit], "Rarest ore finds by rarity rank.");
   })();
   const miningStreaks = tableExists(db, "mining_players") && columnExists(db, "mining_players", "streak_days")
@@ -1918,8 +1946,8 @@ function buildLeaderboards(db) {
     const cols = tableColumns(db, "fish_catch_records");
     const missing = ["username", "fish_name", "rarity"].filter((col) => !cols.includes(col));
     if (missing.length) return markMissingColumns("fishing_rarest", "fish_catch_records", missing);
-    const valueCol = choose(cols, ["final_value", "base_value", "weight"]);
-    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("fish_name")} AS fish, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("caught_at") ? `, ${sqlIdent("caught_at")} AS caught_at` : ""} FROM ${sqlIdent("fish_catch_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'legendary' THEN 1 WHEN 'mythic' THEN 2 WHEN 'epic' THEN 3 WHEN 'rare' THEN 4 WHEN 'uncommon' THEN 5 ELSE 20 END ASC${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""} LIMIT ?`;
+    const valueCol = choose(cols, ["final_value", "base_value"]);
+    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("fish_name")} AS fish, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("caught_at") ? `, ${sqlIdent("caught_at")} AS caught_at` : ""} FROM ${sqlIdent("fish_catch_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'mythic' THEN 1 WHEN 'legendary' THEN 2 WHEN 'exotic' THEN 3 WHEN 'epic' THEN 4 WHEN 'rare' THEN 5 WHEN 'uncommon' THEN 6 WHEN 'common' THEN 7 ELSE 20 END ASC${cols.includes("weight") ? `, ${numericExpr("weight")} DESC` : ""}${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""} LIMIT ?`;
     return runSql("fishing_rarest", "fish_catch_records", ["username", "fish_name", "rarity", "weight", valueCol, "caught_at"].filter(Boolean), sql, [limit], "Rarest fish catches by rarity rank.");
   })();
   const fishProfileCols = tableExists(db, "fish_profiles") ? tableColumns(db, "fish_profiles") : [];
@@ -2042,18 +2070,36 @@ function buildLeaderboards(db) {
     );
   })();
 
+  function enrichRadioSongRequesters(rows) {
+    if (!tableExists(db, "yt_request_jobs") || !columnExists(db, "yt_request_jobs", "title") || !columnExists(db, "yt_request_jobs", "username")) return rows;
+    const cols = ["title", "artist", "username"].filter((col) => columnExists(db, "yt_request_jobs", col));
+    const requests = safeRows(db, "yt_request_jobs", cols, { where: "COALESCE(username,'')<>'' AND COALESCE(title,'')<>''", limit: "10000" });
+    const byTitle = new Map();
+    for (const req of requests) {
+      const title = String(req.title || "").trim().toLowerCase().slice(0, 150);
+      const key = `${title}|${String(req.artist || "").trim().toLowerCase()}`.slice(0, 150);
+      if (title && !byTitle.has(title)) byTitle.set(title, req.username);
+      if (key && !byTitle.has(key)) byTitle.set(key, req.username);
+    }
+    return rows.map((row) => {
+      const title = String(row.title || row.name || "").trim().toLowerCase().slice(0, 150);
+      const key = `${title}|${String(row.artist || "").trim().toLowerCase()}`.slice(0, 150);
+      return { ...row, requester: byTitle.get(key) || byTitle.get(title) || "" };
+    });
+  }
+
   function radioRatingRows(name, rating, outCol, notes) {
     if (!tableExists(db, "dj_ratings")) {
       const statCol = rating === "like" ? "like_count" : "dislike_count";
       if (tableExists(db, "radio_song_stats") && columnExists(db, "radio_song_stats", statCol)) {
-        return runSql(
+        return enrichRadioSongRequesters(runSql(
           name,
           "radio_song_stats",
           ["song_key", "title", statCol],
           `SELECT COALESCE(NULLIF(title,''), NULLIF(song_key,''), 'Unknown Track') AS title${columnExists(db, "radio_song_stats", "artist") ? ", artist" : ""}, ${sqlIdent(statCol)} AS ${sqlIdent(outCol)} FROM radio_song_stats WHERE COALESCE(NULLIF(title,''), NULLIF(song_key,''), '')<>'' AND ${numericExpr(statCol)}>0 ORDER BY ${numericExpr(statCol)} DESC LIMIT ?`,
           [limit],
           `${notes} Fallback source: radio_song_stats.${statCol}.`,
-        );
+        ));
       }
       return markMissingTable(name, "dj_ratings");
     }
@@ -2065,8 +2111,8 @@ function buildLeaderboards(db) {
     const sql = hasSongStats
       ? `SELECT COALESCE(NULLIF(rss.title,''), NULLIF(dr.song_key,''), 'Unknown Track') AS title${hasSongArtist ? ", COALESCE(NULLIF(rss.artist,''), '') AS artist" : ""}, COUNT(*) AS ${sqlIdent(outCol)} FROM dj_ratings dr LEFT JOIN radio_song_stats rss ON rss.song_key = dr.song_key WHERE LOWER(dr.rating)=? AND COALESCE(NULLIF(dr.song_key,''),'')<>'' GROUP BY dr.song_key ORDER BY ${sqlIdent(outCol)} DESC LIMIT ?`
       : `SELECT COALESCE(NULLIF(song_key,''), 'Unknown Track') AS title, COUNT(*) AS ${sqlIdent(outCol)} FROM dj_ratings WHERE LOWER(rating)=? AND COALESCE(NULLIF(song_key,''),'')<>'' GROUP BY song_key ORDER BY ${sqlIdent(outCol)} DESC LIMIT ?`;
-    return runSql(name, "dj_ratings", ["song_key", "rating"], sql, [rating, limit], notes)
-      .filter((row) => row.title && row.title !== "Unknown Track");
+    return enrichRadioSongRequesters(runSql(name, "dj_ratings", ["song_key", "rating"], sql, [rating, limit], notes)
+      .filter((row) => row.title && row.title !== "Unknown Track"));
   }
   const radioLikedSongs = radioRatingRows("radio_liked", "like", "likes", "Top liked songs from dj_ratings joined to radio_song_stats titles.");
   const radioDislikedSongs = radioRatingRows("radio_disliked", "dislike", "dislikes", "Top disliked songs from dj_ratings joined to radio_song_stats titles.");
@@ -2131,51 +2177,98 @@ function buildLeaderboards(db) {
     streaks,
     profiles,
   };
+  const userMap = userNameMap();
+  const hiddenNames = hiddenNameSet();
+  const looksLikeId = (value) => /^[a-z0-9_-]{18,}$/i.test(String(value || ""));
+  const resolvedPlayerName = (row) => {
+    const explicit = row.username || row.player || row.requester || row.requester_username || row.from_username || row.sender_username || row.receiver_username;
+    if (explicit && !looksLikeId(explicit)) return explicit;
+    const id = row.user_id || row.fallback_id || row.player_id || row.requester_id || explicit;
+    const resolved = userMap.get(String(id || ""));
+    if (resolved) return resolved;
+    return explicit && !looksLikeId(explicit) ? explicit : "";
+  };
+  const normalizedLeaderboards = {};
+  const leaderboardDiagnostics = [];
+  for (const [key, rows] of Object.entries(leaderboards)) {
+    const before = Array.isArray(rows) ? rows.length : 0;
+    const normalizedRows = (Array.isArray(rows) ? rows : []).map((row) => {
+      const username = resolvedPlayerName(row);
+      const fallbackId = row.fallback_id || row.user_id || (looksLikeId(row.username) ? row.username : "");
+      return {
+        ...row,
+        username: username || (fallbackId ? "Unknown Player" : row.username),
+        fallback_id: fallbackId || row.fallback_id,
+      };
+    });
+    const filteredRows = normalizedRows.filter((row) => {
+      const name = String(resolvedPlayerName(row) || row.username || "").toLowerCase();
+      return !hiddenNames.has(name);
+    });
+    normalizedLeaderboards[key] = addRank(filteredRows.map(({ rank, ...row }) => row));
+    const sourceInfo = sources[key] || sources[key.replace(/^radio_tracks$/, "radio_songs")] || {};
+    leaderboardDiagnostics.push({
+      key,
+      title: key.replaceAll("_", " "),
+      source_table: sourceInfo.table || "",
+      source_columns: sourceInfo.columns || [],
+      row_count_before_filter: before,
+      row_count_after_filter: normalizedLeaderboards[key].length,
+      status: sourceInfo.status ? String(sourceInfo.status).toUpperCase() : (before ? "CONNECTED" : "EMPTY"),
+      notes: sourceInfo.notes || "",
+    });
+  }
   const sourceRows = Object.entries(sources).map(([name, info]) => ({ name, ...info }));
   const diagnostics = {
     generated_at: nowIso(),
     db_path: DB_PATH,
+    hide_staff: hideStaff,
+    hide_bots: hideBots,
     connected_sources: sourceRows.filter((row) => row.status === "connected"),
     source_errors: sourceErrors,
     row_counts: Object.fromEntries([...new Set(sourceRows.map((row) => row.table).filter((table) => table && table !== "multiple"))].map((table) => [table, rowCountSafe(db, table) ?? 0])),
+    leaderboards: leaderboardDiagnostics,
     missing_tables: [...missingTables],
     missing_columns: [...missingColumns].filter(Boolean),
-    empty_sources: sourceRows.filter((row) => row.status === "empty" || (row.status === "connected" && Array.isArray(leaderboards[row.name]) && leaderboards[row.name].length === 0)).map((row) => row.name),
+    empty_sources: sourceRows.filter((row) => row.status === "empty" || (row.status === "connected" && Array.isArray(normalizedLeaderboards[row.name]) && normalizedLeaderboards[row.name].length === 0)).map((row) => row.name),
     sources,
   };
 
   return {
     ...base,
     menu,
-    leaderboards,
-    rich,
-    rich_list: rich,
-    xp,
-    top_xp: xp,
-    level,
-    most_games_won: mostGamesWon,
-    mining_heaviest_ore: miningHeaviestOre,
-    mining_most_valuable: miningMostValuable,
-    mining_rarest: miningRarest,
-    mining_streaks: miningStreaks,
-    fishing_heaviest_fish: fishingHeaviestFish,
-    fishing_most_valuable: fishingMostValuable,
-    fishing_rarest: fishingRarest,
-    fishing_streaks: fishingStreaks,
-    radio_liked: radioLikedSongs,
-    radio_disliked: radioDislikedSongs,
-    radio_liked_requesters: radioLikedRequesters,
-    topdonators,
-    toptippers,
-    toptipped,
-    tip_transactions: tipTransactions,
-    streaks,
-    profiles,
+    leaderboards: normalizedLeaderboards,
+    rich: normalizedLeaderboards.richest,
+    rich_list: normalizedLeaderboards.richest,
+    xp: normalizedLeaderboards.xp,
+    top_xp: normalizedLeaderboards.top_xp,
+    level: normalizedLeaderboards.level,
+    most_games_won: normalizedLeaderboards.most_games_won,
+    mining_heaviest_ore: normalizedLeaderboards.mining_heaviest_ore,
+    mining_most_valuable: normalizedLeaderboards.mining_most_valuable,
+    mining_rarest: normalizedLeaderboards.mining_rarest,
+    mining_streaks: normalizedLeaderboards.mining_streaks,
+    fishing_heaviest_fish: normalizedLeaderboards.fishing_heaviest_fish,
+    fishing_most_valuable: normalizedLeaderboards.fishing_most_valuable,
+    fishing_rarest: normalizedLeaderboards.fishing_rarest,
+    fishing_streaks: normalizedLeaderboards.fishing_streaks,
+    radio_liked: normalizedLeaderboards.radio_liked,
+    radio_disliked: normalizedLeaderboards.radio_disliked,
+    radio_liked_requesters: normalizedLeaderboards.radio_liked_requesters,
+    topdonators: normalizedLeaderboards.topdonators,
+    toptippers: normalizedLeaderboards.toptippers,
+    toptipped: normalizedLeaderboards.toptipped,
+    tip_transactions: normalizedLeaderboards.tip_transactions,
+    streaks: normalizedLeaderboards.streaks,
+    profiles: normalizedLeaderboards.profiles,
     diagnostics,
-    miners: base.mining || [],
-    fishers: base.fishing || [],
-    events: eventPoints,
-    top_requesters: radioRequesters,
+    miners: normalizedLeaderboards.mining_top,
+    mining: normalizedLeaderboards.mining_top,
+    fishers: normalizedLeaderboards.fishing_top,
+    fishing: normalizedLeaderboards.fishing_top,
+    events: normalizedLeaderboards.event_points,
+    radio: normalizedLeaderboards.radio_requesters,
+    top_requesters: normalizedLeaderboards.radio_requesters,
     metadata: {
       generated_at: diagnostics.generated_at,
       db_path: diagnostics.db_path,
@@ -3977,7 +4070,9 @@ app.get("/api/public/rankings", async (req, res) => {
   };
   try {
     db = await openDb({ readonly: true });
-    json(res, scrubUserIds(buildLeaderboards(db)));
+    const hideStaff = req.query.hide_staff !== "0";
+    const hideBots = req.query.hide_bots !== "0";
+    json(res, scrubUserIds(buildLeaderboards(db, { hideStaff, hideBots })));
   } catch (err) {
     json(res, db ? scrubUserIds(minimalRankings(err.message)) : {
       rich: [], xp: [], casino: [], blackjack: [], poker: [], mining: [], fishing: [], events: [], radio: [], reputation: [],
