@@ -75,12 +75,19 @@ const SECURITY_TABS = [
 ];
 const LEADERBOARD_TABS = [
   { id: "Overview", api: "/api/leaderboards" },
-  { id: "Economy", api: "/api/leaderboards" },
-  { id: "Casino", api: "/api/leaderboards" },
+  { id: "Richest", api: "/api/leaderboards" },
+  { id: "XP / Level", api: "/api/leaderboards" },
   { id: "Mining", api: "/api/leaderboards" },
   { id: "Fishing", api: "/api/leaderboards" },
-  { id: "Events", api: "/api/leaderboards" },
+  { id: "Casino", api: "/api/leaderboards" },
+  { id: "Poker", api: "/api/leaderboards" },
+  { id: "Blackjack", api: "/api/leaderboards" },
   { id: "Radio", api: "/api/leaderboards" },
+  { id: "Events", api: "/api/leaderboards" },
+  { id: "Social / Reputation", api: "/api/leaderboards" },
+  { id: "Gold / Tips", api: "/api/leaderboards" },
+  { id: "Streaks", api: "/api/leaderboards" },
+  { id: "Profiles", api: "/api/leaderboards" },
   { id: "Diagnostics", api: "/api/leaderboards" },
 ];
 const ROOM_TABS = [
@@ -1072,6 +1079,8 @@ function renderPublicEvents(d) {
 }
 
 function renderPublicRankings(d) {
+  const lb = d.leaderboards || d || {};
+  const metadata = d.diagnostics || d.metadata || {};
   function leaderboard(title, icon, rows, cols) {
     const list = (rows || []).slice(0, 10);
     return `<div class="card"><h3>${icon} ${title}</h3>
@@ -1085,22 +1094,42 @@ function renderPublicRankings(d) {
       </div>` : `<div class="notice">No data yet — be the first on the leaderboard!</div>`}
     </div>`;
   }
+  function menuCard() {
+    const menu = d.menu || [];
+    return `<div class="card">
+      <div class="card-header"><h3>📜 In-Room Leaderboard Menu</h3><span class="pill info">${menu.length} commands</span></div>
+      <div class="chip-row">
+        ${menu.map((item) => `<span class="chip"><code>${esc(item.command)}</code> ${esc(item.label)}</span>`).join("")}
+      </div>
+    </div>`;
+  }
   return `
     <div class="pub-section-title"><h2>🏆 Rankings</h2>
-      <p>Top players across all ChillTopia activities</p></div>
+      <p>Top players across all ChillTopia activities, matched to the in-room leaderboard commands.</p></div>
+    ${menuCard()}
     <div class="pub-rankings-grid">
-      ${leaderboard("Richest Players", "💰", d.rich || d.rich_list, ["username","balance"])}
-      ${leaderboard("Top XP / Level", "⭐", d.xp, ["username","level","xp"])}
-      ${leaderboard("Casino Overall", "🎲", d.casino, ["username","wins","total_won"])}
-      ${leaderboard("Blackjack", "🃏", d.blackjack, ["username","wins","total_won"])}
-      ${leaderboard("Poker", "♠️", d.poker, ["username","wins","net"])}
-      ${leaderboard("Mining", "⛏️", d.mining || d.miners, ["username","total_mined","total_weight"])}
-      ${leaderboard("Fishing", "🎣", d.fishing || d.fishers, ["username","total_catches","biggest_catch"])}
-      ${leaderboard("Events", "🎉", d.events, ["username","points"])}
-      ${leaderboard("Radio Requesters", "🎵", d.radio || d.top_requesters, ["username","requests","count"])}
-      ${leaderboard("Reputation", "💜", d.reputation, ["username","rep_received"])}
+      ${leaderboard("Richest Players", "💰", lb.richest || d.rich || d.rich_list, ["username","balance"])}
+      ${leaderboard("Top XP / Level", "⭐", lb.xp || d.xp, ["username","level","xp"])}
+      ${leaderboard("Top Level", "⬆️", lb.level, ["username","level","xp"])}
+      ${leaderboard("Most Games Won", "🏆", lb.most_games_won || d.casino, ["username","wins","total_won"])}
+      ${leaderboard("Top Miners", "⛏️", lb.mining_top || d.mining || d.miners, ["username","total_mined","xp"])}
+      ${leaderboard("Heaviest Ores", "🪨", lb.mining_heaviest_ore || d.mining_heaviest_ore, ["ore","weight","username"])}
+      ${leaderboard("Top Fishers", "🎣", lb.fishing_top || d.fishing || d.fishers, ["username","total_catches","biggest_catch"])}
+      ${leaderboard("Heaviest Fish", "🐟", lb.fishing_heaviest_fish || d.fishing_heaviest_fish, ["fish","weight","username"])}
+      ${leaderboard("Casino Overall", "🎲", lb.casino_overall || d.casino, ["username","wins","total_won"])}
+      ${leaderboard("Blackjack / RBJ", "🃏", lb.blackjack || d.blackjack, ["username","wins","total_won"])}
+      ${leaderboard("Poker", "♠️", lb.poker || d.poker, ["username","wins","net"])}
+      ${leaderboard("Radio Requesters", "🎵", lb.radio_requesters || d.radio || d.top_requesters, ["username","requests","count"])}
+      ${leaderboard("Radio Songs", "📻", lb.radio_tracks || d.radio_songs, ["title","plays","requests"])}
+      ${leaderboard("Event Points", "🎉", lb.event_points || d.events, ["username","points"])}
+      ${leaderboard("Gold Supporters", "🥇", lb.topdonators || d.topdonators, ["username","total_gold","entries"])}
+      ${leaderboard("Top P2P Senders", "💸", lb.toptippers || d.toptippers, ["username","total_gold","entries"])}
+      ${leaderboard("Top P2P Receivers", "🤝", lb.toptipped || d.toptipped, ["username","total_gold","entries"])}
+      ${leaderboard("Daily Streaks", "🔥", lb.streaks || d.streaks, ["username","streak","total_claims"])}
+      ${leaderboard("Reputation", "💜", lb.reputation || d.reputation, ["username","rep_received","rep_given"])}
+      ${leaderboard("Profiles", "👤", lb.profiles || d.profiles, ["username","level","xp"])}
     </div>
-    ${(d.metadata?.missing_tables || []).length ? `<div class="notice" style="margin-top:16px">Some leaderboard sources are not connected yet: ${esc(d.metadata.missing_tables.slice(0, 8).join(", "))}</div>` : ""}
+    ${(metadata.missing_tables || []).length ? `<div class="notice" style="margin-top:16px">Some leaderboard sources are not connected yet: ${esc(metadata.missing_tables.slice(0, 8).join(", "))}</div>` : ""}
   `;
 }
 
@@ -2361,28 +2390,64 @@ function renderLeaderboardsPage(tab, opts = {}) {
   return `
     ${tabNav("Leaderboards")}
     ${tab === "Overview" ? renderLeaderboardsOverview() : ""}
-    ${tab === "Economy" ? renderLeaderboardGroup("Economy Rankings", [
-      ["Richest Players", "rich", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "balance", label: "Balance" }]],
+    ${tab === "Richest" ? renderLeaderboardGroup("Richest", [
+      ["!toprich Richest Players", "richest", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "balance", label: "Balance" }]],
+    ]) : ""}
+    ${tab === "XP / Level" ? renderLeaderboardGroup("XP / Level", [
       ["Top XP / Level", "xp", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }]],
+      ["Top Level", "level", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }]],
+      ["Most Games Won", "most_games_won", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "total_won", label: "Total Won" }]],
     ]) : ""}
     ${tab === "Casino" ? renderLeaderboardGroup("Casino Rankings", [
-      ["Casino Overall", "casino", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "total_won", label: "Total Won" }]],
+      ["Casino Overall", "casino_overall", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "total_won", label: "Total Won" }]],
       ["Blackjack / RBJ", "blackjack", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "losses", label: "Losses" }, { key: "blackjacks", label: "Blackjacks" }, { key: "total_won", label: "Total Won" }, { key: "net", label: "Net" }]],
       ["Poker", "poker", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "hands_played", label: "Hands" }, { key: "total_won", label: "Total Won" }, { key: "net", label: "Net" }, { key: "biggest_pot", label: "Biggest Pot" }]],
     ]) : ""}
+    ${tab === "Poker" ? renderLeaderboardGroup("Poker Rankings", [
+      ["Poker", "poker", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "hands_played", label: "Hands" }, { key: "total_won", label: "Total Won" }, { key: "net", label: "Net" }, { key: "biggest_pot", label: "Biggest Pot" }]],
+    ]) : ""}
+    ${tab === "Blackjack" ? renderLeaderboardGroup("Blackjack Rankings", [
+      ["Blackjack / RBJ", "blackjack", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "wins", label: "Wins" }, { key: "losses", label: "Losses" }, { key: "blackjacks", label: "Blackjacks" }, { key: "total_won", label: "Total Won" }, { key: "net", label: "Net" }]],
+    ]) : ""}
     ${tab === "Mining" ? renderLeaderboardGroup("Mining Rankings", [
-      ["Mining", "mining", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }, { key: "total_mined", label: "Total Mined" }, { key: "rare_finds", label: "Rare Finds" }, { key: "total_value", label: "Value" }, { key: "best_ore", label: "Best Ore" }]],
+      ["!topminers Top Miners", "mining_top", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }, { key: "total_mined", label: "Total Mined" }, { key: "rare_finds", label: "Rare Finds" }, { key: "total_value", label: "Value" }, { key: "best_ore", label: "Best Ore" }]],
+      ["Heaviest Ores", "mining_heaviest_ore", [{ key: "rank", label: "#" }, { key: "ore", label: "Ore" }, { key: "username", label: "Player" }, { key: "rarity", label: "Rarity" }, { key: "weight", label: "Weight" }, { key: "value", label: "Value" }]],
+      ["Most Valuable Ores", "mining_most_valuable", [{ key: "rank", label: "#" }, { key: "ore", label: "Ore" }, { key: "username", label: "Player" }, { key: "rarity", label: "Rarity" }, { key: "weight", label: "Weight" }, { key: "value", label: "Value" }]],
+      ["Rarest Ores", "mining_rarest", [{ key: "rank", label: "#" }, { key: "ore", label: "Ore" }, { key: "username", label: "Player" }, { key: "rarity", label: "Rarity" }, { key: "weight", label: "Weight" }, { key: "value", label: "Value" }]],
+      ["Mining Streaks", "mining_streaks", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }, { key: "streak", label: "Streak" }]],
     ]) : ""}
     ${tab === "Fishing" ? renderLeaderboardGroup("Fishing Rankings", [
-      ["Fishing", "fishing", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }, { key: "total_catches", label: "Catches" }, { key: "biggest_catch", label: "Biggest" }, { key: "total_value", label: "Value" }]],
+      ["!topfishers Top Fishers", "fishing_top", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }, { key: "total_catches", label: "Catches" }, { key: "biggest_catch", label: "Biggest" }, { key: "total_value", label: "Value" }]],
+      ["Heaviest Fish", "fishing_heaviest_fish", [{ key: "rank", label: "#" }, { key: "fish", label: "Fish" }, { key: "username", label: "Player" }, { key: "rarity", label: "Rarity" }, { key: "weight", label: "Weight" }, { key: "value", label: "Value" }]],
+      ["Most Valuable Fish", "fishing_most_valuable", [{ key: "rank", label: "#" }, { key: "fish", label: "Fish" }, { key: "username", label: "Player" }, { key: "rarity", label: "Rarity" }, { key: "weight", label: "Weight" }, { key: "value", label: "Value" }]],
+      ["Rarest Fish", "fishing_rarest", [{ key: "rank", label: "#" }, { key: "fish", label: "Fish" }, { key: "username", label: "Player" }, { key: "rarity", label: "Rarity" }, { key: "weight", label: "Weight" }, { key: "value", label: "Value" }]],
+      ["Fishing Streaks", "fishing_streaks", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }, { key: "streak", label: "Streak" }]],
     ]) : ""}
     ${tab === "Events" ? renderLeaderboardGroup("Event Rankings", [
-      ["Event Points", "events", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "points", label: "Points" }]],
+      ["Event Points", "event_points", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "points", label: "Points" }]],
     ]) : ""}
     ${tab === "Radio" ? renderLeaderboardGroup("Radio Rankings", [
-      ["Top Requesters", "radio", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "requests", label: "Requests" }]],
-      ["Song Stats", "radio_songs", [{ key: "rank", label: "#" }, { key: "title", label: "Title" }, { key: "artist", label: "Artist" }, { key: "plays", label: "Plays" }, { key: "requests", label: "Requests" }, { key: "likes", label: "Likes" }, { key: "dislikes", label: "Dislikes" }]],
+      ["Top Requesters", "radio_requesters", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "requests", label: "Requests" }]],
+      ["Song Stats", "radio_tracks", [{ key: "rank", label: "#" }, { key: "title", label: "Title" }, { key: "artist", label: "Artist" }, { key: "plays", label: "Plays" }, { key: "requests", label: "Requests" }, { key: "likes", label: "Likes" }, { key: "dislikes", label: "Dislikes" }]],
+      ["Liked Tracks", "radio_liked", [{ key: "rank", label: "#" }, { key: "name", label: "Track" }, { key: "likes", label: "Likes" }]],
+      ["Disliked Tracks", "radio_disliked", [{ key: "rank", label: "#" }, { key: "name", label: "Track" }, { key: "dislikes", label: "Dislikes" }]],
+    ]) : ""}
+    ${tab === "Social / Reputation" ? renderLeaderboardGroup("Social / Reputation", [
       ["Reputation / Social", "reputation", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "rep_received", label: "Received" }, { key: "rep_given", label: "Given" }]],
+    ]) : ""}
+    ${tab === "Gold / Tips" ? renderLeaderboardGroup("Gold / Tips", [
+      ["!topdonators Gold Supporters", "topdonators", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "total_gold", label: "Gold" }, { key: "entries", label: "Entries" }]],
+      ["!toptippers P2P Senders", "toptippers", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "total_gold", label: "Gold" }, { key: "entries", label: "Entries" }]],
+      ["!toptipped P2P Receivers", "toptipped", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "total_gold", label: "Gold" }, { key: "entries", label: "Entries" }]],
+      ["Tip Transactions", "tip_transactions", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "total_gold", label: "Gold" }, { key: "entries", label: "Entries" }]],
+    ]) : ""}
+    ${tab === "Streaks" ? renderLeaderboardGroup("Streaks", [
+      ["!topstreaks Daily Claim Streaks", "streaks", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "streak", label: "Best Streak" }, { key: "total_claims", label: "Claims" }]],
+      ["Mining Streaks", "mining_streaks", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "streak", label: "Streak" }]],
+      ["Fishing Streaks", "fishing_streaks", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "streak", label: "Streak" }]],
+    ]) : ""}
+    ${tab === "Profiles" ? renderLeaderboardGroup("Profiles", [
+      ["!profile Public-Safe Profile Stats", "profiles", [{ key: "rank", label: "#" }, { key: "username", label: "Username" }, { key: "level", label: "Level" }, { key: "xp", label: "XP" }, { key: "balance", label: "Balance" }, { key: "games_won", label: "Games Won" }]],
     ]) : ""}
     ${tab === "Diagnostics" ? renderLeaderboardDiagnostics() : ""}
   `;
@@ -2390,26 +2455,36 @@ function renderLeaderboardsPage(tab, opts = {}) {
 
 function renderLeaderboardsOverview() {
   const d = state.data || {};
+  const lb = d.leaderboards || d;
+  const meta = d.diagnostics || d.metadata || {};
   const sections = [
-    ["Richest Players", "rich", "💰", "balance"],
+    ["Richest Players", "richest", "💰", "balance"],
     ["Top XP", "xp", "⭐", "xp"],
-    ["Casino Overall", "casino", "🎲", "wins"],
+    ["Daily Streaks", "streaks", "🔥", "streak"],
+    ["Gold Supporters", "topdonators", "🥇", "total_gold"],
     ["Blackjack", "blackjack", "🃏", "wins"],
     ["Poker", "poker", "♠️", "wins"],
-    ["Mining", "mining", "⛏️", "total_mined"],
-    ["Fishing", "fishing", "🎣", "total_catches"],
-    ["Events", "events", "🎉", "points"],
-    ["Radio", "radio", "🎵", "requests"],
+    ["Mining", "mining_top", "⛏️", "total_mined"],
+    ["Heaviest Ores", "mining_heaviest_ore", "🪨", "weight"],
+    ["Fishing", "fishing_top", "🎣", "total_catches"],
+    ["Heaviest Fish", "fishing_heaviest_fish", "🐟", "weight"],
+    ["Events", "event_points", "🎉", "points"],
+    ["Radio", "radio_requesters", "🎵", "requests"],
     ["Reputation", "reputation", "💜", "rep_received"],
   ];
   return `
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:14px">
-      ${metricCard("Generated", d.metadata?.generated_at || "—", "ranking snapshot", "accent-cyan", "🏆")}
-      ${metricCard("Missing Tables", d.metadata?.missing_tables?.length || 0, "safe empty sections", d.metadata?.missing_tables?.length ? "accent-red" : "accent-green", "T")}
-      ${metricCard("Missing Columns", d.metadata?.missing_columns?.length || 0, "partial sources", d.metadata?.missing_columns?.length ? "accent-red" : "accent-green", "C")}
+      ${metricCard("Generated", meta.generated_at || "—", "ranking snapshot", "accent-cyan", "🏆")}
+      ${metricCard("Connected Sources", meta.connected_sources?.length || Object.values(meta.sources || {}).filter((s) => s.status === "connected").length, "real DB sources", "accent-green", "S")}
+      ${metricCard("Missing Tables", meta.missing_tables?.length || 0, "safe empty sections", meta.missing_tables?.length ? "accent-red" : "accent-green", "T")}
+      ${metricCard("Missing Columns", meta.missing_columns?.length || 0, "partial sources", meta.missing_columns?.length ? "accent-red" : "accent-green", "C")}
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header"><h2>In-Room Leaderboard Commands</h2><span class="pill info">${(d.menu || []).length} commands</span></div>
+      <div class="chip-row">${(d.menu || []).map((item) => `<span class="chip"><code>${esc(item.command)}</code> ${esc(item.label)}</span>`).join("")}</div>
     </div>
     <div class="pub-rankings-grid">
-      ${sections.map(([title, key, icon, valueKey]) => renderLeaderboardMini(title, icon, d[key] || [], valueKey)).join("")}
+      ${sections.map(([title, key, icon, valueKey]) => renderLeaderboardMini(title, icon, lb[key] || d[key] || [], valueKey)).join("")}
     </div>
   `;
 }
@@ -2427,23 +2502,27 @@ function renderLeaderboardMini(title, icon, rows, valueKey) {
 
 function renderLeaderboardGroup(title, groups) {
   const d = state.data || {};
+  const lb = d.leaderboards || d;
+  const meta = d.diagnostics || d.metadata || {};
   return `<div class="grid">
     ${groups.map(([label, key, cols]) => `<div class="card">
-      <div class="card-header"><h2>${esc(label)}</h2><span class="pill info">${(d[key] || []).length} rows</span></div>
-      ${table(d[key] || [], cols)}
-      <div class="muted text-sm" style="margin-top:10px">Source: <code>${esc(d.metadata?.sources?.[key]?.table || "not connected")}</code></div>
+      <div class="card-header"><h2>${esc(label)}</h2><span class="pill info">${(lb[key] || d[key] || []).length} rows</span></div>
+      ${table(lb[key] || d[key] || [], cols)}
+      <div class="muted text-sm" style="margin-top:10px">Source: <code>${esc(meta.sources?.[key]?.table || "not connected")}</code> ${meta.sources?.[key]?.notes ? `· ${esc(meta.sources[key].notes)}` : ""}</div>
     </div>`).join("")}
   </div>`;
 }
 
 function renderLeaderboardDiagnostics() {
   const d = state.data || {};
-  const sources = Object.entries(d.metadata?.sources || {}).map(([name, info]) => ({ name, ...info, columns: (info.columns || []).join(", ") }));
+  const meta = d.diagnostics || d.metadata || {};
+  const sources = Object.entries(meta.sources || {}).map(([name, info]) => ({ name, ...info, columns: (info.columns || []).join(", ") }));
   return `
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
       ${metricCard("Sources", sources.length, "leaderboard source checks", "accent-cyan", "S")}
-      ${metricCard("Missing Tables", d.metadata?.missing_tables?.length || 0, (d.metadata?.missing_tables || []).slice(0, 3).join(", "), d.metadata?.missing_tables?.length ? "accent-red" : "accent-green", "T")}
-      ${metricCard("Missing Columns", d.metadata?.missing_columns?.length || 0, (d.metadata?.missing_columns || []).slice(0, 3).join(", "), d.metadata?.missing_columns?.length ? "accent-red" : "accent-green", "C")}
+      ${metricCard("Connected", meta.connected_sources?.length || sources.filter((s) => s.status === "connected").length, "real source mappings", "accent-green", "✓")}
+      ${metricCard("Missing Tables", meta.missing_tables?.length || 0, (meta.missing_tables || []).slice(0, 3).join(", "), meta.missing_tables?.length ? "accent-red" : "accent-green", "T")}
+      ${metricCard("Missing Columns", meta.missing_columns?.length || 0, (meta.missing_columns || []).slice(0, 3).join(", "), meta.missing_columns?.length ? "accent-red" : "accent-green", "C")}
     </div>
     <div class="card">
       <h2>Source Diagnostics</h2>
@@ -2456,8 +2535,8 @@ function renderLeaderboardDiagnostics() {
         { key: "notes", label: "Notes" },
       ])}
     </div>
-    ${futureControls((d.metadata?.missing_tables || []).map((t) => ({ endpoint: t, purpose: "Leaderboard source table is not present in this DB.", status: "MISSING TABLE" }))
-      .concat((d.metadata?.missing_columns || []).map((c) => ({ endpoint: c, purpose: "Leaderboard source column is not present in this DB.", status: "MISSING COLUMN" }))), "Leaderboard Missing Sources")}
+    ${futureControls((meta.missing_tables || []).map((t) => ({ endpoint: t, purpose: "Leaderboard source table is not present in this DB.", status: "MISSING TABLE" }))
+      .concat((meta.missing_columns || []).map((c) => ({ endpoint: c, purpose: "Leaderboard source column is not present in this DB.", status: "MISSING COLUMN" }))), "Leaderboard Missing Sources")}
   `;
 }
 
