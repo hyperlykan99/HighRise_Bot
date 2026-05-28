@@ -844,6 +844,117 @@ function enqueueBotCommand(db, { targetBot, actionName, payload, requesterId }) 
   return { id: info.lastInsertRowid, target_bot: targetBot, action: actionName, status: "pending" };
 }
 
+const ROOM_DASHBOARD_TABLES = [
+  "room_welcome_seen",
+  "room_warnings",
+  "room_bans",
+  "room_tags",
+  "room_tag_members",
+  "room_social_logs",
+  "room_emote_loops",
+  "rotating_announcements",
+  "subscriber_announcements",
+  "big_announcement_settings",
+  "big_announcement_logs",
+  "first_find_announce_pending",
+  "event_definitions",
+  "event_history",
+  "event_points",
+  "event_settings",
+  "event_votes",
+  "processed_events",
+  "release_announcements",
+  "scheduled_events",
+  "module_flags",
+  "admin_action_logs",
+];
+
+function roomTableInfo(db, table, limit = "50") {
+  const exists = tableExists(db, table);
+  const cols = exists ? tableColumns(db, table) : [];
+  const orderBy = cols.includes("created_at") ? "created_at DESC"
+    : cols.includes("set_at") ? "set_at DESC"
+    : cols.includes("played_at") ? "played_at DESC"
+    : cols.includes("starts_at") ? "starts_at ASC"
+    : cols.includes("id") ? "id DESC"
+    : "";
+  return { exists, columns: cols, rows: safeTableRows(db, table, { orderBy, limit }) };
+}
+
+function readRoomDashboard(db) {
+  const allSettings = safeRows(db, "room_settings", ["key", "value"], { orderBy: "key" });
+  const settings = Object.fromEntries(allSettings.map((row) => [row.key, row.value]));
+  const tables = Object.fromEntries(ROOM_DASHBOARD_TABLES.map((name) => [name, roomTableInfo(db, name)]));
+  const scheduled = tables.scheduled_events?.rows || [];
+  const activeEvent = Object.fromEntries((tables.event_settings?.rows || []).map((row) => [row.key, row.value]));
+  const hostCommands = safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
+    where: "target_bot IN ('host','eventhost','ChillTopiaMC') OR action IN ('announce','event_start','event_stop','event_schedule')",
+    orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "50",
+  });
+  const auditRows = safeRows(db, "audit_logs", ["id", "actor", "action_type", "target_type", "target_id", "old_value", "new_value", "ip_address", "created_at"], {
+    where: "action_type LIKE 'room_%' OR action_type LIKE 'event_%' OR target_type IN ('room_settings','event_settings','rotating_announcements','bot_command_queue')",
+    orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "",
+    limit: "100",
+  });
+  const knownKeys = [
+    "room_id",
+    "welcome_enabled",
+    "welcome_message",
+    "welcome_first_time_message",
+    "welcome_returning_message",
+    "welcome_delay_sec",
+    "welcome_vip_extra",
+    "maintenance_mode",
+    "public_emotes_enabled",
+    "social_enabled",
+    "self_teleport_enabled",
+    "teleport_enabled",
+    "requests_enabled",
+    "current_vibe",
+    "bots_enabled",
+    "announcements_enabled",
+    "announcement_interval_min",
+    "daily_enabled",
+    "mining_enabled",
+    "fishing_enabled",
+    "room_rules",
+    "how_to_play",
+    "vip_info",
+    "staff_list",
+  ];
+  const known = {};
+  for (const row of allSettings) if (knownKeys.includes(row.key)) known[row.key] = row.value;
+  const extra = allSettings.filter((row) => !knownKeys.includes(row.key));
+  const recentErrors = auditRows.filter((row) => String(row.action_type || "").toLowerCase().includes("error")).slice(0, 10);
+  return {
+    overview: {
+      room_id: settings.room_id || settings.highrise_room_id || "",
+      room_users: settings.room_users || settings.current_room_users || "",
+      welcome_enabled: settings.welcome_enabled ?? "",
+      announcements_enabled: settings.announcements_enabled ?? "",
+      active_event: activeEvent.event_active === "1" ? (activeEvent.event_name || "active") : "",
+      scheduled_events_count: scheduled.length,
+      recent_errors: recentErrors,
+    },
+    settings,
+    room_settings: allSettings,
+    known_settings: known,
+    extra_settings: extra,
+    known_keys: knownKeys,
+    tables,
+    command_queue: {
+      pending: hostCommands.filter((row) => ["pending", "queued", "claimed", "running"].includes(String(row.status || ""))),
+      recent: hostCommands,
+    },
+    audit_logs: auditRows,
+  };
+}
+
+function upsertKeyValue(db, table, key, value) {
+  db.prepare(`INSERT OR REPLACE INTO ${sqlIdent(table)} (key, value) VALUES (?, ?)`).run(key, String(value));
+}
+
 const BOT_COMMAND_QUEUE_COLUMNS = [
   "id",
   "target_bot",
@@ -2113,11 +2224,34 @@ app.get("/api/public/events", async (req, res) => {
   let db = null;
   try {
     db = await openDb({ readonly: true });
-    const current = safeRows(db, "room_settings", ["key","value"], { where: "key LIKE 'event.%' OR key = 'active_event'", limit: "20" });
+    const roomCurrent = safeRows(db, "room_settings", ["key","value"], { where: "key LIKE 'event.%' OR key = 'active_event'", limit: "20" });
+    const eventCurrent = safeRows(db, "event_settings", ["key","value"], { where: "key IN ('event_active','event_name','event_expires_at')", limit: "20" });
     const scheduled = safeRows(db, "scheduled_events", ["id","name","description","starts_at","ends_at","points","reward"], { orderBy: "starts_at ASC", limit: "10" });
-    json(res, { current_settings: current, scheduled });
+    json(res, { current_settings: [...roomCurrent, ...eventCurrent], scheduled });
   } catch {
     json(res, { current_settings: [], scheduled: [] });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/public/room-info", async (_req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const settings = readKeyValueMap(db, "room_settings");
+    const safeKeys = ["room_rules", "how_to_play", "vip_info", "staff_list", "current_vibe"];
+    const info = Object.fromEntries(safeKeys.map((key) => [key, settings[key] || ""]));
+    const announcements = safeRows(db, "rotating_announcements", ["id", "message", "text", "body", "content", "enabled"], {
+      where: columnExists(db, "rotating_announcements", "enabled") ? "enabled IN ('1', 1, 'true', 'enabled')" : "",
+      limit: "5",
+    }).map((row) => ({
+      id: row.id,
+      message: row.message || row.text || row.body || row.content || "",
+    })).filter((row) => row.message);
+    json(res, { info, announcements });
+  } catch {
+    json(res, { info: {}, announcements: [] });
   } finally {
     if (db) try { db.close(); } catch {}
   }
@@ -3468,7 +3602,20 @@ app.get("/api/bot-spawns", requireAuth, (req, res) => {
   json(res, { spawns: rows, grouped });
 }, closeDb);
 
-const ALLOWED_BOT_COMMAND_ACTIONS = new Set(["return_home", "stop_emote", "restart_requested", "announce", "trigger_emote", "radio_skip", "radio_clear", "radio_cleanup", "radio_reload"]);
+const ALLOWED_BOT_COMMAND_ACTIONS = new Set([
+  "return_home",
+  "stop_emote",
+  "restart_requested",
+  "announce",
+  "trigger_emote",
+  "radio_skip",
+  "radio_clear",
+  "radio_cleanup",
+  "radio_reload",
+  "event_start",
+  "event_stop",
+  "event_schedule",
+]);
 
 app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games"), (req, res) => {
   const targetBot = String(req.body?.target_bot || "").trim().slice(0, 80);
@@ -3517,41 +3664,147 @@ app.post("/api/room/announce", requireAuth, requireAnyPermission("emergency_cont
   }
 }, closeDb);
 
-/* ── Events (read-only) ─────────────────────────────── */
+app.post("/api/room/announcements", requireAuth, requireAnyPermission("emergency_controls", "manage_radio"), (req, res) => {
+  if (!tableExists(req.db, "rotating_announcements")) return json(res, { error: "missing_table", message: "rotating_announcements is not present." }, 400);
+  const cols = tableColumns(req.db, "rotating_announcements");
+  const messageCol = ["message", "text", "body", "content"].find((col) => cols.includes(col));
+  if (!messageCol) return json(res, { error: "unverified_schema", message: "No message/text/body/content column found." }, 400);
+  const message = String(req.body?.message || "").trim();
+  if (!message) return json(res, { error: "message_required" }, 400);
+  if (message.length > 500) return json(res, { error: "message_too_long" }, 400);
+  const insertCols = [messageCol];
+  const values = [message];
+  if (cols.includes("enabled")) { insertCols.push("enabled"); values.push("1"); }
+  if (cols.includes("set_by")) { insertCols.push("set_by"); values.push(req.user.username); }
+  if (cols.includes("created_by")) { insertCols.push("created_by"); values.push(req.user.username); }
+  if (cols.includes("created_at")) insertCols.push("created_at");
+  const placeholders = insertCols.map((col) => col === "created_at" ? "CURRENT_TIMESTAMP" : "?").join(", ");
+  const info = req.db.prepare(`INSERT INTO rotating_announcements (${insertCols.map(sqlIdent).join(", ")}) VALUES (${placeholders})`).run(...values);
+  audit(req.db, req.user.username, "room_rotating_announcement_create", "rotating_announcements", info.lastInsertRowid, "", { message }, req.ip);
+  json(res, { ok: true, id: info.lastInsertRowid });
+}, closeDb);
+
+app.put("/api/room/announcements/:id", requireAuth, requireAnyPermission("emergency_controls", "manage_radio"), (req, res) => {
+  if (!tableExists(req.db, "rotating_announcements")) return json(res, { error: "missing_table" }, 400);
+  const cols = tableColumns(req.db, "rotating_announcements");
+  if (!cols.includes("id")) return json(res, { error: "unverified_schema", message: "rotating_announcements.id is required." }, 400);
+  const id = String(req.params.id || "").trim();
+  const old = req.db.prepare("SELECT * FROM rotating_announcements WHERE id=? LIMIT 1").get(id);
+  if (!old) return json(res, { error: "not_found" }, 404);
+  const updates = [];
+  const values = [];
+  const messageCol = ["message", "text", "body", "content"].find((col) => cols.includes(col));
+  if (messageCol && req.body?.message !== undefined) {
+    const message = String(req.body.message || "").trim();
+    if (!message) return json(res, { error: "message_required" }, 400);
+    updates.push(`${sqlIdent(messageCol)}=?`);
+    values.push(message);
+  }
+  if (cols.includes("enabled") && req.body?.enabled !== undefined) {
+    updates.push(`${sqlIdent("enabled")}=?`);
+    values.push(req.body.enabled ? "1" : "0");
+  }
+  if (cols.includes("updated_at")) updates.push(`${sqlIdent("updated_at")}=CURRENT_TIMESTAMP`);
+  if (!updates.length) return json(res, { error: "no_verified_updates" }, 400);
+  values.push(id);
+  req.db.prepare(`UPDATE rotating_announcements SET ${updates.join(", ")} WHERE id=?`).run(...values);
+  const next = req.db.prepare("SELECT * FROM rotating_announcements WHERE id=? LIMIT 1").get(id);
+  audit(req.db, req.user.username, "room_rotating_announcement_update", "rotating_announcements", id, old, next, req.ip);
+  json(res, { ok: true, row: next });
+}, closeDb);
+
+/* ── Events ─────────────────────────────────────────── */
 app.get("/api/events", requireAuth, (req, res) => {
   const tables = {};
-  for (const name of ["event_definitions","event_history","event_points","event_settings","event_votes","scheduled_events"]) {
-    const orderBy = tableExists(req.db, name) && columnExists(req.db, name, "created_at") ? "created_at DESC"
-      : tableExists(req.db, name) && columnExists(req.db, name, "starts_at") ? "starts_at ASC"
-      : "";
-    tables[name] = {
-      exists: tableExists(req.db, name),
-      rows: safeTableRows(req.db, name, { orderBy, limit: "50" }),
-    };
+  for (const name of ["event_definitions","event_history","event_points","event_settings","event_votes","processed_events","scheduled_events"]) {
+    tables[name] = roomTableInfo(req.db, name);
   }
+  const settingsMap = Object.fromEntries((tables.event_settings.rows || []).map((row) => [row.key, row.value]));
+  const eventCommands = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
+    where: "action IN ('event_start','event_stop','event_schedule')",
+    orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "25",
+  });
   json(res, {
     tables,
     definitions: tables.event_definitions.rows,
     history: tables.event_history.rows,
     points: tables.event_points.rows,
     settings: tables.event_settings.rows,
+    settings_map: settingsMap,
     votes: tables.event_votes.rows,
+    processed: tables.processed_events.rows,
     scheduled: tables.scheduled_events.rows,
+    active_event: settingsMap.event_active === "1" ? { event_id: settingsMap.event_name, expires_at: settingsMap.event_expires_at } : null,
+    command_queue: {
+      pending: eventCommands.filter((row) => ["pending", "queued", "claimed", "running"].includes(String(row.status || ""))),
+      recent: eventCommands,
+    },
   });
+}, closeDb);
+
+app.get("/api/events/definitions", requireAuth, (req, res) => {
+  json(res, { definitions: roomTableInfo(req.db, "event_definitions").rows });
+}, closeDb);
+
+app.put("/api/events/settings", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const updates = req.body?.updates && typeof req.body.updates === "object" ? req.body.updates : {};
+  const source = String(req.body?.source || "event_settings");
+  if (!["event_settings", "auto_event_settings"].includes(source)) return json(res, { error: "source_not_allowed" }, 400);
+  if (!tableExists(req.db, source) || !columnExists(req.db, source, "key") || !columnExists(req.db, source, "value")) {
+    return json(res, { error: "unverified_schema", message: `${source} key/value schema is required.` }, 400);
+  }
+  const blocked = new Set(["event_active", "event_name", "event_expires_at"]);
+  const old = readKeyValueMap(req.db, source);
+  const changed = {};
+  for (const [key, value] of Object.entries(updates)) {
+    const cleanKey = String(key || "").trim();
+    if (!cleanKey || blocked.has(cleanKey)) continue;
+    if (!Object.prototype.hasOwnProperty.call(old, cleanKey) && source === "event_settings") continue;
+    upsertKeyValue(req.db, source, cleanKey, value);
+    changed[cleanKey] = String(value);
+  }
+  if (!Object.keys(changed).length) return json(res, { error: "no_verified_updates" }, 400);
+  audit(req.db, req.user.username, "event_settings_update", source, Object.keys(changed).join(","), old, changed, req.ip);
+  json(res, { ok: true, updated: changed, settings: readKeyValueMap(req.db, source) });
+}, closeDb);
+
+function enqueueEventAction(req, res, actionName, payload) {
+  if (JSON.stringify(payload || {}).length > 2000) return json(res, { error: "payload_too_large" }, 400);
+  try {
+    const queued = enqueueBotCommand(req.db, { targetBot: "host", actionName, payload, requesterId: req.user.username });
+    audit(req.db, req.user.username, `${actionName}_enqueue`, "bot_command_queue", queued.id, "", payload, req.ip);
+    return json(res, { ok: true, command: queued, message: "Command queued. Bot must consume bot_command_queue." });
+  } catch (err) {
+    return json(res, { error: err.message || "enqueue_failed" }, 500);
+  }
+}
+
+app.post("/api/events/start", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const eventId = String(req.body?.event_id || req.body?.id || "").trim().toLowerCase();
+  const minutes = Number(req.body?.minutes || 30);
+  if (!eventId) return json(res, { error: "event_id_required" }, 400);
+  if (!Number.isFinite(minutes) || minutes < 1 || minutes > 480) return json(res, { error: "minutes_out_of_range" }, 400);
+  return enqueueEventAction(req, res, "event_start", { event_id: eventId, minutes });
+}, closeDb);
+
+app.post("/api/events/stop", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const target = String(req.body?.target || "all").trim().toLowerCase() || "all";
+  return enqueueEventAction(req, res, "event_stop", { target });
+}, closeDb);
+
+app.post("/api/events/schedule", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const eventId = String(req.body?.event_id || "").trim().toLowerCase();
+  const startsAt = String(req.body?.starts_at || "").trim();
+  const minutes = Number(req.body?.minutes || 30);
+  if (!eventId || !startsAt) return json(res, { error: "event_id_and_starts_at_required" }, 400);
+  if (!Number.isFinite(minutes) || minutes < 1 || minutes > 480) return json(res, { error: "minutes_out_of_range" }, 400);
+  return enqueueEventAction(req, res, "event_schedule", { event_id: eventId, starts_at: startsAt, minutes });
 }, closeDb);
 
 /* ── Room Control (read) ────────────────────────────── */
 app.get("/api/room-control", requireAuth, (req, res) => {
-  const KNOWN_KEYS = [
-    "welcome_enabled","welcome_message","maintenance_mode","public_emotes_enabled",
-    "social_enabled","self_teleport_enabled","requests_enabled","current_vibe",
-    "bots_enabled","announcements_enabled","daily_enabled","mining_enabled","fishing_enabled",
-  ];
-  const allSettings = safeRows(req.db, "room_settings", ["key","value"], { orderBy: "key" });
-  const known = {};
-  for (const row of allSettings) { if (KNOWN_KEYS.includes(row.key)) known[row.key] = row.value; }
-  const extra = allSettings.filter((r) => !KNOWN_KEYS.includes(r.key));
-  json(res, { known_settings: known, extra_settings: extra, known_keys: KNOWN_KEYS });
+  json(res, readRoomDashboard(req.db));
 }, closeDb);
 
 app.get("/", (_req, res) => {

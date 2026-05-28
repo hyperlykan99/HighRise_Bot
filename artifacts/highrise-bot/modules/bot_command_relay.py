@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 import database as db
@@ -273,6 +274,128 @@ async def _do_radio_reload(bot: "BaseBot", payload: dict, requester_id: str) -> 
     return "radio reload acknowledged; cached vibe scan cleared where supported"
 
 
+def _require_host_action(action: str) -> None:
+    if _current_mode() != "host":
+        raise PermissionError(f"{action} may only run on ChillTopiaMC")
+
+
+async def _do_event_start(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_host_action("event_start")
+    from modules import events
+
+    raw = _norm(payload.get("event_id"))
+    event_id = events._resolve_event_arg(raw) or raw
+    if not event_id or event_id not in events.EVENTS:
+        raise ValueError(f"unknown event: {raw}")
+    try:
+        minutes = int(payload.get("minutes") or 30)
+    except Exception:
+        minutes = 30
+    if minutes < 1 or minutes > 480:
+        raise ValueError("minutes must be 1-480")
+
+    ev = events.EVENTS[event_id]
+    ev_type = ev.get("event_type", "room")
+    if ev_type in ("mining", "fishing") or event_id in (events._MINING_EVENT_IDS | events._FISHING_EVENT_IDS):
+        db.start_mining_event(event_id, requester_id or "dashboard", minutes)
+    else:
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+        db.set_active_event(event_id, expires_at)
+
+    name = ev.get("name", event_id)
+    emoji = "🎣" if ev_type == "fishing" else "⛏️" if ev_type == "mining" else ev.get("emoji", "🎉")
+    await bot.highrise.chat((f"{emoji} {name} is live for {minutes}min. {ev.get('desc', '')}")[:MAX_CHAT_CHARS])
+    try:
+        db.add_event_history_entry(event_id, name, requester_id or "dashboard", False, minutes * 60)
+    except Exception:
+        pass
+    return f"event started: {event_id} for {minutes}min"
+
+
+async def _do_event_stop(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_host_action("event_stop")
+    from modules import events
+
+    target = _norm(payload.get("target") or "all")
+    stopped: list[str] = []
+
+    mine_ev = db.get_active_mining_event()
+    if mine_ev:
+        mine_eid = mine_ev.get("event_id", "")
+        resolved = events._resolve_event_arg(target) or target
+        if target in ("all", "mine", "mining") or resolved == mine_eid or target == mine_eid:
+            db.stop_mining_event()
+            stopped.append(mine_eid)
+
+    gen_ev = db.get_active_event()
+    if gen_ev:
+        gen_eid = gen_ev.get("event_id", "")
+        resolved = events._resolve_event_arg(target) or target
+        if target == "all" or resolved == gen_eid or target == gen_eid:
+            db.clear_active_event()
+            stopped.append(gen_eid)
+
+    if not stopped:
+        return "no matching active event to stop"
+    names = [events.EVENTS.get(eid, {}).get("name", eid) for eid in stopped]
+    await bot.highrise.chat(("🛑 Event stopped: " + ", ".join(names))[:MAX_CHAT_CHARS])
+    return "event stopped: " + ", ".join(stopped)
+
+
+async def _do_event_schedule(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_host_action("event_schedule")
+    from modules import events
+
+    raw = _norm(payload.get("event_id"))
+    event_id = events._resolve_event_arg(raw) or raw
+    if not event_id or event_id not in events.EVENTS:
+        raise ValueError(f"unknown event: {raw}")
+    starts_at = str(payload.get("starts_at") or "").strip()
+    if not starts_at:
+        raise ValueError("starts_at is required")
+    try:
+        minutes = int(payload.get("minutes") or 30)
+    except Exception:
+        minutes = 30
+    conn = db.get_connection()
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(scheduled_events)").fetchall()]
+        if not cols:
+            raise RuntimeError("scheduled_events table missing")
+        insert_cols: list[str] = []
+        values: list[Any] = []
+        for col, value in (
+            ("event_id", event_id),
+            ("name", events.EVENTS[event_id].get("name", event_id)),
+            ("title", events.EVENTS[event_id].get("name", event_id)),
+            ("description", events.EVENTS[event_id].get("desc", "")),
+            ("starts_at", starts_at),
+            ("duration_minutes", str(minutes)),
+            ("minutes", str(minutes)),
+            ("status", "scheduled"),
+            ("created_by", requester_id or "dashboard"),
+            ("set_by", requester_id or "dashboard"),
+        ):
+            if col in cols:
+                insert_cols.append(col)
+                values.append(value)
+        if "created_at" in cols:
+            insert_cols.append("created_at")
+        if "event_id" not in insert_cols and "name" not in insert_cols and "title" not in insert_cols:
+            raise RuntimeError("scheduled_events has no event identifier column")
+        if "starts_at" not in insert_cols:
+            raise RuntimeError("scheduled_events.starts_at missing")
+        placeholders = ["CURRENT_TIMESTAMP" if col == "created_at" else "?" for col in insert_cols]
+        conn.execute(
+            f"INSERT INTO scheduled_events ({', '.join(insert_cols)}) VALUES ({', '.join(placeholders)})",
+            values,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return f"event scheduled: {event_id} at {starts_at} for {minutes}min"
+
+
 async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> str:
     """Start a registry-timed emote loop on this bot for the given emote_id."""
     from modules.emote_system import _bot_loops
@@ -350,6 +473,9 @@ DISPATCH = {
     "radio_clear": _do_radio_clear,
     "radio_cleanup": _do_radio_cleanup,
     "radio_reload": _do_radio_reload,
+    "event_start": _do_event_start,
+    "event_stop": _do_event_stop,
+    "event_schedule": _do_event_schedule,
     # Legacy in-room cross-bot emote relay actions.
     "botemote": _do_botemote,
     "stopbotemote": _do_stopbotemote,

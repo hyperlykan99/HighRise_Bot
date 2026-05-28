@@ -58,14 +58,14 @@ const PLAYER_TABS = [
   { id: "Logs", api: null },
 ];
 const ROOM_TABS = [
+  { id: "Overview", api: "/api/room-control" },
   { id: "Room Settings", api: "/api/room-control" },
-  { id: "Radio", api: "/api/radio" },
-  { id: "Events", api: "/api/events" },
-  { id: "Announcements", api: "/api/room-control" },
   { id: "Welcome", api: "/api/room-control" },
-  { id: "Emotes", api: "/api/room-control" },
-  { id: "Dancefloor", api: "/api/room-control" },
-  { id: "Sync", api: "/api/room-control" },
+  { id: "Announcements", api: "/api/room-control" },
+  { id: "Events", api: "/api/events" },
+  { id: "Event Rewards", api: "/api/events" },
+  { id: "Rules / Info", api: "/api/room-control" },
+  { id: "Logs", api: "/api/room-control" },
   { id: "Advanced", api: "/api/room-control" },
 ];
 const RADIO_TABS = [
@@ -684,7 +684,7 @@ async function loadPublic() {
   const apiMap = {
     home: "/api/public/home", radio: "/api/public/radio",
     events: "/api/public/events", rankings: "/api/public/rankings",
-    howtoplay: null, roominfo: null,
+    howtoplay: null, roominfo: "/api/public/room-info",
   };
   try {
     const url = apiMap[state.publicPage];
@@ -951,9 +951,16 @@ function renderPublicHowToPlay() {
 
 function renderPublicEvents(d) {
   const scheduled = d.scheduled || [];
+  const current = d.current_settings || [];
+  const currentMap = Object.fromEntries(current.map((row) => [row.key, row.value]));
+  const active = currentMap.event_active === "1" ? currentMap.event_name : (currentMap.active_event || "");
   return `
     <div class="pub-section-title"><h2>🎉 Events</h2>
       <p>Current and upcoming ChillTopia events</p></div>
+    <div class="card" style="margin-bottom:16px">
+      <h3>Current Event</h3>
+      ${active ? `<div class="pub-event-item"><div class="pub-event-name">${esc(active)}</div>${currentMap.event_expires_at ? `<div class="muted text-sm">Ends ${esc(currentMap.event_expires_at)}</div>` : ""}</div>` : `<div class="notice">No event is active right now.</div>`}
+    </div>
     <div class="pub-grid2">
       <div class="card">
         <h3>🏆 Event Points & Rewards</h3>
@@ -1008,7 +1015,16 @@ function renderPublicRankings(d) {
   `;
 }
 
-function renderPublicRoomInfo() {
+function renderPublicRoomInfo(d = state.data || {}) {
+  const info = d.info || {};
+  const lines = (text, fallback) => String(text || fallback || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const rules = lines(info.room_rules, "Be respectful.\nNo spamming commands or chat.\nKeep requests appropriate for all ages.\nFollow staff instructions.\nNo advertising other rooms.\nHave fun and spread good vibes.");
+  const vip = lines(info.vip_info, "Priority song queue slots\nBonus daily coin rewards\nExclusive VIP badge\nSpecial room access\nPersonal bot shoutout");
+  const staff = lines(info.staff_list, "");
+  const announcements = d.announcements || [];
   return `
     <div class="pub-section-title"><h2>ℹ️ Room Info</h2>
       <p>Everything you need to know about ChillTopia</p></div>
@@ -1016,22 +1032,13 @@ function renderPublicRoomInfo() {
       <div class="card">
         <h3>📋 Room Rules</h3>
         <ol class="pub-rules-list">
-          <li>Be respectful — no harassment or hate speech.</li>
-          <li>No spamming commands or chat.</li>
-          <li>Keep requests appropriate for all ages.</li>
-          <li>Follow staff instructions at all times.</li>
-          <li>No advertising other rooms.</li>
-          <li>Have fun and spread good vibes!</li>
+          ${rules.map((rule) => `<li>${esc(rule)}</li>`).join("")}
         </ol>
       </div>
       <div class="card">
         <h3>⭐ VIP Perks</h3>
         <div class="pub-vip-list">
-          <div class="pub-vip-item">🎵 Priority song queue slots</div>
-          <div class="pub-vip-item">💰 Bonus daily coin rewards</div>
-          <div class="pub-vip-item">🏅 Exclusive VIP badge</div>
-          <div class="pub-vip-item">🎨 Special room access</div>
-          <div class="pub-vip-item">🤖 Personal bot shoutout</div>
+          ${vip.map((item) => `<div class="pub-vip-item">${esc(item)}</div>`).join("")}
         </div>
       </div>
       <div class="card">
@@ -1046,13 +1053,17 @@ function renderPublicRoomInfo() {
       </div>
       <div class="card">
         <h3>👥 Staff Roles</h3>
-        <div class="pub-staff-roles">
+        ${staff.length ? `<div class="pub-vip-list">${staff.map((item) => `<div class="pub-vip-item">${esc(item)}</div>`).join("")}</div>` : `<div class="pub-staff-roles">
           <div class="pub-staff-role"><span class="pill ok">Owner</span><span>Full room authority</span></div>
           <div class="pub-staff-role"><span class="pill info">Admin</span><span>Rule enforcement</span></div>
           <div class="pub-staff-role"><span class="pill def">Manager</span><span>Event & bot control</span></div>
           <div class="pub-staff-role"><span class="pill warn">Mod</span><span>Chat moderation</span></div>
           <div class="pub-staff-role"><span class="pill info">DJ</span><span>Radio management</span></div>
-        </div>
+        </div>`}
+      </div>
+      <div class="card">
+        <h3>📢 Room Updates</h3>
+        ${announcements.length ? announcements.map((a) => `<div class="pub-event-item">${esc(a.message)}</div>`).join("") : `<div class="notice">No public announcements posted.</div>`}
       </div>
     </div>
   `;
@@ -1819,16 +1830,60 @@ function renderPlayerLogsTab() {
 function renderRoomContent(tab) {
   return `
     ${tabNav("Room & Content")}
+    ${tab === "Overview" ? renderRoomOverview() : ""}
     ${tab === "Room Settings" ? renderRoomSettings() : ""}
-    ${tab === "Radio" ? renderRadioTab() : ""}
-    ${tab === "Events" ? renderEventsTab() : ""}
-    ${tab === "Announcements" ? renderAnnouncementsTab() : ""}
     ${tab === "Welcome" ? renderWelcomeTab() : ""}
-    ${tab === "Emotes" ? renderEmotesTab() : ""}
-    ${tab === "Dancefloor" ? renderDancefloorTab() : ""}
-    ${tab === "Sync" ? renderSyncTab() : ""}
+    ${tab === "Announcements" ? renderAnnouncementsTab() : ""}
+    ${tab === "Events" ? renderEventsTab() : ""}
+    ${tab === "Event Rewards" ? renderEventRewardsTab() : ""}
+    ${tab === "Rules / Info" ? renderRulesInfoTab() : ""}
+    ${tab === "Logs" ? renderRoomLogsTab() : ""}
     ${tab === "Advanced" ? renderRoomAdvancedTab() : ""}
   `;
+}
+
+function renderRoomOverview() {
+  const d = state.data || {};
+  const o = d.overview || {};
+  const tables = d.tables || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+      ${metricCard("Room ID", o.room_id || "Not set", "from room_settings", "", "🏠")}
+      ${metricCard("Room Users", o.room_users || "—", "if bot reports it", "accent-cyan", "👥")}
+      ${metricCard("Welcome", boolLabel(o.welcome_enabled), "welcome_enabled", truthy(o.welcome_enabled) ? "accent-green" : "accent-red", "👋")}
+      ${metricCard("Announcements", boolLabel(o.announcements_enabled), "announcements_enabled", truthy(o.announcements_enabled) ? "accent-green" : "accent-red", "📢")}
+      ${metricCard("Active Event", o.active_event || "None", "event_settings", o.active_event ? "accent-green" : "", "🎉")}
+      ${metricCard("Scheduled", o.scheduled_events_count ?? 0, "scheduled_events rows", "accent-cyan", "📅")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Recent Room Activity</h2>
+        ${table(d.audit_logs || [], [
+          { key: "created_at", label: "Time" },
+          { key: "actor", label: "Actor" },
+          { key: "action_type", label: "Action", render: (r) => pill(r.action_type || "audit") },
+          { key: "target_type", label: "Target" },
+        ])}
+      </div>
+      <div class="card">
+        <h2>Room Data Sources</h2>
+        ${table(Object.entries(tables).map(([name, info]) => ({ table: name, status: info.exists ? "connected" : "missing", rows: (info.rows || []).length })), [
+          { key: "table", label: "Table" },
+          { key: "status", label: "Status", render: (r) => pill(r.status, ["connected"]) },
+          { key: "rows", label: "Rows Loaded" },
+        ])}
+      </div>
+    </div>
+  `;
+}
+
+function truthy(value) {
+  return value === true || value === 1 || ["1", "true", "enabled", "yes", "on"].includes(String(value ?? "").toLowerCase());
+}
+
+function boolLabel(value) {
+  if (value === undefined || value === null || value === "") return "Unknown";
+  return truthy(value) ? "Enabled" : "Disabled";
 }
 
 function renderRoomSettings() {
@@ -1837,9 +1892,13 @@ function renderRoomSettings() {
   const extra = d.extra_settings || [];
   const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
   const valMap = settingsMapFrom(allRaw);
+  const roomGroups = (SETTINGS_SCHEMA.room || []).filter((g) => ["Social Settings", "Moderation Settings"].includes(g.title));
   return `
-    ${renderSchemaGroups("room", valMap)}
-    ${renderAdvancedCollapse(allRaw)}
+    ${roomGroups.map((g, i) => renderSettingsGroup(g, valMap, `room-core-${i}`)).join("")}
+    ${futureControls([
+      { endpoint: "room user count", purpose: "Requires bot heartbeat/status report", status: "Read only if available" },
+      { endpoint: "reset welcome-seen", purpose: "Dangerous cleanup stays hidden until confirmed workflow exists", status: "Advanced" },
+    ])}
   `;
 }
 
@@ -2141,24 +2200,50 @@ function renderEventsTab() {
   const d = state.data || {};
   const tables = d.tables || {};
   const hasRows = Object.values(tables).some((info) => info.exists && (info.rows || []).length);
+  const active = d.active_event;
+  const definitions = tables.event_definitions?.rows || d.definitions || [];
   return `
     <div class="grid">
       <div class="card">
+        <div class="card-header"><h2>Active Event</h2>${active ? pill("active") : pill("none")}</div>
+        ${active ? table([active], [
+          { key: "event_id", label: "Event" },
+          { key: "expires_at", label: "Expires" },
+        ]) : `<div class="notice">No active room event is stored in event_settings.</div>`}
+        <form id="eventStartForm" class="toolbar" style="margin-top:12px;flex-wrap:wrap">
+          <input name="event_id" list="eventIds" placeholder="event id or number" required />
+          <input name="minutes" type="number" min="1" max="480" value="30" style="max-width:120px" />
+          <button class="btn primary">Queue Start</button>
+          <button class="btn danger" type="button" data-action="event-stop">Queue Stop</button>
+        </form>
+        <datalist id="eventIds">${definitions.map((e) => `<option value="${esc(e.event_id || e.id || e.name || e.title || "")}"></option>`).join("")}</datalist>
+        ${queueHelp()}
+      </div>
+      <div class="card">
         <h2>📅 Scheduled Events</h2>
         ${renderEventRows(tables.scheduled_events?.rows || d.scheduled || [])}
+        <form id="eventScheduleForm" class="settings-form" style="margin-top:12px">
+          <input name="event_id" placeholder="event id" required />
+          <input name="starts_at" placeholder="YYYY-MM-DD HH:MM or ISO time" required />
+          <input name="minutes" type="number" min="1" max="480" value="30" />
+          <button class="btn primary sm">Queue Schedule</button>
+        </form>
+        ${queueHelp()}
       </div>
     </div>
     ${hasRows ? `
       ${renderEventTableCard("Event Definitions", tables.event_definitions)}
       ${renderEventTableCard("Event History", tables.event_history)}
-      ${renderEventTableCard("Event Points", tables.event_points)}
       ${renderEventTableCard("Event Settings", tables.event_settings)}
       ${renderEventTableCard("Event Votes", tables.event_votes)}
+      ${renderEventTableCard("Processed Events", tables.processed_events)}
     ` : `<div class="card"><div class="notice">No event rows found in the live DB tables.</div></div>`}
+    <div class="card">
+      <h2>Queued Event Commands</h2>
+      ${renderQueuedBotCommands(d.command_queue || {})}
+    </div>
     ${futureControls([
-      { endpoint: "POST /api/events/start", purpose: "Start event", status: "Future" },
-      { endpoint: "POST /api/events/stop", purpose: "Stop current event", status: "Future" },
-      { endpoint: "POST /api/events/schedule", purpose: "Schedule event", status: "Future" },
+      { endpoint: "event rewards editor", purpose: "Reward catalog edits need verified table shape", status: "Unverified source" },
     ])}
   `;
 }
@@ -2187,6 +2272,9 @@ function renderAnnouncementsTab() {
   const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
   const valMap = settingsMapFrom(allRaw);
   const annoGroup = SETTINGS_SCHEMA.room.find((g) => g.title === "Announcement Settings");
+  const rotating = d.tables?.rotating_announcements || {};
+  const subscriber = d.tables?.subscriber_announcements || {};
+  const bigSettings = d.tables?.big_announcement_settings || {};
   return `
     ${annoGroup ? renderSettingsGroup(annoGroup, valMap, "announcements") : ""}
     <div class="card">
@@ -2198,6 +2286,20 @@ function renderAnnouncementsTab() {
       </form>
       ${queueHelp()}
     </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Rotating Announcements</h2>
+        ${rotating.exists ? `
+          <form id="rotatingAnnouncementForm" class="toolbar" style="margin-bottom:12px;flex-wrap:wrap">
+            <input name="message" placeholder="Add rotating announcement" required style="flex:1;min-width:220px" />
+            <button class="btn primary">Add</button>
+          </form>
+          ${table(rotating.rows || [], null, (r) => r.id !== undefined ? `<button class="btn danger sm" data-disable-announcement="${esc(r.id)}">Disable</button>` : "")}
+        ` : `<div class="notice">rotating_announcements table is not present.</div>`}
+      </div>
+      <div class="card"><h2>Subscriber Announcements</h2>${subscriber.exists ? table(subscriber.rows || []) : `<div class="notice">subscriber_announcements table is not present.</div>`}</div>
+      <div class="card"><h2>Big Announcement Settings</h2>${bigSettings.exists ? table(bigSettings.rows || []) : `<div class="notice">big_announcement_settings table is not present.</div>`}</div>
+    </div>
   `;
 }
 
@@ -2208,8 +2310,16 @@ function renderWelcomeTab() {
   const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
   const valMap = settingsMapFrom(allRaw);
   const welGroup = SETTINGS_SCHEMA.room.find((g) => g.title === "Welcome Settings");
+  const seen = d.tables?.room_welcome_seen || {};
   return `
     ${welGroup ? renderSettingsGroup(welGroup, valMap, "welcome") : ""}
+    <div class="card">
+      <h2>Welcome Seen</h2>
+      ${seen.exists ? table(seen.rows || []) : `<div class="notice">room_welcome_seen table is not present.</div>`}
+    </div>
+    ${futureControls([
+      { endpoint: "reset room_welcome_seen", purpose: "Cleanup requires typed confirmation; no default deletion", status: "Advanced only" },
+    ])}
     ${renderAdvancedCollapse(allRaw.filter((s) => s.key?.startsWith("welcome")))}
   `;
 }
@@ -2267,17 +2377,81 @@ function renderSyncTab() {
   `;
 }
 
+function renderEventRewardsTab() {
+  const d = state.data || {};
+  const tables = d.tables || {};
+  return `<div class="grid">
+    <div class="card">
+      <h2>Event Points Leaderboard</h2>
+      ${table(tables.event_points?.rows || d.points || [], null)}
+    </div>
+    <div class="card">
+      <h2>Event Reward Settings</h2>
+      ${table(tables.event_settings?.rows || d.settings || [])}
+      <div class="notice" style="margin-top:12px">Reward editing is read-only until the active reward table/key mapping is verified.</div>
+    </div>
+  </div>
+  ${futureControls([
+    { endpoint: "PUT /api/events/settings", purpose: "Verified non-active event_settings keys only", status: "Backend available" },
+    { endpoint: "event reward catalog writes", purpose: "Needs exact active table/key mapping", status: "Unverified source" },
+  ])}`;
+}
+
+function renderRulesInfoTab() {
+  const d = state.data || {};
+  const known = d.known_settings || {};
+  const extra = d.extra_settings || [];
+  const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
+  const values = settingsMapFrom(allRaw);
+  const fields = [
+    { key: "room_rules", label: "Room Rules", hint: "One rule per line. Public portal safe.", type: "textarea" },
+    { key: "how_to_play", label: "How To Play", hint: "Public room helper text.", type: "textarea" },
+    { key: "vip_info", label: "VIP Info", hint: "Public VIP summary.", type: "textarea" },
+    { key: "staff_list", label: "Staff List", hint: "Optional public staff list, one per line.", type: "textarea" },
+  ];
+  return `${renderSettingsGroup({
+    title: "Rules / Info",
+    description: "Public read-only room information shown in the portal.",
+    api: "/api/settings/:key",
+    apiOpts: { source: "room_settings" },
+    keys: fields,
+  }, values, "rules-info")}
+  ${futureControls([
+    { endpoint: "dedicated rules/info table", purpose: "Use if room_settings becomes too limited", status: "Future" },
+  ])}`;
+}
+
+function renderRoomLogsTab() {
+  const d = state.data || {};
+  const tables = d.tables || {};
+  return `<div class="grid">
+    <div class="card"><h2>Room Social Logs</h2>${table(tables.room_social_logs?.rows || [])}</div>
+    <div class="card"><h2>Big Announcement Logs</h2>${table(tables.big_announcement_logs?.rows || [])}</div>
+    <div class="card"><h2>Event History</h2>${table(tables.event_history?.rows || [])}</div>
+    <div class="card"><h2>Audit Logs</h2>${table(d.audit_logs || [])}</div>
+    <div class="card"><h2>Admin Action Logs</h2>${table(tables.admin_action_logs?.rows || [])}</div>
+  </div>`;
+}
+
 function renderRoomAdvancedTab() {
   const d = state.data || {};
   const known = d.known_settings || {};
   const extra = d.extra_settings || [];
   const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
+  const tables = d.tables || {};
   return `
     ${futureControls([
-      { endpoint: "POST /api/events/start", purpose: "Start event", status: "Future" },
-      { endpoint: "POST /api/events/stop", purpose: "Stop current event", status: "Future" },
+      { endpoint: "reset welcome-seen", purpose: "Requires typed confirmation; not exposed by default", status: "Future" },
       { endpoint: "POST /api/room/emote-packs", purpose: "Manage emote packs", status: "Future" },
+      { endpoint: "dancefloor/sync controls", purpose: "Needs exact active helper/source mapping", status: "Unverified source" },
+      { endpoint: "hard delete room/event logs", purpose: "Not exposed from dashboard", status: "Hidden" },
     ], "Advanced / Future Room Controls")}
+    <div class="grid">
+      <div class="card"><h2>Raw Event Settings</h2>${table(tables.event_settings?.rows || [])}</div>
+      <div class="card"><h2>Module Flags</h2>${table(tables.module_flags?.rows || [])}</div>
+      <div class="card"><h2>Room Emote Loops</h2>${table(tables.room_emote_loops?.rows || [])}</div>
+      <div class="card"><h2>Room Tags</h2>${table(tables.room_tags?.rows || [])}</div>
+    </div>
     ${renderAdvancedCollapse(allRaw)}
   `;
 }
@@ -3483,8 +3657,22 @@ function renderStaffEvents() {
   const d = state.data || {};
   const tables = d.tables || {};
   const scheduled = tables.scheduled_events?.rows || d.scheduled || [];
+  const active = d.active_event;
   return `
     <div class="grid">
+      <div class="card">
+        <div class="card-header"><h2>Active Event</h2>${active ? pill("active") : pill("none")}</div>
+        ${active ? table([active]) : `<div class="notice">No active event.</div>`}
+        ${can("manage_games") || can("emergency_controls") ? `
+          <form id="eventStartForm" class="toolbar" style="margin-top:12px;flex-wrap:wrap">
+            <input name="event_id" placeholder="event id or number" required />
+            <input name="minutes" type="number" min="1" max="480" value="30" style="max-width:120px" />
+            <button class="btn primary">Queue Start</button>
+            <button class="btn danger" type="button" data-action="event-stop">Queue Stop</button>
+          </form>
+          ${queueHelp()}
+        ` : `<div class="notice">Requires event management permission.</div>`}
+      </div>
       <div class="card">
         <h2>📅 Scheduled Events</h2>
         ${renderEventRows(scheduled)}
@@ -3493,10 +3681,6 @@ function renderStaffEvents() {
     ${renderEventTableCard("Event Definitions", tables.event_definitions)}
     ${renderEventTableCard("Event History", tables.event_history)}
     ${renderEventTableCard("Event Points", tables.event_points)}
-    ${futureControls([
-      { endpoint: "POST /api/events/start", purpose: "Start event", status: "Owner future" },
-      { endpoint: "POST /api/events/stop", purpose: "Stop current event", status: "Owner future" },
-    ])}
   `;
 }
 
@@ -3864,6 +4048,45 @@ function bindAdminPageEvents() {
     if (!message) return;
     await action("Command queued. Bot must consume bot_command_queue.", () =>
       api("/api/room/announce", { method: "POST", body: JSON.stringify({ message }) }));
+  });
+
+  document.getElementById("rotatingAnnouncementForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const message = e.currentTarget.querySelector("[name='message']")?.value.trim() || "";
+    if (!message) return;
+    await action("Rotating announcement saved.", () =>
+      api("/api/room/announcements", { method: "POST", body: JSON.stringify({ message }) }));
+  });
+
+  document.querySelectorAll("[data-disable-announcement]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.disableAnnouncement;
+      confirmAction("Disable Announcement", `Soft-disable rotating announcement #${id}?`, async () => {
+        await action("Rotating announcement disabled.", () =>
+          api(`/api/room/announcements/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ enabled: false }) }));
+      });
+    });
+  });
+
+  document.getElementById("eventStartForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Event start queued. Bot must consume bot_command_queue.", () =>
+      api("/api/events/start", { method: "POST", body: JSON.stringify(data) }));
+  });
+
+  document.querySelector('[data-action="event-stop"]')?.addEventListener("click", () => {
+    confirmAction("Stop Event", "Queue a host command to stop the active event?", async () => {
+      await action("Event stop queued. Bot must consume bot_command_queue.", () =>
+        api("/api/events/stop", { method: "POST", body: JSON.stringify({ target: "all" }) }));
+    });
+  });
+
+  document.getElementById("eventScheduleForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Event schedule queued. Bot must consume bot_command_queue.", () =>
+      api("/api/events/schedule", { method: "POST", body: JSON.stringify(data) }));
   });
 
   document.getElementById("emoteCommandForm")?.addEventListener("submit", async (e) => {
