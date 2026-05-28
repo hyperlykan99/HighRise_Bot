@@ -1336,6 +1336,124 @@ pre.mono-block {
   font-size: 12px;
 }
 
+.manual-tabs { margin-bottom: 16px; }
+
+.manual-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.manual-hero {
+  display: grid;
+  gap: 12px;
+}
+
+.manual-hero h3 {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.manual-copy,
+.manual-note,
+.manual-list {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.manual-note {
+  margin-top: 12px;
+}
+
+.manual-list {
+  display: grid;
+  gap: 8px;
+  padding-left: 18px;
+}
+
+.manual-command {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.manual-command-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.manual-command-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 150px) 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(120,100,220,0.08);
+}
+
+.manual-command-row:last-child { border-bottom: 0; }
+
+.manual-command-row code,
+.manual-command {
+  background: rgba(34,215,255,0.1);
+  border: 1px solid rgba(34,215,255,0.2);
+  border-radius: 6px;
+  padding: 3px 7px;
+  color: var(--cyan);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.manual-command-row span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.manual-command-row em {
+  color: var(--warn);
+  font-style: normal;
+}
+
+.manual-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.manual-info-grid > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(120,100,220,0.16);
+  border-radius: 10px;
+  background: rgba(10,12,28,0.38);
+}
+
+.manual-info-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.manual-info-grid strong {
+  display: block;
+  color: var(--text);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-top: 10px;
+}
+
 /* ── Events ──────────────────────────────────────────── */
 .pub-grid2 {
   display: grid;
@@ -1563,6 +1681,7 @@ pre.mono-block {
   .pub-login-btn { font-size: 12px; padding: 6px 10px; }
   .pub-brand span { display: none; }
   .pub-stats-row { grid-template-columns: repeat(2, 1fr); }
+  .manual-command-row { grid-template-columns: 1fr; }
 }
 
 /* ── Tab Navigation ──────────────────────────────────── */

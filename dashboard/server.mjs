@@ -3552,6 +3552,186 @@ app.get("/api/public/events", async (req, res) => {
   }
 });
 
+function publicHowToPlayPayload(db) {
+  const missingTables = new Set();
+  const missingColumns = new Set();
+  const missingTable = (table) => { if (!tableExists(db, table)) missingTables.add(table); };
+  const missingColumn = (table, column) => {
+    if (tableExists(db, table) && !columnExists(db, table, column)) missingColumns.add(`${table}.${column}`);
+  };
+  const radio = (() => {
+    const status = readLocalRadioStatus(db);
+    let requestsEnabled = true;
+    try { requestsEnabled = db.prepare("SELECT value FROM bot_settings WHERE key='requests_enabled' LIMIT 1").get()?.value !== "false"; } catch {}
+    return {
+      queue_open: requestsEnabled,
+      now_playing: status.now_playing ? { title: status.now_playing.title, artist: status.now_playing.artist, username: status.now_playing.username } : null,
+      queue_size: status.queue?.length || 0,
+      recently_played: (status.recently_played || []).slice(0, 5).map((row) => ({ title: row.title, artist: row.artist, username: row.username })),
+      playlist_urls_disabled: true,
+      local_and_youtube: "Requests may use local replay or YouTube pipeline depending on availability and DJ DUDU's current radio mode.",
+    };
+  })();
+  const blackjack = readActiveBlackjackSettings(db);
+  const poker = readActivePokerSettings(db);
+  const miningSettings = readActiveMiningSettings(db);
+  const fishingSettings = readActiveFishingSettings(db);
+  const miningOdds = calculateMiningDropRows(db)
+    .sort((a, b) => Number(a.chance_percent || 0) - Number(b.chance_percent || 0));
+  if (!tableExists(db, "mining_items")) missingTable("mining_items");
+  for (const col of ["item_id", "name", "rarity", "sell_value", "drop_enabled"]) missingColumn("mining_items", col);
+  const ores = miningItemRows(db, true).map((row) => {
+    const odd = miningOdds.find((o) => o.item_id === row.item_id || o.ore === row.name);
+    return {
+      item_id: row.item_id,
+      name: row.name,
+      emoji: row.emoji,
+      rarity: row.rarity,
+      value: row.sell_value,
+      enabled: row.drop_enabled,
+      chance_percent: odd?.chance_percent ?? null,
+      event_only: odd?.event_only ?? 0,
+    };
+  }).slice(0, 100);
+  const fishCode = readFishingCodeCatalog();
+  const fishingOdds = calculateFishDropRows()
+    .sort((a, b) => Number(a.chance_percent || 0) - Number(b.chance_percent || 0));
+  const fish = fishCode.fish.map((row) => {
+    const odd = fishingOdds.find((o) => o.fish_id === row.fish_id || o.fish === row.name);
+    return {
+      fish_id: row.fish_id,
+      name: row.name,
+      rarity: row.rarity,
+      base_value: row.base_value,
+      min_weight: row.min_weight,
+      max_weight: row.max_weight,
+      catch_weight: row.drop_weight,
+      chance_percent: odd?.chance_percent ?? null,
+      event_only: 0,
+    };
+  }).slice(0, 100);
+  const rankings = buildLeaderboards(db);
+  const eventCurrent = safeRows(db, "event_settings", ["key", "value"], { where: "key IN ('event_active','event_name','event_expires_at')", limit: "20" });
+  const scheduled = safeRows(db, "scheduled_events", ["id", "name", "description", "starts_at", "ends_at", "points", "reward"], { orderBy: "starts_at ASC", limit: "10" });
+  if (!tableExists(db, "scheduled_events")) missingTable("scheduled_events");
+  return {
+    radio,
+    casino: {
+      blackjack_settings: {
+        enabled: blackjack.rbj_enabled,
+        min_bet: blackjack.min_bet,
+        max_bet: blackjack.max_bet,
+        max_players: blackjack.max_players,
+        turn_timer: blackjack.rbj_action_timer,
+        decks: blackjack.decks,
+        shuffle_used_percent: blackjack.shuffle_used_percent,
+        win_payout: blackjack.win_payout,
+        blackjack_payout: blackjack.blackjack_payout,
+        daily_win_limit: blackjack.rbj_daily_win_limit,
+        source: blackjack.source,
+      },
+      poker_settings: {
+        enabled: poker.enabled,
+        min_buyin: poker.min_buyin,
+        max_buyin: poker.max_buyin,
+        max_players: poker.max_players,
+        turn_timer: poker.turn_timer,
+        small_blind: poker.small_blind,
+        big_blind: poker.big_blind,
+        source: poker.source,
+      },
+    },
+    mining: {
+      settings: miningSettings,
+      ores,
+      odds: miningOdds.slice(0, 100),
+      rarest: miningOdds.filter((row) => Number(row.chance_percent || 0) > 0).slice(0, 3),
+      tools: PICKAXE_CATALOG,
+      leaderboards: {
+        top_miners: rankings.leaderboards?.mining_top || [],
+        heaviest_ores: rankings.leaderboards?.mining_heaviest_ore || [],
+        most_valuable_ores: rankings.leaderboards?.mining_most_valuable || [],
+      },
+    },
+    fishing: {
+      settings: fishingSettings,
+      fish,
+      odds: fishingOdds.slice(0, 100),
+      rarest: fishingOdds.filter((row) => Number(row.chance_percent || 0) > 0).slice(0, 3),
+      rods: fishCode.rods,
+      leaderboards: {
+        top_fishers: rankings.leaderboards?.fishing_top || [],
+        heaviest_fish: rankings.leaderboards?.fishing_heaviest_fish || [],
+        most_valuable_fish: rankings.leaderboards?.fishing_most_valuable || [],
+      },
+    },
+    events: {
+      current_settings: eventCurrent,
+      scheduled,
+      leaderboards: { event_points: rankings.leaderboards?.event_points || [] },
+    },
+    commands: [
+      { category: "Radio", command: "!play [song]", description: "Request a song by name, artist, or URL." },
+      { category: "Radio", command: "!q / !queue", description: "View the current request queue." },
+      { category: "Radio", command: "!now / !np", description: "Show the current song if supported." },
+      { category: "Radio", command: "!like / !dislike", description: "Rate the current song if ratings are enabled.", availability: "if available" },
+      { category: "Radio", command: "!skip", description: "Skip current song.", availability: "staff/owner only" },
+      { category: "Economy", command: "!balance", description: "Check your coins." },
+      { category: "Economy", command: "!daily", description: "Claim your daily reward." },
+      { category: "Economy", command: "!profile", description: "View your public stats." },
+      { category: "Economy", command: "!top / !leaderboard", description: "Show the leaderboard menu." },
+      { category: "Economy", command: "!toprich", description: "Richest players." },
+      { category: "Economy", command: "!topstreaks", description: "Daily claim streaks." },
+      { category: "Gold / Tips", command: "!topdonators", description: "Top gold supporters." },
+      { category: "Gold / Tips", command: "!toptippers", description: "Top P2P senders." },
+      { category: "Gold / Tips", command: "!toptipped", description: "Top P2P receivers." },
+      { category: "Blackjack", command: "!bj [amount]", description: "Join Realistic Blackjack." },
+      { category: "Blackjack", command: "!hit", description: "Take another card." },
+      { category: "Blackjack", command: "!stand", description: "Hold your hand." },
+      { category: "Blackjack", command: "!double", description: "Double your bet and take one card." },
+      { category: "Blackjack", command: "!split", description: "Split matching cards if available." },
+      { category: "Poker", command: "!join [amount]", description: "Join the poker table with a buy-in." },
+      { category: "Poker", command: "!poker / !poker table", description: "Show poker table/status.", availability: "if available" },
+      { category: "Poker", command: "!leave", description: "Leave the poker table when allowed." },
+      { category: "Poker", command: "!check / !call / !raise [amount] / !fold / !allin", description: "Poker actions on your turn." },
+      { category: "Mining", command: "!mine", description: "Mine for ores, coins, and XP." },
+      { category: "Mining", command: "!inventory / !sell", description: "View or sell mining inventory.", availability: "if available" },
+      { category: "Mining", command: "!topminers", description: "Mining leaderboard." },
+      { category: "Fishing", command: "!fish", description: "Catch fish for coins and XP." },
+      { category: "Fishing", command: "!fish inventory / !autosell", description: "View catches or manage auto-sell.", availability: "if available" },
+      { category: "Fishing", command: "!topfishers", description: "Fishing leaderboard." },
+      { category: "Emotes", command: "!emote [name]", description: "Trigger a known emote.", availability: "if available" },
+      { category: "Emotes", command: "!sync / !syncstop / !syncstatus", description: "Join, stop, or check sync.", availability: "if available" },
+      { category: "Events", command: "!events / !event", description: "Check current events.", availability: "if available" },
+    ],
+    diagnostics: {
+      missing_tables: [...new Set([...missingTables, ...(rankings.diagnostics?.missing_tables || [])])],
+      missing_columns: [...new Set([...missingColumns, ...(rankings.diagnostics?.missing_columns || [])])],
+      generated_at: nowIso(),
+    },
+  };
+}
+
+app.get("/api/public/how-to-play", async (_req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    json(res, publicHowToPlayPayload(db));
+  } catch (err) {
+    json(res, {
+      radio: {},
+      casino: { blackjack_settings: {}, poker_settings: {} },
+      mining: { settings: {}, ores: [], odds: [], tools: [], leaderboards: {} },
+      fishing: { settings: {}, fish: [], odds: [], rods: [], leaderboards: {} },
+      events: { current_settings: [], scheduled: [] },
+      commands: [],
+      diagnostics: { missing_tables: [], missing_columns: [], generated_at: nowIso(), error: err.message },
+    });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
 app.get("/api/public/room-info", async (_req, res) => {
   let db = null;
   try {

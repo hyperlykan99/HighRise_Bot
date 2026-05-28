@@ -643,6 +643,7 @@ const state = {
   logs: { action_type: "", user: "", module: "", status: "", date: "", target: "", offset: 0 },
   settingsAudit: { status: "all", module: "", page: "" },
   maintenanceTab: "Overview",
+  howToPlayTab: "Quick Start",
   securityPlayer: null,
   modal: null,
   sidebarOpen: false,
@@ -763,7 +764,7 @@ async function loadPublic() {
   const apiMap = {
     home: "/api/public/home", radio: "/api/public/radio",
     events: "/api/public/events", rankings: "/api/public/rankings",
-    howtoplay: null, roominfo: "/api/public/room-info",
+    howtoplay: "/api/public/how-to-play", roominfo: "/api/public/room-info",
   };
   try {
     const url = apiMap[state.publicPage];
@@ -986,7 +987,7 @@ function renderPublicRadio(d) {
         ${d.stream_url ? `<div style="margin-top:16px"><a href="${esc(d.stream_url)}" target="_blank" class="btn cyan">🔊 Listen Live</a></div>` : ""}
         <div class="pub-request-tip">
           <span class="pill info">💡 How to Request</span>
-          <p>Type <strong>!request [song name]</strong> in the Highrise room to add your song to the queue.</p>
+          <p>Type <strong>!play [song name or artist]</strong> in the Highrise room to add your song to the queue.</p>
         </div>
       </div>
       <div style="display:grid;gap:16px;min-width:0">
@@ -1016,24 +1017,131 @@ function renderPublicRadio(d) {
 }
 
 function renderPublicHowToPlay() {
-  const sections = [
-    { icon: "🎵", title: "Request Songs", content: `Type <strong>!request [song name or artist]</strong> in the room chat. Example: <code>!request lofi hip hop</code>` },
-    { icon: "🃏", title: "Casino Games", content: `<strong>!bj [amount]</strong> for Blackjack. <strong>!poker</strong> for Poker. Use <strong>!hit</strong>, <strong>!stand</strong>, <strong>!double</strong> to play.` },
-    { icon: "⛏️", title: "Mining", content: `Type <strong>!mine</strong> to start mining ores. 7+ rarities including Prismatic and Exotic. Rare finds earn bonus coins!` },
-    { icon: "🎣", title: "Fishing", content: `Type <strong>!fish</strong> to start fishing. Rare catches earn announcements and bonus rewards!` },
-    { icon: "💰", title: "Coins & Daily Rewards", content: `Earn coins via <strong>!daily</strong>, casino wins, mining, fishing, quests, events, and room time. Check with <strong>!balance</strong>.` },
-    { icon: "💃", title: "Emotes & Dancefloor", content: `Jump on the dancefloor and the bot may react! Use <strong>!emote [name]</strong> for bot emotes.` },
-    { icon: "⭐", title: "VIP", content: `VIP gives priority queue slots, exclusive badge, and bonus daily coins. Ask staff about VIP access.` },
-  ];
+  const d = state.data || {};
+  const tabs = ["Quick Start", "Radio", "Casino", "Mining", "Fishing", "Economy & Rewards", "Emotes & Dancefloor", "Events", "VIP", "Commands A-Z", "FAQ"];
+  if (!tabs.includes(state.howToPlayTab)) state.howToPlayTab = tabs[0];
+  const tab = state.howToPlayTab;
+  const commandChip = (cmd) => `<code class="manual-command">${esc(cmd)}</code>`;
+  const commandList = (items) => `<div class="manual-command-grid">${items.map((item) => `<div class="manual-command-row"><code>${esc(item.command || item[0])}</code><span>${esc(item.description || item[1])}${item.availability ? ` <em>${esc(item.availability)}</em>` : ""}</span></div>`).join("")}</div>`;
+  const infoGrid = (rows) => `<div class="manual-info-grid">${rows.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value ?? "—")}</strong></div>`).join("")}</div>`;
+  const smallTable = (rows, cols, empty = "No live data connected yet.") => rows?.length ? `<div class="table-scroll"><table><thead><tr>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(c.render ? c.render(r) : r[c.key] ?? "—")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : `<div class="notice">${esc(empty)}</div>`;
+  const odds = (n) => n === null || n === undefined || n === "" ? "—" : `${Number(n).toFixed(Number(n) < 1 ? 4 : 2)}%`;
+  const bj = d.casino?.blackjack_settings || {};
+  const poker = d.casino?.poker_settings || {};
+  const mining = d.mining || {};
+  const fishing = d.fishing || {};
+  const eventSettings = Object.fromEntries((d.events?.current_settings || []).map((row) => [row.key, row.value]));
+  const activeEvent = eventSettings.event_active === "1" ? eventSettings.event_name : (eventSettings.active_event || "");
+  const commandsByCategory = (category) => (d.commands || []).filter((cmd) => cmd.category === category);
+  const panel = {
+    "Quick Start": `
+      <div class="manual-hero card">
+        <h3>Welcome to ChillTopia</h3>
+        <p>ChillTopia is a social room with live radio, games, mining, fishing, events, leaderboards, emotes, and coin progression. Most things start with a chat command in-room.</p>
+        <div class="chip-row">
+          ${["!play [song]", "!q", "!now", "!balance", "!daily", "!bj [amount]", "!poker", "!mine", "!fish", "!top", "!profile"].map(commandChip).join("")}
+        </div>
+      </div>
+      <div class="pub-tutorial-grid">
+        ${[
+          ["🎵", "Request music", "Use !play with a song name or artist. DJ DUDU adds it to the queue if requests are open."],
+          ["💰", "Earn coins", "Claim !daily, mine ores, catch fish, win games, join events, and appear on leaderboards."],
+          ["🃏", "Play casino", "Use !bj [amount] for Blackjack or !join [amount] for Poker once a table is active."],
+          ["⛏️", "Progress", "Mining and fishing give XP, rare finds, profile stats, and leaderboard progress."],
+          ["🎉", "Join events", "Watch announcements and use !events or !event if available for current activity."],
+          ["👤", "Check stats", "Use !profile, !top, and category leaderboards to track your progress."],
+        ].map(([icon, title, text]) => `<div class="card pub-tutorial-card"><div class="pub-tutorial-icon">${icon}</div><h3>${esc(title)}</h3><p>${esc(text)}</p></div>`).join("")}
+      </div>`,
+    "Radio": `
+      <div class="pub-grid2">
+        <div class="card"><h3>How Music Requests Work</h3>
+          <p class="manual-copy">Use ${commandChip("!play [song name or artist]")} in room chat. If requests are open, DJ DUDU searches the radio pipeline, prepares the track, and places it in queue.</p>
+          ${infoGrid([["Requests", d.radio?.queue_open ? "Open" : "Closed"], ["Queue Size", d.radio?.queue_size ?? 0], ["Playlist URLs", d.radio?.playlist_urls_disabled ? "Disabled for normal requests" : "May be allowed"], ["Pipeline", "Local replay + YouTube when available"]])}
+        </div>
+        <div class="card"><h3>Radio Commands</h3>${commandList(commandsByCategory("Radio"))}<p class="manual-note">Normal players request with !play. !skip is staff/owner only.</p></div>
+      </div>
+      <div class="card"><h3>Recently Played</h3>${smallTable(d.radio?.recently_played || [], [{ key: "title", label: "Title" }, { key: "artist", label: "Artist" }, { key: "username", label: "Requester" }])}</div>`,
+    "Casino": `
+      <div class="pub-grid2">
+        <div class="card"><h3>Blackjack — AceSinatra</h3>
+          <p class="manual-copy">Objective: beat the dealer without busting over 21. Use ${commandChip("!bj [amount]")} to join, then ${commandChip("!hit")}, ${commandChip("!stand")}, ${commandChip("!double")}, or ${commandChip("!split")} when available.</p>
+          ${infoGrid([["Min Bet", bj.min_bet], ["Max Bet", bj.max_bet], ["Players", bj.max_players], ["Turn Timer", `${bj.turn_timer ?? "—"} sec`], ["Decks", bj.decks], ["Shuffle", `${bj.shuffle_used_percent ?? "—"}% used`], ["Win Payout", bj.win_payout], ["Blackjack Payout", bj.blackjack_payout], ["Daily Win Limit", bj.daily_win_limit ?? "—"]])}
+          <p class="manual-note">A push means a tie and usually returns your bet. Double doubles your bet for one final card. Split separates matching cards when the active table supports it.</p>
+        </div>
+        <div class="card"><h3>Poker — ChipSoprano</h3>
+          <p class="manual-copy">Objective: Texas Hold'em. Use ${commandChip("!join [amount]")} to buy in, then act on your turn with ${commandChip("!check")}, ${commandChip("!call")}, ${commandChip("!raise [amount]")}, ${commandChip("!fold")}, or ${commandChip("!allin")}.</p>
+          ${infoGrid([["Min Buy-In", poker.min_buyin], ["Max Buy-In", poker.max_buyin], ["Max Players", poker.max_players], ["Turn Timer", `${poker.turn_timer ?? "—"} sec`], ["Small Blind", poker.small_blind], ["Big Blind", poker.big_blind]])}
+          <p class="manual-note">Buy-ins become your table stack. Blinds create the pot. Win chips by making the best hand or getting everyone else to fold.</p>
+        </div>
+      </div>`,
+    "Mining": `
+      <div class="pub-grid2">
+        <div class="card"><h3>Mining Basics</h3>
+          <p class="manual-copy">Use ${commandChip("!mine")} to look for ores. Mining can reward coins, mining XP, rare finds, and profile progress. Use ${commandChip("!topminers")} to see the leaderboard.</p>
+          ${infoGrid([["Enabled", mining.settings?.mining_enabled ?? "—"], ["Cooldown", `${mining.settings?.base_cooldown_seconds ?? "—"} sec`], ["Announcements", mining.settings?.mining_announce_enabled ?? "—"], ["Auto Mining", mining.settings?.automine_enabled ?? "—"]])}
+        </div>
+        <div class="card"><h3>Top Rare Odds</h3>${smallTable(mining.rarest || [], [{ key: "ore", label: "Ore" }, { key: "rarity", label: "Rarity" }, { key: "chance_percent", label: "Chance", render: (r) => odds(r.chance_percent) }])}</div>
+      </div>
+      <div class="card"><h3>Ore Catalog & Drop Chances</h3>${smallTable(mining.ores || [], [{ key: "name", label: "Ore" }, { key: "rarity", label: "Rarity" }, { key: "value", label: "Value" }, { key: "chance_percent", label: "Chance", render: (r) => odds(r.chance_percent) }, { key: "event_only", label: "Event Only" }])}</div>
+      <div class="card"><h3>Tools / Pickaxes</h3><p class="manual-copy">Pickaxes affect mining progression when the active bot supports tool levels. Current tool catalog is read-only here; check in-room announcements for upgrade availability.</p>${smallTable(mining.tools || [], [{ key: "name", label: "Pickaxe" }, { key: "required_level", label: "Required Level" }, { key: "cooldown_seconds", label: "Cooldown" }])}</div>`,
+    "Fishing": `
+      <div class="pub-grid2">
+        <div class="card"><h3>Fishing Basics</h3>
+          <p class="manual-copy">Use ${commandChip("!fish")} to catch fish. Catches can reward coins, fishing XP, big catch records, rare fish, and leaderboard progress. Use ${commandChip("!topfishers")} to compare catches.</p>
+          ${infoGrid([["AutoFish", fishing.settings?.autofish_enabled ?? "—"], ["Base Duration", `${fishing.settings?.fish_base_duration ?? "—"} min`], ["Cast Interval", `${fishing.settings?.fish_base_interval ?? "—"} sec`], ["Base Luck", fishing.settings?.fish_base_luck ?? "—"]])}
+        </div>
+        <div class="card"><h3>Top Rare Odds</h3>${smallTable(fishing.rarest || [], [{ key: "fish", label: "Fish" }, { key: "rarity", label: "Rarity" }, { key: "chance_percent", label: "Chance", render: (r) => odds(r.chance_percent) }])}</div>
+      </div>
+      <div class="card"><h3>Fish Catalog & Catch Chances</h3>${smallTable(fishing.fish || [], [{ key: "name", label: "Fish" }, { key: "rarity", label: "Rarity" }, { key: "base_value", label: "Base Value" }, { key: "min_weight", label: "Min Weight" }, { key: "max_weight", label: "Max Weight" }, { key: "chance_percent", label: "Chance", render: (r) => odds(r.chance_percent) }])}</div>
+      <div class="card"><h3>Rods</h3><p class="manual-copy">Rod upgrades are shown when the active fishing catalog exposes them. If your rod options differ, follow current in-room announcements.</p>${smallTable(fishing.rods || [], [{ key: "name", label: "Rod" }, { key: "required_level", label: "Required Level" }, { key: "luck_bonus", label: "Luck" }, { key: "speed_bonus", label: "Speed" }])}</div>`,
+    "Economy & Rewards": `
+      <div class="pub-grid2">
+        <div class="card"><h3>Coins, XP, and Levels</h3><p class="manual-copy">Coins power bets, progression, and room rewards. XP and levels track your activity across ChillTopia systems.</p>${commandList(commandsByCategory("Economy").concat(commandsByCategory("Gold / Tips")))}</div>
+        <div class="card"><h3>Ways to Earn</h3><ul class="manual-list"><li>Claim ${commandChip("!daily")} streak rewards.</li><li>Mine ores with ${commandChip("!mine")}.</li><li>Catch fish with ${commandChip("!fish")}.</li><li>Win casino games.</li><li>Join events and earn event points.</li><li>Use gold/tip systems when available.</li></ul></div>
+      </div>`,
+    "Emotes & Dancefloor": `
+      <div class="pub-grid2">
+        <div class="card"><h3>Emotes</h3><p class="manual-copy">Use public emote commands when enabled. VIP and social emotes may unlock extra effects.</p>${commandList(commandsByCategory("Emotes"))}</div>
+        <div class="card"><h3>Dancefloor & Sync</h3><p class="manual-copy">Dancefloor sequences and sync let players coordinate movement or emotes when DJ DUDU has those systems active. Staff-only controls are not listed here as normal player commands.</p><p class="manual-note">Try ${commandChip("!sync")}, ${commandChip("!syncstop")}, and ${commandChip("!syncstatus")} if sync is enabled.</p></div>
+      </div>`,
+    "Events": `
+      <div class="pub-grid2">
+        <div class="card"><h3>Current Event</h3>${activeEvent ? `<div class="pub-event-item"><div class="pub-event-name">${esc(activeEvent)}</div>${eventSettings.event_expires_at ? `<div class="muted text-sm">Ends ${esc(eventSettings.event_expires_at)}</div>` : ""}</div>` : `<div class="notice">No event is active right now.</div>`}<p class="manual-note">Use ${commandChip("!events")} or ${commandChip("!event")} if available.</p></div>
+        <div class="card"><h3>Upcoming Events</h3>${smallTable(d.events?.scheduled || [], [{ key: "name", label: "Event" }, { key: "starts_at", label: "Starts" }, { key: "points", label: "Points" }])}</div>
+      </div>`,
+    "VIP": `
+      <div class="pub-grid2">
+        <div class="card"><h3>VIP Perks</h3><ul class="manual-list"><li>Priority radio or playlist features when enabled.</li><li>Possible bonus rewards or VIP daily perks.</li><li>Special badges/titles or social emote access.</li><li>Extra luck/duration bonuses in systems that support VIP.</li></ul></div>
+        <div class="card"><h3>How to Get VIP</h3><p class="manual-copy">VIP access is handled by the room owner/staff. Ask a staff member in ChillTopia for the current requirements and perks.</p></div>
+      </div>`,
+    "Commands A-Z": `
+      <div class="pub-grid2">
+        ${["Radio", "Economy", "Gold / Tips", "Blackjack", "Poker", "Mining", "Fishing", "Emotes", "Events"].map((cat) => `<div class="card"><h3>${esc(cat)}</h3>${commandList(commandsByCategory(cat))}</div>`).join("")}
+      </div>`,
+    "FAQ": `
+      <div class="pub-grid2">
+        ${[
+          ["How do I earn coins?", "Use !daily, mine, fish, join events, play casino games, and participate in supported reward systems."],
+          ["How do I request music?", "Use !play [song name or artist]. Check !q or !queue to see what is coming next."],
+          ["Why was my song skipped or blocked?", "It may have been too long, unavailable, inappropriate, duplicated, blocked, or skipped by staff."],
+          ["How do I play Blackjack?", "Use !bj [amount], then !hit, !stand, !double, or !split when available. Beat the dealer without going over 21."],
+          ["How do I play Poker?", "Use !join [amount] to buy in, then check, call, raise, fold, or all-in on your turn."],
+          ["How do I get rare ores?", "Mine consistently. Rare odds are low; special events or tools may improve outcomes when active."],
+          ["How do I catch rare fish?", "Fish often and watch for rod/event bonuses. Rare fish use lower catch weights."],
+          ["How do leaderboards work?", "Leaderboards read live stats such as balance, XP, mining/fishing totals, radio activity, event points, tips, and streaks."],
+          ["What does VIP do?", "VIP perks depend on the current room setup; staff can explain the active benefits."],
+          ["Who do I ask for help?", "Ask room staff or use the public help commands in-room."],
+        ].map(([q, a]) => `<div class="card"><h3>${esc(q)}</h3><p class="manual-copy">${esc(a)}</p></div>`).join("")}
+      </div>`,
+  }[tab] || "";
   return `
     <div class="pub-section-title"><h2>📖 How to Play</h2>
-      <p>Everything you need to know to enjoy ChillTopia</p></div>
-    <div class="pub-tutorial-grid">
-      ${sections.map((s) => `<div class="card pub-tutorial-card">
-        <div class="pub-tutorial-icon">${s.icon}</div>
-        <h3>${s.title}</h3><p>${s.content}</p>
-      </div>`).join("")}
+      <p>A detailed player manual for music, games, rewards, progression, and commands.</p></div>
+    <div class="tab-nav manual-tabs">
+      ${tabs.map((name) => `<button class="tab-btn ${name === tab ? "active" : ""}" data-manual-tab="${esc(name)}">${esc(name)}</button>`).join("")}
     </div>
+    <div class="manual-panel">${panel}</div>
+    ${(d.diagnostics?.missing_tables || []).length ? `<div class="notice" style="margin-top:16px">Some live manual sections are using fallback text because these tables are missing: ${esc(d.diagnostics.missing_tables.slice(0, 8).join(", "))}</div>` : ""}
   `;
 }
 
@@ -1164,7 +1272,7 @@ function renderPublicRoomInfo(d = state.data || {}) {
         <div class="pub-cmd-list">
           ${[["!balance","Check your coins"],["!daily","Claim daily reward"],["!bj [bet]","Play Blackjack"],
              ["!poker","Join Poker"],["!mine","Start mining"],["!fish","Start fishing"],
-             ["!request [song]","Request a song"],["!queue","View song queue"],
+             ["!play [song]","Request a song"],["!queue","View song queue"],
              ["!profile","View your profile"],["!leaderboard","Top players"]
           ].map(([cmd, desc]) => `<div class="pub-cmd-item"><code>${esc(cmd)}</code><span>${esc(desc)}</span></div>`).join("")}
         </div>
@@ -1216,6 +1324,9 @@ function renderLoginOverlay() {
 function bindPublicEvents() {
   document.querySelectorAll("[data-pub-page]").forEach((btn) => btn.addEventListener("click", () => {
     state.publicPage = btn.dataset.pubPage; state.error = ""; loadPublic();
+  }));
+  document.querySelectorAll("[data-manual-tab]").forEach((btn) => btn.addEventListener("click", () => {
+    state.howToPlayTab = btn.dataset.manualTab; state.error = ""; render();
   }));
   document.getElementById("pubLoginBtn")?.addEventListener("click", () => {
     state.showLoginOverlay = true; state.error = ""; render();
