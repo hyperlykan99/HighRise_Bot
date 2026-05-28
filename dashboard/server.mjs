@@ -24,79 +24,6 @@ const REMOTE_TIMEOUT_MS = parseInt(process.env.REMOTE_TIMEOUT_MS ?? "8000", 10);
 const SESSION_DAYS = parseInt(process.env.DASHBOARD_SESSION_DAYS ?? "7", 10);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const APP_MODE = process.env.NODE_ENV || process.env.APP_MODE || "production";
-
-const BOT_ENV_PATH = process.env.BOT_ENV_PATH?.trim() || "/opt/highrise-bots/artifacts/highrise-bot/.env";
-const BOT_PM2_APP = process.env.BOT_PM2_APP?.trim() || "ChillTopia-8Bots";
-const BOT_TOKEN_KEYS = [
-  "DJ_BOT_TOKEN",
-  "HOST_BOT_TOKEN",
-  "SECURITY_BOT_TOKEN",
-  "BLACKJACK_BOT_TOKEN",
-  "POKER_BOT_TOKEN",
-  "MINER_BOT_TOKEN",
-  "BANKER_BOT_TOKEN",
-  "FISHING_BOT_TOKEN",
-  "SHOP_BOT_TOKEN",
-  "EVENT_BOT_TOKEN",
-];
-
-function parseDotEnvText(text) {
-  const lines = String(text || "").split(/\r?\n/);
-  const values = {};
-  for (const line of lines) {
-    if (!line || line.trim().startsWith("#")) continue;
-    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$/);
-    if (m) values[m[1]] = m[2];
-  }
-  return { lines, values };
-}
-
-function setEnvLine(lines, key, value) {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp("^\\s*" + escaped + "=");
-  const nextLine = `${key}=${String(value ?? "")}`;
-  for (let i = 0; i < lines.length; i++) {
-    if (re.test(lines[i]) && !lines[i].trim().startsWith("#")) {
-      lines[i] = nextLine;
-      return;
-    }
-  }
-  if (lines.length && lines[lines.length - 1] !== "") lines.push("");
-  lines.push(nextLine);
-}
-
-function readBotEnv() {
-  const text = fs.existsSync(BOT_ENV_PATH) ? fs.readFileSync(BOT_ENV_PATH, "utf8") : "";
-  return parseDotEnvText(text);
-}
-
-function botConfigSummary() {
-  const { values } = readBotEnv();
-  return {
-    env_path: BOT_ENV_PATH,
-    pm2_app: BOT_PM2_APP,
-    room_id: values.ROOM_ID || "",
-    bots_enabled: values.BOTS_ENABLED || "",
-    tokens: BOT_TOKEN_KEYS.map((key) => ({
-      key,
-      status: values[key] ? "SET" : "EMPTY",
-    })),
-  };
-}
-
-function writeBotEnvUpdates(updates) {
-  const before = fs.existsSync(BOT_ENV_PATH) ? fs.readFileSync(BOT_ENV_PATH, "utf8") : "";
-  const backupPath = `${BOT_ENV_PATH}.DASHBOARD_BACKUP_${new Date().toISOString().replace(/[:.]/g, "-")}`;
-  if (fs.existsSync(BOT_ENV_PATH)) fs.copyFileSync(BOT_ENV_PATH, backupPath);
-  const parsed = parseDotEnvText(before);
-  const lines = parsed.lines;
-  for (const [key, value] of Object.entries(updates)) setEnvLine(lines, key, value);
-  fs.writeFileSync(BOT_ENV_PATH, lines.join("\n").replace(/\n*$/, "\n"), { mode: 0o600 });
-  try { fs.chmodSync(BOT_ENV_PATH, 0o600); } catch {}
-  return backupPath;
-}
-
-
 const VPS_ENV_PATH = "/opt/highrise-bots/.env";
 
 function readEnvFileValue(filePath, key) {
@@ -973,48 +900,6 @@ app.get("/api/live", requireAuth, (req, res) => {
   json(res, { bots, live_status: liveRows, recent_commands_or_errors: commands, updated_at: nowIso() });
 }, closeDb);
 
-
-app.get("/api/bot-config", requireAuth, requirePermission("emergency_controls"), (_req, res) => {
-  res.json(botConfigSummary());
-});
-
-app.post("/api/bot-config", requireAuth, requirePermission("emergency_controls"), (req, res) => {
-  const body = req.body || {};
-  const updates = {};
-  if (typeof body.room_id === "string") updates.ROOM_ID = body.room_id.trim();
-  if (typeof body.bots_enabled === "string") updates.BOTS_ENABLED = body.bots_enabled.trim();
-
-  const tokens = body.tokens && typeof body.tokens === "object" ? body.tokens : {};
-  for (const key of BOT_TOKEN_KEYS) {
-    const value = String(tokens[key] ?? "").trim();
-    if (value) updates[key] = value;
-  }
-
-  if (!Object.keys(updates).length) {
-    return res.json({ ok: true, message: "No changes submitted.", config: botConfigSummary() });
-  }
-
-  const backup = writeBotEnvUpdates(updates);
-  try {
-    audit(req.db, req.user.username, "bot_config_update", "env", Object.keys(updates).join(","), req.ip);
-  } catch {}
-  res.json({ ok: true, backup, updated: Object.keys(updates), config: botConfigSummary() });
-});
-
-app.post("/api/bot-config/restart", requireAuth, requirePermission("emergency_controls"), async (req, res) => {
-  try {
-    const { execFile } = await import("node:child_process");
-    execFile("/usr/bin/pm2", ["restart", BOT_PM2_APP, "--update-env"], { timeout: 20000 }, (err, stdout, stderr) => {
-      try { audit(req.db, req.user.username, "bot_runner_restart", "pm2", BOT_PM2_APP, req.ip); } catch {}
-      if (err) return res.status(500).json({ error: "pm2_restart_failed", message: err.message, stderr: String(stderr || "").slice(0, 800) });
-      res.json({ ok: true, stdout: String(stdout || "").slice(0, 1200), stderr: String(stderr || "").slice(0, 800) });
-    });
-  } catch (err) {
-    res.status(500).json({ error: "restart_exception", message: String(err?.message || err) });
-  }
-});
-
-
 app.get("/api/settings", requireAuth, requirePermission("emergency_controls"), (req, res) => {
   const roomSettings = rowsOrEmpty(
     req.db,
@@ -1169,6 +1054,124 @@ app.post("/api/staff/bot-role", requireAuth, requirePermission("manage_staff"), 
   }
   audit(req.db, req.user.username, `bot_role_${action}`, table, username, existed ?? "", { role, username }, req.ip);
   json(res, { ok: true });
+}, closeDb);
+
+const BOT_TOKEN_KEYS = [
+  "BOT_TOKEN", "MAIN_BOT_TOKEN", "HOST_BOT_TOKEN", "BLACKJACK_BOT_TOKEN",
+  "POKER_BOT_TOKEN", "MINER_BOT_TOKEN", "BANKER_BOT_TOKEN", "SHOP_BOT_TOKEN",
+  "SECURITY_BOT_TOKEN", "DJ_BOT_TOKEN", "EVENT_BOT_TOKEN", "FISHER_BOT_TOKEN",
+];
+
+app.get("/api/public/home", async (req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const rawBots = safeRows(db, "bot_instances", ["bot_mode","bot_username","status","last_heartbeat_at"], { orderBy: "last_heartbeat_at DESC", limit: "50" });
+    const { bots } = dedupBotRows(rawBots);
+    const onlineBots = bots.filter((b) => b.status === "online").length;
+    const radio = readLocalRadioStatus(db);
+    const nowPlaying = radio.now_playing || null;
+    const queueCount = radio.queue?.length ?? 0;
+    const roomUsers = (() => {
+      try { return Number(db.prepare("SELECT value FROM live_status WHERE key='room_user_count' LIMIT 1").get()?.value ?? 0); } catch { return 0; }
+    })();
+    const vibe = (() => {
+      try { return db.prepare("SELECT value FROM room_settings WHERE key='current_vibe' LIMIT 1").get()?.value ?? "Chill vibes"; } catch { return "Chill vibes"; }
+    })();
+    json(res, { online_bots: onlineBots, total_bots: bots.length, room_users: roomUsers, queue_count: queueCount, now_playing: nowPlaying ? { title: nowPlaying.title, artist: nowPlaying.artist } : null, vibe });
+  } catch (err) {
+    json(res, { online_bots: 0, total_bots: 0, room_users: 0, queue_count: 0, now_playing: null, vibe: "Chill vibes" });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/public/radio", async (req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const radio = readLocalRadioStatus(db);
+    const safeQueue = (radio.queue || []).map((r) => ({ pos: r.pos, title: r.title, artist: r.artist, username: r.username, status: r.status }));
+    const safeRecent = (radio.recently_played || []).map((r) => ({ title: r.title, artist: r.artist, username: r.username }));
+    const queueOpen = (() => {
+      try { return db.prepare("SELECT value FROM bot_settings WHERE key='requests_enabled' LIMIT 1").get()?.value !== "false"; } catch { return true; }
+    })();
+    json(res, {
+      now_playing: radio.now_playing ? { title: radio.now_playing.title, artist: radio.now_playing.artist, username: radio.now_playing.username } : null,
+      queue: safeQueue,
+      recently_played: safeRecent,
+      queue_open: queueOpen,
+      stream_url: AZURACAST_STREAM_URL || null,
+    });
+  } catch (err) {
+    json(res, { now_playing: null, queue: [], recently_played: [], queue_open: true, stream_url: null });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/public/events", async (req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const current = safeRows(db, "room_settings", ["key","value"], { where: "key LIKE 'event.%' OR key = 'active_event'", limit: "20" });
+    const scheduled = safeRows(db, "scheduled_events", ["id","name","description","starts_at","ends_at","points","reward"], { orderBy: "starts_at ASC", limit: "10" });
+    json(res, { current_settings: current, scheduled });
+  } catch {
+    json(res, { current_settings: [], scheduled: [] });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/public/rankings", async (req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const richList = safeRows(db, "users", ["username","coins","level"], { orderBy: "coins DESC", limit: "10" });
+    const miners = safeRows(db, "mining_profiles", ["username","total_weight","total_finds"], { orderBy: "total_weight DESC", limit: "10" });
+    const fishers = safeRows(db, "fishing_profiles", ["username","total_weight","total_catches"], { orderBy: "total_weight DESC", limit: "10" });
+    const topCasino = safeRows(db, "users", ["username","casino_winnings"], { where: "casino_winnings > 0", orderBy: "casino_winnings DESC", limit: "10" });
+    const topRequesters = safeRows(db, "yt_request_jobs", ["username"], { where: "status='played'", orderBy: "id DESC", limit: "200" })
+      .reduce((acc, r) => { acc[r.username] = (acc[r.username] || 0) + 1; return acc; }, {});
+    const topRequestersList = Object.entries(topRequesters).sort((a,b) => b[1]-a[1]).slice(0,10).map(([username,count]) => ({ username, count }));
+    json(res, { rich_list: richList, miners, fishers, casino: topCasino, top_requesters: topRequestersList });
+  } catch (err) {
+    json(res, { rich_list: [], miners: [], fishers: [], casino: [], top_requesters: [] });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/bot-config", requireAuth, (req, res) => {
+  const tokens = {};
+  for (const key of BOT_TOKEN_KEYS) {
+    tokens[key] = process.env[key] ? "set" : "empty";
+  }
+  let roomId = process.env.ROOM_ID || "";
+  let botsEnabled = process.env.BOTS_ENABLED || "";
+  try {
+    if (!roomId) roomId = getDashboardSettingValue(req.db, "bot_config.room_id", "");
+    if (!botsEnabled) botsEnabled = getDashboardSettingValue(req.db, "bot_config.bots_enabled", "");
+  } catch {}
+  json(res, { room_id: roomId, bots_enabled: botsEnabled, tokens });
+}, closeDb);
+
+app.post("/api/bot-config", requireAuth, (req, res) => {
+  if (req.user?.role !== "owner") return json(res, { error: "forbidden" }, 403);
+  const roomId = String(req.body?.room_id ?? "").trim();
+  const botsEnabled = String(req.body?.bots_enabled ?? "").trim();
+  if (roomId) upsertDashboardSetting(req.db, "bot_config.room_id", roomId, "bot_config", req.user.username, "Room ID override from dashboard.");
+  if (botsEnabled !== undefined) upsertDashboardSetting(req.db, "bot_config.bots_enabled", botsEnabled, "bot_config", req.user.username, "BOTS_ENABLED override from dashboard.");
+  audit(req.db, req.user.username, "bot_config_update", "bot_config", "config", "", { room_id: !!roomId, bots_enabled: botsEnabled }, req.ip);
+  json(res, { ok: true });
+}, closeDb);
+
+app.post("/api/bot-config/restart", requireAuth, (req, res) => {
+  if (req.user?.role !== "owner") return json(res, { error: "forbidden" }, 403);
+  upsertDashboardSetting(req.db, "bot_config.restart_requested", nowIso(), "bot_config", req.user.username, "Restart request from dashboard.");
+  audit(req.db, req.user.username, "bot_restart_requested", "bot_config", "restart", "", nowIso(), req.ip);
+  json(res, { ok: true, note: "Restart flag written to DB. Bot will restart on next heartbeat check." });
 }, closeDb);
 
 app.get("/api/radio", requireAuth, requirePermission("manage_radio"), (req, res) => {
@@ -1375,7 +1378,7 @@ const DASHBOARD_HTML = `<!doctype html>
 <body>
   <div id="root"></div>
   <script>
-    const pages = ["Overview","Radio","Casino","Games","Titles","Staff & Permissions","Bot Config","Settings","Logs","Emergency"];
+    const pages = ["Overview","Radio","Casino","Games","Titles","Staff & Permissions","Settings","Logs","Emergency"];
     let state = { user:null, page:"Overview", data:null, error:"" };
     const $ = (s) => document.querySelector(s);
     async function api(path, opts={}) {
@@ -1395,7 +1398,7 @@ const DASHBOARD_HTML = `<!doctype html>
     async function load(){
       const map = {
         "Overview":"/api/overview", "Radio":"/api/radio", "Casino":"/api/casino", "Games":"/api/settings",
-        "Titles":"/api/titles", "Staff & Permissions":"/api/staff", "Bot Config":"/api/bot-config", "Settings":"/api/settings", "Logs":"/api/logs", "Emergency":"/api/settings"
+        "Titles":"/api/titles", "Staff & Permissions":"/api/staff", "Settings":"/api/settings", "Logs":"/api/logs", "Emergency":"/api/settings"
       };
       try { state.data = await api(map[state.page]); state.error=""; } catch(e){ state.data=null; state.error=e.message; }
       render();
@@ -1408,32 +1411,7 @@ const DASHBOARD_HTML = `<!doctype html>
         rows.map(r=>'<tr>'+keys.map(k=>'<td>'+esc(typeof r[k]==="object"?JSON.stringify(r[k]):r[k])+'</td>').join('')+'</tr>').join('')+
         '</tbody></table>';
     }
-    
-function tokenRows(tokens){
-        if (!tokens || !tokens.length) return '<p class="muted">No token keys found.</p>';
-        return '<table><thead><tr><th>Token</th><th>Status</th><th>Replace Token</th></tr></thead><tbody>'+
-          tokens.map(t => '<tr><td><code>'+esc(t.key)+'</code></td><td><span class="'+(t.status==='SET'?'ok':'err')+'">'+esc(t.status)+'</span></td><td><input data-token-key="'+esc(t.key)+'" type="password" placeholder="Paste new token only; blank keeps current" autocomplete="off" /></td></tr>').join('')+
-          '</tbody></table>';
-      }
-      async function saveBotConfig(){
-        const tokens = {};
-        document.querySelectorAll('[data-token-key]').forEach(el => { if (el.value.trim()) tokens[el.dataset.tokenKey] = el.value.trim(); });
-        const body = {
-          room_id: (document.getElementById('bot_room_id')?.value || '').trim(),
-          bots_enabled: (document.getElementById('bots_enabled')?.value || '').trim(),
-          tokens
-        };
-        const r = await api('/api/bot-config', { method:'POST', body:JSON.stringify(body) });
-        alert('Saved. Backup: ' + (r.backup || 'none'));
-        await load();
-      }
-      async function restartBotRunner(){
-        if (!confirm('Restart ChillTopia-8Bots now?')) return;
-        const r = await api('/api/bot-config/restart', { method:'POST' });
-        alert(r.ok ? 'Bot runner restart requested.' : 'Restart failed.');
-      }
-
-function renderLogin(){
+    function renderLogin(){
       const root = document.getElementById("root");
       root.innerHTML = '<form class="login" onsubmit="login(event)"><h1>ChillTopia Control</h1><p class="muted">Owner/staff login</p>'+
       (state.error?'<p class="err">'+esc(state.error)+'</p>':'')+
@@ -1457,8 +1435,7 @@ function renderLogin(){
       if (state.page==="Games") return '<div class="card"><h3>Module Flags and Settings</h3>'+table(d.module_flags)+'<p class="muted">Use Settings for exact key edits.</p></div>';
       if (state.page==="Titles") return '<div class="grid"><div class="card"><h3>Catalog</h3>'+table(d.catalog)+'</div><div class="card"><h3>Assigned</h3>'+table(d.assigned)+'</div></div>';
       if (state.page==="Staff & Permissions") return '<div class="grid"><div class="card"><h3>Dashboard Users</h3>'+table(d.dashboard_users)+'</div><div class="card"><h3>Bot Roles</h3><pre>'+esc(JSON.stringify(d.bot_roles,null,2))+'</pre></div></div>';
-      if (state.page==="Bot Config") return '<div class="grid"><div class="card"><h3>Bot Config</h3><p class="muted">Tokens are never displayed. Leave token fields blank to keep current values.</p><p class="muted">Env: <code>'+esc(d.env_path||'')+'</code></p><p class="muted">PM2 app: <code>'+esc(d.pm2_app||'')+'</code></p><p><label>ROOM_ID<br><input id="bot_room_id" value="'+esc(d.room_id||'')+'" placeholder="HighRise room id" /></label></p><p><label>BOTS_ENABLED<br><input id="bots_enabled" value="'+esc(d.bots_enabled||'')+'" placeholder="dj,blackjack,poker,miner,banker,security,host,fisher" /></label></p><h3>Bot Tokens</h3>'+tokenRows(d.tokens||[])+'<p class="row"><button class="primary" onclick="saveBotConfig()">Save Bot Config</button><button class="danger" onclick="restartBotRunner()">Restart Bots</button></p></div></div>';
-        if (state.page==="Settings") return '<div class="grid"><div class="card"><h3>Bot Settings</h3>'+table(d.bot_settings)+'</div><div class="card"><h3>Room Settings</h3>'+table(d.room_settings)+'</div></div>';
+      if (state.page==="Settings") return '<div class="grid"><div class="card"><h3>Bot Settings</h3>'+table(d.bot_settings)+'</div><div class="card"><h3>Room Settings</h3>'+table(d.room_settings)+'</div></div>';
       if (state.page==="Logs") return '<div class="grid"><div class="card"><h3>Audit Logs</h3>'+table(d.audit_logs)+'</div><div class="card"><h3>Admin Logs</h3>'+table(d.admin_action_logs)+'</div></div>';
       if (state.page==="Emergency") return '<div class="card"><h3>Emergency Controls</h3><p>These write DB flags only.</p><div class="row">'+
         '<button class="danger" onclick="api(\\'/api/emergency\\',{method:\\'POST\\',body:JSON.stringify({flags:{disable_radio_requests:true}})}).then(load)">Disable Radio Requests</button>'+
@@ -1471,6 +1448,151 @@ function renderLogin(){
   </script>
 </body>
 </html>`;
+
+/* ── Bot Control (deduplicated) ─────────────────────── */
+const BOT_DISPLAY_NAMES = {
+  dj: "DJ_DUDU", host: "ChillTopiaMC", security: "KeanuShield",
+  miner: "GreatestProspector", fisher: "MasterAngler",
+  poker: "AceSinatra", blackjack: "ChipSoprano",
+  banker: "BankingBot", shopkeeper: "BankingBot",
+  eventhost: "ChillTopiaMC",
+};
+
+const BOT_CARD_TITLES = {
+  blackjack: "Casino Dealer", poker: "Poker Host",
+  dj: "DJ Bot", host: "Room Host", eventhost: "Event Host",
+  banker: "Banking Bot", shopkeeper: "Shop Bot",
+  security: "Security", miner: "Miner", fisher: "Fisher",
+};
+
+const BOT_MODULE_GROUPS = {
+  blackjack: ["BlackJack", "Realistic BlackJack"],
+  poker: ["Poker"],
+  dj: ["DJ Queue", "Radio"],
+  host: ["Host", "Announcements"],
+  eventhost: ["Events"],
+  banker: ["Bank", "Economy", "Daily"],
+  shopkeeper: ["Shop"],
+  security: ["Security", "Moderation"],
+  miner: ["Mining"],
+  fisher: ["Fishing"],
+};
+
+/**
+ * Deduplicate bot_instances rows.
+ * Groups by bot_mode (falling back to bot_username/bot_id).
+ * Within each group prefers:
+ *   1. Rows where lower(bot_username) !== lower(bot_mode)  [real username over generic fallback]
+ *   2. status === "online"
+ *   3. Latest last_heartbeat_at
+ * Returns { bots, rawDupeRows } where bots is sorted by bot_mode.
+ */
+function dedupBotRows(raw) {
+  const groups = new Map();
+  for (const row of raw) {
+    const key = String(row.bot_mode || row.bot_username || row.bot_id || "unknown").toLowerCase();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  const isRealUsername = (r) =>
+    r.bot_username &&
+    r.bot_mode &&
+    r.bot_username.toLowerCase() !== r.bot_mode.toLowerCase();
+
+  const bots = [];
+  const rawDupeRows = [];
+
+  for (const [modeKey, rows] of groups) {
+    const sorted = [...rows].sort((a, b) => {
+      const aR = isRealUsername(a) ? 0 : 1;
+      const bR = isRealUsername(b) ? 0 : 1;
+      if (aR !== bR) return aR - bR;
+      const aO = a.status === "online" ? 0 : 1;
+      const bO = b.status === "online" ? 0 : 1;
+      if (aO !== bO) return aO - bO;
+      return String(b.last_heartbeat_at || "") > String(a.last_heartbeat_at || "") ? 1 : -1;
+    });
+    const best = sorted[0];
+    const displayName = BOT_DISPLAY_NAMES[modeKey] || best.bot_username || best.bot_mode || "Bot";
+    bots.push({
+      bot_id: best.bot_id,
+      bot_mode: best.bot_mode,
+      bot_username: best.bot_username,
+      display_name: displayName,
+      card_title: BOT_CARD_TITLES[modeKey] || displayName,
+      modules: BOT_MODULE_GROUPS[modeKey] || [],
+      status: best.status,
+      enabled: best.enabled,
+      last_heartbeat_at: best.last_heartbeat_at,
+      last_error: best.last_error,
+      current_room_id: best.current_room_id,
+      raw_duplicate_count: rows.length,
+      raw_rows: rows.length > 1 ? rows : [],
+    });
+    if (rows.length > 1) rawDupeRows.push(...rows.map((r) => ({ ...r, _modeKey: modeKey })));
+  }
+  bots.sort((a, b) => String(a.bot_mode || "").localeCompare(String(b.bot_mode || "")));
+  return { bots, rawDupeRows };
+}
+
+app.get("/api/bot-control", requireAuth, (req, res) => {
+  const raw = safeRows(req.db, "bot_instances",
+    ["bot_id","bot_mode","bot_username","status","enabled","last_heartbeat_at","last_error","current_room_id"],
+    { orderBy: "last_heartbeat_at DESC" }
+  );
+  const { bots, rawDupeRows } = dedupBotRows(raw);
+  json(res, { bots, raw_count: raw.length, raw_duplicate_rows: rawDupeRows });
+}, closeDb);
+
+/* ── Economy Overview (read-only) ───────────────────── */
+app.get("/api/economy/overview", requireAuth, requireAnyPermission("manage_casino","manage_games","emergency_controls"), (req, res) => {
+  const stats = (() => {
+    try {
+      if (!tableExists(req.db, "users")) return null;
+      const cols = tableColumns(req.db, "users");
+      const hasTix = cols.includes("tickets");
+      const hasCasinoWin = cols.includes("casino_winnings");
+      const selTix = hasTix ? ", COALESCE(SUM(tickets),0) AS total_tickets" : "";
+      return req.db.prepare(
+        `SELECT COUNT(*) AS player_count, COALESCE(SUM(coins),0) AS total_coins${selTix}, COALESCE(AVG(coins),0) AS avg_coins, COALESCE(MAX(coins),0) AS richest FROM users`
+      ).get();
+    } catch { return null; }
+  })();
+  const topRich = safeRows(req.db, "users", ["username","coins","level","xp"], { where: "coins > 0", orderBy: "coins DESC", limit: "15" });
+  const topXp = safeRows(req.db, "users", ["username","xp","level"], { where: "xp > 0", orderBy: "xp DESC", limit: "10" });
+  json(res, { stats, top_rich: topRich, top_xp: topXp });
+}, closeDb);
+
+/* ── Player Search ──────────────────────────────────── */
+app.get("/api/player/search", requireAuth, (req, res) => {
+  const q = String(req.query.q || "").trim().slice(0, 80);
+  if (!q) return json(res, { player: null, error: "query_required" }, 400);
+  if (!tableExists(req.db, "users")) return json(res, { player: null, error: "users_table_missing" }, 404);
+  const desired = ["user_id","username","coins","tickets","xp","level","casino_winnings","last_seen_at","created_at"];
+  let player = safeOne(req.db, "users", desired, { where: "lower(username)=lower(?) OR user_id=?", params: [q, q] });
+  if (!player) player = safeOne(req.db, "users", desired, { where: "lower(username) LIKE ?", params: [`%${q.toLowerCase()}%`] });
+  if (!player) return json(res, { player: null });
+  const titles = safeRows(req.db, "user_titles", ["title_id","source","unlocked_at"], { where: "user_id=?", params: [player.user_id], limit: "20" });
+  const ownedCount = (() => {
+    try { return tableExists(req.db, "owned_items") ? (req.db.prepare("SELECT COUNT(*) AS n FROM owned_items WHERE user_id=?").get(player.user_id)?.n ?? 0) : 0; } catch { return 0; }
+  })();
+  json(res, { player: { ...player, titles, owned_item_count: ownedCount } });
+}, closeDb);
+
+/* ── Room Control (read) ────────────────────────────── */
+app.get("/api/room-control", requireAuth, (req, res) => {
+  const KNOWN_KEYS = [
+    "welcome_enabled","welcome_message","maintenance_mode","public_emotes_enabled",
+    "social_enabled","self_teleport_enabled","requests_enabled","current_vibe",
+    "bots_enabled","announcements_enabled","daily_enabled","mining_enabled","fishing_enabled",
+  ];
+  const allSettings = safeRows(req.db, "room_settings", ["key","value"], { orderBy: "key" });
+  const known = {};
+  for (const row of allSettings) { if (KNOWN_KEYS.includes(row.key)) known[row.key] = row.value; }
+  const extra = allSettings.filter((r) => !KNOWN_KEYS.includes(r.key));
+  json(res, { known_settings: known, extra_settings: extra, known_keys: KNOWN_KEYS });
+}, closeDb);
 
 app.get("/", (_req, res) => {
   const index = path.join(PUBLIC_DIR, "index.html");
