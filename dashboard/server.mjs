@@ -23,6 +23,8 @@ const AZURACAST_STREAM_URL = process.env.AZURACAST_STREAM_URL?.trim() || null;
 const REMOTE_TIMEOUT_MS = parseInt(process.env.REMOTE_TIMEOUT_MS ?? "8000", 10);
 const SESSION_DAYS = parseInt(process.env.DASHBOARD_SESSION_DAYS ?? "7", 10);
 const PUBLIC_DIR = path.join(__dirname, "public");
+const BOT_ROOT = path.join(__dirname, "..", "artifacts", "highrise-bot");
+const BOT_DATA_DIR = path.join(BOT_ROOT, "data");
 const APP_MODE = process.env.NODE_ENV || process.env.APP_MODE || "production";
 const VPS_ENV_PATH = "/opt/highrise-bots/.env";
 
@@ -953,6 +955,155 @@ function readRoomDashboard(db) {
 
 function upsertKeyValue(db, table, key, value) {
   db.prepare(`INSERT OR REPLACE INTO ${sqlIdent(table)} (key, value) VALUES (?, ?)`).run(key, String(value));
+}
+
+function readJsonFileSafe(filePath, fallback = null) {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (err) {
+    console.error(`[DASHBOARD_FILE] json_read_failed path=${filePath} error=${err.message}`);
+    return fallback;
+  }
+}
+
+function tableInfo(db, table, limit = "50") {
+  const exists = tableExists(db, table);
+  const cols = exists ? tableColumns(db, table) : [];
+  const orderBy = cols.includes("updated_at") ? "updated_at DESC"
+    : cols.includes("created_at") ? "created_at DESC"
+    : cols.includes("timestamp") ? "timestamp DESC"
+    : cols.includes("last_given_at") ? "last_given_at DESC"
+    : cols.includes("id") ? "id DESC"
+    : "";
+  return { exists, columns: cols, rows: safeTableRows(db, table, { orderBy, limit }) };
+}
+
+function emoteRegistryRows() {
+  const rows = [];
+  const main = readJsonFileSafe(path.join(BOT_DATA_DIR, "emotes.json"), {});
+  for (const [alias, entry] of Object.entries(main || {})) {
+    rows.push({
+      alias,
+      name: entry?.name || alias,
+      emote_id: entry?.id || "",
+      category: entry?.category || "uncategorized",
+      duration: entry?.time ?? "",
+      bot: entry?.bot === false ? "no" : "yes",
+      player: entry?.player === false ? "no" : "yes",
+      enabled: "yes",
+      source: "data/emotes.json",
+    });
+  }
+  const custom = readJsonFileSafe(path.join(BOT_DATA_DIR, "custom_emotes.json"), {});
+  for (const [kind, group] of Object.entries(custom || {})) {
+    if (!group || typeof group !== "object") continue;
+    for (const [alias, entry] of Object.entries(group)) {
+      if (!entry || typeof entry !== "object") continue;
+      rows.push({
+        alias,
+        name: entry.name || alias,
+        emote_id: entry.id || "",
+        category: kind,
+        duration: entry.time ?? "",
+        bot: kind.includes("bot") ? "yes" : "",
+        player: kind.includes("player") ? "yes" : "",
+        enabled: "yes",
+        source: "data/custom_emotes.json",
+      });
+    }
+  }
+  return rows;
+}
+
+function readEmotesDashboard(db) {
+  const settingsRows = safeRows(db, "room_settings", ["key", "value"], { orderBy: "key" });
+  const settings = Object.fromEntries(settingsRows.map((row) => [row.key, row.value]));
+  const registry = emoteRegistryRows();
+  const tables = Object.fromEntries([
+    "active_emotes",
+    "fav_emotes",
+    "custom_emote_packs",
+    "custom_loop_sessions",
+    "dancefloor_packs",
+    "room_emote_loops",
+    "sync_relations",
+    "room_hearts",
+    "room_heart_totals",
+    "room_social_logs",
+    "audit_logs",
+    "bot_command_queue",
+  ].map((name) => [name, tableInfo(db, name, name === "bot_command_queue" ? "75" : "100")]));
+  const botEmotes = Object.entries(settings)
+    .filter(([key]) => key.startsWith("bot_emote_"))
+    .map(([key, value]) => ({
+      bot: key.replace(/^bot_emote_/, ""),
+      current_emote: value || "",
+      loop_status: value ? "active" : "stopped",
+      persistent: value ? "yes" : "no",
+      source: "room_settings",
+    }));
+  const emoteCommands = safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
+    where: "action IN ('trigger_emote','stop_emote','botemote_set','botemote_stop','dancefloor_start','dancefloor_stop','dancefloor_clear','dancefloor_status','dancefloor_sequence','dancefloor_random','dancefloor_randomtimed','sync_start','sync_stop','sync_persist')",
+    orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "75",
+  });
+  const emoteAudit = safeRows(db, "audit_logs", ["id", "actor", "action_type", "target_type", "target_id", "old_value", "new_value", "ip_address", "created_at"], {
+    where: "action_type LIKE 'emote_%' OR action_type LIKE 'dancefloor_%' OR action_type LIKE 'sync_%' OR target_type IN ('custom_emote_packs','dancefloor_packs','sync_relations','bot_command_queue')",
+    orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "",
+    limit: "100",
+  });
+  const activeSync = (tables.sync_relations.rows || []).filter((row) => String(row.is_active) === "1");
+  const customPacks = tables.custom_emote_packs.rows || [];
+  const dancePacks = tables.dancefloor_packs.rows || [];
+  return {
+    overview: {
+      registry_count: registry.length,
+      active_bot_emotes: botEmotes.filter((row) => row.current_emote).length,
+      dancefloor_status: settings.dancefloor_active === "true" ? "active" : "stopped",
+      sync_active_count: activeSync.length,
+      custom_packs_count: customPacks.length + dancePacks.length,
+      heart_social_status: settings.social_enabled ?? settings.public_emotes_enabled ?? "",
+      recent_errors: emoteAudit.filter((row) => String(row.action_type || "").toLowerCase().includes("error")).slice(0, 10),
+    },
+    settings,
+    room_settings: settingsRows,
+    registry,
+    bot_emotes: botEmotes,
+    custom_packs: customPacks,
+    dancefloor: {
+      status: settings.dancefloor_active === "true" ? "active" : "stopped",
+      box: settings.dancefloor_box || "",
+      p1: settings.dancefloor_p1 || "",
+      p2: settings.dancefloor_p2 || "",
+      emotes: settings.dancefloor_emotes || "",
+      sequence_json: settings.dancefloor_sequence_json || "",
+      mode: settings.dancefloor_sequence_mode || "",
+      packs: dancePacks,
+    },
+    sync: {
+      enabled: settings.sync_dance_enabled ?? "",
+      active: activeSync,
+      all: tables.sync_relations.rows || [],
+    },
+    social: {
+      heart_settings: Object.entries(settings).filter(([key]) => key.includes("heart") || key.includes("social")).map(([key, value]) => ({ key, value, source: "room_settings" })),
+      hearts: tables.room_hearts.rows || [],
+      totals: tables.room_heart_totals.rows || [],
+      logs: tables.room_social_logs.rows || [],
+    },
+    tables,
+    command_queue: {
+      pending: emoteCommands.filter((row) => ["pending", "queued", "claimed", "running"].includes(String(row.status || ""))),
+      recent: emoteCommands,
+    },
+    audit_logs: emoteAudit,
+    raw_files: [
+      { file: "data/emotes.json", exists: fs.existsSync(path.join(BOT_DATA_DIR, "emotes.json")), rows: registry.filter((r) => r.source === "data/emotes.json").length },
+      { file: "data/custom_emotes.json", exists: fs.existsSync(path.join(BOT_DATA_DIR, "custom_emotes.json")), rows: registry.filter((r) => r.source === "data/custom_emotes.json").length },
+      { file: "data/highrise_emotes.json", exists: fs.existsSync(path.join(BOT_DATA_DIR, "highrise_emotes.json")), rows: Object.keys(readJsonFileSafe(path.join(BOT_DATA_DIR, "highrise_emotes.json"), {}) || {}).length },
+    ],
+  };
 }
 
 const BOT_COMMAND_QUEUE_COLUMNS = [
@@ -3615,6 +3766,18 @@ const ALLOWED_BOT_COMMAND_ACTIONS = new Set([
   "event_start",
   "event_stop",
   "event_schedule",
+  "dancefloor_start",
+  "dancefloor_stop",
+  "dancefloor_clear",
+  "dancefloor_status",
+  "dancefloor_sequence",
+  "dancefloor_random",
+  "dancefloor_randomtimed",
+  "sync_start",
+  "sync_stop",
+  "sync_persist",
+  "botemote_set",
+  "botemote_stop",
 ]);
 
 app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games"), (req, res) => {
@@ -3644,6 +3807,96 @@ app.get("/api/bot-command-queue", requireAuth, (req, res) => {
     limit: "50",
   });
   json(res, { pending, recent });
+}, closeDb);
+
+app.get("/api/emotes/overview", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  json(res, readEmotesDashboard(req.db));
+}, closeDb);
+
+app.get("/api/emotes/registry", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const d = readEmotesDashboard(req.db);
+  json(res, { registry: d.registry, active_emotes: d.tables.active_emotes, raw_files: d.raw_files });
+}, closeDb);
+
+app.get("/api/emotes/bot-status", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const d = readEmotesDashboard(req.db);
+  json(res, { bot_emotes: d.bot_emotes, room_emote_loops: d.tables.room_emote_loops, command_queue: d.command_queue });
+}, closeDb);
+
+app.get("/api/emotes/custom-packs", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const d = readEmotesDashboard(req.db);
+  json(res, { custom_packs: d.custom_packs, dancefloor_packs: d.dancefloor.packs, tables: { custom_emote_packs: d.tables.custom_emote_packs, dancefloor_packs: d.tables.dancefloor_packs } });
+}, closeDb);
+
+app.get("/api/emotes/dancefloor", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const d = readEmotesDashboard(req.db);
+  json(res, { dancefloor: d.dancefloor, settings: d.settings, command_queue: d.command_queue });
+}, closeDb);
+
+app.get("/api/emotes/sync", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const d = readEmotesDashboard(req.db);
+  json(res, { sync: d.sync, command_queue: d.command_queue });
+}, closeDb);
+
+app.get("/api/emotes/social", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const d = readEmotesDashboard(req.db);
+  json(res, { social: d.social, settings: d.settings });
+}, closeDb);
+
+app.get("/api/emotes/logs", requireAuth, requireAnyPermission("emergency_controls", "manage_games", "view_logs"), (req, res) => {
+  const d = readEmotesDashboard(req.db);
+  json(res, { audit_logs: d.audit_logs, room_social_logs: d.tables.room_social_logs, command_queue: d.command_queue });
+}, closeDb);
+
+function enqueueEmoteAction(req, res, { targetBot, actionName, payload, auditAction }) {
+  if (!ALLOWED_BOT_COMMAND_ACTIONS.has(actionName)) return json(res, { error: "action_not_allowed" }, 400);
+  if (JSON.stringify(payload || {}).length > 2000) return json(res, { error: "payload_too_large" }, 400);
+  try {
+    const queued = enqueueBotCommand(req.db, { targetBot, actionName, payload, requesterId: req.user.username });
+    audit(req.db, req.user.username, auditAction || `${actionName}_enqueue`, "bot_command_queue", queued.id, "", { target_bot: targetBot, action: actionName, payload }, req.ip);
+    return json(res, { ok: true, command: queued, message: "Command queued. Bot must consume bot_command_queue." });
+  } catch (err) {
+    return json(res, { error: err.message || "enqueue_failed" }, 500);
+  }
+}
+
+app.post("/api/emotes/trigger", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const targetBot = String(req.body?.target_bot || "dj").trim().slice(0, 80);
+  const emote = String(req.body?.emote || "").trim();
+  const duration = req.body?.duration;
+  if (!emote) return json(res, { error: "emote_required" }, 400);
+  return enqueueEmoteAction(req, res, { targetBot, actionName: "trigger_emote", payload: { emote, target: "self", duration }, auditAction: "emote_trigger_enqueue" });
+}, closeDb);
+
+app.post("/api/emotes/stop", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const targetBot = String(req.body?.target_bot || "dj").trim().slice(0, 80);
+  return enqueueEmoteAction(req, res, { targetBot, actionName: "stop_emote", payload: {}, auditAction: "emote_stop_enqueue" });
+}, closeDb);
+
+app.post("/api/dancefloor/command", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const command = String(req.body?.command || "").trim();
+  const actionMap = {
+    start: "dancefloor_start",
+    stop: "dancefloor_stop",
+    clear: "dancefloor_clear",
+    status: "dancefloor_status",
+    sequence: "dancefloor_sequence",
+    random: "dancefloor_random",
+    randomtimed: "dancefloor_randomtimed",
+  };
+  const actionName = actionMap[command];
+  if (!actionName) return json(res, { error: "command_not_allowed" }, 400);
+  const payload = req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload) ? req.body.payload : {};
+  return enqueueEmoteAction(req, res, { targetBot: "dj", actionName, payload, auditAction: `dancefloor_${command}_enqueue` });
+}, closeDb);
+
+app.post("/api/sync/command", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+  const command = String(req.body?.command || "").trim();
+  const actionMap = { start: "sync_start", stop: "sync_stop", persist: "sync_persist" };
+  const actionName = actionMap[command];
+  if (!actionName) return json(res, { error: "command_not_allowed" }, 400);
+  const payload = req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload) ? req.body.payload : {};
+  return enqueueEmoteAction(req, res, { targetBot: "dj", actionName, payload, auditAction: `sync_${command}_enqueue` });
 }, closeDb);
 
 app.post("/api/room/announce", requireAuth, requireAnyPermission("emergency_controls","manage_radio"), (req, res) => {

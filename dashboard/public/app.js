@@ -20,6 +20,7 @@ const OWNER_NAV = [
   { id: "Radio",             icon: "📻", label: "Radio",             group: "Control" },
   { id: "Players",           icon: "👤", label: "Players",           group: "Control" },
   { id: "Room & Content",    icon: "🏠", label: "Room & Content",    group: "Control" },
+  { id: "Emotes",            icon: "💃", label: "Emotes",            group: "Control" },
   { id: "Mining",            icon: "⛏️", label: "Mining",            group: "Control" },
   { id: "Fishing",           icon: "🎣", label: "Fishing",           group: "Control" },
   { id: "Economy & Rewards", icon: "💰", label: "Economy & Rewards", group: "Control" },
@@ -115,6 +116,17 @@ const FISHING_TABS = [
   { id: "Logs", api: "/api/fishing/logs" },
   { id: "Advanced", api: "/api/fishing" },
 ];
+const EMOTE_TABS = [
+  { id: "Overview", api: "/api/emotes/overview" },
+  { id: "Emote Registry", api: "/api/emotes/registry" },
+  { id: "Bot Emotes", api: "/api/emotes/bot-status" },
+  { id: "Custom Packs", api: "/api/emotes/custom-packs" },
+  { id: "Dancefloor", api: "/api/emotes/dancefloor" },
+  { id: "Sync", api: "/api/emotes/sync" },
+  { id: "Social / Hearts", api: "/api/emotes/social" },
+  { id: "Logs", api: "/api/emotes/logs" },
+  { id: "Advanced", api: "/api/emotes/overview" },
+];
 const SYSTEM_TABS = [
   { id: "Health", api: "/api/healthz" },
   { id: "Logs", api: null },
@@ -128,6 +140,7 @@ const TAB_REGISTRY = {
   "Radio": RADIO_TABS,
   "Players": PLAYER_TABS,
   "Room & Content": ROOM_TABS,
+  "Emotes": EMOTE_TABS,
   "Economy & Rewards": ECONOMY_TABS,
   "Mining": MINING_TABS,
   "Fishing": FISHING_TABS,
@@ -144,6 +157,7 @@ const PAGE_DESC = {
   "Bots":              "Bot status, configuration and control",
   "Players":           "Player search, titles, moderation",
   "Room & Content":    "Room settings, radio, events and announcements",
+  "Emotes":            "DJ DUDU emote registry, bot loops, dancefloor, sync and social controls",
   "Mining":            "Mining catalog, settings, drop chances and logs",
   "Fishing":           "Fishing catalog, settings, catch chances and logs",
   "Economy & Rewards": "Coins, tickets, VIP, titles and rewards",
@@ -545,6 +559,7 @@ function pageApi(page, tab) {
     "Radio Queue":                        "/api/radio",
     "Events":                             "/api/events",
     "Room Tools":                         "/api/room-control",
+    "Emotes":                             "/api/emotes/overview",
     "Logs":                               null,
   })[page] ?? null;
 }
@@ -1205,7 +1220,7 @@ function renderAdminPage() {
   const d = state.data;
   const page = state.adminPage;
   const role = state.user?.role;
-  const nullDataOk = ["Players", "Bots", "Room & Content", "Economy & Rewards",
+  const nullDataOk = ["Players", "Bots", "Room & Content", "Emotes", "Economy & Rewards",
     "Radio", "System", "Staff Home", "Players", "Events", "Room Tools", "Logs"];
   if (!d && state.error && !nullDataOk.includes(page)) return `<div class="card"><div class="empty-state"><div class="empty-state-icon">⚠️</div><strong style="color:var(--red);margin-bottom:4px">Failed to load</strong><span>${esc(state.error)}</span></div></div>`;
   if (!d && !nullDataOk.includes(page)) return `<div class="card"><div class="loading-state"><div class="loading-spinner"></div><span class="muted text-sm">Loading…</span></div></div>`;
@@ -1235,6 +1250,7 @@ function renderOwnerPage(page) {
     case "Radio":             return renderRadioOwnerPage(activeTab("Radio"));
     case "Players":           return renderOwnerPlayersPage(activeTab("Players"));
     case "Room & Content":    return renderRoomContent(activeTab("Room & Content"));
+    case "Emotes":            return renderEmotesOwnerPage(activeTab("Emotes"));
     case "Mining":            return renderMiningOwnerPage(activeTab("Mining"));
     case "Fishing":           return renderFishingOwnerPage(activeTab("Fishing"));
     case "Economy & Rewards": return renderEconomyRewards(activeTab("Economy & Rewards"));
@@ -1601,6 +1617,235 @@ function renderQueuedBotCommands(queue) {
       </div>
     </div>
   `;
+}
+
+/* ── Emotes Owner Page ───────────────────────────────── */
+const EMOTE_BOT_TARGETS = [
+  ["dj", "DJ_DUDU"],
+  ["host", "ChillTopiaMC"],
+  ["security", "KeanuShield"],
+  ["blackjack", "AceSinatra"],
+  ["poker", "ChipSoprano"],
+  ["miner", "GreatestProspector"],
+  ["fisher", "MasterAngler"],
+  ["banker", "BankingBot"],
+];
+
+function botTargetOptions(selected = "dj") {
+  return EMOTE_BOT_TARGETS.map(([mode, name]) =>
+    `<option value="${esc(mode)}" ${selected === mode ? "selected" : ""}>${esc(name)} (${esc(mode)})</option>`).join("");
+}
+
+function renderEmotesOwnerPage(tab) {
+  const d = state.data || {};
+  return `
+    ${tabNav("Emotes")}
+    ${tab === "Overview" ? renderEmotesOverview(d) : ""}
+    ${tab === "Emote Registry" ? renderEmoteRegistry(d) : ""}
+    ${tab === "Bot Emotes" ? renderBotEmotes(d) : ""}
+    ${tab === "Custom Packs" ? renderCustomPacks(d) : ""}
+    ${tab === "Dancefloor" ? renderDancefloorOwner(d) : ""}
+    ${tab === "Sync" ? renderSyncOwner(d) : ""}
+    ${tab === "Social / Hearts" ? renderSocialHearts(d) : ""}
+    ${tab === "Logs" ? renderEmoteLogs(d) : ""}
+    ${tab === "Advanced" ? renderEmotesAdvanced(d) : ""}
+  `;
+}
+
+function renderEmotesOverview(d) {
+  const o = d.overview || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+      ${metricCard("Registry", o.registry_count ?? 0, "emotes.json + custom", "accent-cyan", "🎭")}
+      ${metricCard("Bot Loops", o.active_bot_emotes ?? 0, "persistent bot emotes", o.active_bot_emotes ? "accent-green" : "", "🤖")}
+      ${metricCard("Dancefloor", o.dancefloor_status || "unknown", "room_settings.dancefloor_active", o.dancefloor_status === "active" ? "accent-green" : "", "💃")}
+      ${metricCard("Sync Active", o.sync_active_count ?? 0, "sync_relations active", "accent-cyan", "🔄")}
+      ${metricCard("Custom Packs", o.custom_packs_count ?? 0, "custom + dancefloor packs", "", "📦")}
+      ${metricCard("Social / Hearts", boolLabel(o.heart_social_status), "room social settings", truthy(o.heart_social_status) ? "accent-green" : "", "💖")}
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Queued Emote Commands</h2>${renderQueuedBotCommands(d.command_queue || {})}</div>
+      <div class="card"><h2>Recent Emote Audit</h2>${table(d.audit_logs || [], [
+        { key: "created_at", label: "Time" },
+        { key: "actor", label: "Actor" },
+        { key: "action_type", label: "Action", render: (r) => pill(r.action_type || "audit") },
+        { key: "target_type", label: "Target" },
+      ])}</div>
+    </div>`;
+}
+
+function renderEmoteRegistry(d) {
+  const rows = d.registry || [];
+  return `<div class="card">
+    <div class="card-header"><h2>Emote Registry</h2><span class="pill info">READ ONLY</span></div>
+    ${renderResourceToolbar({ search: "Search emotes", rarity: false, enabled: false })}
+    ${table(rows.slice(0, 300), [
+      { key: "alias", label: "Alias" },
+      { key: "name", label: "Name" },
+      { key: "emote_id", label: "Emote ID" },
+      { key: "category", label: "Category" },
+      { key: "duration", label: "Time" },
+      { key: "bot", label: "Bot" },
+      { key: "player", label: "Player" },
+      { key: "source", label: "Source" },
+    ])}
+    ${rows.length > 300 ? `<div class="notice" style="margin-top:12px">Showing first 300 of ${rows.length} registry entries. Use search after load to narrow the visible set.</div>` : ""}
+    ${futureControls([
+      { endpoint: "POST /api/emotes/registry", purpose: "Add/edit registry entries only after file persistence is safely shared with bot registry", status: "Future" },
+    ])}
+  </div>`;
+}
+
+function renderBotEmotes(d) {
+  return `<div class="grid">
+    <div class="card">
+      <h2>Queue Bot Emote</h2>
+      <form id="emoteCommandForm" class="settings-form">
+        <select name="target_bot">${botTargetOptions("dj")}</select>
+        <input name="emote" placeholder="emote alias" required />
+        <input name="duration" type="number" min="0" max="120" placeholder="duration seconds optional" />
+        <button class="btn primary">Queue Emote</button>
+      </form>
+      ${queueHelp()}
+    </div>
+    <div class="card">
+      <h2>Persistent Bot Loop</h2>
+      <form id="botEmoteSetForm" class="settings-form">
+        <select name="target_bot">${botTargetOptions("dj")}</select>
+        <input name="emote" placeholder="emote alias" required />
+        <button class="btn primary">Set Persistent Bot Emote</button>
+      </form>
+      <form id="botEmoteStopForm" class="toolbar" style="margin-top:12px">
+        <select name="target_bot">${botTargetOptions("dj")}</select>
+        <button class="btn danger">Stop Persistent Bot Emote</button>
+      </form>
+      ${queueHelp()}
+    </div>
+    <div class="card"><h2>Active Bot Emotes</h2>${table(d.bot_emotes || [], [
+      { key: "bot", label: "Bot" },
+      { key: "current_emote", label: "Current Emote" },
+      { key: "loop_status", label: "Status", render: (r) => pill(r.loop_status || "stopped", ["active"]) },
+      { key: "persistent", label: "Persistent", render: (r) => pill(r.persistent || "no", ["yes"]) },
+      { key: "source", label: "Source" },
+    ])}</div>
+    <div class="card"><h2>Room Emote Loops</h2>${table(d.room_emote_loops?.rows || d.tables?.room_emote_loops?.rows || [])}</div>
+  </div>`;
+}
+
+function renderCustomPacks(d) {
+  const customRows = d.custom_packs || d.tables?.custom_emote_packs?.rows || [];
+  const danceRows = d.dancefloor_packs || d.tables?.dancefloor_packs?.rows || [];
+  return `<div class="grid">
+    <div class="card"><div class="card-header"><h2>Custom Emote Packs</h2><span class="pill info">READ ONLY</span></div>${table(customRows)}</div>
+    <div class="card"><div class="card-header"><h2>Dancefloor Packs</h2><span class="pill info">READ ONLY</span></div>${table(danceRows)}</div>
+  </div>
+  ${futureControls([
+    { endpoint: "POST/PUT/DELETE /api/emotes/packs", purpose: "Pack writes need safe owner-scoped schema and confirmation", status: "Future" },
+  ])}`;
+}
+
+function renderDancefloorOwner(d) {
+  const df = d.dancefloor || {};
+  return `<div class="grid">
+    <div class="card">
+      <div class="card-header"><h2>Dancefloor Status</h2>${pill(df.status || "unknown", ["active"])}</div>
+      ${table([
+        { label: "Box", value: df.box || "unset" },
+        { label: "Point 1", value: df.p1 || "unset" },
+        { label: "Point 2", value: df.p2 || "unset" },
+        { label: "Mode", value: df.mode || "simple/legacy" },
+        { label: "Emotes", value: df.emotes || "none" },
+      ], [{ key: "label", label: "Field" }, { key: "value", label: "Value" }])}
+    </div>
+    <div class="card">
+      <h2>Queue Dancefloor Command</h2>
+      <div class="inline-actions" style="margin-bottom:12px">
+        <button class="btn primary" data-dancefloor-command="start">Queue Start</button>
+        <button class="btn danger" data-dancefloor-command="stop">Queue Stop</button>
+        <button class="btn" data-dancefloor-command="status">Queue Status</button>
+        <button class="btn danger" data-dancefloor-command="clear">Queue Clear</button>
+      </div>
+      <form id="dancefloorSequenceForm" class="settings-form">
+        <input name="emotes" placeholder="emote aliases, comma or space separated" required />
+        <button class="btn primary sm">Queue Sequence</button>
+      </form>
+      <form id="dancefloorRandomForm" class="toolbar" style="margin-top:12px;flex-wrap:wrap">
+        <input name="count" type="number" min="1" placeholder="random count" />
+        <button class="btn sm">Queue Random</button>
+      </form>
+      <form id="dancefloorRandomTimedForm" class="toolbar" style="margin-top:12px;flex-wrap:wrap">
+        <input name="count" placeholder="count or all" value="all" />
+        <input name="min_seconds" type="number" min="0.5" step="0.5" placeholder="min sec" required />
+        <input name="max_seconds" type="number" min="0.5" step="0.5" placeholder="max sec optional" />
+        <button class="btn sm">Queue Random Timed</button>
+      </form>
+      ${queueHelp()}
+    </div>
+    <div class="card"><h2>Saved Dancefloor Packs</h2>${table(df.packs || [])}</div>
+  </div>`;
+}
+
+function renderSyncOwner(d) {
+  const sync = d.sync || {};
+  return `<div class="grid">
+    <div class="card">
+      <div class="card-header"><h2>Sync Relations</h2><span class="pill ${truthy(sync.enabled) ? "ok" : "def"}">${esc(boolLabel(sync.enabled))}</span></div>
+      ${table(sync.all || [], [
+        { key: "follower_username", label: "Follower" },
+        { key: "leader_username", label: "Leader" },
+        { key: "is_active", label: "Active", render: (r) => pill(String(r.is_active) === "1" ? "ACTIVE" : "STOPPED", ["ACTIVE"]) },
+        { key: "persist_enabled", label: "Persistent", render: (r) => pill(String(r.persist_enabled) === "1" ? "PERSISTENT" : "off", ["PERSISTENT"]) },
+        { key: "updated_at", label: "Updated" },
+      ])}
+    </div>
+    <div class="card">
+      <h2>Queue Sync Controls</h2>
+      <form id="syncStartForm" class="settings-form">
+        <input name="leader" placeholder="leader username for sync all" required />
+        <button class="btn primary">Queue Sync All To Leader</button>
+      </form>
+      <div class="inline-actions" style="margin-top:12px">
+        <button class="btn danger" data-sync-command="stop">Queue Stop All Sync</button>
+        <button class="btn" data-sync-persist="true">Queue Persist On</button>
+        <button class="btn" data-sync-persist="false">Queue Persist Off</button>
+      </div>
+      ${queueHelp()}
+    </div>
+  </div>`;
+}
+
+function renderSocialHearts(d) {
+  const social = d.social || {};
+  return `<div class="grid">
+    <div class="card"><div class="card-header"><h2>Heart / Social Settings</h2><span class="pill info">READ ONLY</span></div>${table(social.heart_settings || [])}</div>
+    <div class="card"><h2>Heart Totals</h2>${table(social.totals || [])}</div>
+    <div class="card"><h2>Recent Hearts</h2>${table(social.hearts || [])}</div>
+    <div class="card"><h2>Social Logs</h2>${table(social.logs || [])}</div>
+  </div>
+  ${futureControls([
+    { endpoint: "heart/social limit writes", purpose: "Needs exact active source mapping before normal controls", status: "UNVERIFIED" },
+  ])}`;
+}
+
+function renderEmoteLogs(d) {
+  return `<div class="grid">
+    <div class="card"><h2>Emote Audit Logs</h2>${table(d.audit_logs || [])}</div>
+    <div class="card"><h2>Queued Emote Commands</h2>${renderQueuedBotCommands(d.command_queue || {})}</div>
+    <div class="card"><h2>Room Social Logs</h2>${table(d.room_social_logs?.rows || d.tables?.room_social_logs?.rows || [])}</div>
+  </div>`;
+}
+
+function renderEmotesAdvanced(d) {
+  return `<div class="grid">
+    <div class="card"><h2>Raw Files</h2>${table(d.raw_files || [])}</div>
+    <div class="card"><h2>Active Emotes Table</h2>${table(d.tables?.active_emotes?.rows || [])}</div>
+    <div class="card"><h2>Favorite Emotes</h2>${table(d.tables?.fav_emotes?.rows || [])}</div>
+    <div class="card"><h2>Custom Loop Sessions</h2>${table(d.tables?.custom_loop_sessions?.rows || [])}</div>
+  </div>
+  ${futureControls([
+    { endpoint: "hard delete emote packs", purpose: "Not exposed by default; requires typed confirmation", status: "Hidden" },
+    { endpoint: "edit JSON registry", purpose: "Needs shared registry write helper", status: "Future" },
+  ])}`;
 }
 
 /* ── Players Page ────────────────────────────────────── */
@@ -4093,14 +4338,103 @@ function bindAdminPageEvents() {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.currentTarget));
     await action("Command queued. Bot must consume bot_command_queue.", () =>
+      api("/api/emotes/trigger", {
+        method: "POST",
+        body: JSON.stringify({
+          target_bot: String(data.target_bot || "").trim(),
+          emote: String(data.emote || "").trim(),
+          duration: data.duration || undefined,
+        }),
+      }));
+  });
+
+  document.getElementById("botEmoteSetForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Persistent bot emote queued.", () =>
       api("/api/bot-command", {
         method: "POST",
         body: JSON.stringify({
           target_bot: String(data.target_bot || "").trim(),
-          action: "trigger_emote",
+          action: "botemote_set",
           payload: { emote: String(data.emote || "").trim() },
         }),
       }));
+  });
+
+  document.getElementById("botEmoteStopForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Persistent bot emote stop queued.", () =>
+      api("/api/bot-command", {
+        method: "POST",
+        body: JSON.stringify({
+          target_bot: String(data.target_bot || "").trim(),
+          action: "botemote_stop",
+          payload: {},
+        }),
+      }));
+  });
+
+  document.querySelectorAll("[data-dancefloor-command]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const command = btn.dataset.dancefloorCommand;
+      const run = () => action(`Dancefloor ${command} queued.`, () =>
+        api("/api/dancefloor/command", { method: "POST", body: JSON.stringify({ command, payload: {} }) }));
+      if (["stop", "clear"].includes(command)) {
+        confirmAction("Queue Dancefloor Command", `Queue dancefloor ${command}?`, run);
+      } else {
+        run();
+      }
+    });
+  });
+
+  document.getElementById("dancefloorSequenceForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Dancefloor sequence queued.", () =>
+      api("/api/dancefloor/command", { method: "POST", body: JSON.stringify({ command: "sequence", payload: { emotes: data.emotes } }) }));
+  });
+
+  document.getElementById("dancefloorRandomForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Dancefloor random queued.", () =>
+      api("/api/dancefloor/command", { method: "POST", body: JSON.stringify({ command: "random", payload: { count: data.count || undefined } }) }));
+  });
+
+  document.getElementById("dancefloorRandomTimedForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Dancefloor random timed queued.", () =>
+      api("/api/dancefloor/command", {
+        method: "POST",
+        body: JSON.stringify({ command: "randomtimed", payload: { count: data.count || "all", min_seconds: data.min_seconds, max_seconds: data.max_seconds || undefined } }),
+      }));
+  });
+
+  document.getElementById("syncStartForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Sync command queued.", () =>
+      api("/api/sync/command", { method: "POST", body: JSON.stringify({ command: "start", payload: { leader: data.leader } }) }));
+  });
+
+  document.querySelectorAll("[data-sync-command]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      confirmAction("Queue Sync Command", "Queue stop all sync relations?", async () => {
+        await action("Sync stop queued.", () =>
+          api("/api/sync/command", { method: "POST", body: JSON.stringify({ command: "stop", payload: { scope: "all" } }) }));
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-sync-persist]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const enabled = btn.dataset.syncPersist === "true";
+      await action(`Sync persistence ${enabled ? "on" : "off"} queued.`, () =>
+        api("/api/sync/command", { method: "POST", body: JSON.stringify({ command: "persist", payload: { enabled } }) }));
+    });
   });
 
   /* Settings group forms — data-settings-group */

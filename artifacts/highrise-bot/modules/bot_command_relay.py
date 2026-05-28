@@ -396,6 +396,253 @@ async def _do_event_schedule(bot: "BaseBot", payload: dict, requester_id: str) -
     return f"event scheduled: {event_id} at {starts_at} for {minutes}min"
 
 
+async def _do_dancefloor_command(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_dj_action("dancefloor")
+    from modules import emote_extras
+
+    sub = str(payload.get("subcommand") or "").strip().lower()
+    if sub not in {"start", "stop", "clear", "status", "emotes", "random", "randomtimed"}:
+        raise ValueError("dancefloor subcommand is not allowed")
+    if sub == "start":
+        if not emote_extras._df_get_box():
+            raise RuntimeError("dancefloor box missing; set points in-room first")
+        if not (emote_extras._df_get_sequence() or emote_extras._df_get_emotes()):
+            raise RuntimeError("dancefloor sequence missing")
+        db.set_room_setting("dancefloor_active", "true")
+        emote_extras._ensure_dancefloor_task(bot)
+        return "dancefloor started"
+    if sub == "stop":
+        db.set_room_setting("dancefloor_active", "false")
+        emote_extras._stop_dancefloor_task()
+        return "dancefloor stopped"
+    if sub == "clear":
+        db.set_room_setting("dancefloor_active", "false")
+        db.set_room_setting("dancefloor_p1", "")
+        db.set_room_setting("dancefloor_p2", "")
+        db.set_room_setting("dancefloor_box", "")
+        db.set_room_setting("dancefloor_emotes", "")
+        db.set_room_setting("dancefloor_sequence_json", "")
+        emote_extras._stop_dancefloor_task()
+        return "dancefloor cleared"
+    if sub == "status":
+        box = emote_extras._df_get_box()
+        seq = emote_extras._df_get_sequence()
+        active = emote_extras._df_is_active()
+        inside = len(emote_extras._df_inside)
+        return f"dancefloor active={active} box={'set' if box else 'unset'} sequence={len(seq)} inside={inside}"
+
+    def _save_sequence(seq: list[dict], mode: str) -> str:
+        if not seq:
+            raise ValueError("no valid dancefloor emotes")
+        emote_extras._df_set_sequence(seq, mode)
+        db.set_room_setting("dancefloor_emotes", ",".join(str(s.get("alias", "")) for s in seq if s.get("alias")))
+        return f"dancefloor sequence saved; mode={mode} steps={len(seq)}"
+
+    if sub == "emotes":
+        aliases_raw = payload.get("emotes")
+        aliases = aliases_raw.replace(",", " ").split() if isinstance(aliases_raw, str) else aliases_raw
+        if not isinstance(aliases, list) or not aliases:
+            raise ValueError("dancefloor_sequence requires emotes")
+        seq: list[dict] = []
+        bad: list[str] = []
+        for alias in [str(a).strip() for a in aliases if str(a).strip()]:
+            ent = emote_extras._reg_get(alias)
+            if ent and ent.get("player") and ent.get("id"):
+                seq.append({"alias": ent.get("name") or alias, "eid": ent["id"], "seconds": None})
+            else:
+                bad.append(alias)
+        if bad:
+            print(f"[RELAY] dancefloor_sequence rejected={bad}")
+        return _save_sequence(seq, "simple")
+    if sub == "random":
+        import random
+
+        pool = []
+        seen = set()
+        for alias in emote_extras._reg_player_aliases():
+            low = alias.lower()
+            if low in seen:
+                continue
+            ent = emote_extras._reg_get(alias)
+            if ent and ent.get("id"):
+                seen.add(low)
+                pool.append(alias)
+        if not pool:
+            raise RuntimeError("no player emotes available")
+        try:
+            count = int(payload.get("count") or len(pool))
+        except Exception:
+            count = len(pool)
+        picks = random.sample(pool, min(max(1, count), len(pool)))
+        seq = [{"alias": emote_extras._reg_get(a).get("name") or a, "eid": emote_extras._reg_get(a)["id"], "seconds": None} for a in picks]
+        return _save_sequence(seq, "random")
+    if sub == "randomtimed":
+        import random
+
+        pool = []
+        seen = set()
+        for alias in emote_extras._reg_player_aliases():
+            low = alias.lower()
+            if low in seen:
+                continue
+            ent = emote_extras._reg_get(alias)
+            if ent and ent.get("id"):
+                seen.add(low)
+                pool.append(alias)
+        if not pool:
+            raise RuntimeError("no player emotes available")
+        count_raw = str(payload.get("count") or "all").strip().lower()
+        count = len(pool) if count_raw == "all" else max(1, int(count_raw))
+        min_seconds = float(payload.get("min_seconds") or payload.get("seconds") or 5)
+        max_seconds = float(payload.get("max_seconds") or min_seconds)
+        if min_seconds < 0.5 or max_seconds < min_seconds:
+            raise ValueError("invalid randomtimed seconds")
+        picks = random.sample(pool, min(count, len(pool)))
+        seq = []
+        for alias in picks:
+            ent = emote_extras._reg_get(alias)
+            seq.append({
+                "alias": ent.get("name") or alias,
+                "eid": ent["id"],
+                "seconds": min_seconds if min_seconds == max_seconds else round(random.uniform(min_seconds, max_seconds), 2),
+            })
+        return _save_sequence(seq, "randomtimed")
+    raise ValueError("unsupported dancefloor command")
+
+
+async def _do_dancefloor_start(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    return await _do_dancefloor_command(bot, {**payload, "subcommand": "start"}, requester_id)
+
+
+async def _do_dancefloor_stop(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    return await _do_dancefloor_command(bot, {**payload, "subcommand": "stop"}, requester_id)
+
+
+async def _do_dancefloor_clear(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    return await _do_dancefloor_command(bot, {**payload, "subcommand": "clear"}, requester_id)
+
+
+async def _do_dancefloor_status(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    return await _do_dancefloor_command(bot, {**payload, "subcommand": "status"}, requester_id)
+
+
+async def _do_dancefloor_sequence(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    return await _do_dancefloor_command(bot, {**payload, "subcommand": "emotes"}, requester_id)
+
+
+async def _do_dancefloor_random(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    return await _do_dancefloor_command(bot, {**payload, "subcommand": "random"}, requester_id)
+
+
+async def _do_dancefloor_randomtimed(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    return await _do_dancefloor_command(bot, {**payload, "subcommand": "randomtimed"}, requester_id)
+
+
+async def _do_sync_start(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_dj_action("sync_start")
+    from modules import emote_extras
+
+    leader = str(payload.get("leader") or "").strip().lstrip("@")
+    follower = str(payload.get("follower") or "").strip().lstrip("@")
+    if follower and leader:
+        raise ValueError("sync_start for a specific follower requires a live user context; use in-room !sync for that path")
+    if not leader:
+        raise ValueError("sync_start requires leader")
+    from modules.live_bot_registry import live_bot_keys
+    from modules.room_utils import _resolve_user_in_room
+
+    bot_names = {str(n).lower() for n in (live_bot_keys() or [])}
+    pair = await _resolve_user_in_room(bot, leader)
+    if not pair:
+        raise RuntimeError(f"leader @{leader} not found in room")
+    leader_user, _ = pair
+    if leader_user.username.lower() in bot_names:
+        raise ValueError("bots cannot be sync leaders")
+    try:
+        resp = await bot.highrise.get_room_users()
+        room_pairs = list(resp.content) if hasattr(resp, "content") else []
+    except Exception as exc:
+        raise RuntimeError(f"could not fetch room users: {exc!r}")
+    count = 0
+    for room_user, _pos in room_pairs:
+        if room_user.username.lower() in bot_names or room_user.id == leader_user.id:
+            continue
+        emote_extras._unsubscribe_follower(room_user.id)
+        try:
+            from modules.emote_system import _cancel_player_loop
+            _cancel_player_loop(room_user.id)
+        except Exception:
+            pass
+        try:
+            from modules.custom_emotes import stop_custom_permanent
+            stop_custom_permanent(room_user.id, "dashboard_sync_start")
+        except Exception:
+            pass
+        emote_extras._df_inside.discard(room_user.id)
+        emote_extras._df_user_emote.pop(room_user.id, None)
+        emote_extras._sync_leader_of[room_user.id] = leader_user.id
+        emote_extras._sync_leader_name[room_user.id] = leader_user.username
+        emote_extras._sync_follower_name[room_user.id] = room_user.username
+        emote_extras._sync_followers.setdefault(leader_user.id, set()).add(room_user.id)
+        emote_extras._sync_db_save(room_user.id, room_user.username, leader_user.id, leader_user.username)
+        count += 1
+    return f"sync all to @{leader_user.username}; followers={count}"
+
+
+async def _do_sync_stop(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_dj_action("sync_stop")
+    from modules import emote_extras
+
+    scope = str(payload.get("scope") or "all").strip().lower()
+    if scope != "all":
+        raise ValueError("sync_stop currently supports scope=all only from dashboard")
+    count = 0
+    for follower_id in list(emote_extras._sync_leader_of.keys()):
+        if emote_extras._unsubscribe_follower(follower_id) is not None:
+            count += 1
+    conn = db.get_connection()
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(sync_relations)").fetchall()]
+        if "is_active" in cols:
+            conn.execute("UPDATE sync_relations SET is_active=0, updated_at=datetime('now') WHERE is_active=1")
+            count = max(count, conn.total_changes)
+            conn.commit()
+    finally:
+        conn.close()
+    return f"sync stopped for {count} active follower(s)"
+
+
+async def _do_sync_persist(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    _require_dj_action("sync_persist")
+    enabled = bool(payload.get("enabled"))
+    conn = db.get_connection()
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(sync_relations)").fetchall()]
+        if "persist_enabled" not in cols:
+            raise RuntimeError("sync_relations.persist_enabled missing")
+        conn.execute(
+            "UPDATE sync_relations SET persist_enabled=?, updated_at=datetime('now') WHERE is_active=1",
+            (1 if enabled else 0,),
+        )
+        changed = conn.total_changes
+        conn.commit()
+    finally:
+        conn.close()
+    return f"sync persistence set to {'on' if enabled else 'off'} for {changed} active relation(s)"
+
+
+async def _do_botemote_set(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    emote = str(payload.get("emote") or "").strip()
+    if not emote:
+        raise ValueError("emote is required")
+    emote_id, alias = _resolve_bot_emote(emote)
+    return await _do_botemote(bot, {**payload, "emote_id": emote_id, "emote_name": alias}, requester_id)
+
+
+async def _do_botemote_stop(bot: "BaseBot", payload: dict, requester_id: str) -> str:
+    return await _do_stopbotemote(bot, payload, requester_id)
+
+
 async def _do_botemote(bot: "BaseBot", payload: dict, requester_id: str) -> str:
     """Start a registry-timed emote loop on this bot for the given emote_id."""
     from modules.emote_system import _bot_loops
@@ -476,6 +723,18 @@ DISPATCH = {
     "event_start": _do_event_start,
     "event_stop": _do_event_stop,
     "event_schedule": _do_event_schedule,
+    "dancefloor_start": _do_dancefloor_start,
+    "dancefloor_stop": _do_dancefloor_stop,
+    "dancefloor_clear": _do_dancefloor_clear,
+    "dancefloor_status": _do_dancefloor_status,
+    "dancefloor_sequence": _do_dancefloor_sequence,
+    "dancefloor_random": _do_dancefloor_random,
+    "dancefloor_randomtimed": _do_dancefloor_randomtimed,
+    "sync_start": _do_sync_start,
+    "sync_stop": _do_sync_stop,
+    "sync_persist": _do_sync_persist,
+    "botemote_set": _do_botemote_set,
+    "botemote_stop": _do_botemote_stop,
     # Legacy in-room cross-bot emote relay actions.
     "botemote": _do_botemote,
     "stopbotemote": _do_stopbotemote,
