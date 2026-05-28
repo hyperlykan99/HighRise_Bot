@@ -752,7 +752,7 @@ async def handle_checkhelp(bot: BaseBot, user: User, args: list[str]) -> None:
 
 _MY_CMDS_PLAYER = [
     "💰 Cmds — Coins & Profile\n!bal !daily !wallet !send\n!bank !transactions\n!profile !me !privacy\n!helpsearch keyword",
-    "🎮 Cmds — Games & Mining\n!mine !ores !tool\n!bjoin !rjoin !p\n!events !eventpoints\n!shop !buy !myitems",
+    "🎮 Cmds — Games & Mining\n!mine !ores !tool\n!bet !join !poker\n!events !eventpoints\n!shop !buy !myitems",
     "🏠 Cmds — More\n!rep !report !bug\n!subscribe !mycommands\n!players !emotes !spawns\n!start — new player guide",
 ]
 _MY_CMDS_MOD = [
@@ -819,17 +819,17 @@ _HELP_INDEX = [
     ("!dashboard", "full economy overview"),
     ("!level", "your level and XP"),
     ("!xpleaderboard", "top XP players"),
-    ("!bjoin [bet]", "join blackjack"),
-    ("!bh hit | !bs stand", "BJ actions"),
-    ("!bd double | !bsp split", "BJ double / split"),
+    ("!bet [bet]", "join active Blackjack"),
+    ("!hit | !stand", "Blackjack actions"),
+    ("!double | !split", "Blackjack double / split"),
     ("!bhand", "view your BJ hand"),
     ("!blimits", "your BJ daily limits"),
     ("!bstats", "your BJ stats"),
-    ("!rjoin [bet]", "join realistic BJ"),
+    ("!bj / !rbj", "active Blackjack help"),
     ("!rshoe", "view shoe cards remaining"),
     ("!rstats", "your RBJ stats"),
-    ("!p [buyin]", "join poker table"),
-    ("!check  !call  !raise  !fold  !ai", "poker actions"),
+    ("!join [buyin]", "join active Poker V2 table"),
+    ("!check  !call  !raise  !fold  !allin", "poker actions"),
     ("!mystack", "your poker chip stack"),
     ("!pokerstats", "your poker stats"),
     ("!plb", "poker leaderboard"),

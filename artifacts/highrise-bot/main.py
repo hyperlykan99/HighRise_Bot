@@ -156,6 +156,9 @@ from modules.numbered_shop import (
     handle_seteventconfirm,
 )
 from modules.achievements import handle_achievements, handle_claim_achievements
+# Legacy/deprecated blackjack imports. Active blackjack commands route to
+# modules.realistic_blackjack; keep these only for recovery/status helpers and
+# explicitly legacy compatibility paths.
 from modules.blackjack           import (
     handle_bj, handle_bj_set, handle_bj_shoe, handle_bj_shoe_reset,
     handle_bj_cards, handle_bj_rules, handle_bj_bonus_settings,
@@ -173,6 +176,9 @@ from modules.realistic_blackjack import (
     soft_reset_table as rbj_soft_reset_table,
     startup_rbj_recovery,
 )
+# Legacy/deprecated poker imports. Active poker play routes to modules.poker_v2;
+# keep these only for stats/recovery/status helpers and explicit legacy admin
+# paths with no Poker V2 equivalent.
 from modules.poker import (
     POKER_HELP_PAGES,
     handle_poker, handle_pokerhelp, handle_pokerstatus,
@@ -2343,16 +2349,16 @@ GAME_HELP = GAME_HELP_PAGES[0]
 CASINO_HELP_PAGES = [
     (
         "🎰 Casino\n"
-        "Blackjack: !bjoin [bet]  or  !bet [bet]\n"
-        "Poker: !poker join\n"
+        "Blackjack: !bet [bet]  or  !bj\n"
+        "Poker: !join [buyin]\n"
         "Balance: !balance\n"
-        "More: !bjhelp  !rbjhelp  !pokerhelp"
+        "More: !bjhelp  !pokerhelp"
     ),
     (
         "🎰 Casino 2\n"
-        "!bt table  !bhand — BJ status\n"
+        "!bj table  !bhand — BJ status\n"
         "!blimits  !bstats\n"
-        "!pt table  !pokerstats\n"
+        "!table  !pokerstats\n"
         "!mycasino — your casino dashboard"
     ),
     (
@@ -2466,9 +2472,9 @@ EVENT_HELP_PAGES = [
 BJ_HELP_PAGES = [
     (
         "🃏 Blackjack Help 1/2\n"
-        "Join: !bjoin [bet]  or  !bet [bet]\n"
-        "Hit: !bh    Stand: !bs\n"
-        "Double: !bd    Split: !bsp\n"
+        "Join: !bet [bet]\n"
+        "Hit: !hit    Stand: !stand\n"
+        "Double: !double    Split: !split\n"
         "Surrender: !bsurrender    Insure: !bi"
     ),
     (
@@ -2483,9 +2489,9 @@ BJ_HELP_PAGES = [
 RBJ_HELP_PAGES = [
     (
         "🃏 Blackjack Help 1/2\n"
-        "Join: !bjoin [bet]  or  !bet [bet]\n"
-        "Hit: !bh    Stand: !bs\n"
-        "Double: !bd    Split: !bsp\n"
+        "Join: !bet [bet]\n"
+        "Hit: !hit    Stand: !stand\n"
+        "Double: !double    Split: !split\n"
         "Surrender: !bsurrender    Insure: !bi"
     ),
     (
@@ -2518,9 +2524,7 @@ CASINO_ADMIN_HELP_PAGES = [
     ),
     (
         "🎰 Casino Admin 2b\n"
-        "!setbjlimits [min] [max] [win] [loss]\n"
         "!setrbjlimits [min] [max] [win] [loss]\n"
-        "!setbjactiontimer [sec]\n"
         "!setrbjactiontimer [sec]"
     ),
     (
@@ -2769,9 +2773,7 @@ MANAGER_HELP_PAGES = [
     ),
     (
         "🧰 Manager 4 — BJ Settings\n"
-        "!setbjlimits [min] [max] [win] [loss]\n"
         "!setrbjlimits [min] [max] [win] [loss]\n"
-        "!setbjactiontimer [sec]\n"
         "!setrbjactiontimer [sec]\n"
         "!bj settings — view BJ settings"
     ),
@@ -2957,7 +2959,7 @@ ALLCMDS = [
     "Cmds 1 Help\n!help  !gamehelp  !casinohelp\n!coinhelp  !bankhelp\n!shophelp  !profilehelp",
     "Cmds 2 Games\n!trivia  !scramble  !riddle\n!answer  !coinflip\n!autogames status\n!gameconfig",
     "Cmds 3 Casino\n!bet [amount]  !hit  !stand  !double\n!split  !insurance  !surrender\n!bj rules|stats|shoe|table",
-    "Cmds 4 Casino Staff\n!casinosettings\n!casinolimits\n!casinotoggles\n!setbjlimits\n!setrbjlimits\n!setbjactiontimer\n!setrbjactiontimer",
+    "Cmds 4 Casino Staff\n!casinosettings\n!casinolimits\n!casinotoggles\n!setrbjlimits\n!setrbjactiontimer",
     "Cmds 5 Bank\n!send  !bank  !bankstats\n!transactions\n!banknotify\n!tiprate  !tipstats",
     "Cmds 6 Shop/Profile\n!shop titles|badges\n!titleinfo  !badgeinfo\n!buy  !equip\n!profile  !level",
     "Cmds 7 Progress\n!quests  !dailyquests\n!weeklyquests\n!claimquest\n!achievements\n!reputation",
@@ -3484,8 +3486,8 @@ async def _cmd_checkcommands(bot, user):
         ("Economy", "handle_balance"),
         ("Shop",    "handle_shop"),
         ("Bank",    "handle_bank"),
-        ("Casino",  "handle_bj"),
-        ("RBJ",     "handle_rbj"),
+        ("Blackjack", "handle_rbj"),
+        ("Poker",   "handle_poker_v2"),
         ("Events",  "handle_event"),
         ("Quests",  "handle_quests"),
         ("Achieve", "handle_achievements"),
@@ -3512,13 +3514,13 @@ async def _cmd_launchcheck(bot, user):
     def _chk(sym: str) -> str:
         return "OK" if _g.get(sym) is not None else "⚠️"
 
-    cmd_ok   = "OK" if _g.get("handle_bj") and _g.get("handle_balance") else "⚠️"
+    cmd_ok   = "OK" if _g.get("handle_rbj") and _g.get("handle_balance") else "⚠️"
     help_ok  = "OK" if _g.get("HELP_TEXT") else "⚠️"
     bots_ok  = "OK" if _g.get("handle_bothealth") else "⚠️"
     asst_ok  = "OK" if _g.get("handle_acesinatra") else "⚠️"
     notif_ok = "OK" if _g.get("handle_banknotify") or _g.get("handle_notify") else "⚠️"
     econ_ok  = "OK" if _g.get("handle_balance") and _g.get("handle_shop") else "⚠️"
-    games_ok = "OK" if _g.get("handle_bj") and _g.get("handle_rbj") and _g.get("handle_poker") else "⚠️"
+    games_ok = "OK" if _g.get("handle_rbj") and _g.get("handle_poker_v2") else "⚠️"
 
     try:
         from modules.cmd_audit import ROUTED_COMMANDS, HIDDEN_CMDS, DEPRECATED_CMDS
@@ -4338,11 +4340,19 @@ class HangoutBot(BaseBot):
             if cmd == "setrbjlimits":
                 await handle_setrbjlimits(self, user, args)
             elif cmd == "setbjlimits":
-                await handle_setbjlimits(self, user, args)
+                await handle_setrbjlimits(self, user, ["setrbjlimits"] + args[1:])
             elif cmd.startswith("setrbj"):
                 await handle_rbj_set(self, user, cmd, args)
             elif cmd.startswith("setbj"):
-                await handle_bj_set(self, user, cmd, args)
+                suffix = cmd[len("setbj"):]
+                if suffix in {
+                    "minbet", "maxbet", "countdown", "turntimer", "actiontimer",
+                    "maxsplits", "dailywinlimit", "dailylosslimit",
+                }:
+                    rbj_cmd = f"setrbj{suffix}"
+                    await handle_rbj_set(self, user, rbj_cmd, [rbj_cmd] + args[1:])
+                else:
+                    await self.highrise.send_whisper(user.id, "Legacy setbj* command is disabled. Use !bjadmin or !setrbj* for active Blackjack.")
             elif cmd in {"addowner", "removeowner",
                          "addmanager", "removemanager",
                          "addmoderator", "removemoderator",
@@ -6683,7 +6693,7 @@ class HangoutBot(BaseBot):
             await handle_poker_v2(self, user, "poker", args)
 
         elif cmd == "pokerstatus":
-            await handle_pokerstatus(self, user, args)
+            await handle_poker_v2(self, user, "status", args)
 
         elif cmd in ("pokerlogs", "pokeraudit", "pokerhandlog"):
             await handle_poker_v2(self, user, "pokerlogs", args)
@@ -6698,47 +6708,51 @@ class HangoutBot(BaseBot):
             await handle_poker_v2(self, user, "pokerverify", args)
 
         elif cmd == "setpokerbuyin":
-            await handle_setpokerbuyin(self, user, args)
+            if len(args) < 3:
+                await self.highrise.send_whisper(user.id, "Use !poker minbuyin <amount> and !poker maxbuyin <amount>.")
+            else:
+                await handle_poker_v2(self, user, "minbuyin", ["minbuyin", args[1]])
+                await handle_poker_v2(self, user, "maxbuyin", ["maxbuyin", args[2]])
 
         elif cmd == "setpokerplayers":
-            await handle_setpokerplayers(self, user, args)
+            val = args[2] if len(args) >= 3 else (args[1] if len(args) >= 2 else "")
+            await handle_poker_v2(self, user, "maxplayers", ["maxplayers", val] if val else ["maxplayers"])
 
         elif cmd == "setpokerlobbytimer":
-            await handle_setpokerlobbytimer(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker lobby timer is disabled. Poker V2 uses !poker timer for turn timing.")
 
         elif cmd == "setpokercardmarker":
-            from modules.poker import handle_setpokercardmarker
-            await handle_setpokercardmarker(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker card marker is disabled for Poker V2.")
 
         elif cmd == "setpokertimer":
-            await handle_setpokertimer(self, user, args)
+            await handle_poker_v2(self, user, "timer", ["timer"] + args[1:])
 
         elif cmd == "setpokerraise":
-            await handle_setpokerraise(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker raise limits are disabled. Poker V2 derives raises from blinds and stack.")
 
         elif cmd == "setpokerdailywinlimit":
-            await handle_setpokerdailywinlimit(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker daily win limits are disabled for Poker V2.")
 
         elif cmd == "setpokerdailylosslimit":
-            await handle_setpokerdailylosslimit(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker daily loss limits are disabled for Poker V2.")
 
         elif cmd == "resetpokerlimits":
-            await handle_resetpokerlimits(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker limit reset is disabled. Use Poker V2 settings commands.")
 
         elif cmd == "pokermode":
-            await handle_pokermode(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker modes are disabled. Poker V2 is the active poker engine.")
 
         elif cmd == "pokerpace":
-            await handle_pokerpace(self, user)
+            await self.highrise.send_whisper(user.id, "Legacy poker pace settings are disabled for Poker V2.")
 
         elif cmd == "setpokerpace":
-            await handle_setpokerpace(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker pace settings are disabled for Poker V2.")
 
         elif cmd == "pokerstacks":
-            await handle_pokerstacks(self, user)
+            await self.highrise.send_whisper(user.id, "Legacy poker stack settings are disabled for Poker V2.")
 
         elif cmd == "setpokerstack":
-            await handle_setpokerstack(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker stack settings are disabled for Poker V2.")
 
         elif cmd in ("dealstatus", "pokerdealstatus"):
             await handle_dealstatus(self, user)
@@ -6747,25 +6761,29 @@ class HangoutBot(BaseBot):
             await handle_pokerplayers(self, user)
 
         elif cmd == "setpokerturntimer":
-            await handle_setpokerturntimer(self, user, args)
+            await handle_poker_v2(self, user, "timer", ["timer"] + args[1:])
 
         elif cmd == "setpokerlimits":
-            await handle_setpokerlimits(self, user, args)
+            if len(args) < 7:
+                await self.highrise.send_whisper(user.id, "Use !poker minbuyin, !poker maxbuyin, !poker blinds, and !poker timer for Poker V2.")
+            else:
+                await handle_poker_v2(self, user, "minbuyin", ["minbuyin", args[1]])
+                await handle_poker_v2(self, user, "maxbuyin", ["maxbuyin", args[2]])
 
         elif cmd == "setpokerblinds":
-            await handle_setpokerblinds(self, user, args)
+            await handle_poker_v2(self, user, "blinds", ["blinds"] + args[1:])
 
         elif cmd == "setpokerante":
-            await handle_setpokerante(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy poker ante is disabled for Poker V2.")
 
         elif cmd == "setpokernexthandtimer":
-            await handle_setpokernexthandtimer(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy next-hand timer is disabled for Poker V2.")
 
         elif cmd == "setpokermaxstack":
-            await handle_setpokermaxstack(self, user, args)
+            await self.highrise.send_whisper(user.id, "Legacy max-stack setting is disabled for Poker V2.")
 
         elif cmd == "setpokeridlestrikes":
-            await handle_setpokeridlestrikes(self, user, args)
+            await handle_poker_v2(self, user, "afkstrikes", ["afkstrikes"] + args[1:])
 
         elif cmd == "pokerdebug":
             await handle_pokerdebug(self, user, args)

@@ -1,5 +1,10 @@
 """
-modules/poker.py — Persistent Texas Hold'em Table
+modules/poker.py — LEGACY / DEPRECATED Texas Hold'em Table
+
+Poker V2 (modules/poker_v2.py) is the active poker engine for ChipSoprano.
+Do not route active player commands or normal dashboard settings here. This
+file is retained for legacy imports, recovery/stat helpers, and archived admin
+commands only.
 
 Design:
   - Players SIT at the table once; buy-in coins go to table_stack.
