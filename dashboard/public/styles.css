@@ -1611,6 +1611,24 @@ pre.mono-block {
   box-shadow: 0 0 0 1px rgba(155,94,255,0.2);
 }
 
+.resource-toolbar input,
+.resource-toolbar select {
+  min-height: 36px;
+}
+
+.table-wrap td input,
+.table-wrap td select {
+  min-width: 90px;
+  max-width: 180px;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.switch.compact {
+  min-width: 46px;
+  margin: 0;
+}
+
 @media (max-width: 600px) {
   .tab-nav { gap: 2px; padding: 4px; }
   .tab-btn { padding: 7px 10px; font-size: 12px; white-space: normal; }

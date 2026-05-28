@@ -1029,6 +1029,198 @@ function normalizeFishingSettingsBody(db, body) {
   return out;
 }
 
+const MINING_RARITY_PROBS = {
+  common: 65.00,
+  uncommon: 22.00,
+  rare: 10.00,
+  epic: 2.75,
+  legendary: 0.23,
+  mythic: 0.015,
+  ultra_rare: 0.004,
+  prismatic: 0.0008,
+  exotic: 0.0002,
+};
+
+const PICKAXE_CATALOG = [
+  ["pickaxe_lv1", "Worn Pickaxe", 1, 30],
+  ["pickaxe_lv2", "Copper Pickaxe", 2, 55],
+  ["pickaxe_lv3", "Iron Pickaxe", 3, 50],
+  ["pickaxe_lv4", "Steel Pickaxe", 4, 45],
+  ["pickaxe_lv5", "Silver Pickaxe", 5, 40],
+  ["pickaxe_lv6", "Gold Pickaxe", 6, 35],
+  ["pickaxe_lv7", "Tungsten Pickaxe", 7, 30],
+  ["pickaxe_lv8", "Platinum Pickaxe", 8, 25],
+  ["pickaxe_lv9", "Titanium Pickaxe", 9, 20],
+  ["pickaxe_lv10", "Master Pickaxe", 10, 15],
+].map(([item_id, name, required_level, cooldown_seconds]) => ({
+  item_id,
+  name,
+  display_name: name,
+  required_level,
+  cooldown_seconds,
+  enabled: 1,
+  source: "modules/mining.py PICKAXE_NAMES + COOLDOWNS",
+  writable: false,
+}));
+
+const FISHING_MODULE_PATH = path.join(__dirname, "..", "artifacts", "highrise-bot", "modules", "fishing.py");
+
+function parsePythonLiteralObject(text) {
+  const normalized = text
+    .replace(/\bTrue\b/g, "true")
+    .replace(/\bFalse\b/g, "false")
+    .replace(/\bNone\b/g, "null");
+  return JSON.parse(normalized);
+}
+
+function readFishingCodeCatalog() {
+  try {
+    const src = fs.readFileSync(FISHING_MODULE_PATH, "utf8");
+    const fish = [];
+    for (const match of src.matchAll(/\{[^\n]*"fish_id"\s*:[^\n]*\}/g)) {
+      try { fish.push({ ...parsePythonLiteralObject(match[0]), source: "modules/fishing.py FISH_CATALOG", writable: false }); } catch {}
+    }
+    const rods = [];
+    const rodBlock = src.match(/FISHING_RODS:\s*dict\[str,\s*dict\]\s*=\s*\{([\s\S]*?)\n\}/);
+    if (rodBlock) {
+      for (const match of rodBlock[1].matchAll(/"([^"]+)":\s*(\{[^\n]+\})/g)) {
+        try {
+          const info = parsePythonLiteralObject(match[2]);
+          rods.push({
+            item_id: match[1].toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),
+            name: match[1],
+            display_name: match[1],
+            ...info,
+            enabled: 1,
+            source: "modules/fishing.py FISHING_RODS",
+            writable: false,
+          });
+        } catch {}
+      }
+    }
+    return { fish, rods, source: "code" };
+  } catch (err) {
+    return { fish: [], rods: [], source: "missing", error: err.message };
+  }
+}
+
+function miningItemRows(db, includeDisabled = true) {
+  const cols = ["item_id", "name", "emoji", "rarity", "item_type", "sell_value", "drop_enabled", "created_at"];
+  return safeRows(db, "mining_items", cols, {
+    where: includeDisabled ? "" : "drop_enabled=1",
+    orderBy: "rarity, sell_value, name",
+    limit: "1000",
+  });
+}
+
+function calculateMiningDropRows(db) {
+  const items = miningItemRows(db, false);
+  const byRarity = items.reduce((acc, item) => {
+    const rarity = item.rarity || "common";
+    acc[rarity] = acc[rarity] || [];
+    acc[rarity].push(item);
+    return acc;
+  }, {});
+  return items.map((item) => {
+    const rarity = item.rarity || "common";
+    const rarityChance = Number(MINING_RARITY_PROBS[rarity] || 0);
+    const peers = Math.max(1, byRarity[rarity]?.length || 1);
+    const chance = rarityChance / peers;
+    return {
+      item_id: item.item_id,
+      ore: item.name,
+      rarity,
+      weight: chance,
+      chance_percent: chance,
+      rarity_chance_percent: rarityChance,
+      enabled: item.drop_enabled,
+      event_only: 0,
+      source: "modules/mining.py RARITIES split across enabled mining_items",
+      writable: false,
+    };
+  });
+}
+
+function calculateFishDropRows() {
+  const { fish } = readFishingCodeCatalog();
+  const total = fish.reduce((sum, row) => sum + Number(row.drop_weight || 0), 0);
+  return fish.map((row) => ({
+    fish_id: row.fish_id,
+    fish: row.name,
+    rarity: row.rarity,
+    weight: row.drop_weight,
+    chance_percent: total ? (Number(row.drop_weight || 0) / total) * 100 : 0,
+    enabled: 1,
+    event_only: 0,
+    source: "modules/fishing.py FISH_CATALOG drop_weight",
+    writable: false,
+  }));
+}
+
+function countTable(db, table, where = "") {
+  if (!tableExists(db, table)) return 0;
+  try {
+    return db.prepare(`SELECT COUNT(*) AS count FROM ${sqlIdent(table)}${where ? ` WHERE ${where}` : ""}`).get()?.count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+function miningOverview(db) {
+  const todayWhere = columnExists(db, "mining_payout_logs", "mined_at") ? "date(mined_at)=date('now')" : "";
+  const rareWhere = columnExists(db, "mining_payout_logs", "rarity") ? "rarity IN ('legendary','mythic','ultra_rare','prismatic','exotic')" : "";
+  return {
+    settings: readActiveMiningSettings(db),
+    stats: {
+      mining_enabled: readActiveMiningSettings(db).mining_enabled,
+      total_miners: countTable(db, "mining_players"),
+      total_ores_mined: oneOrNull(db, "mining_players", "SELECT COALESCE(SUM(total_ores), 0) AS total FROM mining_players")?.total ?? 0,
+      todays_mining: todayWhere ? countTable(db, "mining_payout_logs", todayWhere) : countTable(db, "mining_logs", "date(timestamp)=date('now')"),
+      rare_finds: rareWhere ? countTable(db, "mining_payout_logs", rareWhere) : 0,
+      gold_rain_enabled: readKeyValueMap(db, "gold_rain_settings").gold_rain_enabled ?? readKeyValueMap(db, "gold_settings").gold_rain_enabled ?? null,
+    },
+    table_status: Object.fromEntries(["mining_settings", "mining_weight_settings", "mining_players", "mining_inventory", "mining_items", "mining_logs", "mining_events", "mining_payout_logs", "forced_mining_drops", "ore_weight_records", "gold_settings", "gold_rain_settings", "gold_tip_events"].map((t) => [t, tableExists(db, t)])),
+    raw: {
+      mining_settings: Object.entries(readKeyValueMap(db, "mining_settings")).map(([key, value]) => ({ key, value })),
+      mining_weight_settings: Object.entries(readKeyValueMap(db, "mining_weight_settings")).map(([key, value]) => ({ key, value })),
+      auto_activity_settings: Object.entries(readKeyValueMap(db, "auto_activity_settings")).filter(([key]) => key.startsWith("mine") || key.startsWith("automine")).map(([key, value]) => ({ key, value })),
+    },
+  };
+}
+
+function fishingOverview(db) {
+  const codeCatalog = readFishingCodeCatalog();
+  return {
+    settings: readActiveFishingSettings(db),
+    stats: {
+      fishing_enabled: readActiveFishingSettings(db).autofish_enabled,
+      total_fishers: countTable(db, "fish_profiles"),
+      total_fish_caught: countTable(db, "fish_catch_records"),
+      todays_catches: countTable(db, "fish_catch_records", "date(caught_at)=date('now')"),
+      biggest_catch: oneOrNull(db, "fish_catch_records", "SELECT fish_name, username, weight, final_value FROM fish_catch_records ORDER BY weight DESC LIMIT 1"),
+      auto_sell_rows: countTable(db, "fish_auto_sell_settings"),
+    },
+    catalog: { fish_count: codeCatalog.fish.length, rod_count: codeCatalog.rods.length, source: codeCatalog.source },
+    table_status: Object.fromEntries(["auto_activity_settings", "fish_profiles", "fish_catch_records", "fish_inventory", "fish_auto_sell_settings", "forced_fishing_drops", "player_rods", "owned_items"].map((t) => [t, tableExists(db, t)])),
+    raw: {
+      auto_activity_settings: Object.entries(readKeyValueMap(db, "auto_activity_settings")).filter(([key]) => key.startsWith("fish_") || key.startsWith("autofish")).map(([key, value]) => ({ key, value })),
+      room_settings: Object.entries(readKeyValueMap(db, "room_settings")).filter(([key]) => key.startsWith("fishing_") || key.startsWith("fish_weight_")).map(([key, value]) => ({ key, value })),
+    },
+  };
+}
+
+function unverifiedSchema(res, message) {
+  return json(res, { error: "unverified_schema", message }, 400);
+}
+
+function validCatalogId(id) {
+  return /^[a-zA-Z0-9_.:-]{1,80}$/.test(String(id || ""));
+}
+
+function sqlString(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
 const KEY_VALUE_SETTING_TABLES = new Set([
   "poker_settings",
   "bank_settings",
@@ -1228,6 +1420,44 @@ const SETTINGS_AUDIT_DEFINITIONS = [
       ? "Verified source, but kept read-only because it is edited through a structured rarity range command."
       : "Verified mining command/runtime source and connected to the dashboard mining settings endpoint.",
   })),
+  auditRow({
+    module: "mining",
+    command: "!orelist / !oreprices / !mine",
+    display_name: "Ore Catalog",
+    dashboard_page: "Mining",
+    dashboard_section: "Ores",
+    db_table: "mining_items",
+    db_key_or_column: "item_id,name,rarity,sell_value,drop_enabled",
+    readSource: "SELECT * FROM mining_items ORDER BY rarity, sell_value, name",
+    writeEndpoint: "POST/PUT/DELETE /api/mining/ores",
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: "Active mining runtime reads mining_items through database.get_all_mining_items(). Dashboard writes this table and soft-disables with drop_enabled=0.",
+  }),
+  auditRow({
+    module: "mining",
+    command: "!minechances / !orechances",
+    display_name: "Ore Drop Chances",
+    dashboard_page: "Mining",
+    dashboard_section: "Drop Chances",
+    db_table: "modules/mining.py",
+    db_key_or_column: "RARITIES",
+    readSource: "modules/mining.py RARITIES split across enabled mining_items",
+    status: "READ ONLY",
+    notes: "Active drop chances are code constants, not DB weights. Dashboard calculates percentages but does not pretend writes are connected.",
+  }),
+  auditRow({
+    module: "mining",
+    command: "!tool / !pickaxe / !upgradetool",
+    display_name: "Pickaxe Catalog",
+    dashboard_page: "Mining",
+    dashboard_section: "Pickaxes",
+    db_table: "modules/mining.py",
+    db_key_or_column: "PICKAXE_NAMES,COOLDOWNS,UPGRADE_REQS",
+    readSource: "modules/mining.py runtime constants",
+    status: "READ ONLY",
+    notes: "Pickaxes are represented by mining_players.tool_level and runtime constants; no verified pickaxe catalog table exists.",
+  }),
   ...[
     ["!setautofish", "AutoFish Enabled", "autofish_enabled"],
     ["!fishadmin set baseduration", "Base Auto Time", "fish_base_duration"],
@@ -1277,6 +1507,42 @@ const SETTINGS_AUDIT_DEFINITIONS = [
       ? "Per-user setting; shown read-only in fishing data instead of as a global dashboard field."
       : "Command writes this key, but the active manual catch path does not read it as a normal global setting. Kept out of normal controls.",
   })),
+  auditRow({
+    module: "fishing",
+    command: "!fishlist / !fishprices / !fish",
+    display_name: "Fish Catalog",
+    dashboard_page: "Fishing",
+    dashboard_section: "Fish Catalog",
+    db_table: "modules/fishing.py",
+    db_key_or_column: "FISH_CATALOG",
+    readSource: "modules/fishing.py FISH_CATALOG",
+    status: "READ ONLY",
+    notes: "Active fishing runtime reads the Python FISH_CATALOG constant. Dashboard parses it read-only and rejects writes as unverified_schema.",
+  }),
+  auditRow({
+    module: "fishing",
+    command: "!fishchances",
+    display_name: "Fish Catch Chances",
+    dashboard_page: "Fishing",
+    dashboard_section: "Catch Chances",
+    db_table: "modules/fishing.py",
+    db_key_or_column: "FISH_CATALOG.drop_weight",
+    readSource: "modules/fishing.py FISH_CATALOG drop_weight",
+    status: "READ ONLY",
+    notes: "Catch chance percentages are calculated from FISH_CATALOG drop_weight. No verified DB weight table is used by active fishing.",
+  }),
+  auditRow({
+    module: "fishing",
+    command: "!rods / !rodshop / !buyrod / !equiprod",
+    display_name: "Rod Catalog",
+    dashboard_page: "Fishing",
+    dashboard_section: "Rods",
+    db_table: "modules/fishing.py",
+    db_key_or_column: "FISHING_RODS",
+    readSource: "modules/fishing.py FISHING_RODS",
+    status: "READ ONLY",
+    notes: "Active rod stats are runtime constants; ownership is stored in player_rods. Dashboard shows rods read-only.",
+  }),
   ...[
     ["!setroomsetting", "Room Setting", "room_settings", "<dynamic key>"],
     ["!setwelcome", "Welcome Message", "room_settings", "welcome_message"],
@@ -1333,7 +1599,8 @@ function buildSettingsAudit(db) {
     current_value: readAuditCurrentValue(db, item),
   }));
   const connected = rows.filter((r) => r.status === "CONNECTED" && r.dashboard_connected);
-  const broken = rows.filter((r) => r.status === "BROKEN" || (r.dashboard_page && !r.dashboard_connected && r.status !== "LEGACY" && r.status !== "UNKNOWN"));
+  const nonBrokenStatuses = new Set(["LEGACY", "UNKNOWN", "READ ONLY", "UNVERIFIED", "MISSING TABLE", "MISSING COLUMN"]);
+  const broken = rows.filter((r) => r.status === "BROKEN" || (r.dashboard_page && !r.dashboard_connected && !nonBrokenStatuses.has(r.status)));
   return {
     rows,
     connected_count: connected.length,
@@ -2071,6 +2338,173 @@ app.put("/api/fishing-settings", requireAuth, requirePermission("manage_games"),
   } catch (err) {
     json(res, { error: err.message || "fishing_settings_update_failed" }, 500);
   }
+}, closeDb);
+
+app.get("/api/mining", requireAuth, requirePermission("manage_games"), (req, res) => {
+  json(res, {
+    ...miningOverview(req.db),
+    ores: miningItemRows(req.db, true).slice(0, 100),
+    players: safeTableRows(req.db, "mining_players", { orderBy: "total_mines DESC", limit: "25" }),
+    inventory: safeRows(req.db, "mining_inventory", ["username", "item_id", "quantity"], { orderBy: "username, item_id", limit: "100" }),
+    logs: {
+      mining_logs: safeTableRows(req.db, "mining_logs", { orderBy: "id DESC", limit: "50" }),
+      mining_payout_logs: safeTableRows(req.db, "mining_payout_logs", { orderBy: "id DESC", limit: "50" }),
+      mining_events: safeTableRows(req.db, "mining_events", { orderBy: "id DESC", limit: "25" }),
+      forced_mining_drops: safeTableRows(req.db, "forced_mining_drops", { orderBy: "id DESC", limit: "50" }),
+    },
+  });
+}, closeDb);
+
+app.get("/api/mining/ores", requireAuth, requirePermission("manage_games"), (req, res) => {
+  const rows = miningItemRows(req.db, true);
+  json(res, { rows, schema_verified: tableExists(req.db, "mining_items"), writable: tableExists(req.db, "mining_items"), table: "mining_items", columns: tableColumns(req.db, "mining_items") });
+}, closeDb);
+
+app.post("/api/mining/ores", requireAuth, requirePermission("manage_games"), (req, res) => {
+  if (!tableExists(req.db, "mining_items")) return unverifiedSchema(res, "mining_items table is missing.");
+  const cols = tableColumns(req.db, "mining_items");
+  const itemId = String(req.body?.item_id || "").trim();
+  if (!validCatalogId(itemId)) return json(res, { error: "invalid_item_id" }, 400);
+  const before = null;
+  const row = {
+    item_id: itemId,
+    name: String(req.body?.name || itemId).trim(),
+    emoji: String(req.body?.emoji || "").trim(),
+    rarity: String(req.body?.rarity || "common").trim().toLowerCase(),
+    item_type: "ore",
+    sell_value: Math.max(0, Math.trunc(Number(req.body?.sell_value || 0))),
+    drop_enabled: req.body?.drop_enabled === false || req.body?.drop_enabled === "0" ? 0 : 1,
+    created_at: new Date().toISOString(),
+  };
+  const insertCols = Object.keys(row).filter((c) => cols.includes(c));
+  try {
+    req.db.prepare(`INSERT INTO mining_items (${insertCols.map(sqlIdent).join(", ")}) VALUES (${insertCols.map(() => "?").join(", ")})`).run(...insertCols.map((c) => row[c]));
+    audit(req.db, req.user.username, "mining_ore_create", "mining_items", itemId, before, row, req.ip);
+    json(res, { ok: true, row: req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(itemId) });
+  } catch (err) {
+    json(res, { error: err.message || "mining_ore_create_failed" }, 400);
+  }
+}, closeDb);
+
+app.put("/api/mining/ores/:id", requireAuth, requirePermission("manage_games"), (req, res) => {
+  if (!tableExists(req.db, "mining_items")) return unverifiedSchema(res, "mining_items table is missing.");
+  const id = String(req.params.id || "").trim();
+  if (!validCatalogId(id)) return json(res, { error: "invalid_item_id" }, 400);
+  const before = req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(id);
+  if (!before) return json(res, { error: "ore_not_found" }, 404);
+  const cols = tableColumns(req.db, "mining_items");
+  const allowed = {
+    name: req.body?.name,
+    emoji: req.body?.emoji,
+    rarity: req.body?.rarity,
+    sell_value: req.body?.sell_value === undefined ? undefined : Math.max(0, Math.trunc(Number(req.body.sell_value || 0))),
+    drop_enabled: req.body?.drop_enabled === undefined ? undefined : (req.body.drop_enabled === true || req.body.drop_enabled === "1" || req.body.drop_enabled === 1 ? 1 : 0),
+  };
+  const updates = Object.entries(allowed).filter(([key, value]) => value !== undefined && cols.includes(key));
+  if (!updates.length) return json(res, { error: "no_verified_columns" }, 400);
+  req.db.prepare(`UPDATE mining_items SET ${updates.map(([key]) => `${sqlIdent(key)}=?`).join(", ")} WHERE item_id=?`).run(...updates.map(([, value]) => String(value).trim()), id);
+  const after = req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(id);
+  audit(req.db, req.user.username, "mining_ore_update", "mining_items", id, before, after, req.ip);
+  json(res, { ok: true, row: after });
+}, closeDb);
+
+app.delete("/api/mining/ores/:id", requireAuth, requirePermission("manage_games"), (req, res) => {
+  if (!tableExists(req.db, "mining_items")) return unverifiedSchema(res, "mining_items table is missing.");
+  const id = String(req.params.id || "").trim();
+  const before = req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(id);
+  if (!before) return json(res, { error: "ore_not_found" }, 404);
+  const hard = req.body?.hard === true || req.query.hard === "1";
+  if (!hard) {
+    if (!columnExists(req.db, "mining_items", "drop_enabled")) return unverifiedSchema(res, "mining_items.drop_enabled is missing; cannot soft-disable safely.");
+    req.db.prepare("UPDATE mining_items SET drop_enabled=0 WHERE item_id=?").run(id);
+    audit(req.db, req.user.username, "mining_ore_disable", "mining_items", id, before, { ...before, drop_enabled: 0 }, req.ip);
+    return json(res, { ok: true, mode: "soft_disable" });
+  }
+  if (req.user.role !== "owner") return json(res, { error: "owner_required" }, 403);
+  if (String(req.body?.confirmation || "") !== "DELETE ORE") return json(res, { error: "typed_confirmation_required" }, 400);
+  const refs = countTable(req.db, "mining_inventory", `item_id=${sqlString(id)}`);
+  if (refs && req.body?.force !== true) return json(res, { error: "inventory_references_exist", refs }, 409);
+  req.db.prepare("DELETE FROM mining_items WHERE item_id=?").run(id);
+  audit(req.db, req.user.username, "mining_ore_hard_delete", "mining_items", id, before, { hard_delete: true }, req.ip);
+  json(res, { ok: true, mode: "hard_delete" });
+}, closeDb);
+
+app.get("/api/mining/pickaxes", requireAuth, requirePermission("manage_games"), (_req, res) => {
+  json(res, { rows: PICKAXE_CATALOG, writable: false, schema_verified: false, source: "runtime_code", message: "Pickaxes are runtime constants/tool_level, not a DB catalog." });
+});
+app.post("/api/mining/pickaxes", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
+app.put("/api/mining/pickaxes/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
+app.delete("/api/mining/pickaxes/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
+
+app.get("/api/mining/drop-weights", requireAuth, requirePermission("manage_games"), (req, res) => {
+  json(res, { rows: calculateMiningDropRows(req.db), writable: false, schema_verified: false, source: "runtime_code", message: "Active mining drop chances are code rarity probabilities split across enabled mining_items." });
+}, closeDb);
+app.put("/api/mining/drop-weights", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Active mining drop weights are not stored in a verified DB weight table."));
+
+app.get("/api/mining/players", requireAuth, requirePermission("manage_games"), (req, res) => {
+  json(res, { rows: safeTableRows(req.db, "mining_players", { orderBy: "total_mines DESC", limit: "250" }), table: "mining_players" });
+}, closeDb);
+app.get("/api/mining/inventory", requireAuth, requirePermission("manage_games"), (req, res) => {
+  const rows = rowsOrEmpty(req.db, "mining_inventory", `SELECT mi.username, mi.item_id, mi.quantity, it.name, it.rarity, it.sell_value, (mi.quantity * it.sell_value) AS total_value FROM mining_inventory mi LEFT JOIN mining_items it ON mi.item_id=it.item_id ORDER BY mi.username, it.sell_value DESC LIMIT 500`);
+  json(res, { rows, table: "mining_inventory" });
+}, closeDb);
+app.get("/api/mining/logs", requireAuth, requirePermission("manage_games"), (req, res) => {
+  json(res, {
+    mining_logs: safeTableRows(req.db, "mining_logs", { orderBy: "id DESC", limit: "200" }),
+    mining_payout_logs: safeTableRows(req.db, "mining_payout_logs", { orderBy: "id DESC", limit: "200" }),
+    mining_events: safeTableRows(req.db, "mining_events", { orderBy: "id DESC", limit: "100" }),
+    forced_mining_drops: safeTableRows(req.db, "forced_mining_drops", { orderBy: "id DESC", limit: "100" }),
+  });
+}, closeDb);
+
+app.get("/api/fishing", requireAuth, requirePermission("manage_games"), (req, res) => {
+  json(res, {
+    ...fishingOverview(req.db),
+    players: safeTableRows(req.db, "fish_profiles", { orderBy: "total_catches DESC", limit: "25" }),
+    inventory: safeTableRows(req.db, "fish_inventory", { orderBy: "id DESC", limit: "100" }),
+    logs: {
+      fish_catch_records: safeTableRows(req.db, "fish_catch_records", { orderBy: "id DESC", limit: "100" }),
+      forced_fishing_drops: safeTableRows(req.db, "forced_fishing_drops", { orderBy: "id DESC", limit: "50" }),
+      fish_auto_sell_settings: safeTableRows(req.db, "fish_auto_sell_settings", { orderBy: "updated_at DESC", limit: "100" }),
+    },
+  });
+}, closeDb);
+
+app.get("/api/fishing/fish", requireAuth, requirePermission("manage_games"), (_req, res) => {
+  const { fish, source, error } = readFishingCodeCatalog();
+  json(res, { rows: fish, writable: false, schema_verified: false, source, error, message: "Active fish catalog is defined in modules/fishing.py FISH_CATALOG; dashboard keeps it read-only." });
+});
+app.post("/api/fishing/fish", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
+app.put("/api/fishing/fish/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
+app.delete("/api/fishing/fish/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
+
+app.get("/api/fishing/rods", requireAuth, requirePermission("manage_games"), (_req, res) => {
+  const { rods, source, error } = readFishingCodeCatalog();
+  json(res, { rows: rods, writable: false, schema_verified: false, source, error, message: "Active rod catalog is defined in modules/fishing.py FISHING_RODS; dashboard keeps it read-only." });
+});
+app.post("/api/fishing/rods", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
+app.put("/api/fishing/rods/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
+app.delete("/api/fishing/rods/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
+
+app.get("/api/fishing/drop-weights", requireAuth, requirePermission("manage_games"), (_req, res) => {
+  json(res, { rows: calculateFishDropRows(), writable: false, schema_verified: false, source: "runtime_code", message: "Active fish chances are modules/fishing.py FISH_CATALOG drop_weight values." });
+});
+app.put("/api/fishing/drop-weights", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Fish drop weights are not stored in a verified DB table."));
+app.get("/api/fishing/players", requireAuth, requirePermission("manage_games"), (req, res) => {
+  const rows = tableExists(req.db, "fish_auto_sell_settings")
+    ? rowsOrEmpty(req.db, "fish_profiles", `SELECT fp.*, fas.auto_sell_enabled, fas.auto_sell_rare_enabled FROM fish_profiles fp LEFT JOIN fish_auto_sell_settings fas ON fp.user_id=fas.user_id ORDER BY fp.total_catches DESC LIMIT 250`)
+    : safeTableRows(req.db, "fish_profiles", { orderBy: "total_catches DESC", limit: "250" });
+  json(res, { rows, table: "fish_profiles" });
+}, closeDb);
+app.get("/api/fishing/inventory", requireAuth, requirePermission("manage_games"), (req, res) => {
+  json(res, { rows: safeTableRows(req.db, "fish_inventory", { orderBy: "id DESC", limit: "500" }), table: "fish_inventory" });
+}, closeDb);
+app.get("/api/fishing/logs", requireAuth, requirePermission("manage_games"), (req, res) => {
+  json(res, {
+    fish_catch_records: safeTableRows(req.db, "fish_catch_records", { orderBy: "id DESC", limit: "200" }),
+    forced_fishing_drops: safeTableRows(req.db, "forced_fishing_drops", { orderBy: "id DESC", limit: "100" }),
+    fish_auto_sell_settings: safeTableRows(req.db, "fish_auto_sell_settings", { orderBy: "updated_at DESC", limit: "100" }),
+  });
 }, closeDb);
 
 app.get("/api/titles", requireAuth, requirePermission("manage_titles"), (req, res) => {

@@ -19,6 +19,8 @@ const OWNER_NAV = [
   { id: "Bots",              icon: "🤖", label: "Bots",              group: "Control" },
   { id: "Players",           icon: "👤", label: "Players",           group: "Control" },
   { id: "Room & Content",    icon: "🏠", label: "Room & Content",    group: "Control" },
+  { id: "Mining",            icon: "⛏️", label: "Mining",            group: "Control" },
+  { id: "Fishing",           icon: "🎣", label: "Fishing",           group: "Control" },
   { id: "Economy & Rewards", icon: "💰", label: "Economy & Rewards", group: "Control" },
   { id: "Staff",             icon: "👥", label: "Staff",             group: "Admin" },
   { id: "System",            icon: "⚙️", label: "System",            group: "Admin" },
@@ -75,6 +77,28 @@ const ECONOMY_TABS = [
   { id: "Badges", api: null },
   { id: "Rewards", api: null },
 ];
+const MINING_TABS = [
+  { id: "Overview", api: "/api/mining" },
+  { id: "Settings", api: "/api/mining-settings" },
+  { id: "Pickaxes", api: "/api/mining/pickaxes" },
+  { id: "Ores", api: "/api/mining/ores" },
+  { id: "Drop Chances", api: "/api/mining/drop-weights" },
+  { id: "Player Mining", api: "/api/mining/players" },
+  { id: "Inventory", api: "/api/mining/inventory" },
+  { id: "Logs", api: "/api/mining/logs" },
+  { id: "Advanced", api: "/api/mining" },
+];
+const FISHING_TABS = [
+  { id: "Overview", api: "/api/fishing" },
+  { id: "Settings", api: "/api/fishing-settings" },
+  { id: "Rods", api: "/api/fishing/rods" },
+  { id: "Fish Catalog", api: "/api/fishing/fish" },
+  { id: "Catch Chances", api: "/api/fishing/drop-weights" },
+  { id: "Player Fishing", api: "/api/fishing/players" },
+  { id: "Inventory", api: "/api/fishing/inventory" },
+  { id: "Logs", api: "/api/fishing/logs" },
+  { id: "Advanced", api: "/api/fishing" },
+];
 const SYSTEM_TABS = [
   { id: "Health", api: "/api/healthz" },
   { id: "Logs", api: null },
@@ -88,6 +112,8 @@ const TAB_REGISTRY = {
   "Players": PLAYER_TABS,
   "Room & Content": ROOM_TABS,
   "Economy & Rewards": ECONOMY_TABS,
+  "Mining": MINING_TABS,
+  "Fishing": FISHING_TABS,
   "System": SYSTEM_TABS,
 };
 const PAGE_TABS = Object.fromEntries(
@@ -100,6 +126,8 @@ const PAGE_DESC = {
   "Bots":              "Bot status, configuration and control",
   "Players":           "Player search, titles, moderation",
   "Room & Content":    "Room settings, radio, events and announcements",
+  "Mining":            "Mining catalog, settings, drop chances and logs",
+  "Fishing":           "Fishing catalog, settings, catch chances and logs",
   "Economy & Rewards": "Coins, tickets, VIP, titles and rewards",
   "Staff":             "Dashboard users, permissions and bot roles",
   "System":            "Health monitoring, logs and emergency controls",
@@ -1170,6 +1198,8 @@ function renderOwnerPage(page) {
     case "Bots":              return renderBotsPage(activeTab("Bots"));
     case "Players":           return renderOwnerPlayersPage(activeTab("Players"));
     case "Room & Content":    return renderRoomContent(activeTab("Room & Content"));
+    case "Mining":            return renderMiningOwnerPage(activeTab("Mining"));
+    case "Fishing":           return renderFishingOwnerPage(activeTab("Fishing"));
     case "Economy & Rewards": return renderEconomyRewards(activeTab("Economy & Rewards"));
     case "Staff":             return renderStaffPage_shared();
     case "System":            return renderSystemPage(activeTab("System"));
@@ -1858,6 +1888,302 @@ function renderRoomAdvancedTab() {
   `;
 }
 
+/* ── Mining / Fishing Owner Pages ───────────────────── */
+function renderResourceToolbar({ search = "Search", rarity = true, enabled = true } = {}) {
+  return `<div class="toolbar resource-toolbar" style="margin-bottom:12px;flex-wrap:wrap">
+    <input data-table-search placeholder="${esc(search)}" style="flex:1;min-width:180px" />
+    ${rarity ? `<select data-rarity-filter>
+      <option value="">All rarities</option>
+      ${["common","uncommon","rare","epic","legendary","mythic","ultra_rare","prismatic","exotic"].map((r) => `<option value="${r}">${esc(r.replace("_", " "))}</option>`).join("")}
+    </select>` : ""}
+    ${enabled ? `<select data-enabled-filter>
+      <option value="">All states</option>
+      <option value="enabled">Enabled</option>
+      <option value="disabled">Disabled</option>
+    </select>` : ""}
+  </div>`;
+}
+
+function renderMiningOwnerPage(tab) {
+  return `
+    ${tabNav("Mining")}
+    ${tab === "Overview" ? renderMiningOverviewPage() : ""}
+    ${tab === "Settings" ? renderMiningTab() : ""}
+    ${tab === "Pickaxes" ? renderMiningPickaxesPage() : ""}
+    ${tab === "Ores" ? renderMiningOresPage() : ""}
+    ${tab === "Drop Chances" ? renderMiningDropChancesPage() : ""}
+    ${tab === "Player Mining" ? renderMiningPlayersPage() : ""}
+    ${tab === "Inventory" ? renderMiningInventoryPage() : ""}
+    ${tab === "Logs" ? renderMiningLogsPage() : ""}
+    ${tab === "Advanced" ? renderMiningAdvancedPage() : ""}
+  `;
+}
+
+function renderMiningOverviewPage() {
+  const d = state.data || {};
+  const s = d.stats || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      ${metricCard("Mining Enabled", s.mining_enabled ?? "—", "mining_settings", s.mining_enabled === "true" || s.mining_enabled === "1" ? "accent-green" : "", "⛏️")}
+      ${metricCard("Total Miners", Number(s.total_miners || 0).toLocaleString(), "profiles", "", "👤")}
+      ${metricCard("Total Ores Mined", Number(s.total_ores_mined || 0).toLocaleString(), "all time", "", "💎")}
+      ${metricCard("Today's Mining", Number(s.todays_mining || 0).toLocaleString(), "actions", "", "📈")}
+      ${metricCard("Rare Finds", Number(s.rare_finds || 0).toLocaleString(), "rare+", "accent-green", "✨")}
+      ${metricCard("Gold Rain", s.gold_rain_enabled ?? "—", "status", "", "🌧")}
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Recent Ores</h2>${table(d.ores || [], [
+        { key: "item_id", label: "Ore ID" },
+        { key: "name", label: "Name" },
+        { key: "rarity", label: "Rarity" },
+        { key: "sell_value", label: "Value", render: (r) => Number(r.sell_value || 0).toLocaleString() },
+        { key: "drop_enabled", label: "Drops", render: (r) => pill(Number(r.drop_enabled) ? "enabled" : "disabled") },
+      ])}</div>
+      <div class="card"><h2>Top Miners</h2>${table(d.players || [], [
+        { key: "username", label: "Player" },
+        { key: "mining_level", label: "Level" },
+        { key: "mining_xp", label: "XP", render: (r) => Number(r.mining_xp || 0).toLocaleString() },
+        { key: "total_mines", label: "Mines", render: (r) => Number(r.total_mines || 0).toLocaleString() },
+      ])}</div>
+    </div>
+  `;
+}
+
+function renderMiningPickaxesPage() {
+  const d = state.data || {};
+  return `<div class="card">
+    <div class="card-header">
+      <div><h2>Pickaxes</h2><div class="muted text-sm">Source: runtime tool levels in <code>modules/mining.py</code></div></div>
+      <span class="pill warn">Read-only</span>
+    </div>
+    ${renderResourceToolbar({ search: "Search pickaxes", rarity: false, enabled: false })}
+    ${table(d.rows || [], [
+      { key: "item_id", label: "Item ID" },
+      { key: "display_name", label: "Pickaxe" },
+      { key: "required_level", label: "Level" },
+      { key: "cooldown_seconds", label: "Cooldown", render: (r) => `${esc(r.cooldown_seconds)} sec` },
+      { key: "source", label: "Source" },
+    ])}
+    ${futureControls([
+      { endpoint: "POST /api/mining/pickaxes", purpose: "Add pickaxe catalog row", status: "Unverified schema" },
+      { endpoint: "PUT /api/mining/pickaxes/:id", purpose: "Edit pickaxe stats", status: "Unverified schema" },
+    ], "Advanced / Pickaxe Catalog Writes")}
+  </div>`;
+}
+
+function renderMiningOresPage() {
+  const d = state.data || {};
+  const rows = d.rows || [];
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><h2>Ores</h2><div class="muted text-sm">Editable source: <code>mining_items</code></div></div>
+        ${pill(d.writable ? "enabled" : "read only")}
+      </div>
+      ${renderResourceToolbar({ search: "Search ores" })}
+      <details class="advanced-collapse" open>
+        <summary class="advanced-summary"><span class="pill info">Add</span> Add Ore</summary>
+        <div class="advanced-content">
+          <form id="miningOreAddForm" class="settings-fields">
+            ${["item_id","name","emoji","rarity","sell_value"].map((key) => renderSettingsField({ key, label: key.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase()), type: key === "sell_value" ? "number" : "text" }, "")).join("")}
+            ${renderSettingsField({ key: "drop_enabled", label: "Drops Enabled", type: "toggle" }, true)}
+            <button class="btn primary sm" type="submit">Save Ore</button>
+          </form>
+        </div>
+      </details>
+      ${table(rows, [
+        { key: "item_id", label: "Ore ID" },
+        { key: "name", label: "Name", render: (r) => `<input name="name" value="${esc(r.name || "")}" form="ore_${esc(r.item_id)}" />` },
+        { key: "emoji", label: "Icon", render: (r) => `<input name="emoji" value="${esc(r.emoji || "")}" form="ore_${esc(r.item_id)}" />` },
+        { key: "rarity", label: "Rarity", render: (r) => `<input name="rarity" value="${esc(r.rarity || "")}" form="ore_${esc(r.item_id)}" />` },
+        { key: "sell_value", label: "Base Value", render: (r) => `<input type="number" name="sell_value" value="${esc(r.sell_value || 0)}" form="ore_${esc(r.item_id)}" />` },
+        { key: "drop_enabled", label: "Enabled", render: (r) => `<label class="switch compact"><input type="checkbox" name="drop_enabled" form="ore_${esc(r.item_id)}" ${Number(r.drop_enabled) ? "checked" : ""}><span></span></label>` },
+      ], (r) => `<form id="ore_${esc(r.item_id)}" data-mining-ore-form="${esc(r.item_id)}" class="inline-actions">
+        <button class="btn primary sm" type="submit">Save</button>
+        <button class="btn danger sm" type="button" data-mining-ore-disable="${esc(r.item_id)}">Disable</button>
+      </form>`)}
+      <details class="advanced-collapse">
+        <summary class="advanced-summary"><span class="pill bad">Danger</span> Hard Delete Ore</summary>
+        <div class="advanced-content">
+          <div class="notice warn">Hard delete requires owner role, typed confirmation <code>DELETE ORE</code>, and no inventory references unless force is explicitly sent. Use Disable for normal operations.</div>
+        </div>
+      </details>
+    </div>
+  `;
+}
+
+function renderMiningDropChancesPage() {
+  const d = state.data || {};
+  return `<div class="card">
+    <div class="card-header">
+      <div><h2>Drop Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from active runtime source.")}</div></div>
+      <span class="pill warn">Read-only</span>
+    </div>
+    ${renderResourceToolbar({ search: "Search ore chances", enabled: true })}
+    ${table(d.rows || [], [
+      { key: "ore", label: "Ore" },
+      { key: "rarity", label: "Rarity" },
+      { key: "weight", label: "Weight", render: (r) => Number(r.weight || 0).toFixed(6) },
+      { key: "chance_percent", label: "Chance %", render: (r) => `${Number(r.chance_percent || 0).toFixed(6)}%` },
+      { key: "enabled", label: "Enabled", render: (r) => pill(Number(r.enabled) ? "enabled" : "disabled") },
+      { key: "source", label: "Source" },
+    ])}
+    ${futureControls([{ endpoint: "PUT /api/mining/drop-weights", purpose: "Edit runtime drop chances", status: "Unverified schema" }], "Advanced / Drop Weight Writes")}
+  </div>`;
+}
+
+function renderMiningPlayersPage() {
+  return `<div class="card"><h2>Player Mining</h2>${renderResourceToolbar({ search: "Search miners", rarity: false, enabled: false })}${table(state.data?.rows || [])}</div>`;
+}
+
+function renderMiningInventoryPage() {
+  return `<div class="card"><h2>Mining Inventory</h2>${renderResourceToolbar({ search: "Search inventory", rarity: true, enabled: false })}${table(state.data?.rows || [])}</div>`;
+}
+
+function renderMiningLogsPage() {
+  const d = state.data || {};
+  return `
+    <div class="card"><h2>Mining Logs</h2>${table(d.mining_logs || [])}</div>
+    <div class="card"><h2>Mining Payout Logs</h2>${table(d.mining_payout_logs || [])}</div>
+    <div class="card"><h2>Mining Events</h2>${table(d.mining_events || [])}</div>
+    <div class="card"><h2>Forced Mining Drops</h2>${table(d.forced_mining_drops || [])}</div>
+  `;
+}
+
+function renderMiningAdvancedPage() {
+  const d = state.data || {};
+  const raw = d.raw || {};
+  return `
+    ${futureControls([
+      { endpoint: "DELETE /api/mining/ores/:id hard=true", purpose: "Permanent ore delete with typed confirmation", status: "Owner only" },
+      { endpoint: "POST /api/mining/pickaxes", purpose: "Pickaxe catalog writes", status: "Unverified schema" },
+      { endpoint: "PUT /api/mining/drop-weights", purpose: "Drop chance edits", status: "Unverified schema" },
+    ], "Advanced / Unverified Mining Controls")}
+    <div class="card"><h2>Raw Mining Settings</h2>${table(raw.mining_settings || [])}${table(raw.mining_weight_settings || [])}${table(raw.auto_activity_settings || [])}</div>
+    <div class="card"><h2>Table Status</h2>${table(Object.entries(d.table_status || {}).map(([table_name, exists]) => ({ table_name, exists: exists ? "present" : "missing" })))}</div>
+  `;
+}
+
+function renderFishingOwnerPage(tab) {
+  return `
+    ${tabNav("Fishing")}
+    ${tab === "Overview" ? renderFishingOverviewPage() : ""}
+    ${tab === "Settings" ? renderFishingTab() : ""}
+    ${tab === "Rods" ? renderFishingRodsPage() : ""}
+    ${tab === "Fish Catalog" ? renderFishingCatalogPage() : ""}
+    ${tab === "Catch Chances" ? renderFishingCatchChancesPage() : ""}
+    ${tab === "Player Fishing" ? renderFishingPlayersPage() : ""}
+    ${tab === "Inventory" ? renderFishingInventoryPage() : ""}
+    ${tab === "Logs" ? renderFishingLogsPage() : ""}
+    ${tab === "Advanced" ? renderFishingAdvancedPage() : ""}
+  `;
+}
+
+function renderFishingOverviewPage() {
+  const d = state.data || {};
+  const s = d.stats || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+      ${metricCard("Fishing Enabled", s.fishing_enabled ?? "—", "autofish flag", "", "🎣")}
+      ${metricCard("Total Fishers", Number(s.total_fishers || 0).toLocaleString(), "profiles", "", "👤")}
+      ${metricCard("Total Fish Caught", Number(s.total_fish_caught || 0).toLocaleString(), "records", "", "🐟")}
+      ${metricCard("Today's Catches", Number(s.todays_catches || 0).toLocaleString(), "today", "", "📈")}
+      ${metricCard("Biggest Catch", s.biggest_catch?.weight ?? "—", s.biggest_catch?.fish_name || "weight", "accent-green", "🏆")}
+      ${metricCard("Auto Sell Rows", Number(s.auto_sell_rows || 0).toLocaleString(), "player settings", "", "💰")}
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Top Fishers</h2>${table(d.players || [])}</div>
+      <div class="card"><h2>Recent Inventory</h2>${table(d.inventory || [])}</div>
+    </div>
+  `;
+}
+
+function renderFishingRodsPage() {
+  const d = state.data || {};
+  return `<div class="card">
+    <div class="card-header"><div><h2>Rods</h2><div class="muted text-sm">${esc(d.message || "Runtime code catalog")}</div></div><span class="pill warn">Read-only</span></div>
+    ${renderResourceToolbar({ search: "Search rods", rarity: false, enabled: false })}
+    ${table(d.rows || [], [
+      { key: "name", label: "Rod" },
+      { key: "price", label: "Price", render: (r) => Number(r.price || 0).toLocaleString() },
+      { key: "cooldown", label: "Cooldown" },
+      { key: "luck", label: "Luck" },
+      { key: "weight_luck", label: "Weight Bonus" },
+      { key: "value_bonus", label: "Value Bonus" },
+      { key: "fxp_bonus", label: "FXP Bonus" },
+      { key: "desc", label: "Description" },
+    ])}
+    ${futureControls([{ endpoint: "POST /api/fishing/rods", purpose: "Add/edit rod catalog", status: "Unverified schema" }], "Advanced / Rod Writes")}
+  </div>`;
+}
+
+function renderFishingCatalogPage() {
+  const d = state.data || {};
+  return `<div class="card">
+    <div class="card-header"><div><h2>Fish Catalog</h2><div class="muted text-sm">${esc(d.message || "Runtime code catalog")}</div></div><span class="pill warn">Read-only</span></div>
+    ${renderResourceToolbar({ search: "Search fish" })}
+    ${table(d.rows || [], [
+      { key: "fish_id", label: "Fish ID" },
+      { key: "name", label: "Name" },
+      { key: "rarity", label: "Rarity" },
+      { key: "base_value", label: "Base Value", render: (r) => Number(r.base_value || 0).toLocaleString() },
+      { key: "base_fxp", label: "XP" },
+      { key: "min_weight", label: "Min Weight" },
+      { key: "max_weight", label: "Max Weight" },
+      { key: "drop_weight", label: "Catch Weight" },
+    ])}
+    ${futureControls([{ endpoint: "POST /api/fishing/fish", purpose: "Add/edit fish catalog", status: "Unverified schema" }], "Advanced / Fish Catalog Writes")}
+  </div>`;
+}
+
+function renderFishingCatchChancesPage() {
+  const d = state.data || {};
+  return `<div class="card">
+    <div class="card-header"><div><h2>Catch Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from active source")}</div></div><span class="pill warn">Read-only</span></div>
+    ${renderResourceToolbar({ search: "Search fish chances", enabled: false })}
+    ${table(d.rows || [], [
+      { key: "fish", label: "Fish" },
+      { key: "rarity", label: "Rarity" },
+      { key: "weight", label: "Weight" },
+      { key: "chance_percent", label: "Chance %", render: (r) => `${Number(r.chance_percent || 0).toFixed(6)}%` },
+      { key: "source", label: "Source" },
+    ])}
+    ${futureControls([{ endpoint: "PUT /api/fishing/drop-weights", purpose: "Edit catch weights", status: "Unverified schema" }], "Advanced / Catch Weight Writes")}
+  </div>`;
+}
+
+function renderFishingPlayersPage() {
+  return `<div class="card"><h2>Player Fishing</h2>${renderResourceToolbar({ search: "Search fishers", rarity: false, enabled: false })}${table(state.data?.rows || [])}</div>`;
+}
+
+function renderFishingInventoryPage() {
+  return `<div class="card"><h2>Fishing Inventory</h2>${renderResourceToolbar({ search: "Search inventory", enabled: false })}${table(state.data?.rows || [])}</div>`;
+}
+
+function renderFishingLogsPage() {
+  const d = state.data || {};
+  return `
+    <div class="card"><h2>Fish Catch Records</h2>${table(d.fish_catch_records || [])}</div>
+    <div class="card"><h2>Forced Fishing Drops</h2>${table(d.forced_fishing_drops || [])}</div>
+    <div class="card"><h2>Fish Auto Sell Settings</h2>${table(d.fish_auto_sell_settings || [])}</div>
+  `;
+}
+
+function renderFishingAdvancedPage() {
+  const d = state.data || {};
+  const raw = d.raw || {};
+  return `
+    ${futureControls([
+      { endpoint: "POST /api/fishing/fish", purpose: "Fish catalog writes", status: "Unverified schema" },
+      { endpoint: "POST /api/fishing/rods", purpose: "Rod catalog writes", status: "Unverified schema" },
+      { endpoint: "PUT /api/fishing/drop-weights", purpose: "Catch chance edits", status: "Unverified schema" },
+      { endpoint: "forced fishing drops", purpose: "Create/clear forced_fishing_drops", status: "Endpoint needed" },
+    ], "Advanced / Unverified Fishing Controls")}
+    <div class="card"><h2>Raw Fishing Settings</h2>${table(raw.auto_activity_settings || [])}${table(raw.room_settings || [])}</div>
+    <div class="card"><h2>Table Status</h2>${table(Object.entries(d.table_status || {}).map(([table_name, exists]) => ({ table_name, exists: exists ? "present" : "missing" })))}</div>
+  `;
+}
+
 /* ── Economy & Rewards ───────────────────────────────── */
 function renderEconomyRewards(tab) {
   return `
@@ -2509,7 +2835,7 @@ function renderSystemLogs() {
 
 function auditStatusChip(status, connected) {
   const s = String(status || (connected ? "CONNECTED" : "UNKNOWN")).toUpperCase();
-  const cls = s === "CONNECTED" ? "ok" : s === "LEGACY" ? "def" : s === "UNKNOWN" ? "warn" : "bad";
+  const cls = s === "CONNECTED" ? "ok" : s === "LEGACY" || s === "READ ONLY" ? "def" : s === "UNKNOWN" || s === "UNVERIFIED" || s.startsWith("MISSING") ? "warn" : "bad";
   return `<span class="pill ${cls}">${esc(s)}</span>`;
 }
 
@@ -3004,6 +3330,57 @@ function bindAdminPageEvents() {
     });
     await action("Fishing settings saved.", () =>
       api("/api/fishing-settings", { method: "PUT", body: JSON.stringify(body) }));
+  });
+
+  document.querySelectorAll("[data-table-search], [data-rarity-filter], [data-enabled-filter]").forEach((control) => {
+    const applyFilter = () => {
+      const card = control.closest(".card");
+      if (!card) return;
+      const q = String(card.querySelector("[data-table-search]")?.value || "").toLowerCase();
+      const rarity = String(card.querySelector("[data-rarity-filter]")?.value || "").toLowerCase();
+      const enabled = String(card.querySelector("[data-enabled-filter]")?.value || "").toLowerCase();
+      card.querySelectorAll("tbody tr").forEach((row) => {
+        const text = row.textContent.toLowerCase();
+        const rarityOk = !rarity || text.includes(rarity);
+        const enabledOk = !enabled || text.includes(enabled);
+        row.style.display = (!q || text.includes(q)) && rarityOk && enabledOk ? "" : "none";
+      });
+    };
+    control.addEventListener("input", applyFilter);
+    control.addEventListener("change", applyFilter);
+  });
+
+  document.getElementById("miningOreAddForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Ore saved.", () => api("/api/mining/ores", { method: "POST", body: JSON.stringify(body) }));
+  });
+
+  document.querySelectorAll("[data-mining-ore-form]").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const itemId = form.dataset.miningOreForm;
+      const body = {};
+      Array.from(form.elements).forEach((el) => {
+        if (!el.name) return;
+        body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+      });
+      await action("Ore updated.", () => api(`/api/mining/ores/${encodeURIComponent(itemId)}`, { method: "PUT", body: JSON.stringify(body) }));
+    });
+  });
+
+  document.querySelectorAll("[data-mining-ore-disable]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const itemId = btn.dataset.miningOreDisable;
+      confirmAction("Disable Ore", `Soft-disable ${itemId}? Existing player inventories are preserved.`, async () => {
+        await action("Ore disabled.", () => api(`/api/mining/ores/${encodeURIComponent(itemId)}`, { method: "DELETE", body: JSON.stringify({}) }));
+      });
+    });
   });
 
   document.getElementById("announcementForm")?.addEventListener("submit", async (e) => {
