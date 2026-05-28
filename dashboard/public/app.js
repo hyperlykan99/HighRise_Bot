@@ -40,7 +40,7 @@ const PAGE_TABS = {
   "Players":           ["Search", "Titles & Badges", "Moderation"],
   "Room & Content":    ["Room Settings", "Radio", "Events", "Announcements", "Welcome", "Emotes"],
   "Economy & Rewards": ["Coins & Tickets", "Casino", "Games", "VIP", "Titles", "Badges", "Rewards"],
-  "System":            ["Health", "Logs", "Emergency", "Database"],
+  "System":            ["Health", "Logs", "Settings Audit", "Emergency", "Database"],
 };
 
 /* ── Page Descriptions ───────────────────────────────── */
@@ -76,6 +76,9 @@ const SETTINGS_SCHEMA = {
         { key: "shuffle_used_percent", label: "Shuffle Used Percent", type: "number", suffix: "%" },
         { key: "win_payout",           label: "Win Payout",           type: "number", suffix: "x" },
         { key: "blackjack_payout",     label: "Blackjack Payout",     type: "number", suffix: "x" },
+        { key: "dealer_hits_soft_17",  label: "Dealer Hits Soft 17",  type: "toggle" },
+        { key: "lobby_countdown",      label: "Lobby Countdown",      type: "number", suffix: "sec" },
+        { key: "rbj_daily_win_limit",  label: "Daily Win Limit",      type: "number", suffix: "coins" },
       ],
     },
     {
@@ -449,6 +452,7 @@ function pageApi(page, tab) {
     "Staff":                              "/api/staff",
     "System/Health":                      "/api/healthz",
     "System/Logs":                        null,
+    "System/Settings Audit":              "/api/settings-audit",
     "System/Emergency":                   "/api/settings",
     "System/Database":                    "/api/db/inspect",
     "Staff Home":                         "/api/overview",
@@ -474,6 +478,7 @@ const state = {
   error: "",
   notice: "",
   logs: { action_type: "", user: "", module: "", offset: 0 },
+  settingsAudit: { status: "all", module: "", page: "" },
   modal: null,
   sidebarOpen: false,
   showLoginOverlay: false,
@@ -1714,7 +1719,7 @@ function renderCasinoTab() {
   const settings = d.settings || [];
   const valMap = settingsMapFrom(settings);
   const flag = d.module_flag;
-  const casinoGroups = (SETTINGS_SCHEMA.casino || []).filter((g) => g.title !== "Blackjack Settings — AceSinatra");
+  const unverifiedCasinoGroups = (SETTINGS_SCHEMA.casino || []).filter((g) => g.title !== "Blackjack Settings — AceSinatra");
   return `
     <div class="card">
       <div class="card-header">
@@ -1726,7 +1731,7 @@ function renderCasinoTab() {
       </div>
     </div>
     ${renderBlackjackSettingsCard(d.blackjack_settings || {})}
-    ${casinoGroups.map((g, i) => renderSettingsGroup(g, valMap, `casino${i + 1}`)).join("")}
+    ${renderPokerSettingsReadOnly(d.poker_settings || [])}
     <details class="advanced-collapse">
       <summary class="advanced-summary">
         <span class="pill def">Legacy</span> Legacy Blackjack Settings
@@ -1737,6 +1742,16 @@ function renderCasinoTab() {
           { key: "key", label: "Column" },
           { key: "value", label: "Value" },
         ]) : `<div class="notice">No legacy <code>bj_settings</code> row found.</div>`}
+      </div>
+    </details>
+    <details class="advanced-collapse">
+      <summary class="advanced-summary">
+        <span class="pill warn">Unverified</span> Advanced / Unverified Casino Settings
+        <span class="muted text-sm">Hidden until sources match in-room commands</span>
+      </summary>
+      <div class="advanced-content">
+        <div class="notice warn">These older dashboard fields are not shown as working controls because they write dashboard shadow keys, not the verified active game sources.</div>
+        ${unverifiedCasinoGroups.map((g, i) => renderSettingsGroup({ ...g, description: `${g.description || ""} — Unverified source` }, valMap, `casinoUnverified${i + 1}`)).join("")}
       </div>
     </details>
     ${renderAdvancedCollapse(settings)}
@@ -1766,6 +1781,33 @@ function renderBlackjackSettingsCard(settings) {
   </div>`;
 }
 
+function renderPokerSettingsReadOnly(rows) {
+  const values = settingsMapFrom(rows);
+  const mapped = [
+    ["v2_min_buyin", "Min Buy-In"],
+    ["v2_max_buyin", "Max Buy-In"],
+    ["v2_small_blind", "Small Blind"],
+    ["v2_big_blind", "Big Blind"],
+    ["v2_max_players", "Max Players"],
+    ["v2_turn_seconds", "Turn Timer"],
+    ["v2_paused", "Paused"],
+  ].map(([key, label]) => ({ field: label, db_source: `poker_settings.${key}`, value: values[key] ?? "—" }));
+  return `<div class="card">
+    <div class="card-header">
+      <div>
+        <h2>♠️ Poker Settings — ChipSoprano</h2>
+        <div class="muted text-sm">Read-only verified source: <code>poker_settings</code></div>
+      </div>
+      <span class="pill warn">No write endpoint</span>
+    </div>
+    ${table(mapped, [
+      { key: "field", label: "Field" },
+      { key: "db_source", label: "DB Source" },
+      { key: "value", label: "Current Value" },
+    ])}
+  </div>`;
+}
+
 function renderGamesTab() {
   const d = state.data || {};
   const settings = d.settings || [];
@@ -1781,7 +1823,16 @@ function renderGamesTab() {
         <button class="btn cyan" data-toggle-module="games" data-enabled="${flag?.enabled ? "0" : "1"}">${flag?.enabled ? "Disable Games" : "Enable Games"}</button>
       </div>
     </div>
-    ${renderSchemaGroups("games", valMap)}
+    <details class="advanced-collapse">
+      <summary class="advanced-summary">
+        <span class="pill warn">Unverified</span> Advanced / Unverified Game Settings
+        <span class="muted text-sm">Use Settings Audit before enabling writes</span>
+      </summary>
+      <div class="advanced-content">
+        <div class="notice warn">These controls are hidden from the normal page until their in-room command sources are wired to exact DB keys.</div>
+        ${renderSchemaGroups("games", valMap)}
+      </div>
+    </details>
     ${renderAdvancedCollapse(settings)}
   `;
 }
@@ -1931,6 +1982,7 @@ function renderSystemPage(tab) {
     ${tabNav("System")}
     ${tab === "Health" ? renderSystemHealth() : ""}
     ${tab === "Logs" ? renderSystemLogs() : ""}
+    ${tab === "Settings Audit" ? renderSettingsAudit() : ""}
     ${tab === "Emergency" ? renderEmergency() : ""}
     ${tab === "Database" ? renderSystemDatabase() : ""}
   `;
@@ -1979,6 +2031,80 @@ function renderSystemLogs() {
     </div>
     <div class="card"><h2>⚠️ Command Errors</h2>${table(d.command_error_logs || [])}</div>
     <div class="card"><h2>📝 Admin Action Logs</h2>${table(d.admin_action_logs || [])}</div>
+  `;
+}
+
+function auditStatusChip(status, connected) {
+  const s = String(status || (connected ? "CONNECTED" : "UNKNOWN")).toUpperCase();
+  const cls = s === "CONNECTED" ? "ok" : s === "LEGACY" ? "def" : s === "UNKNOWN" ? "warn" : "bad";
+  return `<span class="pill ${cls}">${esc(s)}</span>`;
+}
+
+function renderSettingsAudit() {
+  const d = state.data || {};
+  const rows = d.rows || [];
+  const modules = [...new Set(rows.map((r) => r.module).filter(Boolean))].sort();
+  const pages = [...new Set(rows.map((r) => r.dashboard_page).filter(Boolean))].sort();
+  const f = state.settingsAudit;
+  const filtered = rows.filter((r) => {
+    const status = String(r.status || "").toUpperCase();
+    if (f.status === "broken" && status !== "BROKEN") return false;
+    if (f.status === "connected" && status !== "CONNECTED") return false;
+    if (f.status === "legacy" && status !== "LEGACY") return false;
+    if (f.status === "unknown" && status !== "UNKNOWN") return false;
+    if (f.module && r.module !== f.module) return false;
+    if (f.page && r.dashboard_page !== f.page) return false;
+    return true;
+  });
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("Connected", d.connected_count ?? 0, "dashboard fields verified", "accent-green", "✓")}
+      ${metricCard("Broken / Missing", d.broken_count ?? 0, "verified source but not wired", "accent-red", "!")}
+      ${metricCard("Legacy", (d.duplicate_or_legacy_settings || []).length, "kept out of normal UI", "", "↺")}
+      ${metricCard("Unknown Commands", (d.unknown_commands || []).length, "needs source review", "", "?")}
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Settings Command Audit</h2>
+          <div class="muted text-sm">Generated: ${esc(d.generated_at || "—")}</div>
+        </div>
+        <span class="pill info">${filtered.length} rows</span>
+      </div>
+      <div class="toolbar" style="margin-bottom:14px;flex-wrap:wrap">
+        <select id="settingsAuditStatus">
+          ${[
+            ["all", "All"],
+            ["broken", "Broken only"],
+            ["connected", "Connected"],
+            ["legacy", "Legacy"],
+            ["unknown", "Unknown"],
+          ].map(([value, label]) => `<option value="${value}" ${f.status === value ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
+        <select id="settingsAuditModule">
+          <option value="">All modules</option>
+          ${modules.map((m) => `<option value="${esc(m)}" ${f.module === m ? "selected" : ""}>${esc(m)}</option>`).join("")}
+        </select>
+        <select id="settingsAuditPage">
+          <option value="">All pages</option>
+          ${pages.map((p) => `<option value="${esc(p)}" ${f.page === p ? "selected" : ""}>${esc(p)}</option>`).join("")}
+        </select>
+      </div>
+      ${table(filtered, [
+        { key: "module", label: "Module" },
+        { key: "command", label: "Command" },
+        { key: "display_name", label: "Dashboard Field" },
+        { key: "db_source", label: "DB Source", render: (r) => `<code>${esc(`${r.db_table}.${r.db_key_or_column}`)}</code>` },
+        { key: "current_value", label: "Current Value", render: (r) => `<code>${esc(r.current_value ?? "—")}</code>` },
+        { key: "status", label: "Status", render: (r) => auditStatusChip(r.status, r.dashboard_connected) },
+        { key: "notes", label: "Notes" },
+      ])}
+    </div>
+    ${futureControls((d.unknown_commands || []).map((command) => ({
+      endpoint: command,
+      purpose: "Command/source mapping not fully verified yet",
+      status: "UNKNOWN",
+    })), "Unknown Settings Commands")}
   `;
 }
 
@@ -2242,6 +2368,13 @@ function permissionChecks(perms) {
    EVENT BINDING
 ══════════════════════════════════════════════════════ */
 function bindAdminPageEvents() {
+  ["settingsAuditStatus", "settingsAuditModule", "settingsAuditPage"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", (e) => {
+      const key = id.replace("settingsAudit", "").toLowerCase();
+      state.settingsAudit[key] = e.target.value;
+      render();
+    });
+  });
 
   /* Bot Config save */
   document.getElementById("botConfigForm")?.addEventListener("submit", async (e) => {

@@ -769,6 +769,8 @@ const ACTIVE_BLACKJACK_COLUMNS = [
   "shuffle_used_percent",
   "win_payout",
   "blackjack_payout",
+  "dealer_hits_soft_17",
+  "lobby_countdown",
   "rbj_daily_win_limit",
 ];
 
@@ -785,6 +787,8 @@ function readActiveBlackjackSettings(db) {
     shuffle_used_percent: 75,
     win_payout: 2.0,
     blackjack_payout: 2.5,
+    dealer_hits_soft_17: 1,
+    lobby_countdown: 15,
     rbj_daily_win_limit: 5000,
   };
   if (!tableExists(db, "rbj_settings")) return fallback;
@@ -810,6 +814,8 @@ function normalizeBlackjackSettingsBody(body) {
     shuffle_used_percent: num("shuffle_used_percent", 75),
     win_payout: num("win_payout", 2.0),
     blackjack_payout: num("blackjack_payout", 2.5),
+    dealer_hits_soft_17: body?.dealer_hits_soft_17 === true || body?.dealer_hits_soft_17 === "true" || body?.dealer_hits_soft_17 === "1" || body?.dealer_hits_soft_17 === 1 ? 1 : 0,
+    lobby_countdown: Math.trunc(num("lobby_countdown", 15)),
   };
   if (body?.rbj_daily_win_limit !== undefined && body?.rbj_daily_win_limit !== "") {
     out.rbj_daily_win_limit = Math.trunc(num("rbj_daily_win_limit", 5000));
@@ -817,13 +823,253 @@ function normalizeBlackjackSettingsBody(body) {
   if (out.min_bet < 1) throw new Error("min_bet_too_low");
   if (out.max_bet !== 0 && out.max_bet < out.min_bet) throw new Error("max_bet_less_than_min_bet");
   if (out.max_players < 1 || out.max_players > 20) throw new Error("max_players_out_of_range");
-  if (out.rbj_action_timer < 5 || out.rbj_action_timer > 300) throw new Error("action_timer_out_of_range");
+  if (out.rbj_action_timer < 10 || out.rbj_action_timer > 90) throw new Error("action_timer_out_of_range");
   if (out.decks < 1 || out.decks > 8) throw new Error("decks_out_of_range");
   if (out.shuffle_used_percent < 1 || out.shuffle_used_percent > 100) throw new Error("shuffle_percent_out_of_range");
   if (out.win_payout < 1 || out.win_payout > 5) throw new Error("win_payout_out_of_range");
   if (out.blackjack_payout < 1 || out.blackjack_payout > 5) throw new Error("blackjack_payout_out_of_range");
+  if (out.lobby_countdown < 5 || out.lobby_countdown > 120) throw new Error("lobby_countdown_out_of_range");
   if (out.rbj_daily_win_limit !== undefined && out.rbj_daily_win_limit < 1) throw new Error("daily_win_limit_out_of_range");
   return out;
+}
+
+const KEY_VALUE_SETTING_TABLES = new Set([
+  "poker_settings",
+  "bank_settings",
+  "economy_settings",
+  "mining_settings",
+  "mining_weight_settings",
+  "room_settings",
+  "bot_settings",
+  "event_settings",
+]);
+
+const auditRow = ({
+  status = "BROKEN",
+  dashboardConnected = false,
+  writeEndpoint = "",
+  readSource,
+  ...row
+}) => ({
+  status,
+  dashboard_connected: dashboardConnected,
+  write_endpoint: writeEndpoint,
+  read_source: readSource || (
+    KEY_VALUE_SETTING_TABLES.has(row.db_table)
+      ? `SELECT value FROM ${row.db_table} WHERE key='${row.db_key_or_column}'`
+      : `SELECT ${row.db_key_or_column} FROM ${row.db_table} WHERE id=1`
+  ),
+  ...row,
+});
+
+const SETTINGS_AUDIT_DEFINITIONS = [
+  ...[
+    ["!rbj settings / !bjadmin settings", "Enabled", "rbj_enabled"],
+    ["!setrbjminbet", "Min Bet", "min_bet"],
+    ["!setrbjmaxbet", "Max Bet", "max_bet"],
+    ["No in-room setter found", "Max Players", "max_players"],
+    ["!setrbjactiontimer", "Action Timer", "rbj_action_timer"],
+    ["!setrbjdecks", "Number of Decks", "decks"],
+    ["!setrbjshuffle", "Shuffle Used Percent", "shuffle_used_percent"],
+    ["!setrbjwinpayout", "Win Payout", "win_payout"],
+    ["!setrbjblackjackpayout", "Blackjack Payout", "blackjack_payout"],
+    ["!bj setsoft17 hit|stand", "Dealer Hits Soft 17", "dealer_hits_soft_17"],
+    ["!setrbjcountdown", "Lobby Countdown", "lobby_countdown"],
+  ].map(([command, displayName, key]) => auditRow({
+    module: "realistic_blackjack",
+    command,
+    display_name: displayName,
+    dashboard_page: "Casino",
+    dashboard_section: "Blackjack Settings — AceSinatra",
+    db_table: "rbj_settings",
+    db_key_or_column: key,
+    writeEndpoint: "PUT /api/casino/blackjack-settings",
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: key === "max_players"
+      ? "Active code reads rbj_settings.max_players, but no in-room setter was found."
+      : "Active blackjack setting. AceSinatra path reads database.get_rbj_settings().",
+  })),
+  auditRow({
+    module: "realistic_blackjack",
+    command: "!setrbjdailywinlimit",
+    display_name: "Daily Win Limit",
+    dashboard_page: "Casino",
+    dashboard_section: "Blackjack Settings — AceSinatra",
+    db_table: "rbj_settings",
+    db_key_or_column: "rbj_daily_win_limit",
+    writeEndpoint: "PUT /api/casino/blackjack-settings",
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: "Active RBJ limit setting; currently included in API payload and audit source.",
+  }),
+  ...["min_bet", "max_bet", "max_players", "bj_action_timer", "decks", "shuffle_used_percent", "win_payout", "blackjack_payout"].map((key) => auditRow({
+    module: "blackjack",
+    command: "!setbj* / /bj settings",
+    display_name: key,
+    dashboard_page: "Casino",
+    dashboard_section: "Advanced / Legacy Blackjack",
+    db_table: "bj_settings",
+    db_key_or_column: key,
+    status: "LEGACY",
+    notes: "Legacy standard blackjack source. Not used for the visible AceSinatra/RBJ dashboard card.",
+  })),
+  ...[
+    ["!poker minbuyin", "Min Buy-In", "v2_min_buyin"],
+    ["!poker maxbuyin", "Max Buy-In", "v2_max_buyin"],
+    ["!poker maxplayers", "Max Players", "v2_max_players"],
+    ["!poker blinds", "Small Blind", "v2_small_blind"],
+    ["!poker blinds", "Big Blind", "v2_big_blind"],
+    ["!poker timer", "Turn Timer", "v2_turn_seconds"],
+    ["!poker pause/resume", "Paused", "v2_paused"],
+  ].map(([command, displayName, key]) => auditRow({
+    module: "poker_v2",
+    command,
+    display_name: displayName,
+    dashboard_page: "Casino",
+    dashboard_section: "Poker Settings — ChipSoprano",
+    db_table: "poker_settings",
+    db_key_or_column: key,
+    status: "BROKEN",
+    notes: "Verified Poker V2 source. Dashboard currently shows this read-only until a poker_settings write endpoint is added.",
+  })),
+  ...[
+    ["!setdailycoins", "Daily Coins", "economy_settings", "daily_coins"],
+    ["!setgamereward trivia", "Trivia Reward", "economy_settings", "trivia_reward"],
+    ["!setgamereward scramble", "Scramble Reward", "economy_settings", "scramble_reward"],
+    ["!setgamereward riddle", "Riddle Reward", "economy_settings", "riddle_reward"],
+    ["!setmaxbalance", "Max Balance", "economy_settings", "max_balance"],
+    ["!setminsend", "Minimum Send", "bank_settings", "min_send_amount"],
+    ["!setmaxsend", "Maximum Send", "bank_settings", "max_send_amount"],
+    ["!setsendlimit", "Daily Send Limit", "bank_settings", "daily_send_limit"],
+    ["!setsendtax", "Transfer Tax", "bank_settings", "send_tax_percent"],
+    ["!setnewaccountdays", "New Account Days", "bank_settings", "new_account_days"],
+    ["!setminlevelsend", "Minimum Send Level", "bank_settings", "min_level_to_send"],
+    ["!setmintotalearned", "Minimum Total Earned", "bank_settings", "min_total_earned_to_send"],
+    ["!setmindailyclaims", "Minimum Daily Claims", "bank_settings", "min_daily_claim_days_to_send"],
+    ["!sethighriskblocks", "High Risk Blocks", "bank_settings", "high_risk_blocks"],
+  ].map(([command, displayName, table, key]) => auditRow({
+    module: table === "bank_settings" ? "bank" : "economy",
+    command,
+    display_name: displayName,
+    dashboard_page: "Economy & Rewards",
+    dashboard_section: table === "bank_settings" ? "Bank Settings" : "Economy Settings",
+    db_table: table,
+    db_key_or_column: key,
+    status: "BROKEN",
+    notes: "Verified command source. Keep dashboard writes hidden until an exact endpoint writes this key.",
+  })),
+  ...[
+    ["!setminecooldown", "Mine Cooldown", "mining_settings", "base_cooldown_seconds"],
+    ["!setmineenergycost", "Mine Energy Cost", "mining_settings", "mine_energy_cost"],
+    ["!setmineannounce", "Mining Announce Enabled", "mining_settings", "mining_announce_enabled"],
+    ["!setmineannounce", "Mining Announce Rarity", "mining_settings", "mining_announce_min_rarity"],
+    ["!setmineweights", "Weights Enabled", "mining_weight_settings", "weights_enabled"],
+    ["!setweightlbmode", "Weight Leaderboard Mode", "mining_weight_settings", "weight_lb_mode"],
+    ["!setweightscale", "Weight Value Scale", "mining_weight_settings", "weight_value_multiplier_scale"],
+    ["!setrarityweightrange", "Rarity Weight Ranges", "mining_weight_settings", "rarity_weight_ranges_json"],
+  ].map(([command, displayName, table, key]) => auditRow({
+    module: "mining",
+    command,
+    display_name: displayName,
+    dashboard_page: "Economy & Rewards",
+    dashboard_section: "Mining Settings",
+    db_table: table,
+    db_key_or_column: key,
+    status: "BROKEN",
+    notes: "Verified mining settings source; dashboard normal controls should remain read-only/unverified.",
+  })),
+  auditRow({
+    module: "fishing",
+    command: "!autosellfish / !autosellrare",
+    display_name: "Fish Auto Sell",
+    dashboard_page: "Economy & Rewards",
+    dashboard_section: "Fishing Settings",
+    db_table: "fish_auto_sell_settings",
+    db_key_or_column: "auto_sell_enabled",
+    read_source: "SELECT auto_sell_enabled, auto_sell_rare_enabled FROM fish_auto_sell_settings WHERE user_id=?",
+    status: "UNKNOWN",
+    notes: "Per-user setting; not a global dashboard field.",
+  }),
+  ...[
+    ["!setroomsetting", "Room Setting", "room_settings", "<dynamic key>"],
+    ["!setwelcome", "Welcome Message", "room_settings", "welcome_message"],
+    ["!setemoteloopinterval", "Emote Loop Interval", "room_settings", "emote_loop_interval"],
+    ["!setemote <alias> time", "Emote Timing Override", "room_settings", "emote_timing_overrides"],
+  ].map(([command, displayName, table, key]) => auditRow({
+    module: "room_utils",
+    command,
+    display_name: displayName,
+    dashboard_page: "Room & Content",
+    dashboard_section: "Room/Emotes",
+    db_table: table,
+    db_key_or_column: key,
+    status: key.includes("<") ? "UNKNOWN" : "BROKEN",
+    notes: key.includes("<") ? "Dynamic key; audit confirms table but not a single dashboard field." : "Verified source; dashboard writes should use the exact room_settings key only.",
+  })),
+];
+
+const UNKNOWN_SETTINGS_COMMANDS = [
+  "setsync",
+  "setdance",
+  "setevent",
+  "setfish",
+  "setpokerpace",
+  "setpokerstack",
+  "setpokercardmarker",
+  "casinolimits",
+  "casinotoggles",
+];
+
+function readAuditCurrentValue(db, item) {
+  try {
+    if (!item.db_table || !tableExists(db, item.db_table)) return null;
+    if (KEY_VALUE_SETTING_TABLES.has(item.db_table)) {
+      if (!tableColumns(db, item.db_table).includes("key")) return null;
+      if (!tableColumns(db, item.db_table).includes("value")) return null;
+      if (String(item.db_key_or_column || "").includes("<")) return null;
+      return db.prepare(`SELECT value FROM ${sqlIdent(item.db_table)} WHERE key=?`).get(item.db_key_or_column)?.value ?? null;
+    }
+    const cols = tableColumns(db, item.db_table);
+    if (!cols.includes(item.db_key_or_column)) return null;
+    if (cols.includes("id")) {
+      return db.prepare(`SELECT ${sqlIdent(item.db_key_or_column)} AS value FROM ${sqlIdent(item.db_table)} WHERE id=1`).get()?.value ?? null;
+    }
+    return null;
+  } catch (err) {
+    return `error:${err.message}`;
+  }
+}
+
+function buildSettingsAudit(db) {
+  const rows = SETTINGS_AUDIT_DEFINITIONS.map((item) => ({
+    ...item,
+    current_value: readAuditCurrentValue(db, item),
+  }));
+  const connected = rows.filter((r) => r.status === "CONNECTED" && r.dashboard_connected);
+  const broken = rows.filter((r) => r.status === "BROKEN" || (r.dashboard_page && !r.dashboard_connected && r.status !== "LEGACY" && r.status !== "UNKNOWN"));
+  return {
+    rows,
+    connected_count: connected.length,
+    broken_count: broken.length,
+    missing_dashboard_fields: broken.map((r) => ({
+      module: r.module,
+      command: r.command,
+      display_name: r.display_name,
+      dashboard_page: r.dashboard_page,
+      db_source: `${r.db_table}.${r.db_key_or_column}`,
+    })),
+    unknown_commands: UNKNOWN_SETTINGS_COMMANDS,
+    duplicate_or_legacy_settings: rows
+      .filter((r) => r.status === "LEGACY")
+      .map((r) => ({
+        module: r.module,
+        command: r.command,
+        display_name: r.display_name,
+        db_source: `${r.db_table}.${r.db_key_or_column}`,
+        notes: r.notes,
+      })),
+  };
 }
 
 const app = express();
@@ -935,6 +1181,14 @@ app.get("/api/db/inspect", requireAuth, (req, res) => {
     db_exists: fs.existsSync(DB_PATH),
     migration_status: LAST_MIGRATION_STATUS,
     tables: inspect,
+  });
+}, closeDb);
+
+app.get("/api/settings-audit", requireAuth, (req, res) => {
+  if (req.user?.role !== "owner") return json(res, { error: "forbidden", permission: "owner" }, 403);
+  json(res, {
+    generated_at: nowIso(),
+    ...buildSettingsAudit(req.db),
   });
 }, closeDb);
 
@@ -1316,6 +1570,9 @@ app.put("/api/radio/requests-enabled", requireAuth, requirePermission("manage_ra
 
 app.get("/api/casino", requireAuth, requirePermission("manage_casino"), (req, res) => {
   const blackjackSettings = readActiveBlackjackSettings(req.db);
+  const pokerSettings = tableExists(req.db, "poker_settings")
+    ? rowsOrEmpty(req.db, "poker_settings", "SELECT key, value FROM poker_settings ORDER BY key")
+    : [];
   const legacyBlackjackSettings = tableExists(req.db, "bj_settings")
     ? safeTableRows(req.db, "bj_settings", { limit: "1" })[0] || null
     : null;
@@ -1337,6 +1594,7 @@ app.get("/api/casino", requireAuth, requirePermission("manage_casino"), (req, re
   json(res, {
     settings,
     blackjack_settings: blackjackSettings,
+    poker_settings: pokerSettings,
     active_blackjack_source: "rbj_settings",
     legacy_blackjack_settings: legacyBlackjackSettings,
     module_flag: req.db.prepare("SELECT * FROM module_flags WHERE module='casino'").get() ?? null,
