@@ -3361,7 +3361,7 @@ function buildPermissionsAudit() {
     if (isApi && isWrite && !route.public && route.auth === "requireAuth" && !route.permissions.length && !route.owner_only) {
       warnings.push({ path: route.path, method: route.method, warning: "write_route_missing_permission" });
     }
-    if (/bot-config|db\/inspect|settings-audit|permissions\/audit|maintenance/.test(route.path) && !route.owner_only) {
+    if (/bot-config|db\/inspect|settings-audit|permissions\/audit|qa\/audit|maintenance/.test(route.path) && !route.owner_only) {
       warnings.push({ path: route.path, method: route.method, warning: "owner_sensitive_route_not_owner_only" });
     }
   }
@@ -3373,6 +3373,132 @@ function buildPermissionsAudit() {
     warning_count: warnings.length,
     warnings,
     routes: ROUTE_SECURITY,
+  };
+}
+
+function buildQaAudit() {
+  const appJsPath = path.join(PUBLIC_DIR, "app.js");
+  const appSource = fs.existsSync(appJsPath) ? fs.readFileSync(appJsPath, "utf8") : "";
+  const routePatterns = ROUTE_SECURITY.map((route) => ({ ...route, regex: routeToRegex(route.path) }));
+  const hasEndpoint = (apiPath, method = "GET") => {
+    const cleanPath = String(apiPath || "").split("?")[0].replace(/\/$/, "") || "/";
+    return routePatterns.some((route) => route.method === method && route.regex.test(cleanPath));
+  };
+  function routeToRegex(routePath) {
+    const escaped = String(routePath || "")
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/:([A-Za-z0-9_]+)/g, "[^/]+")
+      .replace(/\\\*/g, ".*");
+    return new RegExp(`^${escaped.replace(/\\\/$/, "")}\\/?$`);
+  }
+  const publicRoutes = [
+    ["Home", "/api/public/home"],
+    ["Radio", "/api/public/radio"],
+    ["How to Play", "/api/public/how-to-play"],
+    ["Casino", "/api/public/casino"],
+    ["Mining", "/api/public/mining"],
+    ["Fishing", "/api/public/fishing"],
+    ["Events", "/api/public/events"],
+    ["Rankings", "/api/public/rankings"],
+    ["Room Info", "/api/public/room-info"],
+  ].map(([page, api]) => ({ page, api, status: hasEndpoint(api) ? "ok" : "missing" }));
+  const ownerPages = [
+    ["Command Center", "/api/overview"],
+    ["Bots", "/api/bot-control"],
+    ["Players", null],
+    ["Radio", "/api/radio"],
+    ["Casino", "/api/casino"],
+    ["Mining", "/api/mining"],
+    ["Fishing", "/api/fishing"],
+    ["Economy & Rewards", "/api/economy/overview"],
+    ["Room & Content", "/api/room-control"],
+    ["Emotes", "/api/emotes/overview"],
+    ["Events", "/api/events"],
+    ["Security", "/api/security"],
+    ["Staff", "/api/staff"],
+    ["System", "/api/healthz"],
+    ["Maintenance Center", "/api/maintenance/overview"],
+    ["Leaderboards", "/api/leaderboards"],
+    ["Settings Audit", "/api/settings-audit"],
+    ["Permissions Audit", "/api/permissions/audit"],
+    ["QA Audit", "/api/qa/audit"],
+  ].map(([page, api]) => ({ page, api, status: !api || hasEndpoint(api) ? "ok" : "missing" }));
+  const staffRoutes = [
+    ["Staff Home", "/api/overview"],
+    ["Radio Queue", "/api/radio"],
+    ["Players", null],
+    ["Events", "/api/events"],
+    ["Room Tools", "/api/room-control"],
+    ["Moderation", "/api/security"],
+    ["Logs", "/api/logs"],
+  ].map(([page, api]) => ({ page, api, status: !api || hasEndpoint(api) ? "ok" : "missing" }));
+  const expectedRenderers = [
+    "renderPublicHome", "renderPublicRadio", "renderPublicHowToPlay", "renderPublicCasino", "renderPublicMining", "renderPublicFishing", "renderPublicEvents", "renderPublicRankings", "renderPublicRoomInfo",
+    "renderCommandCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit",
+    "renderStaffHome", "renderStaffRadioQueue", "renderStaffPlayers", "renderStaffEvents", "renderStaffRoomTools", "renderStaffLogs",
+  ];
+  const missingRenderers = expectedRenderers.filter((name) => !new RegExp(`function\\s+${name}\\s*\\(`).test(appSource));
+  const apiRefs = new Set();
+  for (const match of appSource.matchAll(/["'`]((?:\/api\/)[^"'`$?)]*)/g)) {
+    const value = match[1].replace(/\\`$/, "").split("?")[0];
+    if (!value.includes("${") && !value.includes(":key") && !value.includes(":module")) apiRefs.add(value);
+  }
+  const missingEndpoints = [...apiRefs]
+    .filter((apiPath) => !apiPath.endsWith("/"))
+    .filter((apiPath) => !hasEndpoint(apiPath, "GET") && !hasEndpoint(apiPath, "POST") && !hasEndpoint(apiPath, "PUT") && !hasEndpoint(apiPath, "DELETE"))
+    .map((pathValue) => ({ endpoint: pathValue, reason: "No matching server route pattern found" }));
+  const dataAttrs = [...new Set([...appSource.matchAll(/data-([a-z0-9-]+)=/gi)].map((m) => m[1]))];
+  const handledAttrs = new Set([
+    "pub-page", "manual-tab", "ranking-tab", "admin-page", "page-tab", "maint-tab", "action",
+    "bot-command", "target-bot", "dancefloor-command", "sync-command", "sync-persist",
+    "player-jump", "remove-item", "quick-item", "quick-type", "remove-title", "remove-badge",
+    "report-review", "report-resolve", "security-unmute", "security-bot-action",
+    "remove-request", "unblock-requester", "unblock-track", "mining-ore-form", "mining-ore-disable",
+    "disable-announcement", "toggle-module", "emergency", "maint-action", "maint-cleanup",
+    "settings-group", "sg-api", "sg-opts", "sf-toggle", "raw-edit-key", "raw-edit-val", "raw-edit-src",
+    "table-search", "rarity-filter", "enabled-filter", "room-toggle", "room-edit",
+    "staff-id", "remove-staff", "enabled", "room-val", "key", "vip-remove", "vip-user",
+  ]);
+  const buttonsWithoutHandlers = dataAttrs
+    .filter((attr) => !handledAttrs.has(attr))
+    .map((attr) => ({ selector: `data-${attr}`, reason: "No known delegated handler registered in QA whitelist" }));
+  const endpointNeededControls = [...appSource.matchAll(/endpoint[-\s]?needed|Endpoint Needed/gi)]
+    .map((match) => ({ text: match[0], reason: "Endpoint-needed copy should stay inside Advanced/Future sections" }));
+  const publicSafetyWarnings = [];
+  const publicSection = appSource.slice(appSource.indexOf("PUBLIC PORTAL"), appSource.indexOf("ADMIN SHELL"));
+  if (/bot[_-]?token|AZURA_API_KEY|\.env|db_path|resolved_db_path/i.test(publicSection)) {
+    publicSafetyWarnings.push({ warning: "public_sensitive_text_match", message: "Public render section contains sensitive-looking implementation text." });
+  }
+  const permissionWarnings = buildPermissionsAudit().warnings;
+  const issues = [];
+  for (const item of [...publicRoutes, ...ownerPages, ...staffRoutes]) {
+    if (item.status === "missing") issues.push({ severity: "CRITICAL", area: "route", item: item.page, message: `Missing endpoint ${item.api}` });
+  }
+  for (const endpoint of missingEndpoints) issues.push({ severity: "CRITICAL", area: "api", item: endpoint.endpoint, message: endpoint.reason });
+  for (const renderer of missingRenderers) issues.push({ severity: "CRITICAL", area: "frontend", item: renderer, message: "Expected render function is missing." });
+  for (const button of buttonsWithoutHandlers) issues.push({ severity: "WARNING", area: "button", item: button.selector, message: button.reason });
+  for (const control of endpointNeededControls) issues.push({ severity: "INFO", area: "future-controls", item: control.text, message: control.reason });
+  for (const warning of publicSafetyWarnings) issues.push({ severity: "CRITICAL", area: "public-safety", item: warning.warning, message: warning.message });
+  for (const warning of permissionWarnings) issues.push({ severity: "WARNING", area: "permissions", item: `${warning.method} ${warning.path}`, message: warning.warning });
+  return {
+    public_routes: publicRoutes,
+    admin_routes: ownerPages,
+    staff_routes: staffRoutes,
+    frontend_pages: [
+      ...publicRoutes.map((row) => ({ type: "public", ...row })),
+      ...ownerPages.map((row) => ({ type: "owner", ...row })),
+      ...staffRoutes.map((row) => ({ type: "staff", ...row })),
+    ],
+    api_endpoints: ROUTE_SECURITY,
+    missing_renderers: missingRenderers,
+    missing_endpoints: missingEndpoints,
+    buttons_without_handlers: buttonsWithoutHandlers,
+    endpoint_needed_controls: endpointNeededControls,
+    public_safety_warnings: publicSafetyWarnings,
+    permission_warnings: permissionWarnings,
+    broken_routes_count: [...publicRoutes, ...ownerPages, ...staffRoutes].filter((row) => row.status === "missing").length + missingRenderers.length,
+    issues,
+    last_checked_at: nowIso(),
   };
 }
 
@@ -3495,6 +3621,10 @@ app.get("/api/settings-audit", requireAuth, requireOwner, (req, res) => {
 
 app.get("/api/permissions/audit", requireAuth, requireOwner, (_req, res) => {
   json(res, buildPermissionsAudit());
+}, closeDb);
+
+app.get("/api/qa/audit", requireAuth, requireOwner, (_req, res) => {
+  json(res, buildQaAudit());
 }, closeDb);
 
 app.get("/api/public-settings", requireAuth, requireOwner, (req, res) => {

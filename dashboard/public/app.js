@@ -22,12 +22,14 @@ const OWNER_NAV = [
   { id: "Bots",              icon: "🤖", label: "Bots",              group: "Control" },
   { id: "Radio",             icon: "📻", label: "Radio",             group: "Control" },
   { id: "Players",           icon: "👤", label: "Players",           group: "Control" },
+  { id: "Casino",            icon: "🎲", label: "Casino",            group: "Control" },
   { id: "Security",          icon: "🛡️", label: "Security",          group: "Control" },
   { id: "Leaderboards",      icon: "🏆", label: "Leaderboards",      group: "Control" },
   { id: "Room & Content",    icon: "🏠", label: "Room & Content",    group: "Control" },
   { id: "Emotes",            icon: "💃", label: "Emotes",            group: "Control" },
   { id: "Mining",            icon: "⛏️", label: "Mining",            group: "Control" },
   { id: "Fishing",           icon: "🎣", label: "Fishing",           group: "Control" },
+  { id: "Events",            icon: "🎉", label: "Events",            group: "Control" },
   { id: "Economy & Rewards", icon: "💰", label: "Economy & Rewards", group: "Control" },
   { id: "Staff",             icon: "👥", label: "Staff",             group: "Admin" },
   { id: "System",            icon: "⚙️", label: "System",            group: "Admin" },
@@ -128,11 +130,6 @@ const ECONOMY_TABS = [
   { id: "Player Grants", api: "/api/rewards" },
   { id: "Logs", api: "/api/rewards/logs" },
   { id: "Advanced", api: "/api/rewards" },
-  { id: "Casino", api: "/api/casino" },
-  { id: "Mining", api: "/api/mining-settings" },
-  { id: "Fishing", api: "/api/fishing-settings" },
-  { id: "Games", api: "/api/games" },
-  { id: "Economy", api: "/api/economy/overview" },
 ];
 const MINING_TABS = [
   { id: "Overview", api: "/api/mining" },
@@ -173,6 +170,7 @@ const SYSTEM_TABS = [
   { id: "Public Settings", api: "/api/public-settings" },
   { id: "Settings Audit", api: "/api/settings-audit" },
   { id: "Permissions Audit", api: "/api/permissions/audit" },
+  { id: "QA Audit", api: "/api/qa/audit" },
   { id: "Maintenance Center", api: "/api/maintenance/overview" },
   { id: "Database", api: "/api/db/inspect" },
   { id: "Emergency", api: "/api/settings" },
@@ -222,19 +220,20 @@ const PAGE_DESC = {
   "Radio":             "DJ DUDU queue, request gate, stream status and radio maintenance",
   "Bots":              "Bot status, configuration and control",
   "Players":           "Player search, titles, moderation",
+  "Casino":            "Blackjack, Poker and verified casino settings",
   "Security":          "Moderation, reports, mutes and KeanuShield controls",
   "Leaderboards":      "Public rankings, source diagnostics and leaderboard health",
   "Room & Content":    "Room settings, radio, events and announcements",
   "Emotes":            "DJ DUDU emote registry, bot loops, dancefloor, sync and social controls",
   "Mining":            "Mining catalog, settings, drop chances and logs",
   "Fishing":           "Fishing catalog, settings, catch chances and logs",
-  "Economy & Rewards": "Coins, tickets, VIP, titles and rewards",
+  "Economy & Rewards": "Coins, VIP, shop, titles, badges, quests and grants",
   "Staff":             "Dashboard users, permissions and bot roles",
   "System":            "Health monitoring, logs and emergency controls",
   "Staff Home":        "Room health and pending attention items",
   "Radio Queue":       "DJ queue management and radio controls",
   "Moderation":        "Warnings, mutes, reports and player moderation lookup",
-  "Events":            "Current and upcoming room events",
+  "Events":            "Event definitions, schedules, rewards and queued event controls",
   "Room Tools":        "Announcements, welcome messages and room flags",
   "Logs":              "Audit trail and command error logs",
 };
@@ -623,6 +622,7 @@ function pageApi(page, tab) {
   }
   return ({
     "Command Center":                     "/api/overview",
+    "Casino":                             "/api/casino",
     "Staff":                              "/api/staff",
     "Staff Home":                         "/api/overview",
     "Radio Queue":                        "/api/radio",
@@ -1828,7 +1828,7 @@ function renderAdminPage() {
   const d = state.data;
   const page = state.adminPage;
   const role = state.user?.role;
-  const nullDataOk = ["Players", "Bots", "Room & Content", "Emotes", "Economy & Rewards",
+  const nullDataOk = ["Players", "Bots", "Casino", "Room & Content", "Emotes", "Economy & Rewards",
     "Radio", "Security", "Leaderboards", "System", "Staff Home", "Players", "Moderation", "Events", "Room Tools", "Logs"];
   if (!d && state.error && !nullDataOk.includes(page)) return `<div class="card"><div class="empty-state"><div class="empty-state-icon">⚠️</div><strong style="color:var(--red);margin-bottom:4px">Failed to load</strong><span>${esc(state.error)}</span></div></div>`;
   if (!d && !nullDataOk.includes(page)) return `<div class="card"><div class="loading-state"><div class="loading-spinner"></div><span class="muted text-sm">Loading…</span></div></div>`;
@@ -1857,12 +1857,14 @@ function renderOwnerPage(page) {
     case "Bots":              return renderBotsPage(activeTab("Bots"));
     case "Radio":             return renderRadioOwnerPage(activeTab("Radio"));
     case "Players":           return renderOwnerPlayersPage(activeTab("Players"));
+    case "Casino":            return renderCasinoOwnerPage();
     case "Security":          return renderSecurityPage(activeTab("Security"));
     case "Leaderboards":      return renderLeaderboardsPage(activeTab("Leaderboards"));
     case "Room & Content":    return renderRoomContent(activeTab("Room & Content"));
     case "Emotes":            return renderEmotesOwnerPage(activeTab("Emotes"));
     case "Mining":            return renderMiningOwnerPage(activeTab("Mining"));
     case "Fishing":           return renderFishingOwnerPage(activeTab("Fishing"));
+    case "Events":            return renderEventsOwnerPage();
     case "Economy & Rewards": return renderEconomyRewards(activeTab("Economy & Rewards"));
     case "Staff":             return renderStaffPage_shared();
     case "System":            return renderSystemPage(activeTab("System"));
@@ -4057,6 +4059,30 @@ function renderCasinoTab() {
   `;
 }
 
+function renderCasinoOwnerPage() {
+  return `
+    <div class="card page-hero-card">
+      <div>
+        <h2>🎲 Casino</h2>
+        <p class="muted">Verified Blackjack and Poker settings. Legacy and unverified controls stay collapsed in Advanced sections.</p>
+      </div>
+    </div>
+    ${renderCasinoTab()}
+  `;
+}
+
+function renderEventsOwnerPage() {
+  return `
+    <div class="card page-hero-card">
+      <div>
+        <h2>🎉 Events</h2>
+        <p class="muted">Read live event tables and queue safe host-bot event commands.</p>
+      </div>
+    </div>
+    ${renderEventsTab()}
+  `;
+}
+
 function renderBlackjackSettingsCard(settings) {
   const group = (SETTINGS_SCHEMA.casino || []).find((g) => g.title === "Blackjack Settings — AceSinatra");
   if (!group) return "";
@@ -4740,6 +4766,7 @@ function renderSystemPage(tab) {
     ${tab === "Public Settings" ? renderPublicSettings() : ""}
     ${tab === "Settings Audit" ? renderSettingsAudit() : ""}
     ${tab === "Permissions Audit" ? renderPermissionsAudit() : ""}
+    ${tab === "QA Audit" ? renderQaAudit() : ""}
     ${tab === "Maintenance Center" ? renderMaintenanceCenter() : ""}
     ${tab === "Database" ? renderSystemDatabase() : ""}
     ${tab === "Emergency" ? renderEmergency() : ""}
@@ -4776,6 +4803,56 @@ function renderPublicSettings() {
           { key: "default", label: "Default" },
         ])}
       </div>
+    </div>
+  `;
+}
+
+function renderQaAudit() {
+  const d = state.data || {};
+  const issues = d.issues || [];
+  const countBySeverity = (severity) => issues.filter((issue) => issue.severity === severity).length;
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("Broken Routes", d.broken_routes_count ?? countBySeverity("CRITICAL"), "missing renderers/endpoints", countBySeverity("CRITICAL") ? "accent-red" : "accent-green", "QA")}
+      ${metricCard("Missing Endpoints", (d.missing_endpoints || []).length, "frontend API references", (d.missing_endpoints || []).length ? "accent-red" : "accent-green", "API")}
+      ${metricCard("Buttons Without Handlers", (d.buttons_without_handlers || []).length, "clickable controls", (d.buttons_without_handlers || []).length ? "accent-red" : "accent-green", "BTN")}
+      ${metricCard("Public Safety", (d.public_safety_warnings || []).length, "public portal warnings", (d.public_safety_warnings || []).length ? "accent-red" : "accent-green", "PUB")}
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Dashboard QA Audit</h2>
+          <div class="muted text-sm">Last checked: ${esc(d.last_checked_at || "—")}</div>
+        </div>
+        <span class="pill ${issues.length ? "warn" : "ok"}">${issues.length} issue${issues.length === 1 ? "" : "s"}</span>
+      </div>
+      ${issues.length ? table(issues, [
+        { key: "severity", label: "Severity", render: (r) => `<span class="pill ${r.severity === "CRITICAL" ? "bad" : r.severity === "WARNING" ? "warn" : "info"}">${esc(r.severity)}</span>` },
+        { key: "area", label: "Area" },
+        { key: "item", label: "Item", render: (r) => `<code>${esc(r.item)}</code>` },
+        { key: "message", label: "Issue" },
+      ]) : `<div class="notice success">No broken routes, missing endpoints, handler gaps, or public safety warnings detected by the static QA audit.</div>`}
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Public Routes</h2>${table(d.public_routes || [])}</div>
+      <div class="card"><h2>Admin Routes</h2>${table(d.admin_routes || [])}</div>
+      <div class="card"><h2>Staff Routes</h2>${table(d.staff_routes || [])}</div>
+    </div>
+    <div class="card">
+      <h2>Frontend Pages</h2>
+      ${table(d.frontend_pages || [], [
+        { key: "type", label: "Type" },
+        { key: "page", label: "Page" },
+        { key: "api", label: "API", render: (r) => r.api ? `<code>${esc(r.api)}</code>` : `<span class="muted">local render</span>` },
+      ])}
+    </div>
+    <div class="card">
+      <h2>API Endpoints</h2>
+      ${table(d.api_endpoints || [], [
+        { key: "method", label: "Method" },
+        { key: "path", label: "Path", render: (r) => `<code>${esc(r.path)}</code>` },
+        { key: "auth", label: "Auth", render: (r) => auditStatusChip(r.auth, r.auth !== "unprotected") },
+      ])}
     </div>
   `;
 }
