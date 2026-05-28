@@ -8,6 +8,9 @@ const PUBLIC_NAV = [
   { id: "home",      icon: "🏠", label: "Home" },
   { id: "radio",     icon: "📻", label: "Radio" },
   { id: "howtoplay", icon: "📖", label: "How to Play" },
+  { id: "casino",    icon: "🎲", label: "Casino" },
+  { id: "mining",    icon: "⛏️", label: "Mining" },
+  { id: "fishing",   icon: "🎣", label: "Fishing" },
   { id: "events",    icon: "🎉", label: "Events" },
   { id: "rankings",  icon: "🏆", label: "Rankings" },
   { id: "roominfo",  icon: "ℹ️",  label: "Room Info" },
@@ -770,6 +773,8 @@ function activeTab(page) {
 async function loadPublic() {
   const apiMap = {
     home: "/api/public/home", radio: "/api/public/radio",
+    casino: "/api/public/casino", mining: "/api/public/mining",
+    fishing: "/api/public/fishing",
     events: "/api/public/events", rankings: "/api/public/rankings",
     howtoplay: "/api/public/how-to-play", roominfo: "/api/public/room-info",
   };
@@ -928,22 +933,66 @@ function renderPublicPage() {
     case "home":      return renderPublicHome(d);
     case "radio":     return renderPublicRadio(d);
     case "howtoplay": return renderPublicHowToPlay();
+    case "casino":    return renderPublicCasino(d);
+    case "mining":    return renderPublicMining(d);
+    case "fishing":   return renderPublicFishing(d);
     case "events":    return renderPublicEvents(d);
     case "rankings":  return renderPublicRankings(d);
-    case "roominfo":  return renderPublicRoomInfo();
+    case "roominfo":  return renderPublicRoomInfo(d);
     default:          return renderPublicHome(d);
   }
 }
 
+function publicFmt(v) {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toLocaleString() : String(v);
+}
+function publicCoins(v) { return v === null || v === undefined || v === "" ? "—" : `${publicFmt(v)} coins`; }
+function publicLbs(v) { return v === null || v === undefined || v === "" ? "—" : `${publicFmt(v)} lbs`; }
+function publicPercent(v) {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  return Number.isFinite(n) ? `${n.toFixed(n < 1 ? 4 : 2)}%` : String(v);
+}
+function publicCommandChips(commands) {
+  return `<div class="chip-row pub-command-chips">${commands.map((cmd) => `<code class="manual-command">${esc(cmd)}</code>`).join("")}</div>`;
+}
+function publicSmallTable(rows, cols, empty = "No data yet.") {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return `<div class="pub-empty compact">${esc(empty)}</div>`;
+  return `<div class="table-scroll"><table><thead><tr>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}</tr></thead><tbody>
+    ${list.map((r) => `<tr>${cols.map((c) => `<td>${c.html ? c.html(r) : esc(c.render ? c.render(r) : r[c.key] ?? "—")}</td>`).join("")}</tr>`).join("")}
+  </tbody></table></div>`;
+}
+function publicMetricGrid(rows) {
+  return `<div class="manual-info-grid">${rows.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(publicFmt(value))}</strong></div>`).join("")}</div>`;
+}
+function publicMiniLeaders(rows, { title = "Leaders", name = (r) => r.username || r.name || "Unknown Player", value = (r) => r.value ?? r.points ?? r.balance ?? "", detail = null, empty = "No data yet." } = {}) {
+  const list = (rows || []).slice(0, 5);
+  return `<div class="pub-mini-leaders">
+    ${list.length ? list.map((r, i) => `<div class="pub-lb-row rich">
+      <span class="pub-lb-rank ${i < 3 ? "top" + i : ""}">${["🥇","🥈","🥉"][i] || i + 1}</span>
+      <span class="pub-lb-main">
+        <span class="pub-lb-name leaderboard-title-marquee" title="${esc(name(r))}"><span>${esc(name(r))}</span></span>
+        ${detail ? `<span class="pub-lb-detail">${esc(detail(r) || "")}</span>` : ""}
+      </span>
+      <span class="pub-lb-val">${esc(String(value(r) ?? ""))}</span>
+    </div>`).join("") : `<div class="pub-empty compact">${esc(empty)}</div>`}
+  </div>`;
+}
+
 function renderPublicHome(d) {
   const np = d.now_playing;
+  const event = d.current_event;
+  const highlights = d.highlights || {};
   return `
     <div class="pub-hero">
       <div class="pub-hero-glow"></div>
       <div class="pub-hero-content">
         <div class="pub-hero-badge">🎵 Live Now</div>
         <h1 class="pub-hero-title">Welcome to<br><span class="gradient-text">ChillTopia</span></h1>
-        <p class="pub-hero-sub">Your favourite DJ DUDU Radio hangout on Highrise</p>
+        <p class="pub-hero-sub">Relax, play, request music, mine, fish, and win rewards.</p>
         <div class="pub-hero-now">
           ${np ? `<span class="pub-now-label">Now Playing</span>
           <span class="pub-now-song">${esc(np.title || "Auto DJ")}</span>
@@ -951,17 +1000,45 @@ function renderPublicHome(d) {
           : `<span class="pub-now-label">Auto DJ is in the house 🎧</span>`}
         </div>
         <div class="pub-quick-links">
-          <button class="btn primary" data-pub-page="radio">📻 Radio</button>
-          <button class="btn cyan" data-pub-page="rankings">🏆 Rankings</button>
+          <button class="btn primary" data-pub-page="radio">📻 Listen to Radio</button>
           <button class="btn ghost" data-pub-page="howtoplay">📖 How to Play</button>
+          <button class="btn cyan" data-pub-page="rankings">🏆 View Rankings</button>
+          <a class="btn ghost" href="${esc(d.join_url || "#")}" ${d.join_url ? `target="_blank" rel="noopener"` : ""}>🚪 Join on Highrise</a>
         </div>
       </div>
     </div>
+    <div class="pub-section-title"><h2>Live Room Snapshot</h2><p>Public room activity at a glance.</p></div>
     <div class="pub-stats-row">
       ${pubStatCard("🤖", "Bots Online", `${d.online_bots ?? 0}/${d.total_bots ?? 0}`, "Active bots running")}
       ${pubStatCard("👥", "In Room", d.room_users ?? 0, "Players hanging out")}
       ${pubStatCard("🎵", "Queue", d.queue_count ?? 0, "Songs up next")}
       ${pubStatCard("✨", "Vibe", d.vibe || "Chill", "Current room energy")}
+      ${pubStatCard("🎉", "Current Event", event?.name || "None", event?.active ? "Event is active" : "No active event")}
+    </div>
+    <div class="pub-section-title"><h2>Featured Systems</h2><p>Pick your lane: music, games, progression, or rewards.</p></div>
+    <div class="pub-system-grid">
+      ${[
+        ["📻", "DJ DUDU Radio", "Request music with !play and climb the requester boards.", "radio"],
+        ["🎲", "Casino", "Play Blackjack with AceSinatra or Poker with ChipSoprano.", "casino"],
+        ["⛏️", "Mining", "Mine ores, chase rare finds, and earn rewards.", "mining"],
+        ["🎣", "Fishing", "Catch fish, hunt big weights, and build your profile.", "fishing"],
+        ["🎉", "Events", "Join room events for points, wins, and prizes.", "events"],
+        ["⭐", "Rewards / VIP", "Earn coins, titles, badges, and VIP perks.", "roominfo"],
+      ].map(([icon, title, text, page]) => `<button class="card pub-system-card" data-pub-page="${page}"><span>${icon}</span><strong>${esc(title)}</strong><em>${esc(text)}</em></button>`).join("")}
+    </div>
+    <div class="pub-section-title"><h2>Recent Highlights</h2><p>Fresh public-safe moments from the room.</p></div>
+    <div class="pub-highlight-grid">
+      ${[
+        ["🎵", "Top Song", highlights.top_song?.title, highlights.top_song?.detail],
+        ["🎣", "Big Fish", highlights.big_fish?.title, highlights.big_fish?.detail],
+        ["⛏️", "Big Ore", highlights.big_ore?.title, highlights.big_ore?.detail],
+        ["🎲", "Casino Winner", highlights.casino_winner?.title, highlights.casino_winner?.detail],
+        ["🎉", "Event Leader", highlights.event_winner?.title, highlights.event_winner?.detail],
+      ].filter(([, , title]) => title).map(([icon, label, title, detail]) => `<div class="card pub-highlight-card"><span>${icon}</span><small>${esc(label)}</small><strong>${esc(title)}</strong>${detail ? `<em>${esc(detail)}</em>` : ""}</div>`).join("") || `<div class="pub-empty compact">Highlights will appear as players create them.</div>`}
+    </div>
+    <div class="card">
+      <h3>Quick Commands</h3>
+      ${publicCommandChips(["!play", "!bj", "!join", "!mine", "!fish", "!daily", "!profile", "!top"])}
     </div>
   `;
 }
@@ -979,6 +1056,12 @@ function renderPublicRadio(d) {
   const np = d.now_playing;
   const queue = d.queue || [];
   const recent = d.recently_played || [];
+  const boards = d.leaderboards || {};
+  const cleanSong = (v) => String(v || "Unknown Track")
+    .replace(/\s*[\[(](official\s+(music\s+)?video|official\s+audio|lyrics?|lyric\s+video)[\])]\s*/ig, " ")
+    .replace(/\s*\b(official\s+(music\s+)?video|official\s+audio|lyric\s+video|lyrics?|4k|hd)\b\s*/ig, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "Unknown Track";
   return `
     <div class="pub-section-title"><h2>📻 DJ DUDU Radio</h2>
       <p>Live music in ChillTopia — request your favourite songs in the room!</p></div>
@@ -994,7 +1077,8 @@ function renderPublicRadio(d) {
         ${d.stream_url ? `<div style="margin-top:16px"><a href="${esc(d.stream_url)}" target="_blank" class="btn cyan">🔊 Listen Live</a></div>` : ""}
         <div class="pub-request-tip">
           <span class="pill info">💡 How to Request</span>
-          <p>Type <strong>!play [song name or artist]</strong> in the Highrise room to add your song to the queue.</p>
+          <p>Type <strong>!play [song name or artist]</strong> in the Highrise room to add your song to the queue. Request one song at a time; queue limits and cooldowns may apply.</p>
+          ${d.playlist_urls_disabled ? `<p>Playlist URLs are disabled for normal public requests.</p>` : ""}
         </div>
       </div>
       <div style="display:grid;gap:16px;min-width:0">
@@ -1020,12 +1104,26 @@ function renderPublicRadio(d) {
           </div>`).join("")}</div>` : ""}
       </div>
     </div>
+    <div class="pub-section-title"><h2>Radio Leaderboards</h2><p>Requester and song stats from the live radio database.</p></div>
+    <div class="pub-rankings-grid">
+      <div class="card"><h3>Top Requesters</h3>${publicMiniLeaders(boards.top_requesters || [], { value: (r) => `${publicFmt(r.requests)} requests` })}</div>
+      <div class="card"><h3>Top Liked Songs</h3>${publicMiniLeaders(boards.top_liked_songs || [], {
+        name: (r) => cleanSong(r.title || r.name),
+        value: (r) => `${publicFmt(r.likes)} likes`,
+        detail: (r) => r.requester ? `requested by ${r.requester}` : "",
+      })}</div>
+      <div class="card"><h3>Top Disliked Songs</h3>${publicMiniLeaders(boards.top_disliked_songs || [], {
+        name: (r) => cleanSong(r.title || r.name),
+        value: (r) => `${publicFmt(r.dislikes)} dislikes`,
+        detail: (r) => r.requester ? `requested by ${r.requester}` : "",
+      })}</div>
+    </div>
   `;
 }
 
 function renderPublicHowToPlay() {
   const d = state.data || {};
-  const tabs = ["Quick Start", "Radio", "Casino", "Mining", "Fishing", "Economy & Rewards", "Emotes & Dancefloor", "Events", "VIP", "Commands A-Z", "FAQ"];
+  const tabs = ["Quick Start", "Radio", "Casino", "Mining", "Fishing", "Economy", "Emotes & Dancefloor", "Events", "VIP", "Commands A-Z", "FAQ"];
   if (!tabs.includes(state.howToPlayTab)) state.howToPlayTab = tabs[0];
   const tab = state.howToPlayTab;
   const commandChip = (cmd) => `<code class="manual-command">${esc(cmd)}</code>`;
@@ -1099,9 +1197,9 @@ function renderPublicHowToPlay() {
         </div>
         <div class="card"><h3>Top Rare Odds</h3>${smallTable(fishing.rarest || [], [{ key: "fish", label: "Fish" }, { key: "rarity", label: "Rarity" }, { key: "chance_percent", label: "Chance", render: (r) => odds(r.chance_percent) }])}</div>
       </div>
-      <div class="card"><h3>Fish Catalog & Catch Chances</h3>${smallTable(fishing.fish || [], [{ key: "name", label: "Fish" }, { key: "rarity", label: "Rarity" }, { key: "base_value", label: "Base Value" }, { key: "min_weight", label: "Min Weight" }, { key: "max_weight", label: "Max Weight" }, { key: "chance_percent", label: "Chance", render: (r) => odds(r.chance_percent) }])}</div>
+      <div class="card"><h3>Fish Catalog & Catch Chances</h3>${smallTable(fishing.fish || [], [{ key: "name", label: "Fish" }, { key: "rarity", label: "Rarity" }, { key: "base_value", label: "Base Value" }, { key: "min_weight", label: "Min Weight", render: (r) => publicLbs(r.min_weight) }, { key: "max_weight", label: "Max Weight", render: (r) => publicLbs(r.max_weight) }, { key: "chance_percent", label: "Chance", render: (r) => odds(r.chance_percent) }])}</div>
       <div class="card"><h3>Rods</h3><p class="manual-copy">Rod upgrades are shown when the active fishing catalog exposes them. If your rod options differ, follow current in-room announcements.</p>${smallTable(fishing.rods || [], [{ key: "name", label: "Rod" }, { key: "required_level", label: "Required Level" }, { key: "luck_bonus", label: "Luck" }, { key: "speed_bonus", label: "Speed" }])}</div>`,
-    "Economy & Rewards": `
+    "Economy": `
       <div class="pub-grid2">
         <div class="card"><h3>Coins, XP, and Levels</h3><p class="manual-copy">Coins power bets, progression, and room rewards. XP and levels track your activity across ChillTopia systems.</p>${commandList(commandsByCategory("Economy").concat(commandsByCategory("Gold / Tips")))}</div>
         <div class="card"><h3>Ways to Earn</h3><ul class="manual-list"><li>Claim ${commandChip("!daily")} streak rewards.</li><li>Mine ores with ${commandChip("!mine")}.</li><li>Catch fish with ${commandChip("!fish")}.</li><li>Win casino games.</li><li>Join events and earn event points.</li><li>Use gold/tip systems when available.</li></ul></div>
@@ -1152,8 +1250,171 @@ function renderPublicHowToPlay() {
   `;
 }
 
+function renderPublicCasino(d) {
+  const casino = d.casino || d;
+  const bj = casino.blackjack_settings || {};
+  const poker = casino.poker_settings || {};
+  const boards = casino.leaderboards || d.leaderboards || {};
+  return `
+    <div class="pub-section-title"><h2>🎲 Casino</h2>
+      <p>Public guide and live settings for AceSinatra Blackjack and ChipSoprano Poker.</p></div>
+    <div class="pub-grid2">
+      <div class="card">
+        <h3>Blackjack / RBJ Guide</h3>
+        <p class="manual-copy">Beat the dealer without busting over 21. Start with <code>!bj [amount]</code>, then choose hit, stand, double, or split when the table allows it.</p>
+        ${publicMetricGrid([
+          ["Min Bet", publicCoins(bj.min_bet)],
+          ["Max Bet", publicCoins(bj.max_bet)],
+          ["Players", bj.max_players],
+          ["Timer", bj.turn_timer ? `${bj.turn_timer} sec` : "—"],
+          ["Decks", bj.decks],
+          ["Shuffle", bj.shuffle_used_percent ? `${bj.shuffle_used_percent}% used` : "—"],
+        ])}
+        ${publicCommandChips(["!bj [amount]", "!hit", "!stand", "!double", "!split"])}
+      </div>
+      <div class="card">
+        <h3>Poker Guide</h3>
+        <p class="manual-copy">Texas Hold'em with public table actions. Buy in with <code>!join [amount]</code>, then check, call, raise, fold, or go all-in on your turn.</p>
+        ${publicMetricGrid([
+          ["Min Buy-In", publicCoins(poker.min_buyin)],
+          ["Max Buy-In", publicCoins(poker.max_buyin)],
+          ["Players", poker.max_players],
+          ["Timer", poker.turn_timer ? `${poker.turn_timer} sec` : "—"],
+          ["Small Blind", publicCoins(poker.small_blind)],
+          ["Big Blind", publicCoins(poker.big_blind)],
+        ])}
+        ${publicCommandChips(["!join [amount]", "!check", "!call", "!raise [amount]", "!fold", "!allin", "!leave"])}
+      </div>
+    </div>
+    <div class="pub-section-title"><h2>Casino Leaderboards</h2><p>Live public ranking summaries where game data exists.</p></div>
+    <div class="pub-rankings-grid">
+      <div class="card"><h3>Most Games Won</h3>${publicMiniLeaders(boards.casino_overall || [], { value: (r) => `${publicFmt(r.wins)} wins`, detail: (r) => r.total_won ? publicCoins(r.total_won) : "" })}</div>
+      <div class="card"><h3>Blackjack / RBJ</h3>${publicMiniLeaders(boards.blackjack || [], { value: (r) => `${publicFmt(r.wins)} wins`, detail: (r) => r.blackjacks ? `${publicFmt(r.blackjacks)} natural blackjacks` : "" })}</div>
+      <div class="card"><h3>Poker</h3>${publicMiniLeaders(boards.poker || [], { value: (r) => `${publicFmt(r.wins)} wins`, detail: (r) => r.net ? `${publicCoins(r.net)} net` : "" })}</div>
+    </div>
+  `;
+}
+
+function renderPublicMining(d) {
+  const mining = d.mining || d;
+  const settings = mining.settings || {};
+  const boards = mining.leaderboards || {};
+  return `
+    <div class="pub-section-title"><h2>⛏️ Mining</h2>
+      <p>Mine ores, chase rare drops, earn coins and XP, and climb the mining boards.</p></div>
+    <div class="pub-grid2">
+      <div class="card">
+        <h3>How Mining Works</h3>
+        <p class="manual-copy">Use <code>!mine</code> in-room to search for ores. Ores can have different rarities, values, weights, event availability, and drop chances.</p>
+        ${publicMetricGrid([
+          ["Mining Enabled", settings.mining_enabled ?? "—"],
+          ["Cooldown", settings.base_cooldown_seconds ? `${settings.base_cooldown_seconds} sec` : "—"],
+          ["Auto Mining", settings.automine_enabled ?? "—"],
+          ["Announcements", settings.mining_announce_enabled ?? "—"],
+        ])}
+        ${publicCommandChips(["!mine", "!topminers", "!profile"])}
+      </div>
+      <div class="card">
+        <h3>Drop Odds / Chance</h3>
+        ${publicSmallTable((mining.odds || []).slice(0, 12), [
+          { key: "ore", label: "Ore" },
+          { key: "rarity", label: "Rarity", render: (r) => r.rarity || "—" },
+          { key: "chance_percent", label: "Chance", render: (r) => publicPercent(r.chance_percent) },
+          { key: "event_only", label: "Event", render: (r) => r.event_only ? "Event only" : "Normal" },
+        ])}
+      </div>
+    </div>
+    <div class="card">
+      <h3>Ore Catalog</h3>
+      ${publicSmallTable(mining.ores || [], [
+        { key: "name", label: "Ore" },
+        { key: "rarity", label: "Rarity", html: (r) => `<span class="rarity-chip rarity-${esc(String(r.rarity || "common").toLowerCase())}">${esc(r.rarity || "—")}</span>` },
+        { key: "value", label: "Value", render: (r) => publicCoins(r.value) },
+        { key: "chance_percent", label: "Chance", render: (r) => publicPercent(r.chance_percent) },
+        { key: "event_only", label: "Event Only", render: (r) => r.event_only ? "Yes" : "No" },
+      ])}
+    </div>
+    <div class="pub-rankings-grid">
+      <div class="card"><h3>Top Miners</h3>${publicMiniLeaders(boards.top_miners || [], { value: (r) => r.total_mined ? `${publicFmt(r.total_mined)} mined` : `${publicFmt(r.xp)} XP`, detail: (r) => r.level ? `Level ${r.level}` : "" })}</div>
+      <div class="card"><h3>Heaviest Ores</h3>${publicMiniLeaders(boards.heaviest_ores || [], { name: (r) => r.ore || "Ore", value: (r) => publicLbs(r.weight), detail: (r) => `Found by ${r.username || "Unknown Player"}` })}</div>
+      <div class="card"><h3>Most Valuable Ores</h3>${publicMiniLeaders(boards.most_valuable_ores || [], { name: (r) => r.ore || "Ore", value: (r) => publicCoins(r.value), detail: (r) => `${r.username || "Unknown Player"} · ${r.rarity || "ore"}` })}</div>
+      <div class="card"><h3>Best Rare Finds</h3>${publicMiniLeaders(boards.rarest_finds || [], { name: (r) => r.ore || "Ore", value: (r) => r.rarity || "rare", detail: (r) => [r.weight ? publicLbs(r.weight) : "", r.value ? publicCoins(r.value) : "", `found by ${r.username || "Unknown Player"}`].filter(Boolean).join(" · ") })}</div>
+    </div>
+    <div class="card">
+      <h3>Pickaxes / Tools</h3>
+      <p class="manual-copy">Tool upgrades appear here when the active catalog exposes public-safe data.</p>
+      ${publicSmallTable(mining.tools || [], [
+        { key: "name", label: "Pickaxe" },
+        { key: "required_level", label: "Required Level" },
+        { key: "luck_bonus", label: "Luck" },
+        { key: "speed_bonus", label: "Speed" },
+      ])}
+    </div>
+  `;
+}
+
+function renderPublicFishing(d) {
+  const fishing = d.fishing || d;
+  const settings = fishing.settings || {};
+  const boards = fishing.leaderboards || {};
+  return `
+    <div class="pub-section-title"><h2>🎣 Fishing</h2>
+      <p>Catch fish, chase rare weights, earn coins and XP, and climb the fishing boards.</p></div>
+    <div class="pub-grid2">
+      <div class="card">
+        <h3>How Fishing Works</h3>
+        <p class="manual-copy">Use <code>!fish</code> in-room to cast. Fish can vary by rarity, value, weight range, and catch chance.</p>
+        ${publicMetricGrid([
+          ["AutoFish", settings.autofish_enabled ?? "—"],
+          ["Base Duration", settings.fish_base_duration ? `${settings.fish_base_duration} min` : "—"],
+          ["Cast Interval", settings.fish_base_interval ? `${settings.fish_base_interval} sec` : "—"],
+          ["Base Luck", settings.fish_base_luck ?? "—"],
+        ])}
+        ${publicCommandChips(["!fish", "!topfishers", "!profile"])}
+      </div>
+      <div class="card">
+        <h3>Catch Odds / Chance</h3>
+        ${publicSmallTable((fishing.odds || []).slice(0, 12), [
+          { key: "fish", label: "Fish" },
+          { key: "rarity", label: "Rarity", render: (r) => r.rarity || "—" },
+          { key: "chance_percent", label: "Chance", render: (r) => publicPercent(r.chance_percent) },
+        ])}
+      </div>
+    </div>
+    <div class="card">
+      <h3>Fish Catalog</h3>
+      ${publicSmallTable(fishing.fish || [], [
+        { key: "name", label: "Fish" },
+        { key: "rarity", label: "Rarity", html: (r) => `<span class="rarity-chip rarity-${esc(String(r.rarity || "common").toLowerCase())}">${esc(r.rarity || "—")}</span>` },
+        { key: "base_value", label: "Value", render: (r) => publicCoins(r.base_value) },
+        { key: "min_weight", label: "Min Weight", render: (r) => publicLbs(r.min_weight) },
+        { key: "max_weight", label: "Max Weight", render: (r) => publicLbs(r.max_weight) },
+        { key: "chance_percent", label: "Chance", render: (r) => publicPercent(r.chance_percent) },
+      ])}
+    </div>
+    <div class="pub-rankings-grid">
+      <div class="card"><h3>Top Fishers</h3>${publicMiniLeaders(boards.top_fishers || [], { value: (r) => `${publicFmt(r.total_catches)} catches`, detail: (r) => r.level ? `Level ${r.level}` : "" })}</div>
+      <div class="card"><h3>Heaviest Fish</h3>${publicMiniLeaders(boards.heaviest_fish || [], { name: (r) => r.fish || "Fish", value: (r) => publicLbs(r.weight), detail: (r) => `Caught by ${r.username || "Unknown Player"}` })}</div>
+      <div class="card"><h3>Most Valuable Fish</h3>${publicMiniLeaders(boards.most_valuable_fish || [], { name: (r) => r.fish || "Fish", value: (r) => publicCoins(r.value), detail: (r) => `${r.username || "Unknown Player"} · ${r.rarity || "fish"}` })}</div>
+      <div class="card"><h3>Best Rare Catches</h3>${publicMiniLeaders(boards.rarest_catches || [], { name: (r) => r.fish || "Fish", value: (r) => r.rarity || "rare", detail: (r) => [r.weight ? publicLbs(r.weight) : "", r.value ? publicCoins(r.value) : "", `caught by ${r.username || "Unknown Player"}`].filter(Boolean).join(" · ") })}</div>
+    </div>
+    <div class="card">
+      <h3>Rods / Tools</h3>
+      <p class="manual-copy">Rod upgrades appear here when the active catalog exposes public-safe data.</p>
+      ${publicSmallTable(fishing.rods || [], [
+        { key: "name", label: "Rod" },
+        { key: "required_level", label: "Required Level" },
+        { key: "luck_bonus", label: "Luck" },
+        { key: "speed_bonus", label: "Speed" },
+      ])}
+    </div>
+  `;
+}
+
 function renderPublicEvents(d) {
   const scheduled = d.scheduled || [];
+  const definitions = d.definitions || [];
+  const eventPoints = d.leaderboards?.event_points || [];
   const current = d.current_settings || [];
   const currentMap = Object.fromEntries(current.map((row) => [row.key, row.value]));
   const active = currentMap.event_active === "1" ? currentMap.event_name : (currentMap.active_event || "");
@@ -1166,14 +1427,9 @@ function renderPublicEvents(d) {
     </div>
     <div class="pub-grid2">
       <div class="card">
-        <h3>🏆 Event Points & Rewards</h3>
-        <p class="muted" style="margin-bottom:12px">Earn points participating in room events.</p>
-        <div class="pub-reward-list">
-          <div class="pub-reward-item"><span class="pill info">Bronze</span><span>50 pts — Special title</span></div>
-          <div class="pub-reward-item"><span class="pill def">Silver</span><span>150 pts — Badge + bonus coins</span></div>
-          <div class="pub-reward-item"><span class="pill warn">Gold</span><span>300 pts — VIP access + exclusive badge</span></div>
-          <div class="pub-reward-item"><span class="pill ok">Diamond</span><span>500 pts — Premium rewards package</span></div>
-        </div>
+        <h3>🏆 Event Points</h3>
+        <p class="muted" style="margin-bottom:12px">Earn points by participating in room events.</p>
+        ${publicMiniLeaders(eventPoints, { value: (r) => `${publicFmt(r.points)} pts`, detail: (r) => r.fallback_id ? `id ${String(r.fallback_id).slice(0, 8)}...` : "" })}
       </div>
       <div class="card">
         <h3>📅 Upcoming Events</h3>
@@ -1185,10 +1441,21 @@ function renderPublicEvents(d) {
         </div>`).join("") : `<div class="notice">No events scheduled yet — stay tuned!</div>`}
       </div>
     </div>
-    <div class="card" style="text-align:center;padding:28px">
-      <div style="font-size:40px;margin-bottom:12px">🎊</div>
-      <h3>Want to host an event?</h3>
-      <p class="muted" style="margin-top:6px">Contact a staff member in the room to arrange a special event!</p>
+    <div class="pub-grid2">
+      <div class="card">
+        <h3>Event Definitions</h3>
+        ${publicSmallTable(definitions.slice(0, 12), [
+          { key: "name", label: "Event" },
+          { key: "description", label: "Description" },
+          { key: "reward", label: "Reward" },
+        ], "No public event definitions yet.")}
+      </div>
+      <div class="card">
+        <h3>How to Participate</h3>
+        <p class="manual-copy">Watch room announcements, follow host instructions, and use public event commands if they are enabled for the current activity.</p>
+        ${publicCommandChips(["!events", "!event", "!top"])}
+        <p class="manual-note">Owner start/stop controls are not available on public pages.</p>
+      </div>
     </div>
   `;
 }
@@ -1337,6 +1604,11 @@ function renderPublicRoomInfo(d = state.data || {}) {
   return `
     <div class="pub-section-title"><h2>ℹ️ Room Info</h2>
       <p>Everything you need to know about ChillTopia</p></div>
+    <div class="card">
+      <h3>About ChillTopia</h3>
+      <p class="manual-copy">ChillTopia is a relaxed Highrise room built around DJ DUDU Radio, casino games, mining, fishing, events, public rankings, and player rewards. Use the public tabs to learn commands and track live room activity.</p>
+      ${d.join_url ? `<a class="btn cyan" href="${esc(d.join_url)}" target="_blank" rel="noopener">Join on Highrise</a>` : ""}
+    </div>
     <div class="pub-grid2">
       <div class="card">
         <h3>📋 Room Rules</h3>
@@ -1357,7 +1629,7 @@ function renderPublicRoomInfo(d = state.data || {}) {
           ${[["!balance","Check your coins"],["!daily","Claim daily reward"],["!bj [bet]","Play Blackjack"],
              ["!poker","Join Poker"],["!mine","Start mining"],["!fish","Start fishing"],
              ["!play [song]","Request a song"],["!queue","View song queue"],
-             ["!profile","View your profile"],["!leaderboard","Top players"]
+             ["!profile","View your profile"],["!top","Top players"]
           ].map(([cmd, desc]) => `<div class="pub-cmd-item"><code>${esc(cmd)}</code><span>${esc(desc)}</span></div>`).join("")}
         </div>
       </div>
@@ -1375,11 +1647,26 @@ function renderPublicRoomInfo(d = state.data || {}) {
         <h3>📢 Room Updates</h3>
         ${announcements.length ? announcements.map((a) => `<div class="pub-event-item">${esc(a.message)}</div>`).join("") : `<div class="notice">No public announcements posted.</div>`}
       </div>
+      <div class="card">
+        <h3>🤖 Bot Roles</h3>
+        <div class="pub-cmd-list">
+          ${[
+            ["DJ_DUDU", "radio, emotes, dancefloor, sync"],
+            ["ChillTopiaMC", "host, announcements, events"],
+            ["BankingBot", "economy, bank, rewards, shop"],
+            ["AceSinatra", "Blackjack / Realistic Blackjack"],
+            ["ChipSoprano", "Poker"],
+            ["GreatestProspector", "mining"],
+            ["MasterAngler", "fishing"],
+            ["KeanuShield", "security and moderation"],
+          ].map(([bot, role]) => `<div class="pub-cmd-item"><code>${esc(bot)}</code><span>${esc(role)}</span></div>`).join("")}
+        </div>
+      </div>
     </div>
     <div class="pub-grid2">
       <div class="card">
         <h3>📚 Public Titles</h3>
-        ${(rewardInfo.titles || []).length ? smallTable((rewardInfo.titles || []).slice(0, 10), [
+        ${(rewardInfo.titles || []).length ? publicSmallTable((rewardInfo.titles || []).slice(0, 10), [
           { key: "name", label: "Title" },
           { key: "tier", label: "Tier" },
           { key: "description", label: "How to Earn" },
@@ -1387,7 +1674,7 @@ function renderPublicRoomInfo(d = state.data || {}) {
       </div>
       <div class="card">
         <h3>🏅 Public Badges</h3>
-        ${(rewardInfo.badges || []).length ? smallTable((rewardInfo.badges || []).slice(0, 10), [
+        ${(rewardInfo.badges || []).length ? publicSmallTable((rewardInfo.badges || []).slice(0, 10), [
           { key: "name", label: "Badge" },
           { key: "description", label: "Info" },
         ]) : `<div class="notice">Badges are earned from achievements, events, and special room rewards.</div>`}

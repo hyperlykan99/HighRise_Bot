@@ -3936,9 +3936,47 @@ app.get("/api/public/home", async (req, res) => {
     const vibe = (() => {
       try { return db.prepare("SELECT value FROM room_settings WHERE key='current_vibe' LIMIT 1").get()?.value ?? "Chill vibes"; } catch { return "Chill vibes"; }
     })();
-    json(res, { online_bots: onlineBots, total_bots: bots.length, room_users: roomUsers, queue_count: queueCount, now_playing: nowPlaying ? { title: nowPlaying.title, artist: nowPlaying.artist } : null, vibe });
+    const settings = readKeyValueMap(db, "room_settings");
+    const eventSettings = readKeyValueMap(db, "event_settings");
+    const activeEventName = eventSettings.event_active === "1" ? eventSettings.event_name : (settings.active_event || settings["event.active_event"] || "");
+    const hide = publicRankingsHideStaffBots(db);
+    const rankings = buildLeaderboards(db, { hideStaff: hide, hideBots: hide }).leaderboards || {};
+    const first = (rows) => Array.isArray(rows) && rows.length ? rows[0] : null;
+    const highlights = {
+      top_song: (() => {
+        const row = first(rankings.radio_liked) || first(rankings.radio_tracks);
+        return row ? { title: row.title || row.name || "Top track", detail: row.likes ? `${row.likes} likes` : row.plays ? `${row.plays} plays` : "" } : null;
+      })(),
+      big_fish: (() => {
+        const row = first(rankings.fishing_heaviest_fish);
+        return row ? { title: row.fish || "Big fish", detail: `${row.weight ?? "—"} lbs · ${row.username || "Unknown Player"}` } : null;
+      })(),
+      big_ore: (() => {
+        const row = first(rankings.mining_heaviest_ore);
+        return row ? { title: row.ore || "Big ore", detail: `${row.weight ?? "—"} lbs · ${row.username || "Unknown Player"}` } : null;
+      })(),
+      casino_winner: (() => {
+        const row = first(rankings.blackjack) || first(rankings.poker) || first(rankings.casino_overall);
+        return row ? { title: row.username || "Casino leader", detail: row.net ? `${row.net} coins net` : row.wins ? `${row.wins} wins` : "" } : null;
+      })(),
+      event_winner: (() => {
+        const row = first(rankings.event_points);
+        return row ? { title: row.username || "Event leader", detail: `${row.points ?? 0} pts` } : null;
+      })(),
+    };
+    json(res, {
+      online_bots: onlineBots,
+      total_bots: bots.length,
+      room_users: roomUsers,
+      queue_count: queueCount,
+      now_playing: nowPlaying ? { title: nowPlaying.title, artist: nowPlaying.artist } : null,
+      vibe,
+      current_event: activeEventName ? { active: true, name: activeEventName } : { active: false, name: "" },
+      join_url: settings.highrise_join_url || settings.room_url || settings.join_url || "",
+      highlights,
+    });
   } catch (err) {
-    json(res, { online_bots: 0, total_bots: 0, room_users: 0, queue_count: 0, now_playing: null, vibe: "Chill vibes" });
+    json(res, { online_bots: 0, total_bots: 0, room_users: 0, queue_count: 0, now_playing: null, vibe: "Chill vibes", current_event: { active: false, name: "" }, highlights: {} });
   } finally {
     if (db) try { db.close(); } catch {}
   }
@@ -3954,15 +3992,23 @@ app.get("/api/public/radio", async (req, res) => {
     const queueOpen = (() => {
       try { return db.prepare("SELECT value FROM bot_settings WHERE key='requests_enabled' LIMIT 1").get()?.value !== "false"; } catch { return true; }
     })();
+    const hide = publicRankingsHideStaffBots(db);
+    const rankings = buildLeaderboards(db, { hideStaff: hide, hideBots: hide }).leaderboards || {};
     json(res, {
       now_playing: radio.now_playing ? { title: radio.now_playing.title, artist: radio.now_playing.artist, username: radio.now_playing.username } : null,
       queue: safeQueue,
       recently_played: safeRecent,
       queue_open: queueOpen,
       stream_url: AZURACAST_STREAM_URL || null,
+      playlist_urls_disabled: true,
+      leaderboards: {
+        top_requesters: rankings.radio_requesters || [],
+        top_liked_songs: rankings.radio_liked || [],
+        top_disliked_songs: rankings.radio_disliked || [],
+      },
     });
   } catch (err) {
-    json(res, { now_playing: null, queue: [], recently_played: [], queue_open: true, stream_url: null });
+    json(res, { now_playing: null, queue: [], recently_played: [], queue_open: true, stream_url: null, playlist_urls_disabled: true, leaderboards: { top_requesters: [], top_liked_songs: [], top_disliked_songs: [] } });
   } finally {
     if (db) try { db.close(); } catch {}
   }
@@ -3975,9 +4021,12 @@ app.get("/api/public/events", async (req, res) => {
     const roomCurrent = safeRows(db, "room_settings", ["key","value"], { where: "key LIKE 'event.%' OR key = 'active_event'", limit: "20" });
     const eventCurrent = safeRows(db, "event_settings", ["key","value"], { where: "key IN ('event_active','event_name','event_expires_at')", limit: "20" });
     const scheduled = safeRows(db, "scheduled_events", ["id","name","description","starts_at","ends_at","points","reward"], { orderBy: "starts_at ASC", limit: "10" });
-    json(res, { current_settings: [...roomCurrent, ...eventCurrent], scheduled });
+    const definitions = safeRows(db, "event_definitions", ["id","name","description","reward","enabled"], { limit: "50" });
+    const hide = publicRankingsHideStaffBots(db);
+    const rankings = buildLeaderboards(db, { hideStaff: hide, hideBots: hide }).leaderboards || {};
+    json(res, { current_settings: [...roomCurrent, ...eventCurrent], scheduled, definitions, leaderboards: { event_points: rankings.event_points || [] } });
   } catch {
-    json(res, { current_settings: [], scheduled: [] });
+    json(res, { current_settings: [], scheduled: [], definitions: [], leaderboards: { event_points: [] } });
   } finally {
     if (db) try { db.close(); } catch {}
   }
@@ -4071,6 +4120,11 @@ function publicHowToPlayPayload(db) {
         big_blind: poker.big_blind,
         source: poker.source,
       },
+      leaderboards: {
+        casino_overall: rankings.leaderboards?.casino_overall || rankings.leaderboards?.most_games_won || [],
+        blackjack: rankings.leaderboards?.blackjack || [],
+        poker: rankings.leaderboards?.poker || [],
+      },
     },
     mining: {
       settings: miningSettings,
@@ -4082,6 +4136,7 @@ function publicHowToPlayPayload(db) {
         top_miners: rankings.leaderboards?.mining_top || [],
         heaviest_ores: rankings.leaderboards?.mining_heaviest_ore || [],
         most_valuable_ores: rankings.leaderboards?.mining_most_valuable || [],
+        rarest_finds: rankings.leaderboards?.mining_rarest || [],
       },
     },
     fishing: {
@@ -4094,6 +4149,7 @@ function publicHowToPlayPayload(db) {
         top_fishers: rankings.leaderboards?.fishing_top || [],
         heaviest_fish: rankings.leaderboards?.fishing_heaviest_fish || [],
         most_valuable_fish: rankings.leaderboards?.fishing_most_valuable || [],
+        rarest_catches: rankings.leaderboards?.fishing_rarest || [],
       },
     },
     events: {
@@ -4163,6 +4219,57 @@ app.get("/api/public/how-to-play", async (_req, res) => {
   }
 });
 
+app.get("/api/public/casino", async (_req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const payload = publicHowToPlayPayload(db);
+    json(res, {
+      casino: payload.casino,
+      commands: payload.commands.filter((cmd) => ["Blackjack", "Poker"].includes(cmd.category)),
+      diagnostics: { generated_at: payload.diagnostics.generated_at },
+    });
+  } catch (err) {
+    json(res, { casino: { blackjack_settings: {}, poker_settings: {}, leaderboards: {} }, commands: [], diagnostics: { generated_at: nowIso(), error: err.message } });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/public/mining", async (_req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const payload = publicHowToPlayPayload(db);
+    json(res, {
+      mining: payload.mining,
+      commands: payload.commands.filter((cmd) => ["Mining", "Economy"].includes(cmd.category)),
+      diagnostics: { generated_at: payload.diagnostics.generated_at },
+    });
+  } catch (err) {
+    json(res, { mining: { settings: {}, ores: [], odds: [], tools: [], leaderboards: {} }, commands: [], diagnostics: { generated_at: nowIso(), error: err.message } });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
+app.get("/api/public/fishing", async (_req, res) => {
+  let db = null;
+  try {
+    db = await openDb({ readonly: true });
+    const payload = publicHowToPlayPayload(db);
+    json(res, {
+      fishing: payload.fishing,
+      commands: payload.commands.filter((cmd) => ["Fishing", "Economy"].includes(cmd.category)),
+      diagnostics: { generated_at: payload.diagnostics.generated_at },
+    });
+  } catch (err) {
+    json(res, { fishing: { settings: {}, fish: [], odds: [], rods: [], leaderboards: {} }, commands: [], diagnostics: { generated_at: nowIso(), error: err.message } });
+  } finally {
+    if (db) try { db.close(); } catch {}
+  }
+});
+
 app.get("/api/public/room-info", async (_req, res) => {
   let db = null;
   try {
@@ -4185,9 +4292,9 @@ app.get("/api/public/room-info", async (_req, res) => {
     const badges = tableExists(db, "badge_claims")
       ? safeTableRows(db, "badge_claims", { limit: "50" }).map((row) => ({ badge_id: row.badge_id || row.id || row.badge || "", name: row.name || row.badge_name || row.badge_id || row.id || "", description: row.description || row.reason || "" })).filter((row) => row.badge_id || row.name)
       : [];
-    json(res, { info, announcements, rewards: { titles, badges, vip_source: "owned_items.item_id=vip" } });
+    json(res, { info, announcements, rewards: { titles, badges, vip_source: "owned_items.item_id=vip" }, join_url: settings.highrise_join_url || settings.room_url || settings.join_url || "" });
   } catch {
-    json(res, { info: {}, announcements: [], rewards: { titles: [], badges: [] } });
+    json(res, { info: {}, announcements: [], rewards: { titles: [], badges: [] }, join_url: "" });
   } finally {
     if (db) try { db.close(); } catch {}
   }

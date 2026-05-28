@@ -1132,6 +1132,60 @@ pre.mono-block {
   gap: 14px;
 }
 
+.pub-system-grid,
+.pub-highlight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.pub-system-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.pub-system-card:hover,
+.pub-system-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(34,215,255,0.35);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+}
+
+.pub-system-card span,
+.pub-highlight-card span {
+  font-size: 26px;
+}
+
+.pub-system-card strong,
+.pub-highlight-card strong {
+  color: #fff;
+  font-size: 15px;
+}
+
+.pub-system-card em,
+.pub-highlight-card em,
+.pub-highlight-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.pub-highlight-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pub-command-chips {
+  margin-top: 10px;
+}
+
 .pub-stat-card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -1681,6 +1735,33 @@ pre.mono-block {
   padding: 10px 12px;
   max-width: 320px;
 }
+
+.pub-mini-leaders {
+  display: grid;
+  gap: 0;
+  margin-top: 8px;
+}
+
+.rarity-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(120,100,220,0.2);
+  padding: 2px 8px;
+  color: var(--text);
+  background: rgba(120,100,220,0.08);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rarity-uncommon { color: #6ee7b7; border-color: rgba(110,231,183,0.24); background: rgba(110,231,183,0.08); }
+.rarity-rare { color: #60a5fa; border-color: rgba(96,165,250,0.28); background: rgba(96,165,250,0.08); }
+.rarity-epic { color: #c084fc; border-color: rgba(192,132,252,0.3); background: rgba(192,132,252,0.09); }
+.rarity-legendary { color: #fbbf24; border-color: rgba(251,191,36,0.32); background: rgba(251,191,36,0.09); }
+.rarity-mythic { color: #fb7185; border-color: rgba(251,113,133,0.3); background: rgba(251,113,133,0.09); }
+.rarity-exotic { color: #22d7ff; border-color: rgba(34,215,255,0.32); background: rgba(34,215,255,0.09); }
+.rarity-prismatic { color: #fff; border-color: rgba(255,255,255,0.32); background: linear-gradient(135deg, rgba(155,94,255,0.16), rgba(34,215,255,0.12)); }
 
 /* ── Room Info ───────────────────────────────────────── */
 .pub-rules-list {
