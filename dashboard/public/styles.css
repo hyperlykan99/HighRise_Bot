@@ -489,6 +489,35 @@ body {
   color: rgba(136, 146, 184, 0.6);
 }
 
+.audit-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.audit-stat {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(8, 10, 24, 0.42);
+}
+
+.audit-stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.audit-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
 /* ── Pills / Badges ──────────────────────────────────── */
 .pill {
   display: inline-flex;

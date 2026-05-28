@@ -36,7 +36,7 @@ const STAFF_NAV = [
 
 /* ── Page Tabs ───────────────────────────────────────── */
 const PAGE_TABS = {
-  "Bots":              ["Bot Status", "Bot Config", "Bot Settings", "Bot Spawns", "Advanced"],
+  "Bots":              ["Bot Status", "Bot Config", "Bot Settings", "Bot Spawns", "Advanced Debug"],
   "Players":           ["Search", "Titles & Badges", "Moderation"],
   "Room & Content":    ["Room Settings", "Radio", "Events", "Announcements", "Welcome", "Emotes"],
   "Economy & Rewards": ["Coins & Tickets", "Casino", "Games", "VIP", "Titles", "Badges", "Rewards"],
@@ -449,6 +449,7 @@ function pageApi(page, tab) {
     "Bots/Bot Status":                    "/api/bot-control",
     "Bots/Bot Config":                    "/api/bot-config",
     "Bots/Bot Settings":                  "/api/settings",
+    "Bots/Advanced Debug":                "/api/bot-audit",
     "Players/Titles & Badges":            "/api/titles",
     "Room & Content/Room Settings":       "/api/room-control",
     "Room & Content/Radio":               "/api/radio",
@@ -540,6 +541,14 @@ function metricCard(label, value, hint = "", accent = "", icon = "") {
     ${icon ? `<div class="metric-icon">${icon}</div>` : ""}
     <div class="metric-value">${esc(String(value ?? "—"))}</div>
     <div class="metric-label">${esc(label)}</div>
+    ${hint ? `<div class="metric-hint">${esc(hint)}</div>` : ""}
+  </div>`;
+}
+
+function auditStat(label, value, hint = "") {
+  return `<div class="audit-stat">
+    <div class="audit-stat-value">${esc(String(value ?? "—"))}</div>
+    <div class="audit-stat-label">${esc(label)}</div>
     ${hint ? `<div class="metric-hint">${esc(hint)}</div>` : ""}
   </div>`;
 }
@@ -1178,7 +1187,7 @@ function renderBotsPage(tab) {
     ${tab === "Bot Config"   ? renderBotConfig() : ""}
     ${tab === "Bot Settings" ? renderBotSettingsTab() : ""}
     ${tab === "Bot Spawns"   ? renderBotSpawns() : ""}
-    ${tab === "Advanced"     ? renderBotAdvanced() : ""}
+    ${tab === "Advanced Debug" ? renderBotAdvanced() : ""}
   `;
 }
 
@@ -1196,23 +1205,24 @@ function renderBotSettingsTab() {
 function renderBotStatus() {
   const bots = state.data?.bots || [];
   const rawCount = state.data?.raw_count ?? bots.length;
-  const rawDupeRows = state.data?.raw_duplicate_rows || [];
+  const rawDebugRows = state.data?.raw_duplicate_rows || [];
+  const auditSummary = state.data?.audit_summary || {};
 
   if (!bots.length) return `<div class="card">
     <h2>🤖 Bot Status</h2>
-    <div class="notice warn">No bot heartbeat data. Bots write to <code>bot_instances</code> on startup.</div>
+    <div class="notice warn">No canonical bot data returned. Bots write heartbeat rows to <code>bot_instances</code> on startup.</div>
   </div>`;
 
-  const totalDupes = bots.reduce((n, b) => n + (b.raw_duplicate_count > 1 ? b.raw_duplicate_count - 1 : 0), 0);
-  const dupeNote = totalDupes > 0
-    ? `<div class="notice" style="margin-bottom:12px">ℹ️ ${rawCount} raw DB rows merged → ${bots.length} unique bots. ${totalDupes} duplicate row${totalDupes !== 1 ? "s" : ""} hidden — visible in Advanced Debug below.</div>`
-    : "";
+  const mergedCount = auditSummary.merged_count ?? rawDebugRows.length;
+  const dupeNote = rawCount !== bots.length || mergedCount > 0
+    ? `<div class="notice" style="margin-bottom:12px">${rawCount} raw DB rows audited as ${bots.length} canonical bot accounts. ${mergedCount} duplicate or alias row${mergedCount !== 1 ? "s" : ""} merged; raw rows remain untouched in Advanced.</div>`
+    : `<div class="notice" style="margin-bottom:12px">${bots.length} canonical bot accounts are displayed. Raw DB rows remain read-only in Advanced.</div>`;
 
   return `
     ${dupeNote}
     <div class="grid">
       ${bots.map((b) => {
-        const dupeCount = b.raw_duplicate_count || 1;
+        const rawRowCount = b.raw_row_count ?? b.raw_duplicate_count ?? 0;
         return `<div class="card bot-card">
           <div class="card-header" style="margin-bottom:8px">
             <div>
@@ -1225,7 +1235,7 @@ function renderBotStatus() {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
               ${pill(b.status || "unknown")}
-              ${dupeCount > 1 ? `<span class="pill warn" style="font-size:10px">${dupeCount} raw rows merged</span>` : ""}
+              ${rawRowCount > 1 ? `<span class="pill warn" style="font-size:10px">${rawRowCount} raw rows audited</span>` : ""}
             </div>
           </div>
           ${b.modules && b.modules.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
@@ -1234,34 +1244,13 @@ function renderBotStatus() {
           <div class="muted text-sm" style="display:grid;gap:3px;margin-bottom:12px">
             <span>Room: ${esc(b.current_room_id || "—")}</span>
             <span>Heartbeat: ${esc(b.last_heartbeat_at || "—")}</span>
+            <span>Raw source: ${esc(b.source_bot_mode || "—")} / ${esc(b.source_bot_username || "—")}</span>
             ${b.enabled === 0 ? `<span style="color:var(--warn)">⚠ Bot disabled</span>` : ""}
             ${b.last_error ? `<span style="color:var(--red)">⚠ ${esc(String(b.last_error).slice(0, 120))}</span>` : ""}
-          </div>
-          <div class="inline-actions">
-            <button class="btn sm" disabled title="Endpoint needed: POST /api/bots/:id/return-home">🏠 Home</button>
-            <button class="btn sm" disabled title="Endpoint needed: POST /api/bots/:id/stop-emote">⏹ Stop</button>
-            <button class="btn danger sm" disabled title="Endpoint needed: POST /api/bots/:id/restart">🔄 Restart</button>
           </div>
         </div>`;
       }).join("")}
     </div>
-    ${rawDupeRows.length ? `
-    <details class="advanced-collapse" style="margin-top:16px">
-      <summary class="advanced-summary">
-        <span class="pill warn">⚠️</span> Advanced Debug — Raw Duplicate Rows
-        <span class="muted text-sm">(${rawDupeRows.length} rows, read-only — dashboard never deletes DB rows)</span>
-      </summary>
-      <div class="advanced-content">
-        ${table(rawDupeRows, [
-          { key: "_modeKey",        label: "Mode Key" },
-          { key: "bot_mode",        label: "Bot Mode" },
-          { key: "bot_username",    label: "Username" },
-          { key: "status",          label: "Status", render: (r) => pill(r.status || "unknown") },
-          { key: "last_heartbeat_at", label: "Last Heartbeat" },
-          { key: "last_error",      label: "Last Error", render: (r) => r.last_error ? `<span style="color:var(--red);font-size:11px">${esc(String(r.last_error).slice(0,80))}</span>` : "—" },
-        ])}
-      </div>
-    </details>` : ""}
   `;
 }
 
@@ -1316,13 +1305,58 @@ function renderBotSpawns() {
 }
 
 function renderBotAdvanced() {
-  return `<div class="card">
-    <h2>🔧 Advanced Bot Settings</h2>
-    ${endpointNeeded("GET /api/bot-modes — list bot modes and persona assignments")}
-    ${endpointNeeded("POST /api/bot-modes/:id — update bot persona/outfit")}
-    ${endpointNeeded("GET /api/bot-ownership — command ownership routing")}
-    ${endpointNeeded("POST /api/bot-ownership/:command — reassign command owner bot")}
-  </div>`;
+  const d = state.data || {};
+  const rawRows = d.raw_bot_instances || [];
+  const cleanupPreview = d.cleanup_preview || [];
+  const canonical = d.canonical_bots || d.bots || [];
+  const summary = d.summary || {};
+  return `
+    <div class="card">
+      <div class="card-header" style="margin-bottom:10px">
+        <h2>🔧 Advanced Debug</h2>
+        <span class="muted text-sm">Owner-only, read-only bot audit</span>
+      </div>
+      <div class="audit-summary-grid">
+        ${auditStat("Canonical Bots", summary.canonical_count ?? canonical.length ?? 0, "expected accounts")}
+        ${auditStat("Raw Rows", summary.raw_count ?? rawRows.length ?? 0, "bot_instances")}
+        ${auditStat("Merged Rows", summary.merged_count ?? 0, "aliases / duplicates")}
+        ${auditStat("Debug Only", summary.debug_only_count ?? 0, "all / main / unknown")}
+      </div>
+      <div class="notice warn" style="margin-bottom:14px">Cleanup is preview-only. The dashboard does not expose a delete endpoint for <code>bot_instances</code>.</div>
+      ${table(canonical, [
+        { key: "display_name", label: "Canonical Bot" },
+        { key: "bot_mode", label: "Mode" },
+        { key: "status", label: "Status", render: (r) => pill(r.status || "unknown") },
+        { key: "raw_row_count", label: "Raw Rows" },
+        { key: "source_bot_mode", label: "Source Mode" },
+        { key: "source_bot_username", label: "Source Username" },
+      ])}
+    </div>
+    <div class="card">
+      <h2>Cleanup Preview</h2>
+      ${cleanupPreview.length ? table(cleanupPreview, [
+        { key: "action", label: "Preview Action" },
+        { key: "canonical_username", label: "Canonical Bot" },
+        { key: "canonical_mode", label: "Mode" },
+        { key: "bot_mode", label: "Raw Mode" },
+        { key: "bot_username", label: "Raw Username" },
+        { key: "reason", label: "Reason" },
+      ]) : `<div class="notice">No alias, duplicate, or debug-only rows detected.</div>`}
+    </div>
+    <div class="card">
+      <h2>Raw bot_instances Rows</h2>
+      ${rawRows.length ? table(rawRows, [
+        { key: "bot_id", label: "Bot ID" },
+        { key: "bot_mode", label: "Bot Mode" },
+        { key: "bot_username", label: "Username" },
+        { key: "status", label: "Status", render: (r) => pill(r.status || "unknown") },
+        { key: "enabled", label: "Enabled" },
+        { key: "last_heartbeat_at", label: "Last Heartbeat" },
+        { key: "current_room_id", label: "Room" },
+        { key: "last_error", label: "Last Error", render: (r) => r.last_error ? `<span style="color:var(--red);font-size:11px">${esc(String(r.last_error).slice(0, 100))}</span>` : "—" },
+      ]) : `<div class="notice">No raw <code>bot_instances</code> rows found.</div>`}
+    </div>
+  `;
 }
 
 /* ── Players Page ────────────────────────────────────── */

@@ -850,12 +850,8 @@ app.get("/api/dj/status", async (_req, res) => {
 
 app.get("/api/overview", requireAuth, (req, res) => {
   const db = req.db;
-  const bots = safeRows(
-    db,
-    "bot_instances",
-    ["bot_id", "bot_mode", "bot_username", "status", "enabled", "last_heartbeat_at", "last_error", "current_room_id"],
-    { orderBy: columnExists(db, "bot_instances", "bot_mode") && columnExists(db, "bot_instances", "bot_username") ? "bot_mode, bot_username" : "" },
-  );
+  const botAudit = readCanonicalBotAudit(db);
+  const bots = botAudit.bots;
   const flags = safeRows(db, "module_flags", ["module", "enabled", "reason", "updated_by", "updated_at"], { orderBy: "module" });
   const onlineBots = bots.filter((b) => String(b.status || "").toLowerCase() === "online").length;
   const roomIds = [...new Set(bots.map((b) => b.current_room_id).filter(Boolean))];
@@ -877,6 +873,7 @@ app.get("/api/overview", requireAuth, (req, res) => {
       room_ids: roomIds,
     },
     bots,
+    bot_audit: botAudit.summary,
     module_flags: flags,
     command_errors: commandErrors,
     radio: readLocalRadioStatus(db),
@@ -885,19 +882,14 @@ app.get("/api/overview", requireAuth, (req, res) => {
 }, closeDb);
 
 app.get("/api/live", requireAuth, (req, res) => {
-  const bots = safeRows(
-    req.db,
-    "bot_instances",
-    ["bot_id", "bot_mode", "bot_username", "status", "enabled", "last_heartbeat_at", "last_error", "current_room_id"],
-    { orderBy: columnExists(req.db, "bot_instances", "bot_mode") && columnExists(req.db, "bot_instances", "bot_username") ? "bot_mode, bot_username" : "" },
-  );
+  const botAudit = readCanonicalBotAudit(req.db);
   const liveRows = safeRows(req.db, "live_status", ["key", "value", "updated_at"], { orderBy: "key" });
   const commands = rowsOrEmpty(
     req.db,
     "command_error_logs",
     "SELECT * FROM command_error_logs ORDER BY id DESC LIMIT 25",
   );
-  json(res, { bots, live_status: liveRows, recent_commands_or_errors: commands, updated_at: nowIso() });
+  json(res, { bots: botAudit.bots, bot_audit: botAudit.summary, live_status: liveRows, recent_commands_or_errors: commands, updated_at: nowIso() });
 }, closeDb);
 
 app.get("/api/settings", requireAuth, requirePermission("emergency_controls"), (req, res) => {
@@ -1066,8 +1058,7 @@ app.get("/api/public/home", async (req, res) => {
   let db = null;
   try {
     db = await openDb({ readonly: true });
-    const rawBots = safeRows(db, "bot_instances", ["bot_mode","bot_username","status","last_heartbeat_at"], { orderBy: "last_heartbeat_at DESC", limit: "50" });
-    const { bots } = dedupBotRows(rawBots);
+    const { bots } = readCanonicalBotAudit(db);
     const onlineBots = bots.filter((b) => b.status === "online").length;
     const radio = readLocalRadioStatus(db);
     const nowPlaying = radio.now_playing || null;
@@ -1449,100 +1440,181 @@ const DASHBOARD_HTML = `<!doctype html>
 </body>
 </html>`;
 
-/* ── Bot Control (deduplicated) ─────────────────────── */
-const BOT_DISPLAY_NAMES = {
-  dj: "DJ_DUDU", host: "ChillTopiaMC", security: "KeanuShield",
-  miner: "GreatestProspector", fisher: "MasterAngler",
-  poker: "AceSinatra", blackjack: "ChipSoprano",
-  banker: "BankingBot", shopkeeper: "BankingBot",
-  eventhost: "ChillTopiaMC",
-};
+/* ── Bot Control (canonical audit, read-only) ────────── */
+const CANONICAL_BOTS = [
+  { username: "DJ_DUDU", mode: "dj", card_title: "DJ Bot", modules: ["DJ Queue", "Radio"] },
+  { username: "ChillTopiaMC", mode: "host", card_title: "Room Host", modules: ["Host", "Announcements", "Event Host"] },
+  { username: "KeanuShield", mode: "security", card_title: "Security", modules: ["Security", "Moderation"] },
+  { username: "ChipSoprano", mode: "blackjack", card_title: "Casino Dealer", modules: ["Blackjack", "Realistic Blackjack"] },
+  { username: "AceSinatra", mode: "poker", card_title: "Poker Host", modules: ["Poker"] },
+  { username: "GreatestProspector", mode: "miner", card_title: "Miner", modules: ["Mining"] },
+  { username: "MasterAngler", mode: "fisher", card_title: "Fisher", modules: ["Fishing"] },
+  { username: "BankingBot", mode: "banker", card_title: "Banking Bot", modules: ["Bank", "Economy", "Daily", "Shop"] },
+];
 
-const BOT_CARD_TITLES = {
-  blackjack: "Casino Dealer", poker: "Poker Host",
-  dj: "DJ Bot", host: "Room Host", eventhost: "Event Host",
-  banker: "Banking Bot", shopkeeper: "Shop Bot",
-  security: "Security", miner: "Miner", fisher: "Fisher",
-};
+const CANONICAL_BY_MODE = new Map(CANONICAL_BOTS.map((bot) => [bot.mode, bot]));
+const CANONICAL_BY_USERNAME = new Map(CANONICAL_BOTS.map((bot) => [bot.username.toLowerCase(), bot]));
+const BOT_MODE_ALIASES = new Map([
+  ["shopkeeper", "banker"],
+  ["shop", "banker"],
+  ["eventhost", "host"],
+  ["event_host", "host"],
+  ["rbj", "blackjack"],
+  ["realistic_blackjack", "blackjack"],
+  ["realistic-blackjack", "blackjack"],
+  ["realistic blackjack", "blackjack"],
+]);
+const DEBUG_ONLY_MODES = new Set(["all", "main"]);
+const BOT_INSTANCE_COLUMNS = ["bot_id", "bot_mode", "bot_username", "status", "enabled", "last_heartbeat_at", "last_error", "current_room_id"];
 
-const BOT_MODULE_GROUPS = {
-  blackjack: ["BlackJack", "Realistic BlackJack"],
-  poker: ["Poker"],
-  dj: ["DJ Queue", "Radio"],
-  host: ["Host", "Announcements"],
-  eventhost: ["Events"],
-  banker: ["Bank", "Economy", "Daily"],
-  shopkeeper: ["Shop"],
-  security: ["Security", "Moderation"],
-  miner: ["Mining"],
-  fisher: ["Fishing"],
-};
+function botKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
 
-/**
- * Deduplicate bot_instances rows.
- * Groups by bot_mode (falling back to bot_username/bot_id).
- * Within each group prefers:
- *   1. Rows where lower(bot_username) !== lower(bot_mode)  [real username over generic fallback]
- *   2. status === "online"
- *   3. Latest last_heartbeat_at
- * Returns { bots, rawDupeRows } where bots is sorted by bot_mode.
- */
-function dedupBotRows(raw) {
-  const groups = new Map();
-  for (const row of raw) {
-    const key = String(row.bot_mode || row.bot_username || row.bot_id || "unknown").toLowerCase();
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(row);
+function readBotInstanceRows(db) {
+  const orderBy = tableExists(db, "bot_instances") && columnExists(db, "bot_instances", "last_heartbeat_at")
+    ? "last_heartbeat_at DESC"
+    : "";
+  return safeRows(db, "bot_instances", BOT_INSTANCE_COLUMNS, { orderBy });
+}
+
+function classifyBotRow(row) {
+  const mode = botKey(row.bot_mode);
+  const username = botKey(row.bot_username);
+  if (DEBUG_ONLY_MODES.has(mode)) return { debugOnly: true, reason: `${mode} is orchestrator/debug only` };
+  const aliasMode = BOT_MODE_ALIASES.get(mode);
+  if (aliasMode) return { canonicalMode: aliasMode, reason: `${mode} aliases ${aliasMode}` };
+  if (CANONICAL_BY_MODE.has(mode)) return { canonicalMode: mode, reason: "canonical mode" };
+  const byUsername = CANONICAL_BY_USERNAME.get(username);
+  if (byUsername) return { canonicalMode: byUsername.mode, reason: "canonical username" };
+  return { debugOnly: true, reason: "not a canonical bot account" };
+}
+
+function isRealBotUsername(row) {
+  const mode = botKey(row.bot_mode);
+  const username = botKey(row.bot_username);
+  return !!username && username !== mode;
+}
+
+function chooseCanonicalBotRow(rows, canonical) {
+  return [...rows].sort((a, b) => {
+    const aCanonicalName = botKey(a.bot_username) === canonical.username.toLowerCase() ? 0 : 1;
+    const bCanonicalName = botKey(b.bot_username) === canonical.username.toLowerCase() ? 0 : 1;
+    if (aCanonicalName !== bCanonicalName) return aCanonicalName - bCanonicalName;
+    const aReal = isRealBotUsername(a) ? 0 : 1;
+    const bReal = isRealBotUsername(b) ? 0 : 1;
+    if (aReal !== bReal) return aReal - bReal;
+    const aOnline = botKey(a.status) === "online" ? 0 : 1;
+    const bOnline = botKey(b.status) === "online" ? 0 : 1;
+    if (aOnline !== bOnline) return aOnline - bOnline;
+    return String(b.last_heartbeat_at || "").localeCompare(String(a.last_heartbeat_at || ""));
+  })[0] || null;
+}
+
+function readCanonicalBotAudit(db) {
+  const rawRows = readBotInstanceRows(db);
+  const groups = new Map(CANONICAL_BOTS.map((bot) => [bot.mode, []]));
+  const rawDebugRows = [];
+  const cleanupPreview = [];
+
+  for (const row of rawRows) {
+    const classified = classifyBotRow(row);
+    if (!classified.canonicalMode) {
+      rawDebugRows.push({ ...row, audit_action: "debug_only", audit_reason: classified.reason });
+      cleanupPreview.push({ action: "hide_from_bot_control", reason: classified.reason, bot_mode: row.bot_mode, bot_username: row.bot_username });
+      continue;
+    }
+    const annotated = {
+      ...row,
+      canonical_mode: classified.canonicalMode,
+      canonical_username: CANONICAL_BY_MODE.get(classified.canonicalMode)?.username || "",
+      audit_reason: classified.reason,
+    };
+    groups.get(classified.canonicalMode).push(annotated);
   }
 
-  const isRealUsername = (r) =>
-    r.bot_username &&
-    r.bot_mode &&
-    r.bot_username.toLowerCase() !== r.bot_mode.toLowerCase();
-
-  const bots = [];
-  const rawDupeRows = [];
-
-  for (const [modeKey, rows] of groups) {
-    const sorted = [...rows].sort((a, b) => {
-      const aR = isRealUsername(a) ? 0 : 1;
-      const bR = isRealUsername(b) ? 0 : 1;
-      if (aR !== bR) return aR - bR;
-      const aO = a.status === "online" ? 0 : 1;
-      const bO = b.status === "online" ? 0 : 1;
-      if (aO !== bO) return aO - bO;
-      return String(b.last_heartbeat_at || "") > String(a.last_heartbeat_at || "") ? 1 : -1;
+  const bots = CANONICAL_BOTS.map((canonical) => {
+    const rows = groups.get(canonical.mode) || [];
+    const hasRealUsername = rows.some(isRealBotUsername);
+    const best = chooseCanonicalBotRow(rows, canonical);
+    const hiddenRows = rows.filter((row) => {
+      if (!best || row === best) return false;
+      const genericWithReal = hasRealUsername && botKey(row.bot_username) === botKey(row.bot_mode);
+      const alias = botKey(row.bot_mode) !== canonical.mode;
+      return genericWithReal || alias || rows.length > 1;
     });
-    const best = sorted[0];
-    const displayName = BOT_DISPLAY_NAMES[modeKey] || best.bot_username || best.bot_mode || "Bot";
-    bots.push({
-      bot_id: best.bot_id,
-      bot_mode: best.bot_mode,
-      bot_username: best.bot_username,
-      display_name: displayName,
-      card_title: BOT_CARD_TITLES[modeKey] || displayName,
-      modules: BOT_MODULE_GROUPS[modeKey] || [],
-      status: best.status,
-      enabled: best.enabled,
-      last_heartbeat_at: best.last_heartbeat_at,
-      last_error: best.last_error,
-      current_room_id: best.current_room_id,
+    for (const row of hiddenRows) {
+      rawDebugRows.push({
+        ...row,
+        audit_action: "merged",
+        audit_reason: row.audit_reason || `merged into ${canonical.username}`,
+      });
+      cleanupPreview.push({
+        action: "hide_or_merge_preview",
+        canonical_username: canonical.username,
+        canonical_mode: canonical.mode,
+        reason: row.audit_reason || "duplicate canonical row",
+        bot_mode: row.bot_mode,
+        bot_username: row.bot_username,
+      });
+    }
+    return {
+      bot_id: best?.bot_id ?? null,
+      bot_mode: canonical.mode,
+      bot_username: canonical.username,
+      display_name: canonical.username,
+      card_title: canonical.card_title,
+      modules: canonical.modules,
+      status: best?.status || "missing",
+      enabled: best?.enabled ?? null,
+      last_heartbeat_at: best?.last_heartbeat_at || null,
+      last_error: best?.last_error || null,
+      current_room_id: best?.current_room_id || null,
+      raw_row_count: rows.length,
       raw_duplicate_count: rows.length,
-      raw_rows: rows.length > 1 ? rows : [],
-    });
-    if (rows.length > 1) rawDupeRows.push(...rows.map((r) => ({ ...r, _modeKey: modeKey })));
-  }
-  bots.sort((a, b) => String(a.bot_mode || "").localeCompare(String(b.bot_mode || "")));
-  return { bots, rawDupeRows };
+      source_bot_mode: best?.bot_mode || null,
+      source_bot_username: best?.bot_username || null,
+    };
+  });
+
+  return {
+    bots,
+    raw_rows: rawRows,
+    raw_debug_rows: rawDebugRows,
+    cleanup_preview: cleanupPreview,
+    summary: {
+      canonical_count: bots.length,
+      raw_count: rawRows.length,
+      debug_only_count: rawDebugRows.filter((row) => row.audit_action === "debug_only").length,
+      merged_count: rawDebugRows.filter((row) => row.audit_action === "merged").length,
+      cleanup_preview_count: cleanupPreview.length,
+    },
+  };
 }
 
 app.get("/api/bot-control", requireAuth, (req, res) => {
-  const raw = safeRows(req.db, "bot_instances",
-    ["bot_id","bot_mode","bot_username","status","enabled","last_heartbeat_at","last_error","current_room_id"],
-    { orderBy: "last_heartbeat_at DESC" }
-  );
-  const { bots, rawDupeRows } = dedupBotRows(raw);
-  json(res, { bots, raw_count: raw.length, raw_duplicate_rows: rawDupeRows });
+  const auditResult = readCanonicalBotAudit(req.db);
+  json(res, {
+    bots: auditResult.bots,
+    raw_count: auditResult.raw_rows.length,
+    raw_bot_instances: auditResult.raw_rows,
+    raw_duplicate_rows: auditResult.raw_debug_rows,
+    cleanup_preview: auditResult.cleanup_preview,
+    audit_summary: auditResult.summary,
+  });
+}, closeDb);
+
+app.get("/api/bot-audit", requireAuth, (req, res) => {
+  if (req.user?.role !== "owner") return json(res, { error: "forbidden", permission: "owner" }, 403);
+  const auditResult = readCanonicalBotAudit(req.db);
+  json(res, {
+    canonical_bots: auditResult.bots,
+    raw_bot_instances: auditResult.raw_rows,
+    raw_debug_rows: auditResult.raw_debug_rows,
+    cleanup_preview: auditResult.cleanup_preview,
+    summary: auditResult.summary,
+    note: "Read-only cleanup preview. No dashboard endpoint deletes bot_instances rows.",
+  });
 }, closeDb);
 
 /* ── Economy Overview (read-only) ───────────────────── */
