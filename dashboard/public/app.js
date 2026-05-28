@@ -449,11 +449,12 @@ function pageApi(page, tab) {
     "Bots/Bot Status":                    "/api/bot-control",
     "Bots/Bot Config":                    "/api/bot-config",
     "Bots/Bot Settings":                  "/api/settings",
+    "Bots/Bot Spawns":                    "/api/bot-spawns",
     "Bots/Advanced Debug":                "/api/bot-audit",
     "Players/Titles & Badges":            "/api/titles",
     "Room & Content/Room Settings":       "/api/room-control",
     "Room & Content/Radio":               "/api/radio",
-    "Room & Content/Events":              "/api/public/events",
+    "Room & Content/Events":              "/api/events",
     "Room & Content/Announcements":       "/api/room-control",
     "Room & Content/Welcome":             "/api/room-control",
     "Room & Content/Emotes":              "/api/room-control",
@@ -468,6 +469,7 @@ function pageApi(page, tab) {
     "System/Database":                    "/api/db/inspect",
     "Staff Home":                         "/api/overview",
     "Radio Queue":                        "/api/radio",
+    "Events":                             "/api/events",
     "Room Tools":                         "/api/room-control",
     "Logs":                               null,
   })[key] ?? null;
@@ -1248,6 +1250,11 @@ function renderBotStatus() {
             ${b.enabled === 0 ? `<span style="color:var(--warn)">⚠ Bot disabled</span>` : ""}
             ${b.last_error ? `<span style="color:var(--red)">⚠ ${esc(String(b.last_error).slice(0, 120))}</span>` : ""}
           </div>
+          <div class="inline-actions">
+            <button class="btn sm" data-bot-command="return_home" data-target-bot="${esc(b.bot_username)}">🏠 Home</button>
+            <button class="btn sm" data-bot-command="stop_emote" data-target-bot="${esc(b.bot_username)}">⏹ Stop</button>
+            <button class="btn danger sm" data-bot-command="restart_requested" data-target-bot="${esc(b.bot_username)}">🔄 Restart</button>
+          </div>
         </div>`;
       }).join("")}
     </div>
@@ -1295,12 +1302,27 @@ function renderBotConfig() {
 }
 
 function renderBotSpawns() {
+  const d = state.data || {};
+  const spawns = d.spawns || [];
   return `<div class="card">
-    <h2>🚀 Bot Spawns</h2>
-    <p class="muted text-sm" style="margin-bottom:16px">Spawn controls write flags to the DB for the bot orchestrator to consume.</p>
-    ${endpointNeeded("GET /api/bot-spawns — list pending spawn requests")}
-    ${endpointNeeded("POST /api/bots/:id/spawn — request bot spawn")}
-    ${endpointNeeded("POST /api/bots/:id/kill — request bot stop")}
+    <div class="card-header" style="margin-bottom:10px">
+      <h2>🚀 Saved Bot Spawns</h2>
+      <span class="muted text-sm">Read-only from <code>bot_spawns</code></span>
+    </div>
+    ${spawns.length ? table(spawns, [
+      { key: "bot_username", label: "Bot" },
+      { key: "spawn_name", label: "Spawn" },
+      { key: "x", label: "X" },
+      { key: "y", label: "Y" },
+      { key: "z", label: "Z" },
+      { key: "facing", label: "Facing" },
+      { key: "set_by", label: "Set By" },
+      { key: "set_at", label: "Set At" },
+    ]) : `<div class="notice">No saved bot spawns found.</div>`}
+    <div style="display:grid;gap:8px;margin-top:14px">
+      ${endpointNeeded("POST /api/bot-spawns — set spawn point")}
+      ${endpointNeeded("DELETE /api/bot-spawns/:bot/:name — remove spawn point")}
+    </div>
   </div>`;
 }
 
@@ -1310,6 +1332,7 @@ function renderBotAdvanced() {
   const cleanupPreview = d.cleanup_preview || [];
   const canonical = d.canonical_bots || d.bots || [];
   const summary = d.summary || {};
+  const queue = d.command_queue || {};
   return `
     <div class="card">
       <div class="card-header" style="margin-bottom:10px">
@@ -1331,6 +1354,10 @@ function renderBotAdvanced() {
         { key: "source_bot_mode", label: "Source Mode" },
         { key: "source_bot_username", label: "Source Username" },
       ])}
+    </div>
+    <div class="card">
+      <h2>Queued Bot Commands</h2>
+      ${renderQueuedBotCommands(queue)}
     </div>
     <div class="card">
       <h2>Cleanup Preview</h2>
@@ -1355,6 +1382,38 @@ function renderBotAdvanced() {
         { key: "current_room_id", label: "Room" },
         { key: "last_error", label: "Last Error", render: (r) => r.last_error ? `<span style="color:var(--red);font-size:11px">${esc(String(r.last_error).slice(0, 100))}</span>` : "—" },
       ]) : `<div class="notice">No raw <code>bot_instances</code> rows found.</div>`}
+    </div>
+  `;
+}
+
+function renderQueuedBotCommands(queue) {
+  const pending = queue?.pending || [];
+  const recent = queue?.recent || [];
+  return `
+    <div style="display:grid;gap:14px">
+      <div>
+        <div class="field-label" style="margin-bottom:8px">Pending</div>
+        ${pending.length ? table(pending, [
+          { key: "id", label: "ID" },
+          { key: "target_bot", label: "Target" },
+          { key: "action", label: "Action" },
+          { key: "status", label: "Status", render: (r) => pill(r.status || "pending") },
+          { key: "requester_id", label: "Requester" },
+          { key: "created_at", label: "Created" },
+        ]) : `<div class="notice">No pending bot commands.</div>`}
+      </div>
+      <div>
+        <div class="field-label" style="margin-bottom:8px">Recent</div>
+        ${recent.length ? table(recent, [
+          { key: "id", label: "ID" },
+          { key: "target_bot", label: "Target" },
+          { key: "action", label: "Action" },
+          { key: "status", label: "Status", render: (r) => pill(r.status || "unknown") },
+          { key: "requester_id", label: "Requester" },
+          { key: "created_at", label: "Created" },
+          { key: "completed_at", label: "Completed" },
+        ]) : `<div class="notice">No recent bot commands.</div>`}
+      </div>
     </div>
   `;
 }
@@ -1388,6 +1447,47 @@ function renderPlayerSearch() {
       </div>
     </div>
   `;
+}
+
+function renderPlayerCard(p) {
+  const items = p.owned_items || [];
+  return `<div class="card" style="margin-top:0">
+    <div class="card-header">
+      <h3>🔍 ${esc(p.username || "Unknown")}</h3>
+      <span class="muted text-sm">ID: ${esc(p.user_id || "—")}</span>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:12px 0">
+      ${metricCard("Balance", p.balance != null ? Number(p.balance).toLocaleString() : "—", "", "accent-green", "💰")}
+      ${metricCard("Level", p.level ?? "—", "", "", "⭐")}
+      ${metricCard("XP", p.xp != null ? Number(p.xp).toLocaleString() : "—", "", "", "📈")}
+      ${metricCard("Games Won", p.total_games_won != null ? Number(p.total_games_won).toLocaleString() : "—", "", "", "🎲")}
+      ${metricCard("Coins Earned", p.total_coins_earned != null ? Number(p.total_coins_earned).toLocaleString() : "—", "", "", "🏦")}
+      ${metricCard("Tip Earned", p.tip_coins_earned != null ? Number(p.tip_coins_earned).toLocaleString() : "—", "", "", "🎁")}
+      ${metricCard("Items", p.owned_items_count ?? p.owned_item_count ?? 0, "owned", "", "🎒")}
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+      <div class="notice">
+        <div class="field-label">Equipped Title</div>
+        <div>${esc(p.equipped_title || p.equipped_title_id || "—")}</div>
+      </div>
+      <div class="notice">
+        <div class="field-label">Equipped Badge</div>
+        <div>${esc(p.equipped_badge || p.equipped_badge_id || "—")}</div>
+      </div>
+    </div>
+    <div style="margin-top:14px">
+      <div class="field-label" style="margin-bottom:8px">Inventory Preview</div>
+      ${items.length ? table(items, [
+        { key: "item_type", label: "Type" },
+        { key: "item_id", label: "Item ID" },
+      ]) : `<div class="notice">No owned items found.</div>`}
+    </div>
+    <div class="inline-actions" style="margin-top:14px">
+      <button class="btn sm" disabled title="Write endpoint not implemented">Edit Economy</button>
+      <button class="btn sm" disabled title="Write endpoint not implemented">Edit Inventory</button>
+      <button class="btn sm" disabled title="Write endpoint not implemented">Edit Badge / Title</button>
+    </div>
+  </div>`;
 }
 
 function renderTitlesTab() {
@@ -1495,16 +1595,13 @@ function renderRadioTab() {
 
 function renderEventsTab() {
   const d = state.data || {};
-  const scheduled = d.scheduled || [];
+  const tables = d.tables || {};
+  const hasRows = Object.values(tables).some((info) => info.exists && (info.rows || []).length);
   return `
     <div class="grid">
       <div class="card">
         <h2>📅 Scheduled Events</h2>
-        ${scheduled.length ? scheduled.map((e) => `<div class="pub-event-item">
-          <div class="pub-event-name">${esc(e.name || "Event")}</div>
-          ${e.description ? `<div class="muted text-sm">${esc(e.description)}</div>` : ""}
-          ${e.starts_at ? `<div class="muted text-sm">📅 ${esc(e.starts_at)}</div>` : ""}
-        </div>`).join("") : `<div class="notice">No scheduled events.</div>`}
+        ${renderEventRows(tables.scheduled_events?.rows || d.scheduled || [])}
       </div>
       <div class="card">
         <h2>⚡ Event Controls</h2>
@@ -1513,7 +1610,31 @@ function renderEventsTab() {
         ${endpointNeeded("POST /api/events/schedule — schedule an event")}
       </div>
     </div>
+    ${hasRows ? `
+      ${renderEventTableCard("Event Definitions", tables.event_definitions)}
+      ${renderEventTableCard("Event History", tables.event_history)}
+      ${renderEventTableCard("Event Points", tables.event_points)}
+      ${renderEventTableCard("Event Settings", tables.event_settings)}
+      ${renderEventTableCard("Event Votes", tables.event_votes)}
+    ` : `<div class="card"><div class="notice">No event rows found in the live DB tables.</div></div>`}
   `;
+}
+
+function renderEventRows(rows) {
+  return rows.length ? rows.map((e) => `<div class="pub-event-item">
+    <div class="pub-event-name">${esc(e.name || e.event_name || e.title || e.id || "Event")}</div>
+    ${e.description ? `<div class="muted text-sm">${esc(e.description)}</div>` : ""}
+    ${e.starts_at ? `<div class="muted text-sm">📅 ${esc(e.starts_at)}</div>` : ""}
+  </div>`).join("") : `<div class="notice">No scheduled events.</div>`;
+}
+
+function renderEventTableCard(title, info) {
+  if (!info?.exists) return "";
+  const rows = info.rows || [];
+  return `<div class="card">
+    <h2>${esc(title)}</h2>
+    ${rows.length ? table(rows) : `<div class="notice">Table exists with no rows.</div>`}
+  </div>`;
 }
 
 function renderAnnouncementsTab() {
@@ -1527,8 +1648,11 @@ function renderAnnouncementsTab() {
     ${annoGroup ? renderSettingsGroup(annoGroup, valMap, "announcements") : ""}
     <div class="card">
       <h2>📢 Send Announcement</h2>
-      <p class="muted text-sm" style="margin-bottom:12px">Sends a room-wide message via the host bot.</p>
-      ${endpointNeeded("POST /api/room/announce — consumed by the host bot (needs bot polling loop)")}
+      <p class="muted text-sm" style="margin-bottom:12px">Queues a room-wide message for the host bot.</p>
+      <form id="announcementForm" style="display:grid;gap:10px">
+        <textarea name="message" rows="4" required maxlength="500" placeholder="Announcement message"></textarea>
+        <button class="btn primary">Send Announcement</button>
+      </form>
     </div>
   `;
 }
@@ -1554,7 +1678,14 @@ function renderEmotesTab() {
   const valMap = settingsMapFrom(allRaw);
   return `
     ${renderSchemaGroups("emotes", valMap)}
-    ${endpointNeeded("POST /api/room/emote — trigger a specific bot emote in-room")}
+    <div class="card">
+      <h2>Trigger Bot Emote</h2>
+      <form id="emoteCommandForm" class="toolbar" style="flex-wrap:wrap">
+        <input name="target_bot" placeholder="Bot username or mode" required style="flex:1;min-width:160px" />
+        <input name="emote" placeholder="Emote name or ID" required style="flex:1;min-width:160px" />
+        <button class="btn primary">Queue Emote</button>
+      </form>
+    </div>
     ${endpointNeeded("GET /api/room/emote-packs — list / manage custom emote packs")}
     ${renderAdvancedCollapse(allRaw.filter((s) =>
       s.key?.includes("emote") || s.key?.includes("dance") || s.key?.includes("react")))}
@@ -1621,17 +1752,17 @@ function renderCoinsTab() {
   return `
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
       ${metricCard("Players", s?.player_count ?? "—", "in database", "", "👤")}
-      ${metricCard("Total Coins", s?.total_coins != null ? Number(s.total_coins).toLocaleString() : "—", "in circulation", "accent-green", "💰")}
-      ${metricCard("Total Tickets", s?.total_tickets != null ? Number(s.total_tickets).toLocaleString() : "—", "in circulation", "", "🎟")}
-      ${metricCard("Avg Coins", s?.avg_coins != null ? Math.round(Number(s.avg_coins)).toLocaleString() : "—", "per player", "", "📊")}
-      ${metricCard("Richest Balance", s?.richest != null ? Number(s.richest).toLocaleString() : "—", "single player", "", "🏆")}
+      ${metricCard("Total Balance", s?.total_balance != null ? Number(s.total_balance).toLocaleString() : "—", "in circulation", "accent-green", "💰")}
+      ${s?.total_tickets != null ? metricCard("Total Tickets", Number(s.total_tickets).toLocaleString(), "in circulation", "", "🎟") : ""}
+      ${metricCard("Avg Balance", s?.avg_balance != null ? Math.round(Number(s.avg_balance)).toLocaleString() : "—", "per player", "", "📊")}
+      ${metricCard("Richest Balance", s?.richest_balance != null ? Number(s.richest_balance).toLocaleString() : "—", "single player", "", "🏆")}
     </div>
     <div class="grid">
       <div class="card">
         <h2>💰 Rich List</h2>
         ${table(d.top_rich || [], [
           { key: "username", label: "Player" },
-          { key: "coins", label: "Coins", render: (r) => Number(r.coins ?? 0).toLocaleString() },
+          { key: "balance", label: "Balance", render: (r) => Number(r.balance ?? 0).toLocaleString() },
           { key: "level", label: "Level" },
           { key: "xp", label: "XP", render: (r) => Number(r.xp ?? 0).toLocaleString() },
         ])}
@@ -1950,16 +2081,13 @@ function renderStaffPlayers() {
 
 function renderStaffEvents() {
   const d = state.data || {};
-  const scheduled = d.scheduled || [];
+  const tables = d.tables || {};
+  const scheduled = tables.scheduled_events?.rows || d.scheduled || [];
   return `
     <div class="grid">
       <div class="card">
         <h2>📅 Scheduled Events</h2>
-        ${scheduled.length ? scheduled.map((e) => `<div class="pub-event-item">
-          <div class="pub-event-name">${esc(e.name || "Event")}</div>
-          ${e.description ? `<div class="muted text-sm">${esc(e.description)}</div>` : ""}
-          ${e.starts_at ? `<div class="muted text-sm">📅 ${esc(e.starts_at)}</div>` : ""}
-        </div>`).join("") : `<div class="notice">No scheduled events.</div>`}
+        ${renderEventRows(scheduled)}
       </div>
       <div class="card">
         <h2>⚡ Event Actions</h2>
@@ -1967,6 +2095,9 @@ function renderStaffEvents() {
         ${endpointNeeded("POST /api/events/stop — stop current event (owner only)")}
       </div>
     </div>
+    ${renderEventTableCard("Event Definitions", tables.event_definitions)}
+    ${renderEventTableCard("Event History", tables.event_history)}
+    ${renderEventTableCard("Event Points", tables.event_points)}
   `;
 }
 
@@ -2012,7 +2143,12 @@ function renderStaffRoomTools() {
     </div>
     <div class="card">
       <h2>📢 Announcements</h2>
-      ${endpointNeeded("POST /api/room/announce — consumed by host bot")}
+      ${hasPerms ? `
+        <form id="announcementForm" style="display:grid;gap:10px">
+          <textarea name="message" rows="4" required maxlength="500" placeholder="Announcement message"></textarea>
+          <button class="btn primary">Send Announcement</button>
+        </form>
+      ` : `<div class="notice">Requires <code>emergency_controls</code> permission to queue announcements.</div>`}
     </div>
   `;
 }
@@ -2087,6 +2223,24 @@ function bindAdminPageEvents() {
     });
   });
 
+  /* Bot command queue actions */
+  document.querySelectorAll("[data-bot-command]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const queuedAction = btn.dataset.botCommand;
+      const targetBot = btn.dataset.targetBot;
+      const run = () => action("Command queued. Bot must consume bot_command_queue.", () =>
+        api("/api/bot-command", {
+          method: "POST",
+          body: JSON.stringify({ target_bot: targetBot, action: queuedAction, payload: {} }),
+        }));
+      if (queuedAction === "restart_requested") {
+        confirmAction("Restart Bot", `Queue restart request for ${targetBot}?`, run);
+      } else {
+        run();
+      }
+    });
+  });
+
   /* Command Center quick actions */
   document.getElementById("qaRestartBots")?.addEventListener("click", () => {
     confirmAction("Restart Bots", "Write a restart flag. Bots will restart on next heartbeat check.", async () => {
@@ -2140,6 +2294,28 @@ function bindAdminPageEvents() {
         await action("Request removed.", () => api(`/api/radio/requests/${id}/remove`, { method: "POST", body: JSON.stringify({}) }));
       });
     });
+  });
+
+  document.getElementById("announcementForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const message = e.currentTarget.querySelector("[name='message']")?.value.trim() || "";
+    if (!message) return;
+    await action("Command queued. Bot must consume bot_command_queue.", () =>
+      api("/api/room/announce", { method: "POST", body: JSON.stringify({ message }) }));
+  });
+
+  document.getElementById("emoteCommandForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Command queued. Bot must consume bot_command_queue.", () =>
+      api("/api/bot-command", {
+        method: "POST",
+        body: JSON.stringify({
+          target_bot: String(data.target_bot || "").trim(),
+          action: "trigger_emote",
+          payload: { emote: String(data.emote || "").trim() },
+        }),
+      }));
   });
 
   /* Settings group forms — data-settings-group */
@@ -2232,23 +2408,7 @@ function bindAdminPageEvents() {
       if (!data.player) {
         result.innerHTML = `<div class="notice">No player found for <strong>${esc(query)}</strong>.</div>`;
       } else {
-        const p = data.player;
-        result.innerHTML = `<div class="card" style="margin-top:0">
-          <div class="card-header">
-            <h3>🔍 ${esc(p.username || "Unknown")}</h3>
-            <span class="muted text-sm">ID: ${esc(p.user_id || "—")}</span>
-          </div>
-          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:12px 0">
-            ${metricCard("Coins", Number(p.coins ?? 0).toLocaleString(), "", "accent-green", "💰")}
-            ${metricCard("Tickets", p.tickets != null ? Number(p.tickets).toLocaleString() : "—", "", "", "🎟")}
-            ${metricCard("Level", p.level ?? "—", "", "", "⭐")}
-            ${metricCard("XP", p.xp != null ? Number(p.xp).toLocaleString() : "—", "", "", "📈")}
-            ${metricCard("Casino", p.casino_winnings != null ? Number(p.casino_winnings).toLocaleString() : "—", "wins", "", "🎲")}
-            ${metricCard("Items", p.owned_item_count ?? 0, "owned", "", "🎒")}
-          </div>
-          ${p.titles?.length ? `<div class="muted text-sm">Titles: ${p.titles.map((t) => esc(t.title_id)).join(", ")}</div>` : ""}
-          ${p.last_seen_at ? `<div class="muted text-sm" style="margin-top:4px">Last seen: ${esc(p.last_seen_at)}</div>` : ""}
-        </div>`;
+        result.innerHTML = renderPlayerCard(data.player);
       }
     } catch (err) {
       result.innerHTML = `<div class="notice error">${esc(err.message)}</div>`;

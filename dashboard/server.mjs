@@ -726,6 +726,38 @@ function oneOrNull(db, table, sql, ...params) {
   }
 }
 
+function safeTableRows(db, table, { orderBy = "", limit = "50" } = {}) {
+  try {
+    if (!tableExists(db, table)) return [];
+    const cols = tableColumns(db, table);
+    if (!cols.length) return [];
+    const sql = `SELECT ${cols.map(sqlIdent).join(", ")} FROM ${sqlIdent(table)}${orderBy ? ` ORDER BY ${orderBy}` : ""}${limit ? ` LIMIT ${limit}` : ""}`;
+    return db.prepare(sql).all();
+  } catch (err) {
+    console.error(`[DASHBOARD_DB] safeTableRows table=${table} error=${err.message}`);
+    return [];
+  }
+}
+
+function enqueueBotCommand(db, { targetBot, actionName, payload, requesterId }) {
+  if (!tableExists(db, "bot_command_queue")) throw new Error("bot_command_queue_missing");
+  const cols = tableColumns(db, "bot_command_queue");
+  const required = ["target_bot", "action", "payload", "status", "requester_id", "created_at"];
+  const missing = required.filter((col) => !cols.includes(col));
+  if (missing.length) throw new Error(`bot_command_queue_missing_columns:${missing.join(",")}`);
+  const insertCols = required;
+  const values = [
+    targetBot,
+    actionName,
+    JSON.stringify(payload ?? {}),
+    "pending",
+    requesterId,
+  ];
+  const placeholders = ["?", "?", "?", "?", "?", "CURRENT_TIMESTAMP"].join(", ");
+  const info = db.prepare(`INSERT INTO bot_command_queue (${insertCols.map(sqlIdent).join(", ")}) VALUES (${placeholders})`).run(...values);
+  return { id: info.lastInsertRowid, target_bot: targetBot, action: actionName, status: "pending" };
+}
+
 const app = express();
 app.disable("x-powered-by");
 app.use(rateLimit({ key: "dashboard", windowMs: 60_000, max: 180 }));
@@ -1119,10 +1151,17 @@ app.get("/api/public/rankings", async (req, res) => {
   let db = null;
   try {
     db = await openDb({ readonly: true });
-    const richList = safeRows(db, "users", ["username","coins","level"], { orderBy: "coins DESC", limit: "10" });
+    const userCols = tableExists(db, "users") ? tableColumns(db, "users") : [];
+    const balanceCol = userCols.includes("balance") ? "balance" : userCols.includes("coins") ? "coins" : null;
+    const richList = balanceCol
+      ? safeRows(db, "users", ["username",balanceCol,"level"], { orderBy: `${sqlIdent(balanceCol)} DESC`, limit: "10" })
+          .map((row) => ({ ...row, coins: row.balance ?? row.coins ?? 0, balance: row.balance ?? row.coins ?? 0 }))
+      : [];
     const miners = safeRows(db, "mining_profiles", ["username","total_weight","total_finds"], { orderBy: "total_weight DESC", limit: "10" });
     const fishers = safeRows(db, "fishing_profiles", ["username","total_weight","total_catches"], { orderBy: "total_weight DESC", limit: "10" });
-    const topCasino = safeRows(db, "users", ["username","casino_winnings"], { where: "casino_winnings > 0", orderBy: "casino_winnings DESC", limit: "10" });
+    const topCasino = userCols.includes("casino_winnings")
+      ? safeRows(db, "users", ["username","casino_winnings"], { where: "casino_winnings > 0", orderBy: "casino_winnings DESC", limit: "10" })
+      : [];
     const topRequesters = safeRows(db, "yt_request_jobs", ["username"], { where: "status='played'", orderBy: "id DESC", limit: "200" })
       .reduce((acc, r) => { acc[r.username] = (acc[r.username] || 0) + 1; return acc; }, {});
     const topRequestersList = Object.entries(topRequesters).sort((a,b) => b[1]-a[1]).slice(0,10).map(([username,count]) => ({ username, count }));
@@ -1607,11 +1646,21 @@ app.get("/api/bot-control", requireAuth, (req, res) => {
 app.get("/api/bot-audit", requireAuth, (req, res) => {
   if (req.user?.role !== "owner") return json(res, { error: "forbidden", permission: "owner" }, 403);
   const auditResult = readCanonicalBotAudit(req.db);
+  const pendingCommands = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+    where: "status IN ('pending','queued','claimed','running')",
+    orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "25",
+  });
+  const recentCommands = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+    orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "25",
+  });
   json(res, {
     canonical_bots: auditResult.bots,
     raw_bot_instances: auditResult.raw_rows,
     raw_debug_rows: auditResult.raw_debug_rows,
     cleanup_preview: auditResult.cleanup_preview,
+    command_queue: { pending: pendingCommands, recent: recentCommands },
     summary: auditResult.summary,
     note: "Read-only cleanup preview. No dashboard endpoint deletes bot_instances rows.",
   });
@@ -1623,17 +1672,25 @@ app.get("/api/economy/overview", requireAuth, requireAnyPermission("manage_casin
     try {
       if (!tableExists(req.db, "users")) return null;
       const cols = tableColumns(req.db, "users");
+      const balanceCol = cols.includes("balance") ? "balance" : cols.includes("coins") ? "coins" : null;
+      if (!balanceCol) return { player_count: req.db.prepare("SELECT COUNT(*) AS player_count FROM users").get()?.player_count ?? 0 };
       const hasTix = cols.includes("tickets");
-      const hasCasinoWin = cols.includes("casino_winnings");
       const selTix = hasTix ? ", COALESCE(SUM(tickets),0) AS total_tickets" : "";
       return req.db.prepare(
-        `SELECT COUNT(*) AS player_count, COALESCE(SUM(coins),0) AS total_coins${selTix}, COALESCE(AVG(coins),0) AS avg_coins, COALESCE(MAX(coins),0) AS richest FROM users`
+        `SELECT COUNT(*) AS player_count, COALESCE(SUM(${sqlIdent(balanceCol)}),0) AS total_balance${selTix}, COALESCE(AVG(${sqlIdent(balanceCol)}),0) AS avg_balance, COALESCE(MAX(${sqlIdent(balanceCol)}),0) AS richest_balance FROM users`
       ).get();
     } catch { return null; }
   })();
-  const topRich = safeRows(req.db, "users", ["username","coins","level","xp"], { where: "coins > 0", orderBy: "coins DESC", limit: "15" });
-  const topXp = safeRows(req.db, "users", ["username","xp","level"], { where: "xp > 0", orderBy: "xp DESC", limit: "10" });
-  json(res, { stats, top_rich: topRich, top_xp: topXp });
+  const userCols = tableExists(req.db, "users") ? tableColumns(req.db, "users") : [];
+  const balanceCol = userCols.includes("balance") ? "balance" : userCols.includes("coins") ? "coins" : null;
+  const topRich = balanceCol
+    ? safeRows(req.db, "users", ["user_id","username",balanceCol,"level","xp"], { where: `${sqlIdent(balanceCol)} > 0`, orderBy: `${sqlIdent(balanceCol)} DESC`, limit: "15" })
+        .map((row) => ({ ...row, balance: row.balance ?? row.coins ?? 0 }))
+    : [];
+  const topXp = userCols.includes("xp")
+    ? safeRows(req.db, "users", ["user_id","username","xp","level"], { where: "xp > 0", orderBy: "xp DESC", limit: "10" })
+    : [];
+  json(res, { stats, top_rich: topRich, top_xp: topXp, balance_column: balanceCol });
 }, closeDb);
 
 /* ── Player Search ──────────────────────────────────── */
@@ -1641,15 +1698,111 @@ app.get("/api/player/search", requireAuth, (req, res) => {
   const q = String(req.query.q || "").trim().slice(0, 80);
   if (!q) return json(res, { player: null, error: "query_required" }, 400);
   if (!tableExists(req.db, "users")) return json(res, { player: null, error: "users_table_missing" }, 404);
-  const desired = ["user_id","username","coins","tickets","xp","level","casino_winnings","last_seen_at","created_at"];
+  const desired = [
+    "user_id","username","balance","coins","tickets","xp","level","total_games_won","total_coins_earned",
+    "equipped_badge","equipped_title","equipped_badge_id","equipped_title_id","tip_coins_earned",
+  ];
   let player = safeOne(req.db, "users", desired, { where: "lower(username)=lower(?) OR user_id=?", params: [q, q] });
   if (!player) player = safeOne(req.db, "users", desired, { where: "lower(username) LIKE ?", params: [`%${q.toLowerCase()}%`] });
   if (!player) return json(res, { player: null });
-  const titles = safeRows(req.db, "user_titles", ["title_id","source","unlocked_at"], { where: "user_id=?", params: [player.user_id], limit: "20" });
+  if (player.balance == null && player.coins != null) player.balance = player.coins;
+  delete player.coins;
+  const ownedItems = safeRows(req.db, "owned_items", ["user_id","item_id","item_type"], {
+    where: "user_id=?",
+    params: [player.user_id],
+    orderBy: columnExists(req.db, "owned_items", "item_type") && columnExists(req.db, "owned_items", "item_id") ? "item_type, item_id" : "",
+    limit: "25",
+  });
   const ownedCount = (() => {
     try { return tableExists(req.db, "owned_items") ? (req.db.prepare("SELECT COUNT(*) AS n FROM owned_items WHERE user_id=?").get(player.user_id)?.n ?? 0) : 0; } catch { return 0; }
   })();
-  json(res, { player: { ...player, titles, owned_item_count: ownedCount } });
+  json(res, { player: { ...player, owned_items_count: ownedCount, owned_item_count: ownedCount, owned_items: ownedItems } });
+}, closeDb);
+
+/* ── Bot Spawns / Command Queue ─────────────────────── */
+app.get("/api/bot-spawns", requireAuth, (req, res) => {
+  const rows = safeRows(req.db, "bot_spawns", ["bot_username","spawn_name","x","y","z","facing","set_by","set_at"], {
+    orderBy: columnExists(req.db, "bot_spawns", "bot_username") && columnExists(req.db, "bot_spawns", "spawn_name") ? "bot_username, spawn_name" : "",
+  });
+  const grouped = {};
+  for (const row of rows) {
+    const key = row.bot_username || "unknown";
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(row);
+  }
+  json(res, { spawns: rows, grouped });
+}, closeDb);
+
+const ALLOWED_BOT_COMMAND_ACTIONS = new Set(["return_home", "stop_emote", "restart_requested", "announce", "trigger_emote"]);
+
+app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games"), (req, res) => {
+  const targetBot = String(req.body?.target_bot || "").trim().slice(0, 80);
+  const actionName = String(req.body?.action || "").trim();
+  const payload = req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload) ? req.body.payload : {};
+  if (!targetBot) return json(res, { error: "target_bot_required" }, 400);
+  if (!ALLOWED_BOT_COMMAND_ACTIONS.has(actionName)) return json(res, { error: "action_not_allowed" }, 400);
+  if (JSON.stringify(payload).length > 2000) return json(res, { error: "payload_too_large" }, 400);
+  try {
+    const queued = enqueueBotCommand(req.db, { targetBot, actionName, payload, requesterId: req.user.username });
+    audit(req.db, req.user.username, "bot_command_enqueue", "bot_command_queue", queued.id, "", { target_bot: targetBot, action: actionName, payload }, req.ip);
+    json(res, { ok: true, command: queued, message: "Command queued. Bot must consume bot_command_queue." });
+  } catch (err) {
+    json(res, { error: err.message || "enqueue_failed" }, 500);
+  }
+}, closeDb);
+
+app.get("/api/bot-command-queue", requireAuth, (req, res) => {
+  const pending = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+    where: "status IN ('pending','queued','claimed','running')",
+    orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "50",
+  });
+  const recent = safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_at","claimed_by","completed_at"], {
+    orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
+    limit: "50",
+  });
+  json(res, { pending, recent });
+}, closeDb);
+
+app.post("/api/room/announce", requireAuth, requireAnyPermission("emergency_controls","manage_radio"), (req, res) => {
+  const message = String(req.body?.message || "").trim();
+  if (!message) return json(res, { error: "message_required" }, 400);
+  if (message.length > 500) return json(res, { error: "message_too_long" }, 400);
+  try {
+    const queued = enqueueBotCommand(req.db, {
+      targetBot: "host",
+      actionName: "announce",
+      payload: { message },
+      requesterId: req.user.username,
+    });
+    audit(req.db, req.user.username, "room_announce_enqueue", "bot_command_queue", queued.id, "", { message }, req.ip);
+    json(res, { ok: true, command: queued, message: "Command queued. Bot must consume bot_command_queue." });
+  } catch (err) {
+    json(res, { error: err.message || "enqueue_failed" }, 500);
+  }
+}, closeDb);
+
+/* ── Events (read-only) ─────────────────────────────── */
+app.get("/api/events", requireAuth, (req, res) => {
+  const tables = {};
+  for (const name of ["event_definitions","event_history","event_points","event_settings","event_votes","scheduled_events"]) {
+    const orderBy = tableExists(req.db, name) && columnExists(req.db, name, "created_at") ? "created_at DESC"
+      : tableExists(req.db, name) && columnExists(req.db, name, "starts_at") ? "starts_at ASC"
+      : "";
+    tables[name] = {
+      exists: tableExists(req.db, name),
+      rows: safeTableRows(req.db, name, { orderBy, limit: "50" }),
+    };
+  }
+  json(res, {
+    tables,
+    definitions: tables.event_definitions.rows,
+    history: tables.event_history.rows,
+    points: tables.event_points.rows,
+    settings: tables.event_settings.rows,
+    votes: tables.event_votes.rows,
+    scheduled: tables.scheduled_events.rows,
+  });
 }, closeDb);
 
 /* ── Room Control (read) ────────────────────────────── */
