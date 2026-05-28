@@ -1731,7 +1731,8 @@ function renderCasinoTab() {
       </div>
     </div>
     ${renderBlackjackSettingsCard(d.blackjack_settings || {})}
-    ${renderPokerSettingsReadOnly(d.poker_settings || [])}
+    ${renderPokerSettingsCard(d.active_poker_settings || {})}
+    ${renderPokerRawSettings(d.poker_settings || [])}
     <details class="advanced-collapse">
       <summary class="advanced-summary">
         <span class="pill def">Legacy</span> Legacy Blackjack Settings
@@ -1744,16 +1745,7 @@ function renderCasinoTab() {
         ]) : `<div class="notice">No legacy <code>bj_settings</code> row found.</div>`}
       </div>
     </details>
-    <details class="advanced-collapse">
-      <summary class="advanced-summary">
-        <span class="pill warn">Unverified</span> Advanced / Unverified Casino Settings
-        <span class="muted text-sm">Hidden until sources match in-room commands</span>
-      </summary>
-      <div class="advanced-content">
-        <div class="notice warn">These older dashboard fields are not shown as working controls because they write dashboard shadow keys, not the verified active game sources.</div>
-        ${unverifiedCasinoGroups.map((g, i) => renderSettingsGroup({ ...g, description: `${g.description || ""} — Unverified source` }, valMap, `casinoUnverified${i + 1}`)).join("")}
-      </div>
-    </details>
+    ${renderUnverifiedCasinoSettings(unverifiedCasinoGroups, valMap)}
     ${renderAdvancedCollapse(settings)}
   `;
 }
@@ -1781,31 +1773,85 @@ function renderBlackjackSettingsCard(settings) {
   </div>`;
 }
 
-function renderPokerSettingsReadOnly(rows) {
-  const values = settingsMapFrom(rows);
-  const mapped = [
-    ["v2_min_buyin", "Min Buy-In"],
-    ["v2_max_buyin", "Max Buy-In"],
-    ["v2_small_blind", "Small Blind"],
-    ["v2_big_blind", "Big Blind"],
-    ["v2_max_players", "Max Players"],
-    ["v2_turn_seconds", "Turn Timer"],
-    ["v2_paused", "Paused"],
-  ].map(([key, label]) => ({ field: label, db_source: `poker_settings.${key}`, value: values[key] ?? "—" }));
+function renderPokerSettingsCard(settings) {
+  const fields = [
+    { key: "enabled",     label: "Enabled",      type: "toggle" },
+    { key: "min_buyin",   label: "Min Buy-In",   type: "number", suffix: "coins" },
+    { key: "max_buyin",   label: "Max Buy-In",   type: "number", suffix: "coins" },
+    { key: "max_players", label: "Max Players",  type: "number" },
+    { key: "turn_timer",  label: "Turn Timer",   type: "number", suffix: "sec" },
+    { key: "small_blind", label: "Small Blind",  type: "number", suffix: "coins" },
+    { key: "big_blind",   label: "Big Blind",    type: "number", suffix: "coins" },
+  ];
   return `<div class="card">
     <div class="card-header">
       <div>
         <h2>♠️ Poker Settings — ChipSoprano</h2>
-        <div class="muted text-sm">Read-only verified source: <code>poker_settings</code></div>
+        <div class="muted text-sm">Source: <code>${esc(settings.source || "poker_settings")}</code>. Enabled maps to <code>v2_paused</code>.</div>
       </div>
-      <span class="pill warn">No write endpoint</span>
+      <span class="pill info">Poker V2</span>
     </div>
-    ${table(mapped, [
-      { key: "field", label: "Field" },
-      { key: "db_source", label: "DB Source" },
-      { key: "value", label: "Current Value" },
-    ])}
+    <form id="pokerSettingsForm">
+      <div class="settings-fields">
+        ${fields.map((f) => renderSettingsField(f, settings[f.key])).join("")}
+      </div>
+      <div class="notice" style="margin-top:12px">Only fields loaded by the active Poker V2 module are writable here. Legacy keys stay in raw settings.</div>
+      <div style="margin-top:14px">
+        <button class="btn primary sm" type="submit">💾 Save Poker Settings</button>
+      </div>
+    </form>
   </div>`;
+}
+
+function renderPokerRawSettings(rows) {
+  const verified = new Set(["v2_paused", "v2_min_buyin", "v2_max_buyin", "v2_max_players", "v2_turn_seconds", "v2_small_blind", "v2_big_blind"]);
+  const raw = (rows || [])
+    .filter((r) => !verified.has(r.key))
+    .map((r) => ({
+      key: r.key,
+      value: r.value,
+      status: String(r.key || "").startsWith("v2_") ? "Advanced V2" : "Legacy / unverified for active V2",
+    }));
+  return `<details class="advanced-collapse">
+    <summary class="advanced-summary">
+      <span class="pill warn">Raw</span> Advanced / Poker Raw Settings
+      <span class="muted text-sm">Read-only poker_settings keys not in the normal V2 card</span>
+    </summary>
+    <div class="advanced-content">
+      ${raw.length ? table(raw, [
+        { key: "key", label: "Key" },
+        { key: "value", label: "Value" },
+        { key: "status", label: "Status", render: (r) => `<span class="pill warn">${esc(r.status)}</span>` },
+      ]) : `<div class="notice">No extra poker_settings keys found.</div>`}
+    </div>
+  </details>`;
+}
+
+function renderUnverifiedCasinoSettings(groups, valuesMap) {
+  const rows = (groups || [])
+    .filter((g) => g.title !== "Poker Settings")
+    .flatMap((g) => (g.keys || []).map((f) => ({
+      field: f.label,
+      key: f.key,
+      section: g.title,
+      current_value: valuesMap[f.key] ?? "—",
+      status: "Unverified source",
+    })));
+  return `<details class="advanced-collapse">
+    <summary class="advanced-summary">
+      <span class="pill warn">Unverified</span> Advanced / Unverified Casino Settings
+      <span class="muted text-sm">Hidden until sources match in-room commands</span>
+    </summary>
+    <div class="advanced-content">
+      ${rows.length ? table(rows, [
+        { key: "section", label: "Section" },
+        { key: "field", label: "Field" },
+        { key: "key", label: "Dashboard Key" },
+        { key: "current_value", label: "Current Value" },
+        { key: "status", label: "Status", render: (r) => `<span class="pill warn">${esc(r.status)}</span>` },
+      ]) : `<div class="notice">No unverified casino settings listed.</div>`}
+    </div>
+  </details>`;
 }
 
 function renderGamesTab() {
@@ -2484,6 +2530,18 @@ function bindAdminPageEvents() {
     });
     await action("Blackjack settings saved.", () =>
       api("/api/casino/blackjack-settings", { method: "PUT", body: JSON.stringify(body) }));
+  });
+
+  document.getElementById("pokerSettingsForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Poker settings saved.", () =>
+      api("/api/casino/poker-settings", { method: "PUT", body: JSON.stringify(body) }));
   });
 
   document.getElementById("announcementForm")?.addEventListener("submit", async (e) => {

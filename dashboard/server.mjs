@@ -833,6 +833,71 @@ function normalizeBlackjackSettingsBody(body) {
   return out;
 }
 
+const ACTIVE_POKER_FIELDS = [
+  { field: "enabled", dbKey: "v2_paused", type: "inverse_toggle", fallback: 1 },
+  { field: "min_buyin", dbKey: "v2_min_buyin", type: "int", fallback: 1000, min: 1 },
+  { field: "max_buyin", dbKey: "v2_max_buyin", type: "int", fallback: 50000, min: 1 },
+  { field: "max_players", dbKey: "v2_max_players", type: "int", fallback: 6, min: 2, max: 6 },
+  { field: "turn_timer", dbKey: "v2_turn_seconds", type: "int", fallback: 30, min: 10, max: 120 },
+  { field: "small_blind", dbKey: "v2_small_blind", type: "int", fallback: 50, min: 1 },
+  { field: "big_blind", dbKey: "v2_big_blind", type: "int", fallback: 100, min: 2 },
+];
+
+function readPokerSettingsMap(db) {
+  if (!tableExists(db, "poker_settings")) return {};
+  return Object.fromEntries(
+    rowsOrEmpty(db, "poker_settings", "SELECT key, value FROM poker_settings ORDER BY key").map((r) => [r.key, r.value]),
+  );
+}
+
+function readActivePokerSettings(db) {
+  const raw = readPokerSettingsMap(db);
+  const out = { source: "poker_settings", bot_username: "ChipSoprano", raw };
+  for (const spec of ACTIVE_POKER_FIELDS) {
+    const value = raw[spec.dbKey];
+    if (spec.type === "inverse_toggle") {
+      const paused = value === undefined ? !spec.fallback : ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+      out[spec.field] = paused ? 0 : 1;
+      out[spec.dbKey] = paused ? "1" : "0";
+    } else {
+      out[spec.field] = value === undefined ? spec.fallback : value;
+      out[spec.dbKey] = value === undefined ? String(spec.fallback) : value;
+    }
+  }
+  return out;
+}
+
+function normalizePokerSettingsBody(body) {
+  const has = (key) => Object.prototype.hasOwnProperty.call(body || {}, key);
+  const num = (key, fallback = 0) => {
+    const raw = body?.[key];
+    if (raw === undefined || raw === null || raw === "") return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw new Error(`${key}_must_be_number`);
+    return Math.trunc(n);
+  };
+  const out = {};
+  for (const spec of ACTIVE_POKER_FIELDS) {
+    if (!has(spec.field)) continue;
+    if (spec.type === "inverse_toggle") {
+      const enabled = body?.[spec.field] === true || body?.[spec.field] === "true" || body?.[spec.field] === "1" || body?.[spec.field] === 1;
+      out[spec.dbKey] = enabled ? "0" : "1";
+      continue;
+    }
+    const value = num(spec.field, spec.fallback);
+    if (spec.min !== undefined && value < spec.min) throw new Error(`${spec.field}_too_low`);
+    if (spec.max !== undefined && value > spec.max) throw new Error(`${spec.field}_too_high`);
+    out[spec.dbKey] = String(value);
+  }
+  const minBuyin = Number(out.v2_min_buyin ?? body?.min_buyin);
+  const maxBuyin = Number(out.v2_max_buyin ?? body?.max_buyin);
+  if (Number.isFinite(minBuyin) && Number.isFinite(maxBuyin) && maxBuyin < minBuyin) throw new Error("max_buyin_less_than_min_buyin");
+  const smallBlind = Number(out.v2_small_blind ?? body?.small_blind);
+  const bigBlind = Number(out.v2_big_blind ?? body?.big_blind);
+  if (Number.isFinite(smallBlind) && Number.isFinite(bigBlind) && bigBlind <= smallBlind) throw new Error("big_blind_must_exceed_small_blind");
+  return out;
+}
+
 const KEY_VALUE_SETTING_TABLES = new Set([
   "poker_settings",
   "bank_settings",
@@ -921,7 +986,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     ["!poker blinds", "Small Blind", "v2_small_blind"],
     ["!poker blinds", "Big Blind", "v2_big_blind"],
     ["!poker timer", "Turn Timer", "v2_turn_seconds"],
-    ["!poker pause/resume", "Paused", "v2_paused"],
+    ["!poker pause/resume", "Enabled", "v2_paused"],
   ].map(([command, displayName, key]) => auditRow({
     module: "poker_v2",
     command,
@@ -930,8 +995,29 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     dashboard_section: "Poker Settings — ChipSoprano",
     db_table: "poker_settings",
     db_key_or_column: key,
-    status: "BROKEN",
-    notes: "Verified Poker V2 source. Dashboard currently shows this read-only until a poker_settings write endpoint is added.",
+    writeEndpoint: "PUT /api/casino/poker-settings",
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: "Verified Poker V2 source. ChipSoprano loads this key through database.get_poker_settings().",
+  })),
+  ...[
+    ["setpokerplayers", "Min Players", "min_players"],
+    ["setpokerlobbytimer", "Lobby Countdown", "lobby_countdown"],
+    ["setpokerante", "Ante", "ante"],
+    ["!poker allin on|off", "All-In Enabled", "allin_enabled"],
+    ["!poker rebuy on|off", "Rebuy Enabled", "rebuy_enabled"],
+    ["!poker autostart on|off", "Auto Start Next Hand", "auto_start_next_hand"],
+    ["setpokernexthandtimer", "Next Hand Delay", "next_hand_delay"],
+  ].map(([command, displayName, key]) => auditRow({
+    module: "poker",
+    command,
+    display_name: displayName,
+    dashboard_page: "Casino",
+    dashboard_section: "Advanced / Poker Raw Settings",
+    db_table: "poker_settings",
+    db_key_or_column: key,
+    status: "LEGACY",
+    notes: "Legacy poker.py key. Current live player actions route through poker_v2, which does not load this key.",
   })),
   ...[
     ["!setdailycoins", "Daily Coins", "economy_settings", "daily_coins"],
@@ -1570,9 +1656,8 @@ app.put("/api/radio/requests-enabled", requireAuth, requirePermission("manage_ra
 
 app.get("/api/casino", requireAuth, requirePermission("manage_casino"), (req, res) => {
   const blackjackSettings = readActiveBlackjackSettings(req.db);
-  const pokerSettings = tableExists(req.db, "poker_settings")
-    ? rowsOrEmpty(req.db, "poker_settings", "SELECT key, value FROM poker_settings ORDER BY key")
-    : [];
+  const activePokerSettings = readActivePokerSettings(req.db);
+  const pokerSettings = Object.entries(activePokerSettings.raw || {}).map(([key, value]) => ({ key, value }));
   const legacyBlackjackSettings = tableExists(req.db, "bj_settings")
     ? safeTableRows(req.db, "bj_settings", { limit: "1" })[0] || null
     : null;
@@ -1594,6 +1679,7 @@ app.get("/api/casino", requireAuth, requirePermission("manage_casino"), (req, re
   json(res, {
     settings,
     blackjack_settings: blackjackSettings,
+    active_poker_settings: activePokerSettings,
     poker_settings: pokerSettings,
     active_blackjack_source: "rbj_settings",
     legacy_blackjack_settings: legacyBlackjackSettings,
@@ -1620,6 +1706,28 @@ app.put("/api/casino/blackjack-settings", requireAuth, requirePermission("manage
     json(res, { ok: true, source: "rbj_settings", blackjack_settings: readActiveBlackjackSettings(req.db) });
   } catch (err) {
     json(res, { error: err.message || "blackjack_settings_update_failed" }, 500);
+  }
+}, closeDb);
+
+app.put("/api/casino/poker-settings", requireAuth, requirePermission("manage_casino"), (req, res) => {
+  if (!tableExists(req.db, "poker_settings")) return json(res, { error: "poker_settings_missing" }, 404);
+  let next;
+  try {
+    next = normalizePokerSettingsBody(req.body || {});
+  } catch (err) {
+    return json(res, { error: err.message || "invalid_poker_settings" }, 400);
+  }
+  if (!Object.keys(next).length) return json(res, { error: "no_verified_poker_settings" }, 400);
+  try {
+    const before = readActivePokerSettings(req.db);
+    for (const [key, value] of Object.entries(next)) {
+      req.db.prepare("INSERT OR REPLACE INTO poker_settings (key, value) VALUES (?, ?)").run(key, String(value));
+    }
+    const after = readActivePokerSettings(req.db);
+    audit(req.db, req.user.username, "casino_poker_settings_update", "poker_settings", "v2", before, next, req.ip);
+    json(res, { ok: true, source: "poker_settings", poker_settings: after });
+  } catch (err) {
+    json(res, { error: err.message || "poker_settings_update_failed" }, 500);
   }
 }, closeDb);
 
