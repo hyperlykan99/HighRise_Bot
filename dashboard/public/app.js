@@ -39,7 +39,7 @@ const PAGE_TABS = {
   "Bots":              ["Bot Status", "Bot Config", "Bot Settings", "Bot Spawns", "Advanced Debug"],
   "Players":           ["Search", "Titles & Badges", "Moderation"],
   "Room & Content":    ["Room Settings", "Radio", "Events", "Announcements", "Welcome", "Emotes"],
-  "Economy & Rewards": ["Coins & Tickets", "Casino", "Mining", "Games", "VIP", "Titles", "Badges", "Rewards"],
+  "Economy & Rewards": ["Coins & Tickets", "Casino", "Mining", "Fishing", "Games", "VIP", "Titles", "Badges", "Rewards"],
   "System":            ["Health", "Logs", "Settings Audit", "Emergency", "Database"],
 };
 
@@ -448,6 +448,7 @@ function pageApi(page, tab) {
     "Economy & Rewards/Coins & Tickets":  "/api/economy/overview",
     "Economy & Rewards/Casino":           "/api/casino",
     "Economy & Rewards/Mining":           "/api/mining-settings",
+    "Economy & Rewards/Fishing":          "/api/fishing-settings",
     "Economy & Rewards/Games":            "/api/games",
     "Economy & Rewards/Titles":           "/api/titles",
     "Staff":                              "/api/staff",
@@ -1708,6 +1709,7 @@ function renderEconomyRewards(tab) {
     ${tab === "Coins & Tickets" ? renderCoinsTab() : ""}
     ${tab === "Casino"          ? renderCasinoTab() : ""}
     ${tab === "Mining"          ? renderMiningTab() : ""}
+    ${tab === "Fishing"         ? renderFishingTab() : ""}
     ${tab === "Games"           ? renderGamesTab() : ""}
     ${tab === "VIP"             ? renderVipTab() : ""}
     ${tab === "Titles"          ? renderTitlesTab() : ""}
@@ -1952,6 +1954,141 @@ function renderMiningTab() {
       { endpoint: "rarity weight range editor", purpose: "Structured editor for rarity_weight_ranges_json", status: "Endpoint needed" },
       { endpoint: "gold rain controls", purpose: "Gold rain is separate from mining; keep raw only here", status: "Unverified for mining" },
     ], "Advanced / Unverified Mining Controls")}
+  `;
+}
+
+function renderFishingTab() {
+  const d = state.data || {};
+  const s = d.settings || {};
+  const stats = d.stats || {};
+  const status = d.table_status || {};
+  const raw = d.raw || {};
+  const tables = d.tables || {};
+  const fields = [
+    { key: "autofish_enabled", label: "AutoFish Enabled", type: "toggle", hint: "auto_activity_settings.autofish_enabled" },
+    { key: "fish_base_duration", label: "Base Auto Time", type: "number", suffix: "min", hint: "auto_activity_settings.fish_base_duration" },
+    { key: "fish_base_interval", label: "Base Cast Interval", type: "number", suffix: "sec", hint: "auto_activity_settings.fish_base_interval" },
+    { key: "fish_min_interval", label: "Minimum Cast Interval", type: "number", suffix: "sec", hint: "auto_activity_settings.fish_min_interval" },
+    { key: "fish_base_luck", label: "Base Luck", type: "number", hint: "auto_activity_settings.fish_base_luck" },
+    { key: "fish_vip_luck", label: "VIP Luck Bonus", type: "number", hint: "auto_activity_settings.fish_vip_luck" },
+    { key: "fish_vip_duration", label: "VIP Duration Bonus", type: "number", suffix: "min", hint: "auto_activity_settings.fish_vip_duration" },
+    { key: "fish_vip_speed", label: "VIP Speed Bonus", type: "number", suffix: "sec", hint: "auto_activity_settings.fish_vip_speed" },
+    { key: "autofish_duration_minutes", label: "AutoFish Session Duration", type: "number", suffix: "min", hint: "auto_activity_settings.autofish_duration_minutes" },
+    { key: "autofish_max_attempts", label: "AutoFish Max Attempts", type: "number", hint: "auto_activity_settings.autofish_max_attempts" },
+    { key: "autofish_daily_cap_minutes", label: "AutoFish Daily Cap", type: "number", suffix: "min", hint: "auto_activity_settings.autofish_daily_cap_minutes" },
+  ];
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+      ${metricCard("Fishing Settings", status.auto_activity_settings ? "OK" : "Missing", "auto_activity_settings", status.auto_activity_settings ? "accent-green" : "accent-red", "🎣")}
+      ${metricCard("Fishers", Number(stats.fish_profiles || 0).toLocaleString(), "profiles", "", "👤")}
+      ${metricCard("Catches", Number(stats.catch_records || 0).toLocaleString(), "records", "", "📈")}
+      ${metricCard("Unsold Bag Value", Number(stats.unsold_inventory_value || 0).toLocaleString(), "coins", "accent-green", "💰")}
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>🎣 Fishing Settings</h2>
+          <div class="muted text-sm">Source: <code>${esc(s.source || "auto_activity_settings")}</code></div>
+        </div>
+        <span class="pill info">Verified</span>
+      </div>
+      <form id="fishingSettingsForm">
+        <div class="settings-fields">
+          ${fields.map((f) => renderSettingsField(f, s[f.key])).join("")}
+        </div>
+        <div class="notice" style="margin-top:12px">These are the DB keys read by active AutoFish commands and the fishing luck stack. Manual fish catalog values are read-only code/catalog data.</div>
+        <div style="margin-top:14px">
+          <button class="btn primary sm" type="submit">💾 Save Fishing Settings</button>
+        </div>
+      </form>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>🐟 Fish Profiles</h2>
+          <span class="pill def">Read-only</span>
+        </div>
+        ${table(tables.fish_profiles || [], [
+          { key: "username", label: "Player" },
+          { key: "fishing_level", label: "Level" },
+          { key: "fishing_xp", label: "FXP", render: (r) => Number(r.fishing_xp || 0).toLocaleString() },
+          { key: "total_catches", label: "Catches", render: (r) => Number(r.total_catches || 0).toLocaleString() },
+          { key: "equipped_rod", label: "Rod" },
+          { key: "best_fish_name", label: "Best Fish" },
+          { key: "best_fish_weight", label: "Best Weight" },
+          { key: "best_fish_value", label: "Best Value", render: (r) => Number(r.best_fish_value || 0).toLocaleString() },
+        ])}
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <h2>📦 Inventory Summary</h2>
+          <span class="pill def">Read-only</span>
+        </div>
+        ${table(tables.fish_inventory || [], [
+          { key: "username", label: "Player" },
+          { key: "fish_name", label: "Fish" },
+          { key: "rarity", label: "Rarity" },
+          { key: "weight", label: "Weight" },
+          { key: "value", label: "Value", render: (r) => Number(r.value || 0).toLocaleString() },
+          { key: "sold", label: "Sold", render: (r) => pill(Number(r.sold) ? "yes" : "no") },
+          { key: "caught_at", label: "Caught" },
+        ])}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h2>🎣 Recent Catch Records</h2>
+        <span class="pill def">Read-only</span>
+      </div>
+      ${table(tables.fish_catch_records || [], [
+        { key: "username", label: "Player" },
+        { key: "fish_name", label: "Fish" },
+        { key: "rarity", label: "Rarity" },
+        { key: "weight", label: "Weight" },
+        { key: "base_value", label: "Base", render: (r) => Number(r.base_value || 0).toLocaleString() },
+        { key: "final_value", label: "Final", render: (r) => Number(r.final_value || 0).toLocaleString() },
+        { key: "fxp_earned", label: "FXP", render: (r) => Number(r.fxp_earned || 0).toLocaleString() },
+        { key: "caught_at", label: "Caught" },
+      ])}
+    </div>
+    <details class="advanced-collapse">
+      <summary class="advanced-summary">
+        <span class="pill warn">Advanced</span> Fishing Auto Sell / Forced Drops
+        <span class="muted text-sm">Read-only tables</span>
+      </summary>
+      <div class="advanced-content">
+        <h3>fish_auto_sell_settings</h3>
+        ${table(tables.fish_auto_sell_settings || [], [
+          { key: "username", label: "Player" },
+          { key: "auto_sell_enabled", label: "Auto Sell", render: (r) => pill(Number(r.auto_sell_enabled) ? "enabled" : "disabled") },
+          { key: "auto_sell_rare_enabled", label: "Rare Sell", render: (r) => pill(Number(r.auto_sell_rare_enabled) ? "enabled" : "disabled") },
+          { key: "updated_at", label: "Updated" },
+        ])}
+        <h3>forced_fishing_drops</h3>
+        ${table(tables.forced_fishing_drops || [])}
+      </div>
+    </details>
+    <details class="advanced-collapse">
+      <summary class="advanced-summary">
+        <span class="pill warn">Advanced</span> Raw Fishing Settings
+        <span class="muted text-sm">Read-only audit view</span>
+      </summary>
+      <div class="advanced-content">
+        <h3>auto_activity_settings</h3>
+        ${table(raw.auto_activity_settings || [], [{ key: "key", label: "Key" }, { key: "value", label: "Value" }])}
+        <h3>room_settings</h3>
+        ${table(raw.room_settings || [], [{ key: "key", label: "Key" }, { key: "value", label: "Value" }])}
+        <h3>fish_weight_settings</h3>
+        ${table(raw.fish_weight_settings || [])}
+      </div>
+    </details>
+    ${futureControls([
+      { endpoint: "!setfishcooldown / room_settings.fishing_base_cooldown", purpose: "Manual catch cooldown override", status: "Unverified source" },
+      { endpoint: "!setfishweights / room_settings.fishing_weights_enabled", purpose: "Manual fish weight system toggle", status: "Unverified source" },
+      { endpoint: "!setfishannounce / room_settings.fishing_announce_*", purpose: "Announcement threshold controls", status: "Unverified source" },
+      { endpoint: "fish catalog editor", purpose: "Fish rarity/chance/base value edits", status: "Code/catalog source" },
+      { endpoint: "forced fishing drops", purpose: "Create/clear forced_fishing_drops rows", status: "Endpoint needed" },
+    ], "Advanced / Unverified Fishing Controls")}
   `;
 }
 
@@ -2655,6 +2792,18 @@ function bindAdminPageEvents() {
     });
     await action("Mining settings saved.", () =>
       api("/api/mining-settings", { method: "PUT", body: JSON.stringify(body) }));
+  });
+
+  document.getElementById("fishingSettingsForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Fishing settings saved.", () =>
+      api("/api/fishing-settings", { method: "PUT", body: JSON.stringify(body) }));
   });
 
   document.getElementById("announcementForm")?.addEventListener("submit", async (e) => {

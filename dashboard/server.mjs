@@ -916,6 +916,20 @@ const ACTIVE_MINING_FIELDS = [
   { field: "automine_enabled", label: "Auto Mining Enabled", table: "auto_activity_settings", key: "automine_enabled", type: "bool_10", fallback: "1", optionalTable: true },
 ];
 
+const ACTIVE_FISHING_FIELDS = [
+  { field: "autofish_enabled", label: "AutoFish Enabled", table: "auto_activity_settings", key: "autofish_enabled", type: "bool_10", fallback: "1", min: 0, max: 1 },
+  { field: "fish_base_duration", label: "Base Auto Time", table: "auto_activity_settings", key: "fish_base_duration", type: "int", fallback: "5", min: 1, max: 1440 },
+  { field: "fish_base_interval", label: "Base Cast Interval", table: "auto_activity_settings", key: "fish_base_interval", type: "int", fallback: "12", min: 3, max: 120 },
+  { field: "fish_base_luck", label: "Base Luck", table: "auto_activity_settings", key: "fish_base_luck", type: "int", fallback: "1", min: 0, max: 50 },
+  { field: "fish_vip_luck", label: "VIP Luck Bonus", table: "auto_activity_settings", key: "fish_vip_luck", type: "int", fallback: "2", min: 0, max: 20 },
+  { field: "fish_vip_duration", label: "VIP Duration Bonus", table: "auto_activity_settings", key: "fish_vip_duration", type: "int", fallback: "10", min: 0, max: 120 },
+  { field: "fish_vip_speed", label: "VIP Speed Bonus", table: "auto_activity_settings", key: "fish_vip_speed", type: "int", fallback: "1", min: 0, max: 20 },
+  { field: "fish_min_interval", label: "Minimum Cast Interval", table: "auto_activity_settings", key: "fish_min_interval", type: "int", fallback: "5", min: 2, max: 60 },
+  { field: "autofish_duration_minutes", label: "AutoFish Session Duration", table: "auto_activity_settings", key: "autofish_duration_minutes", type: "int", fallback: "30", min: 5, max: 120 },
+  { field: "autofish_max_attempts", label: "AutoFish Max Attempts", table: "auto_activity_settings", key: "autofish_max_attempts", type: "int", fallback: "30", min: 5, max: 200 },
+  { field: "autofish_daily_cap_minutes", label: "AutoFish Daily Cap", table: "auto_activity_settings", key: "autofish_daily_cap_minutes", type: "int", fallback: "120", min: 30, max: 480 },
+];
+
 function readKeyValueMap(db, table) {
   if (!tableExists(db, table)) return {};
   return Object.fromEntries(
@@ -968,6 +982,45 @@ function normalizeMiningSettingsBody(db, body) {
     } else if (spec.type === "enum") {
       value = String(body[spec.field] ?? "").trim().toLowerCase();
       if (!spec.values.includes(value)) throw new Error(`${spec.field}_invalid`);
+    } else {
+      continue;
+    }
+    out.push({ table: spec.table, key: spec.key, value, field: spec.field });
+  }
+  return out;
+}
+
+function readActiveFishingSettings(db) {
+  const tableMaps = {};
+  for (const table of [...new Set(ACTIVE_FISHING_FIELDS.map((f) => f.table))]) tableMaps[table] = readKeyValueMap(db, table);
+  const values = { source: "auto_activity_settings" };
+  for (const spec of ACTIVE_FISHING_FIELDS) {
+    const exists = tableExists(db, spec.table);
+    const raw = tableMaps[spec.table]?.[spec.key];
+    values[spec.field] = raw ?? spec.fallback;
+    values[`${spec.field}_source`] = `${spec.table}.${spec.key}`;
+    values[`${spec.field}_table_exists`] = exists;
+  }
+  return values;
+}
+
+function normalizeFishingSettingsBody(db, body) {
+  const out = [];
+  const boolish = (v) => v === true || v === "true" || v === "1" || v === 1 || v === "on";
+  const has = (key) => Object.prototype.hasOwnProperty.call(body || {}, key);
+  for (const spec of ACTIVE_FISHING_FIELDS) {
+    if (!has(spec.field)) continue;
+    if (!tableExists(db, spec.table)) throw new Error(`${spec.table}_missing`);
+    let value;
+    if (spec.type === "bool_10") {
+      value = boolish(body[spec.field]) ? "1" : "0";
+    } else if (spec.type === "int") {
+      const n = Number(body[spec.field]);
+      if (!Number.isFinite(n)) throw new Error(`${spec.field}_must_be_number`);
+      const i = Math.trunc(n);
+      if (spec.min !== undefined && i < spec.min) throw new Error(`${spec.field}_too_low`);
+      if (spec.max !== undefined && i > spec.max) throw new Error(`${spec.field}_too_high`);
+      value = String(i);
     } else {
       continue;
     }
@@ -1175,18 +1228,55 @@ const SETTINGS_AUDIT_DEFINITIONS = [
       ? "Verified source, but kept read-only because it is edited through a structured rarity range command."
       : "Verified mining command/runtime source and connected to the dashboard mining settings endpoint.",
   })),
-  auditRow({
+  ...[
+    ["!setautofish", "AutoFish Enabled", "autofish_enabled"],
+    ["!fishadmin set baseduration", "Base Auto Time", "fish_base_duration"],
+    ["!fishadmin set baseinterval", "Base Cast Interval", "fish_base_interval"],
+    ["!fishadmin set baseluck", "Base Luck", "fish_base_luck"],
+    ["!fishadmin set vipluck", "VIP Luck Bonus", "fish_vip_luck"],
+    ["!fishadmin set vipduration", "VIP Duration Bonus", "fish_vip_duration"],
+    ["!fishadmin set vipspeed", "VIP Speed Bonus", "fish_vip_speed"],
+    ["!fishadmin set mininterval", "Minimum Cast Interval", "fish_min_interval"],
+    ["!setautofishduration", "AutoFish Session Duration", "autofish_duration_minutes"],
+    ["!setautofishattempts", "AutoFish Max Attempts", "autofish_max_attempts"],
+    ["!setautofishdailycap", "AutoFish Daily Cap", "autofish_daily_cap_minutes"],
+  ].map(([command, displayName, key]) => auditRow({
     module: "fishing",
-    command: "!autosellfish / !autosellrare",
-    display_name: "Fish Auto Sell",
+    command,
+    display_name: displayName,
     dashboard_page: "Economy & Rewards",
     dashboard_section: "Fishing Settings",
-    db_table: "fish_auto_sell_settings",
-    db_key_or_column: "auto_sell_enabled",
-    read_source: "SELECT auto_sell_enabled, auto_sell_rare_enabled FROM fish_auto_sell_settings WHERE user_id=?",
-    status: "UNKNOWN",
-    notes: "Per-user setting; not a global dashboard field.",
-  }),
+    db_table: "auto_activity_settings",
+    db_key_or_column: key,
+    writeEndpoint: "PUT /api/fishing-settings",
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: "Verified active fishing/AutoFish source. fishing.py and luck_stack.py read this key through database.get_auto_activity_setting().",
+  })),
+  ...[
+    ["!setfishcooldown", "Manual Fish Cooldown Override", "room_settings", "fishing_base_cooldown"],
+    ["!setfishweights", "Fishing Weights Enabled", "room_settings", "fishing_weights_enabled"],
+    ["!setfishweightscale", "Fish Weight Scale", "room_settings", "fishing_weight_scale"],
+    ["!setfishannounce", "Fish Announcement Enabled", "room_settings", "fishing_announce_enabled"],
+    ["!setfishannounce", "Fish Announcement Minimum Rarity", "room_settings", "fishing_announce_min_rarity"],
+    ["!setfishrarityweightrange", "Fish Rarity Weight Ranges", "room_settings", "fish_weight_range_<rarity>"],
+    ["!autosellfish / !autosellrare", "Fish Auto Sell", "fish_auto_sell_settings", "auto_sell_enabled"],
+  ].map(([command, displayName, table, key]) => auditRow({
+    module: "fishing",
+    command,
+    display_name: displayName,
+    dashboard_page: "Economy & Rewards",
+    dashboard_section: "Advanced / Unverified Fishing",
+    db_table: table,
+    db_key_or_column: key,
+    readSource: table === "fish_auto_sell_settings"
+      ? "SELECT auto_sell_enabled, auto_sell_rare_enabled FROM fish_auto_sell_settings WHERE user_id=?"
+      : undefined,
+    status: table === "fish_auto_sell_settings" ? "UNKNOWN" : "LEGACY",
+    notes: table === "fish_auto_sell_settings"
+      ? "Per-user setting; shown read-only in fishing data instead of as a global dashboard field."
+      : "Command writes this key, but the active manual catch path does not read it as a normal global setting. Kept out of normal controls.",
+  })),
   ...[
     ["!setroomsetting", "Room Setting", "room_settings", "<dynamic key>"],
     ["!setwelcome", "Welcome Message", "room_settings", "welcome_message"],
@@ -1916,6 +2006,70 @@ app.put("/api/mining-settings", requireAuth, requirePermission("manage_games"), 
     json(res, { ok: true, settings: after });
   } catch (err) {
     json(res, { error: err.message || "mining_settings_update_failed" }, 500);
+  }
+}, closeDb);
+
+app.get("/api/fishing-settings", requireAuth, requirePermission("manage_games"), (req, res) => {
+  const kvRows = (table) => Object.entries(readKeyValueMap(req.db, table)).map(([key, value]) => ({ key, value }));
+  const autoRows = kvRows("auto_activity_settings").filter((row) => row.key.startsWith("fish_") || row.key.startsWith("autofish"));
+  const roomRows = kvRows("room_settings").filter((row) => row.key.startsWith("fishing_") || row.key.startsWith("fish_weight_"));
+  const count = (table) => oneOrNull(req.db, table, `SELECT COUNT(*) AS count FROM ${sqlIdent(table)}`)?.count ?? 0;
+  const unsoldInventory = oneOrNull(req.db, "fish_inventory", "SELECT COUNT(*) AS count FROM fish_inventory WHERE sold=0")?.count ?? 0;
+  const totalInventoryValue = oneOrNull(req.db, "fish_inventory", "SELECT COALESCE(SUM(value), 0) AS total FROM fish_inventory WHERE sold=0")?.total ?? 0;
+  json(res, {
+    settings: readActiveFishingSettings(req.db),
+    stats: {
+      fish_profiles: count("fish_profiles"),
+      catch_records: count("fish_catch_records"),
+      inventory_rows: count("fish_inventory"),
+      unsold_inventory: unsoldInventory,
+      unsold_inventory_value: totalInventoryValue,
+      auto_sell_rows: count("fish_auto_sell_settings"),
+      forced_drops: count("forced_fishing_drops"),
+    },
+    raw: {
+      auto_activity_settings: autoRows,
+      room_settings: roomRows,
+      fish_weight_settings: safeTableRows(req.db, "fish_weight_settings", { orderBy: "key", limit: "200" }),
+    },
+    tables: {
+      fish_profiles: safeRows(req.db, "fish_profiles", ["user_id", "username", "fishing_level", "fishing_xp", "total_catches", "equipped_rod", "best_fish_name", "best_fish_weight", "best_fish_value", "last_fish_at"], { orderBy: "total_catches DESC, fishing_level DESC", limit: "100" }),
+      fish_catch_records: safeRows(req.db, "fish_catch_records", ["id", "user_id", "username", "fish_name", "rarity", "weight", "base_value", "final_value", "fxp_earned", "caught_at"], { orderBy: "id DESC", limit: "100" }),
+      fish_inventory: safeRows(req.db, "fish_inventory", ["id", "user_id", "username", "fish_name", "rarity", "weight", "value", "sold", "sold_at", "caught_at"], { orderBy: "id DESC", limit: "100" }),
+      fish_auto_sell_settings: safeRows(req.db, "fish_auto_sell_settings", ["user_id", "username", "auto_sell_enabled", "auto_sell_rare_enabled", "updated_at"], { orderBy: "updated_at DESC", limit: "100" }),
+      forced_fishing_drops: safeTableRows(req.db, "forced_fishing_drops", { orderBy: "id DESC", limit: "50" }),
+    },
+    table_status: {
+      auto_activity_settings: tableExists(req.db, "auto_activity_settings"),
+      room_settings: tableExists(req.db, "room_settings"),
+      fish_profiles: tableExists(req.db, "fish_profiles"),
+      fish_catch_records: tableExists(req.db, "fish_catch_records"),
+      fish_inventory: tableExists(req.db, "fish_inventory"),
+      fish_auto_sell_settings: tableExists(req.db, "fish_auto_sell_settings"),
+      forced_fishing_drops: tableExists(req.db, "forced_fishing_drops"),
+      fish_weight_settings: tableExists(req.db, "fish_weight_settings"),
+    },
+  });
+}, closeDb);
+
+app.put("/api/fishing-settings", requireAuth, requirePermission("manage_games"), (req, res) => {
+  let updates;
+  try {
+    updates = normalizeFishingSettingsBody(req.db, req.body || {});
+  } catch (err) {
+    return json(res, { error: err.message || "invalid_fishing_settings" }, 400);
+  }
+  if (!updates.length) return json(res, { error: "no_verified_fishing_settings" }, 400);
+  try {
+    const before = readActiveFishingSettings(req.db);
+    for (const update of updates) {
+      req.db.prepare(`INSERT OR REPLACE INTO ${sqlIdent(update.table)} (key, value) VALUES (?, ?)`).run(update.key, update.value);
+    }
+    const after = readActiveFishingSettings(req.db);
+    audit(req.db, req.user.username, "fishing_settings_update", "fishing_settings", "verified_keys", before, updates, req.ip);
+    json(res, { ok: true, settings: after });
+  } catch (err) {
+    json(res, { error: err.message || "fishing_settings_update_failed" }, 500);
   }
 }, closeDb);
 
