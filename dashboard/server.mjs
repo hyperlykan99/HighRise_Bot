@@ -55,15 +55,28 @@ function resolveDbPath() {
 
 const DB_PATH = resolveDbPath();
 
-const PERMISSIONS = [
-  "manage_radio",
-  "manage_casino",
-  "manage_games",
-  "manage_titles",
-  "manage_staff",
-  "view_logs",
-  "emergency_controls",
-];
+const PERMISSION_REGISTRY = {
+  view_dashboard: { group: "System", label: "View Dashboard" },
+  manage_radio: { group: "Radio", label: "Manage Radio" },
+  manage_casino: { group: "Games", label: "Manage Casino" },
+  manage_games: { group: "Games", label: "Manage Games" },
+  manage_mining: { group: "Mining", label: "Manage Mining" },
+  manage_fishing: { group: "Fishing", label: "Manage Fishing" },
+  manage_room: { group: "Room", label: "Manage Room" },
+  manage_events: { group: "Events", label: "Manage Events" },
+  manage_emotes: { group: "Emotes", label: "Manage Emotes" },
+  manage_players: { group: "Players", label: "Manage Players" },
+  manage_economy: { group: "Economy", label: "Manage Economy" },
+  manage_inventory: { group: "Players", label: "Manage Inventory" },
+  manage_moderation: { group: "Players", label: "Manage Moderation" },
+  manage_staff: { group: "Staff", label: "Manage Staff" },
+  manage_bots: { group: "Bots", label: "Manage Bots" },
+  manage_bot_config: { group: "Bots", label: "Manage Bot Config" },
+  view_logs: { group: "Logs", label: "View Logs" },
+  emergency_controls: { group: "Emergency", label: "Emergency Controls" },
+  db_admin: { group: "System", label: "Database Admin" },
+};
+const PERMISSIONS = Object.keys(PERMISSION_REGISTRY);
 
 const ACTIVE_REQUEST_STATUSES = [
   "pending",
@@ -388,7 +401,10 @@ function ensureDashboardSchema(db) {
     "INSERT OR IGNORE INTO dashboard_roles (role, description) VALUES (?, ?)",
   );
   seedRole.run("owner", "Full dashboard access");
+  seedRole.run("admin", "Broad staff access controlled by permission flags");
   seedRole.run("staff", "Limited staff access controlled by permission flags");
+  seedRole.run("moderator", "Moderation-focused staff access");
+  seedRole.run("viewer", "Read-only dashboard access");
 
   addColumnIfMissing(db, "dashboard_users", "username", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "dashboard_users", "password_hash", "TEXT NOT NULL DEFAULT ''", migration);
@@ -581,23 +597,29 @@ function closeDb(req, _res, next) {
 }
 
 function requirePermission(permission) {
-  return (req, res, next) => {
+  const middleware = (req, res, next) => {
     if (req.user?.role === "owner" || req.permissions?.[permission]) return next();
     return json(res, { error: "forbidden", permission }, 403);
   };
+  middleware._security = { type: "permission", permissions: [permission] };
+  return middleware;
 }
 
 function requireAnyPermission(...permissions) {
-  return (req, res, next) => {
+  const middleware = (req, res, next) => {
     if (req.user?.role === "owner" || permissions.some((p) => req.permissions?.[p])) return next();
     return json(res, { error: "forbidden", permission: permissions.join("|") }, 403);
   };
+  middleware._security = { type: "anyPermission", permissions };
+  return middleware;
 }
 
 function requireOwner(req, res, next) {
   if (req.user?.role === "owner") return next();
   return json(res, { error: "forbidden", permission: "owner" }, 403);
 }
+requireAuth._security = { type: "auth" };
+requireOwner._security = { type: "owner" };
 
 function getSetting(db, key, fallback = "") {
   try {
@@ -1989,6 +2011,74 @@ function buildSettingsAudit(db) {
 }
 
 const app = express();
+const ROUTE_SECURITY = [];
+
+function routePathLabel(pathValue) {
+  if (typeof pathValue === "string") return pathValue;
+  return String(pathValue);
+}
+
+function routeSecurityFrom(method, pathValue, handlers) {
+  const securities = handlers.map((handler) => handler?._security).filter(Boolean);
+  const hasAuth = securities.some((s) => s.type === "auth");
+  const ownerOnly = securities.some((s) => s.type === "owner");
+  const permissions = [...new Set(securities.flatMap((s) => s.permissions || []))];
+  const pathLabel = routePathLabel(pathValue);
+  const publicRoute =
+    pathLabel === "/"
+    || pathLabel === "/api/healthz"
+    || pathLabel === "/api/dj/status"
+    || pathLabel.startsWith("/api/public/")
+    || pathLabel === "/api/auth/login"
+    || pathLabel === "/.*/";
+  const authStatus = publicRoute ? "public" : ownerOnly ? "ownerOnly" : hasAuth ? "requireAuth" : "unprotected";
+  return {
+    method: method.toUpperCase(),
+    path: pathLabel,
+    auth: authStatus,
+    owner_only: ownerOnly,
+    public: publicRoute,
+    permissions,
+    required_permission: ownerOnly ? "owner" : permissions.join("|"),
+  };
+}
+
+for (const method of ["get", "post", "put", "delete", "patch"]) {
+  const original = app[method].bind(app);
+  app[method] = (pathValue, ...handlers) => {
+    ROUTE_SECURITY.push(routeSecurityFrom(method, pathValue, handlers.flat()));
+    return original(pathValue, ...handlers);
+  };
+}
+
+function buildPermissionsAudit() {
+  const warnings = [];
+  const protectedRoutes = ROUTE_SECURITY.filter((route) => route.public || route.auth !== "unprotected").length;
+  for (const route of ROUTE_SECURITY) {
+    const isApi = route.path.startsWith("/api/");
+    const isWrite = ["POST", "PUT", "PATCH", "DELETE"].includes(route.method);
+    if (isApi && !route.public && route.auth === "unprotected") {
+      warnings.push({ path: route.path, method: route.method, warning: "unprotected_api_route" });
+    }
+    if (route.path === "/api/auth/logout") continue;
+    if (isApi && isWrite && !route.public && route.auth === "requireAuth" && !route.permissions.length && !route.owner_only) {
+      warnings.push({ path: route.path, method: route.method, warning: "write_route_missing_permission" });
+    }
+    if (/bot-config|db\/inspect|settings-audit|permissions\/audit/.test(route.path) && !route.owner_only) {
+      warnings.push({ path: route.path, method: route.method, warning: "owner_sensitive_route_not_owner_only" });
+    }
+  }
+  return {
+    generated_at: nowIso(),
+    permissions: PERMISSION_REGISTRY,
+    protected_count: protectedRoutes,
+    route_count: ROUTE_SECURITY.length,
+    warning_count: warnings.length,
+    warnings,
+    routes: ROUTE_SECURITY,
+  };
+}
+
 app.disable("x-powered-by");
 app.use(rateLimit({ key: "dashboard", windowMs: 60_000, max: 180 }));
 app.use((_req, res, next) => {
@@ -2075,8 +2165,7 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
   json(res, { user: publicUser(req.db, req.user), csrf_token: req.csrfToken });
 }, closeDb);
 
-app.get("/api/db/inspect", requireAuth, (req, res) => {
-  if (req.user?.role !== "owner") return json(res, { error: "forbidden", permission: "owner" }, 403);
+app.get("/api/db/inspect", requireAuth, requireOwner, (req, res) => {
   const tables = tableNames(req.db);
   const inspect = {};
   for (const table of tables) {
@@ -2100,12 +2189,15 @@ app.get("/api/db/inspect", requireAuth, (req, res) => {
   });
 }, closeDb);
 
-app.get("/api/settings-audit", requireAuth, (req, res) => {
-  if (req.user?.role !== "owner") return json(res, { error: "forbidden", permission: "owner" }, 403);
+app.get("/api/settings-audit", requireAuth, requireOwner, (req, res) => {
   json(res, {
     generated_at: nowIso(),
     ...buildSettingsAudit(req.db),
   });
+}, closeDb);
+
+app.get("/api/permissions/audit", requireAuth, requireOwner, (_req, res) => {
+  json(res, buildPermissionsAudit());
 }, closeDb);
 
 app.get("/api/dj/status", async (_req, res) => {
@@ -2230,12 +2322,14 @@ app.get("/api/staff", requireAuth, requirePermission("manage_staff"), (req, res)
   json(res, { dashboard_users: users, bot_roles: botRoles, permissions: PERMISSIONS });
 }, closeDb);
 
-app.post("/api/staff", requireAuth, requirePermission("manage_staff"), (req, res) => {
+app.post("/api/staff", requireAuth, requireOwner, (req, res) => {
   const username = String(req.body?.username ?? "").trim();
   const password = String(req.body?.password ?? "");
-  const role = req.body?.role === "owner" ? "owner" : "staff";
+  const requestedRole = String(req.body?.role || "staff").toLowerCase();
+  const role = ["owner", "admin", "staff", "moderator", "viewer"].includes(requestedRole) ? requestedRole : "staff";
   const permissions = req.body?.permissions && typeof req.body.permissions === "object" ? req.body.permissions : {};
   if (!username || !password) return json(res, { error: "username_password_required" }, 400);
+  if (role === "owner" && req.user.role !== "owner") return json(res, { error: "owner_creation_forbidden" }, 403);
   const pw = hashPassword(password);
   const info = req.db
     .prepare(
@@ -2250,13 +2344,16 @@ app.post("/api/staff", requireAuth, requirePermission("manage_staff"), (req, res
   json(res, { ok: true, id: info.lastInsertRowid }, 201);
 }, closeDb);
 
-app.put("/api/staff/:id", requireAuth, requirePermission("manage_staff"), (req, res) => {
+app.put("/api/staff/:id", requireAuth, requireOwner, (req, res) => {
   const id = Number(req.params.id);
   const old = req.db.prepare("SELECT * FROM dashboard_users WHERE id=?").get(id);
   if (!old) return json(res, { error: "not_found" }, 404);
-  const role = req.body?.role === "owner" ? "owner" : "staff";
+  const requestedRole = String(req.body?.role || old.role || "staff").toLowerCase();
+  const role = ["owner", "admin", "staff", "moderator", "viewer"].includes(requestedRole) ? requestedRole : "staff";
   const disabled = req.body?.disabled ? 1 : 0;
   const permissions = req.body?.permissions && typeof req.body.permissions === "object" ? req.body.permissions : {};
+  if ((role === "owner" || old.role === "owner") && req.user.role !== "owner") return json(res, { error: "owner_update_forbidden" }, 403);
+  if (old.id === req.user.id && disabled) return json(res, { error: "cannot_disable_self" }, 409);
   req.db.prepare("UPDATE dashboard_users SET role=?, disabled=?, flags_json=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(
     role,
     disabled,
@@ -2271,18 +2368,18 @@ app.put("/api/staff/:id", requireAuth, requirePermission("manage_staff"), (req, 
   json(res, { ok: true });
 }, closeDb);
 
-app.delete("/api/staff/:id", requireAuth, requirePermission("manage_staff"), (req, res) => {
+app.delete("/api/staff/:id", requireAuth, requireOwner, (req, res) => {
   const id = Number(req.params.id);
   const old = req.db.prepare("SELECT * FROM dashboard_users WHERE id=?").get(id);
   if (!old) return json(res, { error: "not_found" }, 404);
   if (old.id === req.user.id) return json(res, { error: "cannot_remove_self" }, 409);
+  if (old.role === "owner" && req.user.role !== "owner") return json(res, { error: "owner_remove_forbidden" }, 403);
   req.db.prepare("UPDATE dashboard_users SET disabled=1, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
-  req.db.prepare("DELETE FROM dashboard_sessions WHERE user_id=?").run(id);
   audit(req.db, req.user.username, "dashboard_user_remove", "dashboard_user", old.username, old, "disabled", req.ip);
   json(res, { ok: true });
 }, closeDb);
 
-app.post("/api/staff/bot-role", requireAuth, requirePermission("manage_staff"), (req, res) => {
+app.post("/api/staff/bot-role", requireAuth, requireOwner, (req, res) => {
   const username = String(req.body?.username ?? "").trim().toLowerCase();
   const role = String(req.body?.role ?? "").trim().toLowerCase();
   const action = req.body?.action === "remove" ? "remove" : "add";
@@ -2434,7 +2531,7 @@ app.get("/api/public/rankings", async (req, res) => {
   }
 });
 
-app.get("/api/bot-config", requireAuth, (req, res) => {
+app.get("/api/bot-config", requireAuth, requireOwner, (req, res) => {
   const tokens = {};
   for (const key of BOT_TOKEN_KEYS) {
     tokens[key] = process.env[key] ? "set" : "empty";
@@ -2448,7 +2545,7 @@ app.get("/api/bot-config", requireAuth, (req, res) => {
   json(res, { room_id: roomId, bots_enabled: botsEnabled, tokens });
 }, closeDb);
 
-app.post("/api/bot-config", requireAuth, (req, res) => {
+app.post("/api/bot-config", requireAuth, requireOwner, (req, res) => {
   if (req.user?.role !== "owner") return json(res, { error: "forbidden" }, 403);
   const roomId = String(req.body?.room_id ?? "").trim();
   const botsEnabled = String(req.body?.bots_enabled ?? "").trim();
@@ -2458,14 +2555,14 @@ app.post("/api/bot-config", requireAuth, (req, res) => {
   json(res, { ok: true });
 }, closeDb);
 
-app.post("/api/bot-config/restart", requireAuth, (req, res) => {
+app.post("/api/bot-config/restart", requireAuth, requireOwner, (req, res) => {
   if (req.user?.role !== "owner") return json(res, { error: "forbidden" }, 403);
   upsertDashboardSetting(req.db, "bot_config.restart_requested", nowIso(), "bot_config", req.user.username, "Restart request from dashboard.");
   audit(req.db, req.user.username, "bot_restart_requested", "bot_config", "restart", "", nowIso(), req.ip);
   json(res, { ok: true, note: "Restart flag written to DB. Bot will restart on next heartbeat check." });
 }, closeDb);
 
-app.get("/api/radio", requireAuth, (req, res) => {
+app.get("/api/radio", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
   json(res, readLocalRadioStatus(req.db));
 }, closeDb);
 
@@ -2702,7 +2799,7 @@ app.put("/api/games/:key", requireAuth, requirePermission("manage_games"), (req,
   json(res, { ok: true });
 }, closeDb);
 
-app.get("/api/mining-settings", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/mining-settings", requireAuth, requirePermission("manage_mining"), (req, res) => {
   const kvRows = (table) => Object.entries(readKeyValueMap(req.db, table)).map(([key, value]) => ({ key, value }));
   const autoRows = kvRows("auto_activity_settings").filter((row) => row.key.startsWith("mine") || row.key.startsWith("automine"));
   const goldRows = [
@@ -2734,7 +2831,7 @@ app.get("/api/mining-settings", requireAuth, requirePermission("manage_games"), 
   });
 }, closeDb);
 
-app.put("/api/mining-settings", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.put("/api/mining-settings", requireAuth, requirePermission("manage_mining"), (req, res) => {
   let updates;
   try {
     updates = normalizeMiningSettingsBody(req.db, req.body || {});
@@ -2755,7 +2852,7 @@ app.put("/api/mining-settings", requireAuth, requirePermission("manage_games"), 
   }
 }, closeDb);
 
-app.get("/api/fishing-settings", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/fishing-settings", requireAuth, requirePermission("manage_fishing"), (req, res) => {
   const kvRows = (table) => Object.entries(readKeyValueMap(req.db, table)).map(([key, value]) => ({ key, value }));
   const autoRows = kvRows("auto_activity_settings").filter((row) => row.key.startsWith("fish_") || row.key.startsWith("autofish"));
   const roomRows = kvRows("room_settings").filter((row) => row.key.startsWith("fishing_") || row.key.startsWith("fish_weight_"));
@@ -2798,7 +2895,7 @@ app.get("/api/fishing-settings", requireAuth, requirePermission("manage_games"),
   });
 }, closeDb);
 
-app.put("/api/fishing-settings", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.put("/api/fishing-settings", requireAuth, requirePermission("manage_fishing"), (req, res) => {
   let updates;
   try {
     updates = normalizeFishingSettingsBody(req.db, req.body || {});
@@ -2819,7 +2916,7 @@ app.put("/api/fishing-settings", requireAuth, requirePermission("manage_games"),
   }
 }, closeDb);
 
-app.get("/api/mining", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/mining", requireAuth, requirePermission("manage_mining"), (req, res) => {
   json(res, {
     ...miningOverview(req.db),
     ores: miningItemRows(req.db, true).slice(0, 100),
@@ -2834,12 +2931,12 @@ app.get("/api/mining", requireAuth, requirePermission("manage_games"), (req, res
   });
 }, closeDb);
 
-app.get("/api/mining/ores", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (req, res) => {
   const rows = miningItemRows(req.db, true);
   json(res, { rows, schema_verified: tableExists(req.db, "mining_items"), writable: tableExists(req.db, "mining_items"), table: "mining_items", columns: tableColumns(req.db, "mining_items") });
 }, closeDb);
 
-app.post("/api/mining/ores", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.post("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (req, res) => {
   if (!tableExists(req.db, "mining_items")) return unverifiedSchema(res, "mining_items table is missing.");
   const cols = tableColumns(req.db, "mining_items");
   const itemId = String(req.body?.item_id || "").trim();
@@ -2865,7 +2962,7 @@ app.post("/api/mining/ores", requireAuth, requirePermission("manage_games"), (re
   }
 }, closeDb);
 
-app.put("/api/mining/ores/:id", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.put("/api/mining/ores/:id", requireAuth, requirePermission("manage_mining"), (req, res) => {
   if (!tableExists(req.db, "mining_items")) return unverifiedSchema(res, "mining_items table is missing.");
   const id = String(req.params.id || "").trim();
   if (!validCatalogId(id)) return json(res, { error: "invalid_item_id" }, 400);
@@ -2887,7 +2984,7 @@ app.put("/api/mining/ores/:id", requireAuth, requirePermission("manage_games"), 
   json(res, { ok: true, row: after });
 }, closeDb);
 
-app.delete("/api/mining/ores/:id", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.delete("/api/mining/ores/:id", requireAuth, requirePermission("manage_mining"), (req, res) => {
   if (!tableExists(req.db, "mining_items")) return unverifiedSchema(res, "mining_items table is missing.");
   const id = String(req.params.id || "").trim();
   const before = req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(id);
@@ -2908,26 +3005,26 @@ app.delete("/api/mining/ores/:id", requireAuth, requirePermission("manage_games"
   json(res, { ok: true, mode: "hard_delete" });
 }, closeDb);
 
-app.get("/api/mining/pickaxes", requireAuth, requirePermission("manage_games"), (_req, res) => {
+app.get("/api/mining/pickaxes", requireAuth, requirePermission("manage_mining"), (_req, res) => {
   json(res, { rows: PICKAXE_CATALOG, writable: false, schema_verified: false, source: "runtime_code", message: "Pickaxes are runtime constants/tool_level, not a DB catalog." });
 });
-app.post("/api/mining/pickaxes", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
-app.put("/api/mining/pickaxes/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
-app.delete("/api/mining/pickaxes/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
+app.post("/api/mining/pickaxes", requireAuth, requirePermission("manage_mining"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
+app.put("/api/mining/pickaxes/:id", requireAuth, requirePermission("manage_mining"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
+app.delete("/api/mining/pickaxes/:id", requireAuth, requirePermission("manage_mining"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
 
-app.get("/api/mining/drop-weights", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/mining/drop-weights", requireAuth, requirePermission("manage_mining"), (req, res) => {
   json(res, { rows: calculateMiningDropRows(req.db), writable: false, schema_verified: false, source: "runtime_code", message: "Active mining drop chances are code rarity probabilities split across enabled mining_items." });
 }, closeDb);
-app.put("/api/mining/drop-weights", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Active mining drop weights are not stored in a verified DB weight table."));
+app.put("/api/mining/drop-weights", requireAuth, requirePermission("manage_mining"), (_req, res) => unverifiedSchema(res, "Active mining drop weights are not stored in a verified DB weight table."));
 
-app.get("/api/mining/players", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/mining/players", requireAuth, requirePermission("manage_mining"), (req, res) => {
   json(res, { rows: safeTableRows(req.db, "mining_players", { orderBy: "total_mines DESC", limit: "250" }), table: "mining_players" });
 }, closeDb);
-app.get("/api/mining/inventory", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/mining/inventory", requireAuth, requirePermission("manage_mining"), (req, res) => {
   const rows = rowsOrEmpty(req.db, "mining_inventory", `SELECT mi.username, mi.item_id, mi.quantity, it.name, it.rarity, it.sell_value, (mi.quantity * it.sell_value) AS total_value FROM mining_inventory mi LEFT JOIN mining_items it ON mi.item_id=it.item_id ORDER BY mi.username, it.sell_value DESC LIMIT 500`);
   json(res, { rows, table: "mining_inventory" });
 }, closeDb);
-app.get("/api/mining/logs", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/mining/logs", requireAuth, requireAnyPermission("manage_mining", "view_logs"), (req, res) => {
   json(res, {
     mining_logs: safeTableRows(req.db, "mining_logs", { orderBy: "id DESC", limit: "200" }),
     mining_payout_logs: safeTableRows(req.db, "mining_payout_logs", { orderBy: "id DESC", limit: "200" }),
@@ -2936,7 +3033,7 @@ app.get("/api/mining/logs", requireAuth, requirePermission("manage_games"), (req
   });
 }, closeDb);
 
-app.get("/api/fishing", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/fishing", requireAuth, requirePermission("manage_fishing"), (req, res) => {
   json(res, {
     ...fishingOverview(req.db),
     players: safeTableRows(req.db, "fish_profiles", { orderBy: "total_catches DESC", limit: "25" }),
@@ -2949,36 +3046,36 @@ app.get("/api/fishing", requireAuth, requirePermission("manage_games"), (req, re
   });
 }, closeDb);
 
-app.get("/api/fishing/fish", requireAuth, requirePermission("manage_games"), (_req, res) => {
+app.get("/api/fishing/fish", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
   const { fish, source, error } = readFishingCodeCatalog();
   json(res, { rows: fish, writable: false, schema_verified: false, source, error, message: "Active fish catalog is defined in modules/fishing.py FISH_CATALOG; dashboard keeps it read-only." });
 });
-app.post("/api/fishing/fish", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
-app.put("/api/fishing/fish/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
-app.delete("/api/fishing/fish/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
+app.post("/api/fishing/fish", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
+app.put("/api/fishing/fish/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
+app.delete("/api/fishing/fish/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
 
-app.get("/api/fishing/rods", requireAuth, requirePermission("manage_games"), (_req, res) => {
+app.get("/api/fishing/rods", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
   const { rods, source, error } = readFishingCodeCatalog();
   json(res, { rows: rods, writable: false, schema_verified: false, source, error, message: "Active rod catalog is defined in modules/fishing.py FISHING_RODS; dashboard keeps it read-only." });
 });
-app.post("/api/fishing/rods", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
-app.put("/api/fishing/rods/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
-app.delete("/api/fishing/rods/:id", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
+app.post("/api/fishing/rods", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
+app.put("/api/fishing/rods/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
+app.delete("/api/fishing/rods/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
 
-app.get("/api/fishing/drop-weights", requireAuth, requirePermission("manage_games"), (_req, res) => {
+app.get("/api/fishing/drop-weights", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
   json(res, { rows: calculateFishDropRows(), writable: false, schema_verified: false, source: "runtime_code", message: "Active fish chances are modules/fishing.py FISH_CATALOG drop_weight values." });
 });
-app.put("/api/fishing/drop-weights", requireAuth, requirePermission("manage_games"), (_req, res) => unverifiedSchema(res, "Fish drop weights are not stored in a verified DB table."));
-app.get("/api/fishing/players", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.put("/api/fishing/drop-weights", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish drop weights are not stored in a verified DB table."));
+app.get("/api/fishing/players", requireAuth, requirePermission("manage_fishing"), (req, res) => {
   const rows = tableExists(req.db, "fish_auto_sell_settings")
     ? rowsOrEmpty(req.db, "fish_profiles", `SELECT fp.*, fas.auto_sell_enabled, fas.auto_sell_rare_enabled FROM fish_profiles fp LEFT JOIN fish_auto_sell_settings fas ON fp.user_id=fas.user_id ORDER BY fp.total_catches DESC LIMIT 250`)
     : safeTableRows(req.db, "fish_profiles", { orderBy: "total_catches DESC", limit: "250" });
   json(res, { rows, table: "fish_profiles" });
 }, closeDb);
-app.get("/api/fishing/inventory", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/fishing/inventory", requireAuth, requirePermission("manage_fishing"), (req, res) => {
   json(res, { rows: safeTableRows(req.db, "fish_inventory", { orderBy: "id DESC", limit: "500" }), table: "fish_inventory" });
 }, closeDb);
-app.get("/api/fishing/logs", requireAuth, requirePermission("manage_games"), (req, res) => {
+app.get("/api/fishing/logs", requireAuth, requireAnyPermission("manage_fishing", "view_logs"), (req, res) => {
   json(res, {
     fish_catch_records: safeTableRows(req.db, "fish_catch_records", { orderBy: "id DESC", limit: "200" }),
     forced_fishing_drops: safeTableRows(req.db, "forced_fishing_drops", { orderBy: "id DESC", limit: "100" }),
@@ -2986,14 +3083,14 @@ app.get("/api/fishing/logs", requireAuth, requirePermission("manage_games"), (re
   });
 }, closeDb);
 
-app.get("/api/titles", requireAuth, requirePermission("manage_titles"), (req, res) => {
+app.get("/api/titles", requireAuth, requireAnyPermission("manage_players", "manage_inventory"), (req, res) => {
   const catalog = rowsOrEmpty(req.db, "title_catalog", "SELECT * FROM title_catalog ORDER BY tier, title_id LIMIT 500");
   const assigned = rowsOrEmpty(req.db, "user_titles", "SELECT * FROM user_titles ORDER BY unlocked_at DESC LIMIT 250");
   const dashboardTitles = req.db.prepare("SELECT * FROM player_titles ORDER BY id DESC LIMIT 250").all();
   json(res, { catalog, assigned, dashboard_titles: dashboardTitles });
 }, closeDb);
 
-app.post("/api/titles/assign", requireAuth, requirePermission("manage_titles"), (req, res) => {
+app.post("/api/titles/assign", requireAuth, requireOwner, (req, res) => {
   const userId = String(req.body?.user_id ?? "").trim();
   const username = String(req.body?.username ?? "").trim();
   const titleId = String(req.body?.title_id ?? "").trim();
@@ -3026,6 +3123,23 @@ app.get("/api/logs", requireAuth, requirePermission("view_logs"), (req, res) => 
     if (!text) continue;
     where.push(`${field} LIKE ?`);
     params.push(`%${text.slice(0, 80)}%`);
+  }
+  const status = String(req.query.status || "").trim();
+  if (status) {
+    where.push("(action_type LIKE ? OR old_value LIKE ? OR new_value LIKE ?)");
+    const q = `%${status.slice(0, 80)}%`;
+    params.push(q, q, q);
+  }
+  const target = String(req.query.target || "").trim();
+  if (target) {
+    where.push("(target_type LIKE ? OR target_id LIKE ?)");
+    const q = `%${target.slice(0, 80)}%`;
+    params.push(q, q);
+  }
+  const date = String(req.query.date || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    where.push("date(created_at)=date(?)");
+    params.push(date);
   }
   const sqlWhere = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const auditRows = req.db
@@ -3327,7 +3441,7 @@ function readCanonicalBotAudit(db) {
   };
 }
 
-app.get("/api/bot-control", requireAuth, (req, res) => {
+app.get("/api/bot-control", requireAuth, requireAnyPermission("manage_bots", "view_logs"), (req, res) => {
   const auditResult = readCanonicalBotAudit(req.db);
   const pendingCommands = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
     where: "status IN ('pending','queued','claimed','running')",
@@ -3349,7 +3463,7 @@ app.get("/api/bot-control", requireAuth, (req, res) => {
   });
 }, closeDb);
 
-app.get("/api/bot-audit", requireAuth, (req, res) => {
+app.get("/api/bot-audit", requireAuth, requireAnyPermission("manage_bots", "view_logs"), (req, res) => {
   if (req.user?.role !== "owner") return json(res, { error: "forbidden", permission: "owner" }, 403);
   const auditResult = readCanonicalBotAudit(req.db);
   const pendingCommands = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
@@ -3373,7 +3487,7 @@ app.get("/api/bot-audit", requireAuth, (req, res) => {
 }, closeDb);
 
 /* ── Economy Overview (read-only) ───────────────────── */
-app.get("/api/economy/overview", requireAuth, requireAnyPermission("manage_casino","manage_games","emergency_controls"), (req, res) => {
+app.get("/api/economy/overview", requireAuth, requireAnyPermission("manage_economy","manage_casino","manage_games","emergency_controls"), (req, res) => {
   const stats = (() => {
     try {
       if (!tableExists(req.db, "users")) return null;
@@ -3413,7 +3527,7 @@ app.get("/api/economy/overview", requireAuth, requireAnyPermission("manage_casin
   json(res, { stats, top_rich: topRich, top_xp: topXp, transactions: recentTransactions, balance_column: balanceCol });
 }, closeDb);
 
-app.get("/api/economy/transactions", requireAuth, requireAnyPermission("manage_casino","manage_games","emergency_controls"), (req, res) => {
+app.get("/api/economy/transactions", requireAuth, requireAnyPermission("manage_economy","view_logs","emergency_controls"), (req, res) => {
   json(res, {
     ledger: safeRows(req.db, "ledger", ["id","timestamp","user_id","username","change_amount","reason","balance_before","balance_after","related_user","metadata"], {
       orderBy: columnExists(req.db, "ledger", "timestamp") ? "timestamp DESC" : "",
@@ -3561,7 +3675,7 @@ app.get("/api/player/search", requireAuth, (req, res) => {
   json(res, { player });
 }, closeDb);
 
-app.get("/api/player/:id/history", requireAuth, (req, res) => {
+app.get("/api/player/:id/history", requireAuth, requireAnyPermission("manage_players", "manage_moderation", "view_logs"), (req, res) => {
   const player = readPlayerProfile(req.db, req.params.id);
   if (!player) return json(res, { error: "not_found" }, 404);
   json(res, { player, history: { ...player.recent_activity, moderation: player.moderation } });
@@ -3702,7 +3816,7 @@ function writeModerationLog(db, actor, player, actionName, reason, duration = 0)
     .run(crypto.randomUUID(), actor, player.user_id, player.username, actionName, reason, duration);
 }
 
-app.post("/api/player/:id/warn", requireAuth, requireAnyPermission("manage_staff","emergency_controls"), (req, res) => {
+app.post("/api/player/:id/warn", requireAuth, requireAnyPermission("manage_moderation","emergency_controls"), (req, res) => {
   const player = readPlayerProfile(req.db, req.params.id);
   if (!player) return json(res, { error: "not_found" }, 404);
   if (!tableExists(req.db, "warnings")) return json(res, { error: "warnings_missing" }, 404);
@@ -3714,7 +3828,7 @@ app.post("/api/player/:id/warn", requireAuth, requireAnyPermission("manage_staff
   json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
-app.post("/api/player/:id/mute", requireAuth, requireAnyPermission("manage_staff","emergency_controls"), (req, res) => {
+app.post("/api/player/:id/mute", requireAuth, requireAnyPermission("manage_moderation","emergency_controls"), (req, res) => {
   const player = readPlayerProfile(req.db, req.params.id);
   if (!player) return json(res, { error: "not_found" }, 404);
   if (!tableExists(req.db, "mutes")) return json(res, { error: "mutes_missing" }, 404);
@@ -3729,7 +3843,7 @@ app.post("/api/player/:id/mute", requireAuth, requireAnyPermission("manage_staff
   json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
-app.post("/api/player/:id/unmute", requireAuth, requireAnyPermission("manage_staff","emergency_controls"), (req, res) => {
+app.post("/api/player/:id/unmute", requireAuth, requireAnyPermission("manage_moderation","emergency_controls"), (req, res) => {
   const player = readPlayerProfile(req.db, req.params.id);
   if (!player) return json(res, { error: "not_found" }, 404);
   const before = safeOne(req.db, "mutes", ["user_id","username","muted_by","muted_at","expires_at"], { where: "user_id=?", params: [player.user_id] });
@@ -3740,7 +3854,7 @@ app.post("/api/player/:id/unmute", requireAuth, requireAnyPermission("manage_sta
 }, closeDb);
 
 /* ── Bot Spawns / Command Queue ─────────────────────── */
-app.get("/api/bot-spawns", requireAuth, (req, res) => {
+app.get("/api/bot-spawns", requireAuth, requireAnyPermission("manage_bots", "emergency_controls"), (req, res) => {
   const rows = safeRows(req.db, "bot_spawns", ["bot_username","spawn_name","x","y","z","facing","set_by","set_at"], {
     orderBy: columnExists(req.db, "bot_spawns", "bot_username") && columnExists(req.db, "bot_spawns", "spawn_name") ? "bot_username, spawn_name" : "",
   });
@@ -3780,7 +3894,7 @@ const ALLOWED_BOT_COMMAND_ACTIONS = new Set([
   "botemote_stop",
 ]);
 
-app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games"), (req, res) => {
+app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_controls","manage_radio","manage_games","manage_room","manage_events","manage_emotes","manage_bots"), (req, res) => {
   const targetBot = String(req.body?.target_bot || "").trim().slice(0, 80);
   const actionName = String(req.body?.action || "").trim();
   const payload = req.body?.payload && typeof req.body.payload === "object" && !Array.isArray(req.body.payload) ? req.body.payload : {};
@@ -3796,7 +3910,7 @@ app.post("/api/bot-command", requireAuth, requireAnyPermission("emergency_contro
   }
 }, closeDb);
 
-app.get("/api/bot-command-queue", requireAuth, (req, res) => {
+app.get("/api/bot-command-queue", requireAuth, requireAnyPermission("manage_bots","manage_radio","manage_room","manage_events","manage_emotes","view_logs"), (req, res) => {
   const pending = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
     where: "status IN ('pending','queued','claimed','running')",
     orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "",
@@ -3809,41 +3923,41 @@ app.get("/api/bot-command-queue", requireAuth, (req, res) => {
   json(res, { pending, recent });
 }, closeDb);
 
-app.get("/api/emotes/overview", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.get("/api/emotes/overview", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   json(res, readEmotesDashboard(req.db));
 }, closeDb);
 
-app.get("/api/emotes/registry", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.get("/api/emotes/registry", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const d = readEmotesDashboard(req.db);
   json(res, { registry: d.registry, active_emotes: d.tables.active_emotes, raw_files: d.raw_files });
 }, closeDb);
 
-app.get("/api/emotes/bot-status", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.get("/api/emotes/bot-status", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const d = readEmotesDashboard(req.db);
   json(res, { bot_emotes: d.bot_emotes, room_emote_loops: d.tables.room_emote_loops, command_queue: d.command_queue });
 }, closeDb);
 
-app.get("/api/emotes/custom-packs", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.get("/api/emotes/custom-packs", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const d = readEmotesDashboard(req.db);
   json(res, { custom_packs: d.custom_packs, dancefloor_packs: d.dancefloor.packs, tables: { custom_emote_packs: d.tables.custom_emote_packs, dancefloor_packs: d.tables.dancefloor_packs } });
 }, closeDb);
 
-app.get("/api/emotes/dancefloor", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.get("/api/emotes/dancefloor", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const d = readEmotesDashboard(req.db);
   json(res, { dancefloor: d.dancefloor, settings: d.settings, command_queue: d.command_queue });
 }, closeDb);
 
-app.get("/api/emotes/sync", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.get("/api/emotes/sync", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const d = readEmotesDashboard(req.db);
   json(res, { sync: d.sync, command_queue: d.command_queue });
 }, closeDb);
 
-app.get("/api/emotes/social", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.get("/api/emotes/social", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const d = readEmotesDashboard(req.db);
   json(res, { social: d.social, settings: d.settings });
 }, closeDb);
 
-app.get("/api/emotes/logs", requireAuth, requireAnyPermission("emergency_controls", "manage_games", "view_logs"), (req, res) => {
+app.get("/api/emotes/logs", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes", "view_logs"), (req, res) => {
   const d = readEmotesDashboard(req.db);
   json(res, { audit_logs: d.audit_logs, room_social_logs: d.tables.room_social_logs, command_queue: d.command_queue });
 }, closeDb);
@@ -3860,7 +3974,7 @@ function enqueueEmoteAction(req, res, { targetBot, actionName, payload, auditAct
   }
 }
 
-app.post("/api/emotes/trigger", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.post("/api/emotes/trigger", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const targetBot = String(req.body?.target_bot || "dj").trim().slice(0, 80);
   const emote = String(req.body?.emote || "").trim();
   const duration = req.body?.duration;
@@ -3868,12 +3982,12 @@ app.post("/api/emotes/trigger", requireAuth, requireAnyPermission("emergency_con
   return enqueueEmoteAction(req, res, { targetBot, actionName: "trigger_emote", payload: { emote, target: "self", duration }, auditAction: "emote_trigger_enqueue" });
 }, closeDb);
 
-app.post("/api/emotes/stop", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.post("/api/emotes/stop", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const targetBot = String(req.body?.target_bot || "dj").trim().slice(0, 80);
   return enqueueEmoteAction(req, res, { targetBot, actionName: "stop_emote", payload: {}, auditAction: "emote_stop_enqueue" });
 }, closeDb);
 
-app.post("/api/dancefloor/command", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.post("/api/dancefloor/command", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const command = String(req.body?.command || "").trim();
   const actionMap = {
     start: "dancefloor_start",
@@ -3890,7 +4004,7 @@ app.post("/api/dancefloor/command", requireAuth, requireAnyPermission("emergency
   return enqueueEmoteAction(req, res, { targetBot: "dj", actionName, payload, auditAction: `dancefloor_${command}_enqueue` });
 }, closeDb);
 
-app.post("/api/sync/command", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.post("/api/sync/command", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
   const command = String(req.body?.command || "").trim();
   const actionMap = { start: "sync_start", stop: "sync_stop", persist: "sync_persist" };
   const actionName = actionMap[command];
@@ -3899,7 +4013,7 @@ app.post("/api/sync/command", requireAuth, requireAnyPermission("emergency_contr
   return enqueueEmoteAction(req, res, { targetBot: "dj", actionName, payload, auditAction: `sync_${command}_enqueue` });
 }, closeDb);
 
-app.post("/api/room/announce", requireAuth, requireAnyPermission("emergency_controls","manage_radio"), (req, res) => {
+app.post("/api/room/announce", requireAuth, requireAnyPermission("emergency_controls","manage_room","manage_events"), (req, res) => {
   const message = String(req.body?.message || "").trim();
   if (!message) return json(res, { error: "message_required" }, 400);
   if (message.length > 500) return json(res, { error: "message_too_long" }, 400);
@@ -3917,7 +4031,7 @@ app.post("/api/room/announce", requireAuth, requireAnyPermission("emergency_cont
   }
 }, closeDb);
 
-app.post("/api/room/announcements", requireAuth, requireAnyPermission("emergency_controls", "manage_radio"), (req, res) => {
+app.post("/api/room/announcements", requireAuth, requireAnyPermission("emergency_controls", "manage_room", "manage_events"), (req, res) => {
   if (!tableExists(req.db, "rotating_announcements")) return json(res, { error: "missing_table", message: "rotating_announcements is not present." }, 400);
   const cols = tableColumns(req.db, "rotating_announcements");
   const messageCol = ["message", "text", "body", "content"].find((col) => cols.includes(col));
@@ -3937,7 +4051,7 @@ app.post("/api/room/announcements", requireAuth, requireAnyPermission("emergency
   json(res, { ok: true, id: info.lastInsertRowid });
 }, closeDb);
 
-app.put("/api/room/announcements/:id", requireAuth, requireAnyPermission("emergency_controls", "manage_radio"), (req, res) => {
+app.put("/api/room/announcements/:id", requireAuth, requireAnyPermission("emergency_controls", "manage_room", "manage_events"), (req, res) => {
   if (!tableExists(req.db, "rotating_announcements")) return json(res, { error: "missing_table" }, 400);
   const cols = tableColumns(req.db, "rotating_announcements");
   if (!cols.includes("id")) return json(res, { error: "unverified_schema", message: "rotating_announcements.id is required." }, 400);
@@ -3967,7 +4081,7 @@ app.put("/api/room/announcements/:id", requireAuth, requireAnyPermission("emerge
 }, closeDb);
 
 /* ── Events ─────────────────────────────────────────── */
-app.get("/api/events", requireAuth, (req, res) => {
+app.get("/api/events", requireAuth, requireAnyPermission("manage_events", "view_logs"), (req, res) => {
   const tables = {};
   for (const name of ["event_definitions","event_history","event_points","event_settings","event_votes","processed_events","scheduled_events"]) {
     tables[name] = roomTableInfo(req.db, name);
@@ -3996,11 +4110,11 @@ app.get("/api/events", requireAuth, (req, res) => {
   });
 }, closeDb);
 
-app.get("/api/events/definitions", requireAuth, (req, res) => {
+app.get("/api/events/definitions", requireAuth, requireAnyPermission("manage_events", "view_logs"), (req, res) => {
   json(res, { definitions: roomTableInfo(req.db, "event_definitions").rows });
 }, closeDb);
 
-app.put("/api/events/settings", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.put("/api/events/settings", requireAuth, requireAnyPermission("emergency_controls", "manage_events"), (req, res) => {
   const updates = req.body?.updates && typeof req.body.updates === "object" ? req.body.updates : {};
   const source = String(req.body?.source || "event_settings");
   if (!["event_settings", "auto_event_settings"].includes(source)) return json(res, { error: "source_not_allowed" }, 400);
@@ -4033,7 +4147,7 @@ function enqueueEventAction(req, res, actionName, payload) {
   }
 }
 
-app.post("/api/events/start", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.post("/api/events/start", requireAuth, requireAnyPermission("emergency_controls", "manage_events"), (req, res) => {
   const eventId = String(req.body?.event_id || req.body?.id || "").trim().toLowerCase();
   const minutes = Number(req.body?.minutes || 30);
   if (!eventId) return json(res, { error: "event_id_required" }, 400);
@@ -4041,12 +4155,12 @@ app.post("/api/events/start", requireAuth, requireAnyPermission("emergency_contr
   return enqueueEventAction(req, res, "event_start", { event_id: eventId, minutes });
 }, closeDb);
 
-app.post("/api/events/stop", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.post("/api/events/stop", requireAuth, requireAnyPermission("emergency_controls", "manage_events"), (req, res) => {
   const target = String(req.body?.target || "all").trim().toLowerCase() || "all";
   return enqueueEventAction(req, res, "event_stop", { target });
 }, closeDb);
 
-app.post("/api/events/schedule", requireAuth, requireAnyPermission("emergency_controls", "manage_games"), (req, res) => {
+app.post("/api/events/schedule", requireAuth, requireAnyPermission("emergency_controls", "manage_events"), (req, res) => {
   const eventId = String(req.body?.event_id || "").trim().toLowerCase();
   const startsAt = String(req.body?.starts_at || "").trim();
   const minutes = Number(req.body?.minutes || 30);
@@ -4056,7 +4170,7 @@ app.post("/api/events/schedule", requireAuth, requireAnyPermission("emergency_co
 }, closeDb);
 
 /* ── Room Control (read) ────────────────────────────── */
-app.get("/api/room-control", requireAuth, (req, res) => {
+app.get("/api/room-control", requireAuth, requireAnyPermission("manage_room", "manage_events", "manage_emotes", "view_logs"), (req, res) => {
   json(res, readRoomDashboard(req.db));
 }, closeDb);
 

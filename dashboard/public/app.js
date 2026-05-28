@@ -131,6 +131,7 @@ const SYSTEM_TABS = [
   { id: "Health", api: "/api/healthz" },
   { id: "Logs", api: null },
   { id: "Settings Audit", api: "/api/settings-audit" },
+  { id: "Permissions Audit", api: "/api/permissions/audit" },
   { id: "Database", api: "/api/db/inspect" },
   { id: "Emergency", api: "/api/settings" },
   { id: "Missing/Future Controls", api: null },
@@ -578,7 +579,7 @@ const state = {
   data: null,
   error: "",
   notice: "",
-  logs: { action_type: "", user: "", module: "", offset: 0 },
+  logs: { action_type: "", user: "", module: "", status: "", date: "", target: "", offset: 0 },
   settingsAudit: { status: "all", module: "", page: "" },
   modal: null,
   sidebarOpen: false,
@@ -743,7 +744,7 @@ async function switchTab(page, tab) {
 
 function logsUrl() {
   const p = new URLSearchParams();
-  for (const k of ["action_type", "user", "module"]) if (state.logs[k]) p.set(k, state.logs[k]);
+  for (const k of ["action_type", "user", "module", "status", "date", "target"]) if (state.logs[k]) p.set(k, state.logs[k]);
   p.set("offset", String(state.logs.offset || 0));
   p.set("limit", "50");
   return `/api/logs?${p.toString()}`;
@@ -3550,28 +3551,35 @@ function renderRewardsTab() {
 /* ── Staff Page (shared for owner Staff page) ────────── */
 function renderStaffPage_shared() {
   const d = state.data || {};
+  const canManageStaffAccounts = state.user?.role === "owner";
   return `
     <div class="grid">
       <div class="card">
         <h2>➕ Create Staff Account</h2>
-        <form id="staffCreateForm">
+        ${canManageStaffAccounts ? `<form id="staffCreateForm">
           <div class="field"><label class="field-label">Username</label><input name="username" required /></div>
           <div class="field"><label class="field-label">Password</label><input name="password" type="password" required /></div>
           <div class="field" style="margin-bottom:14px">
             <label class="field-label">Role</label>
-            <select name="role"><option value="staff">Staff</option><option value="owner">Owner</option></select>
+            <select name="role">
+              <option value="viewer">Viewer</option>
+              <option value="moderator">Moderator</option>
+              <option value="staff" selected>Staff</option>
+              <option value="admin">Admin</option>
+              ${state.user?.role === "owner" ? `<option value="owner">Owner</option>` : ""}
+            </select>
           </div>
           <div style="margin-bottom:14px">
             <div class="field-label" style="margin-bottom:8px">Permissions</div>
             ${permissionChecks({})}
           </div>
           <button class="btn primary">Create Account</button>
-        </form>
+        </form>` : `<div class="notice">Owner-only staff account control.</div>`}
       </div>
       <div class="card">
         <h2>🤖 Bot Role Management</h2>
         <p class="muted text-sm" style="margin-bottom:12px">Manages roles in the bot's own tables (owner_users, admin_users, managers, moderators, dj_users).</p>
-        <form id="botRoleForm">
+        ${canManageStaffAccounts ? `<form id="botRoleForm">
           <div class="field"><label class="field-label">Username</label><input name="username" required placeholder="Highrise username" /></div>
           <div class="field" style="margin-bottom:14px">
             <label class="field-label">Role</label>
@@ -3584,7 +3592,7 @@ function renderStaffPage_shared() {
             <button class="btn primary" type="submit" name="action" value="add">Add Role</button>
             <button class="btn danger" type="submit" name="action" value="remove">Remove Role</button>
           </div>
-        </form>
+        </form>` : `<div class="notice">Owner-only bot role control.</div>`}
       </div>
     </div>
     <div class="card">
@@ -3595,9 +3603,32 @@ function renderStaffPage_shared() {
         { key: "disabled", label: "State", render: (r) => r.disabled ? pill("disabled") : pill("enabled") },
         { key: "last_login_at", label: "Last Login" },
       ], (r) => `
-        <button class="btn sm" data-edit-staff="${r.id}" data-role="${esc(r.role)}" data-disabled="${r.disabled ? "1" : "0"}" data-perms="${encodeURIComponent(JSON.stringify(r.permissions || {}))}">Edit</button>
-        <button class="btn danger sm" data-remove-staff="${r.id}">Remove</button>
+        ${canManageStaffAccounts ? `<button class="btn danger sm" data-remove-staff="${r.id}">Remove</button>` : ""}
       `)}
+    </div>
+    <div class="grid">
+      ${canManageStaffAccounts ? (d.dashboard_users || []).map((u) => `<details class="advanced-collapse">
+        <summary class="advanced-summary">
+          <span class="pill ${u.disabled ? "warn" : "ok"}">${u.disabled ? "DISABLED" : "ACTIVE"}</span>
+          ${esc(u.username)} permissions
+          <span class="muted text-sm">${esc(u.role)}</span>
+        </summary>
+        <div class="advanced-content">
+          <form class="staffEditForm" data-staff-id="${u.id}">
+            <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:12px">
+              <div class="field">
+                <label class="field-label">Role</label>
+                <select name="role">
+                  ${["viewer","moderator","staff","admin"].concat(state.user?.role === "owner" ? ["owner"] : []).map((role) => `<option value="${role}" ${u.role === role ? "selected" : ""}>${role}</option>`).join("")}
+                </select>
+              </div>
+              <label class="switch" style="align-self:end"><input type="checkbox" name="disabled" ${u.disabled ? "checked" : ""}/><span>Disabled</span></label>
+            </div>
+            ${permissionChecks(u.permissions || {})}
+            <button class="btn primary sm" style="margin-top:12px">Save Staff Permissions</button>
+          </form>
+        </div>
+      </details>`).join("") : ""}
     </div>
     <div class="card">
       <h2>🤖 Bot Roles</h2>
@@ -3619,6 +3650,7 @@ function renderSystemPage(tab) {
     ${tab === "Health" ? renderSystemHealth() : ""}
     ${tab === "Logs" ? renderSystemLogs() : ""}
     ${tab === "Settings Audit" ? renderSettingsAudit() : ""}
+    ${tab === "Permissions Audit" ? renderPermissionsAudit() : ""}
     ${tab === "Database" ? renderSystemDatabase() : ""}
     ${tab === "Emergency" ? renderEmergency() : ""}
     ${tab === "Missing/Future Controls" ? renderSystemFutureControls() : ""}
@@ -3660,6 +3692,9 @@ function renderSystemLogs() {
         <input id="logAction" placeholder="Action type" value="${esc(state.logs.action_type)}" style="flex:1;min-width:100px" />
         <input id="logUser" placeholder="User" value="${esc(state.logs.user)}" style="flex:1;min-width:100px" />
         <input id="logModule" placeholder="Module / target" value="${esc(state.logs.module)}" style="flex:1;min-width:100px" />
+        <input id="logTarget" placeholder="Target" value="${esc(state.logs.target)}" style="flex:1;min-width:100px" />
+        <input id="logStatus" placeholder="Status" value="${esc(state.logs.status)}" style="flex:1;min-width:90px" />
+        <input id="logDate" type="date" value="${esc(state.logs.date)}" style="flex:1;min-width:135px" />
         <button class="btn" data-action="logs-filter">Filter</button>
         <button class="btn ghost" data-action="logs-prev">← Prev</button>
         <button class="btn ghost" data-action="logs-next">Next →</button>
@@ -3742,6 +3777,36 @@ function renderSettingsAudit() {
       purpose: "Command/source mapping not fully verified yet",
       status: "UNKNOWN",
     })), "Unknown Settings Commands")}
+  `;
+}
+
+function renderPermissionsAudit() {
+  const d = state.data || {};
+  const warnings = d.warnings || [];
+  const routes = d.routes || [];
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("Protected Routes", d.protected_count ?? 0, "public/auth/permission/owner", "accent-green", "🔐")}
+      ${metricCard("Warnings", d.warning_count ?? warnings.length, "routes needing review", warnings.length ? "accent-red" : "accent-green", "!")}
+      ${metricCard("Total Routes", d.route_count ?? routes.length, "registered Express routes", "accent-cyan", "🧭")}
+    </div>
+    <div class="card">
+      <h2>Permission Warnings</h2>
+      ${warnings.length ? table(warnings, [
+        { key: "method", label: "Method" },
+        { key: "path", label: "Route" },
+        { key: "warning", label: "Warning", render: (r) => `<span class="pill bad">${esc(r.warning)}</span>` },
+      ]) : `<div class="notice">No route permission warnings detected.</div>`}
+    </div>
+    <div class="card">
+      <h2>Route Permission Matrix</h2>
+      ${table(routes, [
+        { key: "method", label: "Method" },
+        { key: "path", label: "Route" },
+        { key: "auth", label: "Auth", render: (r) => auditStatusChip(r.auth, r.auth !== "unprotected") },
+        { key: "required_permission", label: "Permission", render: (r) => `<code>${esc(r.required_permission || (r.public ? "PUBLIC" : "AUTH"))}</code>` },
+      ])}
+    </div>
   `;
 }
 
@@ -3908,7 +3973,7 @@ function renderStaffEvents() {
       <div class="card">
         <div class="card-header"><h2>Active Event</h2>${active ? pill("active") : pill("none")}</div>
         ${active ? table([active]) : `<div class="notice">No active event.</div>`}
-        ${can("manage_games") || can("emergency_controls") ? `
+        ${can("manage_events") || can("emergency_controls") ? `
           <form id="eventStartForm" class="toolbar" style="margin-top:12px;flex-wrap:wrap">
             <input name="event_id" placeholder="event id or number" required />
             <input name="minutes" type="number" min="1" max="480" value="30" style="max-width:120px" />
@@ -3932,7 +3997,8 @@ function renderStaffEvents() {
 function renderStaffRoomTools() {
   const d = state.data || {};
   const known = d.known_settings || {};
-  const hasPerms = can("emergency_controls");
+  const canEditRoomSettings = can("emergency_controls");
+  const canAnnounce = can("manage_room") || can("manage_events") || can("emergency_controls");
 
   function boolRow(key, label) {
     const val = known[key];
@@ -3950,7 +4016,7 @@ function renderStaffRoomTools() {
     <div class="grid">
       <div class="card">
         <h2>🔧 Room Flags</h2>
-        ${hasPerms ? `
+        ${canEditRoomSettings ? `
           ${boolRow("welcome_enabled", "Welcome messages")}
           ${boolRow("public_emotes_enabled", "Public emotes")}
           ${boolRow("social_enabled", "Social features")}
@@ -3959,7 +4025,7 @@ function renderStaffRoomTools() {
       </div>
       <div class="card">
         <h2>👋 Welcome Message</h2>
-        ${hasPerms ? `
+        ${canEditRoomSettings ? `
           <form class="roomSettingForm" data-key="welcome_message" style="display:grid;gap:10px">
             <textarea name="value" rows="4" placeholder="Enter welcome message"
               style="width:100%;box-sizing:border-box;background:#0e120f;color:#fff;border:1px solid #334037;border-radius:8px;padding:10px;font:inherit;resize:vertical"
@@ -3971,13 +4037,13 @@ function renderStaffRoomTools() {
     </div>
     <div class="card">
       <h2>📢 Announcements</h2>
-      ${hasPerms ? `
+      ${canAnnounce ? `
         <form id="announcementForm" style="display:grid;gap:10px">
           <textarea name="message" rows="4" required maxlength="500" placeholder="Announcement message"></textarea>
           <button class="btn primary">Queue Announcement</button>
         </form>
         ${queueHelp()}
-      ` : `<div class="notice">Requires <code>emergency_controls</code> permission to queue announcements.</div>`}
+      ` : `<div class="notice">Requires room or event management permission to queue announcements.</div>`}
     </div>
   `;
 }
@@ -3991,6 +4057,9 @@ function renderStaffLogs() {
         <input id="logAction" placeholder="Action type" value="${esc(state.logs.action_type)}" style="flex:1;min-width:100px" />
         <input id="logUser" placeholder="User" value="${esc(state.logs.user)}" style="flex:1;min-width:100px" />
         <input id="logModule" placeholder="Module" value="${esc(state.logs.module)}" style="flex:1;min-width:100px" />
+        <input id="logTarget" placeholder="Target" value="${esc(state.logs.target)}" style="flex:1;min-width:100px" />
+        <input id="logStatus" placeholder="Status" value="${esc(state.logs.status)}" style="flex:1;min-width:90px" />
+        <input id="logDate" type="date" value="${esc(state.logs.date)}" style="flex:1;min-width:135px" />
         <button class="btn" data-action="logs-filter">Filter</button>
         <button class="btn ghost" data-action="logs-prev">← Prev</button>
         <button class="btn ghost" data-action="logs-next">Next →</button>
@@ -4015,11 +4084,31 @@ function moduleFlagTable(flags) {
 }
 
 function permissionChecks(perms) {
-  const all = ["manage_radio","manage_casino","manage_games","manage_titles","manage_staff","view_logs","emergency_controls"];
-  return `<div style="display:grid;gap:8px">${all.map((p) => `<label class="switch">
-    <input type="checkbox" name="perm_${p}" ${perms[p] ? "checked" : ""} />
-    <span>${p.replace(/_/g, " ")}</span>
-  </label>`).join("")}</div>`;
+  const all = state.data?.permissions || [
+    "view_dashboard","manage_radio","manage_casino","manage_games","manage_mining","manage_fishing",
+    "manage_room","manage_events","manage_emotes","manage_players","manage_economy","manage_inventory",
+    "manage_moderation","manage_staff","manage_bots","manage_bot_config","view_logs","emergency_controls","db_admin",
+  ];
+  const groups = {
+    Radio: ["manage_radio"],
+    Players: ["manage_players", "manage_inventory", "manage_moderation"],
+    Economy: ["manage_economy"],
+    Games: ["manage_casino", "manage_games", "manage_mining", "manage_fishing"],
+    Room: ["manage_room", "manage_events", "manage_emotes"],
+    Bots: ["manage_bots", "manage_bot_config"],
+    Logs: ["view_logs"],
+    Emergency: ["emergency_controls"],
+    System: ["view_dashboard", "manage_staff", "db_admin"],
+  };
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px">
+    ${Object.entries(groups).map(([group, keys]) => `<div>
+      <div class="field-label" style="margin-bottom:6px">${esc(group)}</div>
+      <div style="display:grid;gap:6px">${keys.filter((p) => all.includes(p)).map((p) => `<label class="switch">
+        <input type="checkbox" name="perm_${p}" ${perms[p] ? "checked" : ""} />
+        <span>${p.replace(/_/g, " ")}</span>
+      </label>`).join("")}</div>
+    </div>`).join("")}
+  </div>`;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -4664,13 +4753,17 @@ function bindAdminPageEvents() {
       });
     });
   });
-  document.querySelectorAll("[data-edit-staff]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.editStaff;
-      const role = prompt("Role (owner/staff):", btn.dataset.role);
-      if (!role) return;
-      action("Staff updated.", () =>
-        api(`/api/staff/${id}`, { method: "PUT", body: JSON.stringify({ role, disabled: btn.dataset.disabled === "1", permissions: {} }) }));
+  document.querySelectorAll(".staffEditForm").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      const perms = {};
+      for (const [k, v] of Object.entries(data)) if (k.startsWith("perm_")) perms[k.slice(5)] = v === "on";
+      await action("Staff permissions updated.", () =>
+        api(`/api/staff/${form.dataset.staffId}`, {
+          method: "PUT",
+          body: JSON.stringify({ role: data.role, disabled: data.disabled === "on", permissions: perms }),
+        }));
     });
   });
 
@@ -4719,6 +4812,9 @@ function bindAdminPageEvents() {
     state.logs.action_type = document.getElementById("logAction")?.value || "";
     state.logs.user = document.getElementById("logUser")?.value || "";
     state.logs.module = document.getElementById("logModule")?.value || "";
+    state.logs.target = document.getElementById("logTarget")?.value || "";
+    state.logs.status = document.getElementById("logStatus")?.value || "";
+    state.logs.date = document.getElementById("logDate")?.value || "";
     state.logs.offset = 0; loadAdmin();
   });
   document.querySelector('[data-action="logs-prev"]')?.addEventListener("click", () => {
