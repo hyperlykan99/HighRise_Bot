@@ -3830,6 +3830,7 @@ function buildQaAudit() {
     ["Settings Audit", "/api/settings-audit"],
     ["Permissions Audit", "/api/permissions/audit"],
     ["QA Audit", "/api/qa/audit"],
+    ["E2E Audit", "/api/e2e/audit"],
   ].map(([page, api]) => ({ page, api, status: !api || hasEndpoint(api) ? "ok" : "missing" }));
   const staffRoutes = [
     ["Staff Home", "/api/overview"],
@@ -3842,7 +3843,7 @@ function buildQaAudit() {
   ].map(([page, api]) => ({ page, api, status: !api || hasEndpoint(api) ? "ok" : "missing" }));
   const expectedRenderers = [
     "renderPublicHome", "renderPublicRadio", "renderPublicHowToPlay", "renderPublicCasino", "renderPublicMining", "renderPublicFishing", "renderPublicQuests", "renderPublicEvents", "renderPublicRankings", "renderPublicRoomInfo",
-    "renderCommandCenter", "renderOperationsCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderQuestsMissionsPage", "renderAutomationCenterPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit",
+    "renderCommandCenter", "renderOperationsCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderQuestsMissionsPage", "renderAutomationCenterPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit", "renderE2eAudit",
     "renderStaffHome", "renderStaffRadioQueue", "renderStaffPlayers", "renderStaffEvents", "renderStaffRoomTools", "renderStaffLogs",
   ];
   const missingRenderers = expectedRenderers.filter((name) => !new RegExp(`function\\s+${name}\\s*\\(`).test(appSource));
@@ -3857,7 +3858,7 @@ function buildQaAudit() {
     .map((pathValue) => ({ endpoint: pathValue, reason: "No matching server route pattern found" }));
   const dataAttrs = [...new Set([...appSource.matchAll(/data-([a-z0-9-]+)=/gi)].map((m) => m[1]))];
   const handledAttrs = new Set([
-    "pub-page", "manual-tab", "ranking-tab", "admin-page", "page-tab", "maint-tab", "action",
+    "pub-page", "manual-tab", "ranking-tab", "admin-page", "admin-tab", "nav-id", "page-tab", "maint-tab", "action",
     "bot-command", "target-bot", "dancefloor-command", "sync-command", "sync-persist",
     "player-jump", "remove-item", "quick-item", "quick-type", "remove-title", "remove-badge",
     "report-review", "report-resolve", "security-unmute", "security-bot-action",
@@ -3910,6 +3911,160 @@ function buildQaAudit() {
     broken_routes_count: [...publicRoutes, ...ownerPages, ...staffRoutes].filter((row) => row.status === "missing").length + missingRenderers.length,
     issues,
     last_checked_at: nowIso(),
+  };
+}
+
+function routeToRegex(routePath) {
+  const escaped = String(routePath || "")
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/:([A-Za-z0-9_]+)/g, "[^/]+")
+    .replace(/\\\*/g, ".*");
+  return new RegExp(`^${escaped.replace(/\\\/$/, "")}\\/?$`);
+}
+
+function routeExists(apiPath, method = "GET") {
+  const cleanPath = String(apiPath || "").split("?")[0].replace(/\/$/, "") || "/";
+  return ROUTE_SECURITY.some((route) => route.method === method && routeToRegex(route.path).test(cleanPath));
+}
+
+function buildE2eAudit(db) {
+  const appJsPath = path.join(PUBLIC_DIR, "app.js");
+  const appSource = fs.existsSync(appJsPath) ? fs.readFileSync(appJsPath, "utf8") : "";
+  const serverSource = fs.existsSync(fileURLToPath(import.meta.url)) ? fs.readFileSync(fileURLToPath(import.meta.url), "utf8") : "";
+  const relayPath = path.join(BOT_ROOT, "modules", "bot_command_relay.py");
+  const relaySource = fs.existsSync(relayPath) ? fs.readFileSync(relayPath, "utf8") : "";
+  const qa = buildQaAudit();
+  const permissionAudit = buildPermissionsAudit();
+  const dbHealth = dbHealthSnapshot(db);
+  const queueHealth = readOperationsQueue(db);
+  const publicPages = [
+    ["Home", "/api/public/home"],
+    ["Radio", "/api/public/radio"],
+    ["How to Play", "/api/public/how-to-play"],
+    ["Casino", "/api/public/casino"],
+    ["Mining", "/api/public/mining"],
+    ["Fishing", "/api/public/fishing"],
+    ["Events", "/api/public/events"],
+    ["Rankings", "/api/public/rankings"],
+    ["Room Info", "/api/public/room-info"],
+    ["Owner Login", null],
+  ].map(([page, api]) => ({ page, api, status: !api || routeExists(api) ? "PASS" : "MISSING_ENDPOINT" }));
+  const ownerPages = [
+    ["Command Center", "/api/overview"],
+    ["Operations Center", "/api/operations"],
+    ["Bots", "/api/bot-control"],
+    ["Room & Content", "/api/room-control"],
+    ["Radio", "/api/radio"],
+    ["Emotes", "/api/emotes/overview"],
+    ["Automation Center", "/api/automation"],
+    ["Casino", "/api/casino"],
+    ["Mining", "/api/mining"],
+    ["Fishing", "/api/fishing"],
+    ["Quests & Missions", "/api/quests"],
+    ["Events", "/api/events"],
+    ["Players", null],
+    ["Economy & Rewards", "/api/economy/overview"],
+    ["Leaderboards", "/api/leaderboards"],
+    ["Security", "/api/security"],
+    ["Staff", "/api/staff"],
+    ["Permissions Audit", "/api/permissions/audit"],
+    ["System Overview", "/api/healthz"],
+    ["Maintenance Center", "/api/maintenance/overview"],
+    ["Settings Audit", "/api/settings-audit"],
+    ["QA Audit", "/api/qa/audit"],
+    ["E2E Audit", "/api/e2e/audit"],
+    ["Logs / Errors", "/api/logs"],
+  ].map(([page, api]) => ({ page, api, status: !api || routeExists(api) ? "PASS" : "MISSING_ENDPOINT" }));
+  const staffPages = [
+    ["Staff Home", "/api/overview"],
+    ["Radio Queue", "/api/radio"],
+    ["Players", null],
+    ["Events", "/api/events"],
+    ["Room Tools", "/api/room-control"],
+    ["Moderation", "/api/security"],
+    ["Logs", "/api/logs"],
+  ].map(([page, api]) => ({ page, api, status: !api || routeExists(api) ? "PASS" : "MISSING_ENDPOINT" }));
+  const visibleQueueActions = [...new Set([...appSource.matchAll(/data-bot-command="([^"]+)"/g)].map((m) => m[1]))];
+  const relaySupported = new Set([...relaySource.matchAll(/"([a-z0-9_]+)":\s*_do_/g)].map((m) => m[1]));
+  const allowedActions = [...serverSource.matchAll(/"([a-z0-9_]+)",/g)]
+    .map((m) => m[1])
+    .filter((value) => /^(return_home|stop_emote|restart_requested|announce|trigger_emote|radio_|event_|dancefloor_|sync_|botemote_|warn_user|mute_user|unmute_user|jail_user|unjail_user|security_alert|promo_message)/.test(value));
+  const queueSmokeTests = [
+    { action: "queue announcement", endpoint: "/api/room/announce", method: "POST", consumer_action: "announce" },
+    { action: "queue stop emote", endpoint: "/api/bot-command", method: "POST", consumer_action: "stop_emote" },
+    { action: "queue home", endpoint: "/api/bot-command", method: "POST", consumer_action: "return_home" },
+    { action: "queue radio skip", endpoint: "/api/radio/skip", method: "POST", consumer_action: "radio_skip" },
+    { action: "queue room announce", endpoint: "/api/room/announce", method: "POST", consumer_action: "announce" },
+  ].map((row) => ({
+    ...row,
+    endpoint_status: routeExists(row.endpoint, row.method) ? "PASS" : "MISSING_ENDPOINT",
+    consumer_status: relaySupported.has(row.consumer_action) ? "PASS" : "QUEUED_ONLY",
+  }));
+  const secretPattern = /(?:TOKEN|SECRET|PASSWORD|AZURA_API_KEY|HIGHRISE.*KEY|\.env\s*[:=])/i;
+  const publicSection = appSource.slice(appSource.indexOf("PUBLIC PORTAL"), appSource.indexOf("ADMIN SHELL"));
+  const tokenExposureCheck = {
+    public_render_sensitive_match: secretPattern.test(publicSection),
+    public_api_route_sensitive_names: ROUTE_SECURITY.filter((route) => route.public && secretPattern.test(route.path)),
+    status: !secretPattern.test(publicSection) ? "PASS" : "REVIEW",
+  };
+  const publicSafetyIssues = [...qa.public_safety_warnings];
+  if (tokenExposureCheck.public_render_sensitive_match) {
+    publicSafetyIssues.push({ warning: "public_token_pattern", message: "Public renderer contains sensitive-looking text." });
+  }
+  const commandConsumerGaps = visibleQueueActions
+    .filter((action) => !relaySupported.has(action))
+    .map((action) => ({ action, status: "QUEUED_ONLY", message: "Visible queued action is not explicitly consumed by bot_command_relay.py." }));
+  const criticalIssues = [
+    ...publicPages.filter((row) => row.status !== "PASS").map((row) => ({ severity: "CRITICAL", area: "public", item: row.page, message: row.status })),
+    ...ownerPages.filter((row) => row.status !== "PASS").map((row) => ({ severity: "CRITICAL", area: "owner", item: row.page, message: row.status })),
+    ...staffPages.filter((row) => row.status !== "PASS").map((row) => ({ severity: "CRITICAL", area: "staff", item: row.page, message: row.status })),
+    ...qa.missing_endpoints.map((row) => ({ severity: "CRITICAL", area: "api", item: row.endpoint, message: row.reason })),
+    ...qa.missing_renderers.map((name) => ({ severity: "CRITICAL", area: "frontend", item: name, message: "Missing renderer." })),
+    ...publicSafetyIssues.map((row) => ({ severity: "CRITICAL", area: "public-safety", item: row.warning, message: row.message })),
+  ];
+  const warnings = [
+    ...qa.buttons_without_handlers.map((row) => ({ severity: "WARNING", area: "button", item: row.selector, message: row.reason })),
+    ...permissionAudit.warnings.map((row) => ({ severity: "WARNING", area: "permission", item: `${row.method} ${row.path}`, message: row.warning })),
+    ...commandConsumerGaps.map((row) => ({ severity: "WARNING", area: "command-queue", item: row.action, message: row.message })),
+  ];
+  const passedChecks = [
+    { check: "Public portal route registry", status: publicPages.every((row) => row.status === "PASS") ? "PASS" : "FAIL" },
+    { check: "Owner dashboard route registry", status: ownerPages.every((row) => row.status === "PASS") ? "PASS" : "FAIL" },
+    { check: "Staff console route registry", status: staffPages.every((row) => row.status === "PASS") ? "PASS" : "FAIL" },
+    { check: "No missing render functions", status: qa.missing_renderers.length ? "FAIL" : "PASS" },
+    { check: "No missing visible API endpoints", status: qa.missing_endpoints.length ? "FAIL" : "PASS" },
+    { check: "Public token exposure static check", status: tokenExposureCheck.status },
+    { check: "Bot command queue smoke endpoint coverage", status: queueSmokeTests.every((row) => row.endpoint_status === "PASS") ? "PASS" : "FAIL" },
+    { check: "SQLite integrity", status: dbHealth.integrity_check === "ok" ? "PASS" : "WARN" },
+  ];
+  const issues = [...criticalIssues, ...warnings];
+  return {
+    generated_at: nowIso(),
+    public_pages: publicPages,
+    owner_pages: ownerPages,
+    staff_pages: staffPages,
+    frontend_routes: qa.frontend_pages,
+    api_routes: ROUTE_SECURITY,
+    missing_endpoints: qa.missing_endpoints,
+    broken_buttons: qa.buttons_without_handlers,
+    permission_issues: permissionAudit.warnings,
+    public_safety_issues: publicSafetyIssues,
+    token_exposure_check: tokenExposureCheck,
+    command_queue_health: {
+      counts: queueHealth.counts,
+      visible_queue_actions: visibleQueueActions,
+      allowed_actions: [...new Set(allowedActions)].sort(),
+      relay_supported_actions: [...relaySupported].sort(),
+      consumer_gaps: commandConsumerGaps,
+      smoke_tests: queueSmokeTests,
+    },
+    db_health: dbHealth,
+    critical_issues: criticalIssues,
+    warnings,
+    passed_checks: passedChecks,
+    recommendations: issues.length
+      ? issues.map((issue) => ({ area: issue.area, recommendation: `Review ${issue.item}: ${issue.message}` })).slice(0, 30)
+      : [{ area: "dashboard", recommendation: "No static E2E issues detected. Continue with logged-in browser smoke testing after deploy." }],
   };
 }
 
@@ -4036,6 +4191,10 @@ app.get("/api/permissions/audit", requireAuth, requireOwner, (_req, res) => {
 
 app.get("/api/qa/audit", requireAuth, requireOwner, (_req, res) => {
   json(res, buildQaAudit());
+}, closeDb);
+
+app.get("/api/e2e/audit", requireAuth, requireOwner, (req, res) => {
+  json(res, buildE2eAudit(req.db));
 }, closeDb);
 
 app.get("/api/public-settings", requireAuth, requireOwner, (req, res) => {

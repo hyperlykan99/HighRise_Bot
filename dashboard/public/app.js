@@ -51,6 +51,7 @@ const OWNER_NAV_GROUPS = [
     { id: "Maintenance Center", page: "System", tab: "Maintenance Center", icon: "🧰", label: "Maintenance Center", ownerOnly: true, keywords: "backup restore database cleanup" },
     { id: "Settings Audit", page: "System", tab: "Settings Audit", icon: "🧭", label: "Settings Audit", ownerOnly: true, keywords: "settings command audit mapping" },
     { id: "QA Audit", page: "System", tab: "QA Audit", icon: "✅", label: "QA Audit", ownerOnly: true, keywords: "qa broken routes buttons" },
+    { id: "E2E Audit", page: "System", tab: "E2E Audit", icon: "🧪", label: "E2E Audit", ownerOnly: true, keywords: "end to end stabilization audit smoke" },
     { id: "Logs / Errors", page: "System", tab: "Logs", icon: "📋", label: "Logs / Errors", permission: "view_logs", keywords: "logs audit command errors" },
   ]},
 ];
@@ -232,6 +233,7 @@ const SYSTEM_TABS = [
   { id: "Settings Audit", api: "/api/settings-audit" },
   { id: "Permissions Audit", api: "/api/permissions/audit" },
   { id: "QA Audit", api: "/api/qa/audit" },
+  { id: "E2E Audit", api: "/api/e2e/audit" },
   { id: "Maintenance Center", api: "/api/maintenance/overview" },
   { id: "Database", api: "/api/db/inspect" },
   { id: "Emergency", api: "/api/settings" },
@@ -302,6 +304,7 @@ const PAGE_DESC = {
   "Settings Audit":    "Verified command-to-dashboard settings source mapping",
   "Permissions Audit": "Route protection, owner-only checks and permission coverage",
   "QA Audit":          "Static dashboard route, renderer and button audit",
+  "E2E Audit":         "End-to-end route, button, permission and safety stabilization audit",
   "Logs / Errors":     "Audit logs, command errors and admin action history",
   "Staff Home":        "Room health and pending attention items",
   "Radio Queue":       "DJ queue management and radio controls",
@@ -5667,6 +5670,7 @@ function renderSystemPage(tab) {
     ${tab === "Settings Audit" ? renderSettingsAudit() : ""}
     ${tab === "Permissions Audit" ? renderPermissionsAudit() : ""}
     ${tab === "QA Audit" ? renderQaAudit() : ""}
+    ${tab === "E2E Audit" ? renderE2eAudit() : ""}
     ${tab === "Maintenance Center" ? renderMaintenanceCenter() : ""}
     ${tab === "Database" ? renderSystemDatabase() : ""}
     ${tab === "Emergency" ? renderEmergency() : ""}
@@ -5753,6 +5757,79 @@ function renderQaAudit() {
         { key: "path", label: "Path", render: (r) => `<code>${esc(r.path)}</code>` },
         { key: "auth", label: "Auth", render: (r) => auditStatusChip(r.auth, r.auth !== "unprotected") },
       ])}
+    </div>
+  `;
+}
+
+function renderE2eAudit() {
+  const d = state.data || {};
+  const critical = d.critical_issues || [];
+  const warnings = d.warnings || [];
+  const passed = d.passed_checks || [];
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("Critical Issues", critical.length, "must fix before deploy", critical.length ? "accent-red" : "accent-green", "!")}
+      ${metricCard("Warnings", warnings.length, "review before launch", warnings.length ? "accent-red" : "accent-green", "WARN")}
+      ${metricCard("Passed Checks", passed.filter((row) => row.status === "PASS").length, "static E2E checks", "accent-green", "OK")}
+      ${metricCard("Queue Failed", d.command_queue_health?.counts?.failed ?? 0, "bot_command_queue", d.command_queue_health?.counts?.failed ? "accent-red" : "accent-green", "Q")}
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Final Dashboard E2E Audit</h2>
+          <div class="muted text-sm">Generated: ${esc(d.generated_at || "—")}</div>
+        </div>
+        <span class="pill ${critical.length ? "bad" : warnings.length ? "warn" : "ok"}">${critical.length ? "CRITICAL" : warnings.length ? "WARNING" : "PASS"}</span>
+      </div>
+      ${critical.length ? table(critical, [
+        { key: "severity", label: "Severity", render: (r) => `<span class="pill bad">${esc(r.severity)}</span>` },
+        { key: "area", label: "Area" },
+        { key: "item", label: "Item" },
+        { key: "message", label: "Issue" },
+      ]) : `<div class="notice success">No critical E2E issues detected by the static audit.</div>`}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Warnings</h2>
+        ${warnings.length ? table(warnings, [
+          { key: "severity", label: "Severity", render: (r) => `<span class="pill warn">${esc(r.severity)}</span>` },
+          { key: "area", label: "Area" },
+          { key: "item", label: "Item" },
+          { key: "message", label: "Warning" },
+        ]) : `<div class="notice success">No warnings detected.</div>`}
+      </div>
+      <div class="card">
+        <h2>Passed Checks</h2>
+        ${table(passed, [
+          { key: "check", label: "Check" },
+          { key: "status", label: "Status", render: (r) => auditStatusChip(r.status, r.status === "PASS") },
+        ])}
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Public Pages</h2>${table(d.public_pages || [])}</div>
+      <div class="card"><h2>Owner Pages</h2>${table(d.owner_pages || [])}</div>
+      <div class="card"><h2>Staff Pages</h2>${table(d.staff_pages || [])}</div>
+    </div>
+    <div class="card">
+      <h2>Bot Command Queue Smoke Coverage</h2>
+      ${table(d.command_queue_health?.smoke_tests || [], [
+        { key: "action", label: "Visible Action" },
+        { key: "endpoint", label: "Endpoint", render: (r) => `<code>${esc(`${r.method} ${r.endpoint}`)}</code>` },
+        { key: "endpoint_status", label: "Endpoint", render: (r) => auditStatusChip(r.endpoint_status, r.endpoint_status === "PASS") },
+        { key: "consumer_action", label: "Consumer Action" },
+        { key: "consumer_status", label: "Consumer", render: (r) => auditStatusChip(r.consumer_status, r.consumer_status === "PASS") },
+      ])}
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Broken Buttons</h2>${table(d.broken_buttons || [])}</div>
+      <div class="card"><h2>Missing Endpoints</h2>${table(d.missing_endpoints || [])}</div>
+      <div class="card"><h2>Permission Warnings</h2>${table(d.permission_issues || [])}</div>
+      <div class="card"><h2>Public Safety</h2>${table(d.public_safety_issues || [])}</div>
+    </div>
+    <div class="card">
+      <h2>Recommendations</h2>
+      ${table(d.recommendations || [])}
     </div>
   `;
 }
