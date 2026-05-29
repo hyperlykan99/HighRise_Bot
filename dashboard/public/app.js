@@ -4315,15 +4315,22 @@ function renderRaritySummaryCards(rows, section) {
   const byRarity = new Map((rows || []).map((row) => [normalizeGameRarity(row.rarity), row]));
   return `<div class="owner-rarity-grid">${GAME_RARITY_ORDER.map((rarity) => {
     const row = byRarity.get(rarity) || { rarity, label: gameRarityLabel(rarity), total_items: 0, total_weight: 0, chance_label: "Not currently dropping" };
-    const runtimeLabel = row.runtime_connected ? "CONNECTED TO !mine" : "Planning";
+    const commandLabel = section === "Fishing" ? "!FISH" : "!MINE";
+    const itemLabel = section === "Fishing" ? "Fish in rarity" : "Ores in rarity";
+    const enabledLabel = section === "Fishing" ? "Enabled fish" : "Enabled ores";
+    const emptyHelper = section === "Fishing" && Number(row.total_items || 0) === 0 && Number(row.enabled_items || 0) === 0
+      ? `<p class="manual-note">No fish currently assigned to this rarity.</p>`
+      : "";
+    const runtimeLabel = row.runtime_connected ? `CONNECTED TO ${commandLabel}` : "Planning";
     return `<div class="card owner-rarity-card">
       <div class="owner-rarity-head">${rarityChipHtml(rarity, row.label || gameRarityLabel(rarity))}<span class="pill ${row.runtime_connected ? "ok" : "warn"}">${runtimeLabel}</span></div>
       <div class="manual-info-grid compact">
-        <div><span>${section === "Fishing" ? "Fish" : "Ores"}</span><strong>${esc(row.total_items ?? 0)}</strong></div>
-        <div><span>Enabled</span><strong>${esc(row.enabled_items ?? 0)}</strong></div>
+        <div><span>${itemLabel}</span><strong>${esc(row.total_items ?? 0)}</strong></div>
+        <div><span>${enabledLabel}</span><strong>${esc(row.enabled_items ?? 0)}</strong></div>
         <div><span>Base Weight</span><strong>${esc(row.base_weight ?? row.base_chance ?? "—")}</strong></div>
         <div><span>Total Chance</span><strong>${esc(row.chance_label || publicPercent(row.chance_percent))}</strong></div>
       </div>
+      ${emptyHelper}
       <form class="settings-fields compact rarityChanceForm" data-rarity-chance-form="${esc(section)}" data-rarity="${esc(rarity)}">
         <label class="field-label">Base Weight / Chance</label>
         <input type="number" step="0.0001" min="0" name="base_weight" value="${esc(row.base_weight ?? row.base_chance ?? "")}" />
@@ -4340,12 +4347,12 @@ function renderMiningRaritiesPage() {
   return `<div class="card">
     <div class="card-header">
       <div><h2>Rarity Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from DB-backed ores and active runtime rarity odds.")}</div></div>
-      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !mine" : "Dashboard planning"}</span>
+      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !MINE" : "Dashboard planning"}</span>
     </div>
     ${renderRaritySummaryCards(d.rows || [], "Mining")}
     ${futureControls([
-      { endpoint: "PUT /api/mining/rarities/:rarity", purpose: "Edit base rarity weights", status: d.runtime_connected ? "Connected to !mine" : "Stored, runtime not connected" },
-      { endpoint: "PUT /api/mining/ores/:id", purpose: "Edit per-ore drop weights", status: d.runtime_connected ? "Connected to !mine" : "Unverified schema" },
+      { endpoint: "PUT /api/mining/rarities/:rarity", purpose: "Edit base rarity weights", status: d.runtime_connected ? "Connected to !MINE" : "Stored, runtime not connected" },
+      { endpoint: "PUT /api/mining/ores/:id", purpose: "Edit per-ore drop weights", status: d.runtime_connected ? "Connected to !MINE" : "Unverified schema" },
     ], "Advanced / Rarity Writes")}
   </div>`;
 }
@@ -4416,7 +4423,7 @@ function renderMiningOresPage() {
     <div class="card">
       <div class="card-header">
         <div><h2>Ores</h2><div class="muted text-sm">Editable source: <code>mining_items</code> + <code>mining_item_weights</code>. Select a rarity before editing.</div></div>
-        ${d.runtime_connected ? `<span class="pill ok">CONNECTED TO !mine</span>` : pill(d.writable ? "enabled" : "read only")}
+        ${d.runtime_connected ? `<span class="pill ok">CONNECTED TO !MINE</span>` : pill(d.writable ? "enabled" : "read only")}
       </div>
       ${ownerRarityTabs("Mining", order)}
       ${renderResourceToolbar({ search: "Search ores" })}
@@ -4538,12 +4545,12 @@ function renderFishingRaritiesPage() {
   return `<div class="card">
     <div class="card-header">
       <div><h2>Rarity Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from runtime fish catalog catch weights.")}</div></div>
-      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !fish" : "Dashboard planning"}</span>
+      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !FISH" : "Dashboard planning"}</span>
     </div>
     ${renderRaritySummaryCards(d.rows || [], "Fishing")}
     ${futureControls([
-      { endpoint: "PUT /api/fishing/rarities/:rarity", purpose: "Edit base rarity weights", status: d.runtime_connected ? "Connected to !fish" : "Stored, runtime not connected" },
-      { endpoint: "PUT /api/fishing/fish/:id", purpose: "Edit per-fish catch weights", status: d.runtime_connected ? "Connected to !fish" : "Unverified schema" },
+      { endpoint: "PUT /api/fishing/rarities/:rarity", purpose: "Edit base rarity weights", status: d.runtime_connected ? "Connected to !FISH" : "Stored, runtime not connected" },
+      { endpoint: "PUT /api/fishing/fish/:id", purpose: "Edit per-fish catch weights", status: d.runtime_connected ? "Connected to !FISH" : "Unverified schema" },
     ], "Advanced / Rarity Writes")}
   </div>`;
 }
@@ -4594,7 +4601,7 @@ function renderFishingCatalogPage() {
   const rows = (d.rows || []).filter((row) => normalizeGameRarity(row.rarity) === current);
   const writable = !!d.writable;
   return `<div class="card">
-    <div class="card-header"><div><h2>Fish Catalog</h2><div class="muted text-sm">${esc(d.message || "DB-backed fish_catalog editor")}</div></div><span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !fish" : "Runtime constant"}</span></div>
+    <div class="card-header"><div><h2>Fish Catalog</h2><div class="muted text-sm">${esc(d.message || "DB-backed fish_catalog editor")}</div></div><span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !FISH" : "Runtime constant"}</span></div>
     ${ownerRarityTabs("Fishing", order)}
     ${renderResourceToolbar({ search: "Search fish" })}
     ${writable ? `<details class="advanced-collapse" open>
@@ -4630,7 +4637,7 @@ function renderFishingCatalogPage() {
         <button class="btn primary sm" type="submit">Save</button>
         <button class="btn danger sm" type="button" data-fishing-fish-disable="${esc(r.fish_id)}">Disable</button>
       </form>` : "")}
-    ${futureControls([{ endpoint: "POST/PUT /api/fishing/fish", purpose: "Add/edit fish catalog", status: writable ? "Connected to !fish" : "Unverified schema" }], "Advanced / Fish Catalog Writes")}
+    ${futureControls([{ endpoint: "POST/PUT /api/fishing/fish", purpose: "Add/edit fish catalog", status: writable ? "Connected to !FISH" : "Unverified schema" }], "Advanced / Fish Catalog Writes")}
   </div>`;
 }
 
@@ -4672,7 +4679,7 @@ function renderFishingAdvancedPage() {
   const raw = d.raw || {};
   return `
     ${futureControls([
-      { endpoint: "POST/PUT /api/fishing/fish", purpose: "Fish catalog writes", status: d.table_status?.fish_catalog ? "Connected to !fish" : "Unverified schema" },
+      { endpoint: "POST/PUT /api/fishing/fish", purpose: "Fish catalog writes", status: d.table_status?.fish_catalog ? "Connected to !FISH" : "Unverified schema" },
       { endpoint: "POST /api/fishing/rods", purpose: "Rod catalog writes", status: "Unverified schema" },
       { endpoint: "PUT /api/fishing/fish/:id", purpose: "Catch chance edits", status: d.table_status?.fish_catalog ? "Connected through catch_weight" : "Unverified schema" },
       { endpoint: "forced fishing drops", purpose: "Create/clear forced_fishing_drops", status: "Endpoint needed" },
