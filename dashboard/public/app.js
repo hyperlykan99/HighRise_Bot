@@ -865,9 +865,13 @@ function shortUserId(userId) {
 }
 
 function displayUser(row = {}) {
-  const name = row.username || row.display_name || row.player_name || row.target_username || row.target_name || row.seller_username || row.buyer_username || row.requester_username || row.name;
+  const hiddenId = row.user_id || row.uid || row.requester_id || row.target_user_id || row.owner_id || "";
+  const name = row.resolved_username || row.username || row.display_name || row.player_name || row.target_username || row.target_name || row.seller_username || row.buyer_username || row.requester_username || (!hiddenId ? row.name : "");
   if (name && !looksLikeUserId(name)) return String(name);
-  return "Unknown Player";
+  const lookup = hiddenId && state.user?.role === "owner"
+    ? ` <button class="btn ghost sm" data-user-lookup="${esc(hiddenId)}">Lookup</button>`
+    : "";
+  return `Unknown Player <span class="pill warn">lookup needed</span>${lookup}`;
 }
 
 function filterTechnicalColumns(rows, cols, { showTechnical = false } = {}) {
@@ -5211,7 +5215,7 @@ function questColumns() {
 
 function questProgressColumns() {
   return [
-    { key: "username", label: "Player", render: (r) => `${esc(r.username || "Unknown Player")}${r.fallback_id ? `<div class="muted text-sm">id ${esc(r.fallback_id)}...</div>` : ""}` },
+    { key: "username", label: "Player", render: (r) => r.username && r.username !== "Unknown Player" ? esc(r.username) : displayUser(r) },
     { key: "quest_id", label: "Quest", render: (r) => esc(r.quest_id || r.mission_id || r.name || r.title || "—") },
     { key: "progress", label: "Progress", render: (r) => {
       const pct = r.completion_percent;
@@ -7854,6 +7858,15 @@ function bindAdminPageEvents() {
       } catch {
         prompt("Copy value", text);
       }
+    });
+  });
+  document.querySelectorAll("[data-user-lookup]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const q = btn.dataset.userLookup || "";
+      state.userIdLookup = await api(`/api/users/lookup?q=${encodeURIComponent(q)}`);
+      state.adminPage = "Players";
+      state.adminTab.Players = "User ID Lookup";
+      render();
     });
   });
   document.getElementById("grantCoinsForm")?.addEventListener("submit", (e) => {

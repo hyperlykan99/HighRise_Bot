@@ -3667,6 +3667,42 @@ function vipRows(db, limit = 500) {
   return rowsOrEmpty(db, "owned_items", sql, limit);
 }
 
+function usernameResolutionMap(db) {
+  const map = new Map();
+  const addRows = (table) => {
+    if (!tableExists(db, table) || !columnExists(db, table, "user_id") || !columnExists(db, table, "username")) return;
+    for (const row of safeRows(db, table, ["user_id", "username"], { limit: "100000" })) {
+      if (row.user_id && row.username && !map.has(String(row.user_id))) map.set(String(row.user_id), row.username);
+    }
+  };
+  for (const table of ["users", "fish_profiles", "mining_players", "premium_balances"]) addRows(table);
+  return map;
+}
+
+function resolveUsername(db, row = {}, users = null) {
+  const direct = row.resolved_username || row.username || row.display_name || row.player_name || row.user_name;
+  if (direct && !/^[a-z0-9_-]{18,}$/i.test(String(direct))) return direct;
+  const lookup = users || usernameResolutionMap(db);
+  for (const key of ["user_id", "uid", "highrise_user_id", "buyer_id", "seller_id", "target_user_id", "requester_id", "owner_id"]) {
+    const id = row[key];
+    if (id && lookup.has(String(id))) return lookup.get(String(id));
+  }
+  const name = row.name;
+  if (name && !row.user_id && !/^[a-z0-9_-]{18,}$/i.test(String(name)) && !String(name).includes("_id")) return name;
+  return "Unknown Player";
+}
+
+function enrichResolvedUsers(db, rows = []) {
+  const users = usernameResolutionMap(db);
+  return (rows || []).map((row) => {
+    const resolved = resolveUsername(db, row, users);
+    const out = { ...row, resolved_username: resolved };
+    if (!out.username && resolved !== "Unknown Player") out.username = resolved;
+    if (resolved === "Unknown Player" && (row.user_id || row.uid || row.requester_id || row.target_user_id)) out.lookup_needed = 1;
+    return out;
+  });
+}
+
 function readRewardsDashboard(db) {
   const tables = [
     "owned_items", "user_badges", "user_titles", "player_titles", "title_catalog", "title_loadouts",
@@ -3676,7 +3712,7 @@ function readRewardsDashboard(db) {
     "premium_balances", "premium_transactions", "premium_settings", "luxe_ticket_logs", "luxe_conversion_logs",
     "subscriber_users", "subscriber_announcements", "emoji_badges",
   ];
-  const ownedItems = safeTableRows(db, "owned_items", { limit: "500" });
+  const ownedItems = enrichResolvedUsers(db, safeTableRows(db, "owned_items", { limit: "500" }));
   const vipPlayers = vipRows(db);
   return {
     overview: {
@@ -3694,13 +3730,13 @@ function readRewardsDashboard(db) {
     owned_items: ownedItems,
     titles: {
       catalog: safeTableRows(db, "title_catalog", { orderBy: columnExists(db, "title_catalog", "tier") ? "tier, title_id" : "", limit: "500" }),
-      assigned: safeTableRows(db, "user_titles", { orderBy: columnExists(db, "user_titles", "unlocked_at") ? "unlocked_at DESC" : "", limit: "500" }),
-      dashboard_titles: safeTableRows(db, "player_titles", { orderBy: "id DESC", limit: "500" }),
+      assigned: enrichResolvedUsers(db, safeTableRows(db, "user_titles", { orderBy: columnExists(db, "user_titles", "unlocked_at") ? "unlocked_at DESC" : "", limit: "500" })),
+      dashboard_titles: enrichResolvedUsers(db, safeTableRows(db, "player_titles", { orderBy: "id DESC", limit: "500" })),
       loadouts: safeTableRows(db, "title_loadouts", { limit: "200" }),
     },
     badges: {
-      owned: safeTableRows(db, "user_badges", { orderBy: columnExists(db, "user_badges", "acquired_at") ? "acquired_at DESC" : "", limit: "500" }),
-      claims: safeTableRows(db, "badge_claims", { limit: "500" }),
+      owned: enrichResolvedUsers(db, safeTableRows(db, "user_badges", { orderBy: columnExists(db, "user_badges", "acquired_at") ? "acquired_at DESC" : "", limit: "500" })),
+      claims: enrichResolvedUsers(db, safeTableRows(db, "badge_claims", { limit: "500" })),
       market_listings: safeTableRows(db, "badge_market_listings", { limit: "200" }),
       market_logs: safeTableRows(db, "badge_market_logs", { limit: "200" }),
       trades: safeTableRows(db, "badge_trades", { limit: "200" }),
@@ -3708,21 +3744,21 @@ function readRewardsDashboard(db) {
     },
     rewards: {
       onboarding: safeTableRows(db, "onboarding_rewards_log", { limit: "200" }),
-      pending_coin_rewards: safeTableRows(db, "pending_coin_rewards", { limit: "200" }),
-      weekly_rewards: safeTableRows(db, "weekly_rewards", { limit: "200" }),
-      weekly_snapshots: safeTableRows(db, "weekly_leaderboard_snapshots", { limit: "200" }),
+      pending_coin_rewards: enrichResolvedUsers(db, safeTableRows(db, "pending_coin_rewards", { limit: "200" })),
+      weekly_rewards: enrichResolvedUsers(db, safeTableRows(db, "weekly_rewards", { limit: "200" })),
+      weekly_snapshots: enrichResolvedUsers(db, safeTableRows(db, "weekly_leaderboard_snapshots", { limit: "200" })),
       subscriber_users: safeTableRows(db, "subscriber_users", { limit: "200" }),
       subscriber_announcements: safeTableRows(db, "subscriber_announcements", { limit: "100" }),
     },
     shop: {
       sessions: safeTableRows(db, "shop_view_sessions", { limit: "200" }),
-      purchases: safeTableRows(db, "purchase_history", { orderBy: columnExists(db, "purchase_history", "created_at") ? "created_at DESC" : "", limit: "500" }),
-      premium_balances: safeTableRows(db, "premium_balances", { limit: "200" }),
-      premium_transactions: safeTableRows(db, "premium_transactions", { orderBy: columnExists(db, "premium_transactions", "created_at") ? "created_at DESC" : "", limit: "500" }),
+      purchases: enrichResolvedUsers(db, safeTableRows(db, "purchase_history", { orderBy: columnExists(db, "purchase_history", "created_at") ? "created_at DESC" : "", limit: "500" })),
+      premium_balances: enrichResolvedUsers(db, safeTableRows(db, "premium_balances", { limit: "200" })),
+      premium_transactions: enrichResolvedUsers(db, safeTableRows(db, "premium_transactions", { orderBy: columnExists(db, "premium_transactions", "created_at") ? "created_at DESC" : "", limit: "500" })),
     },
     quests: {
-      quest_progress: safeTableRows(db, "quest_progress", { limit: "500" }),
-      player_missions: safeTableRows(db, "player_missions", { limit: "500" }),
+      quest_progress: enrichResolvedUsers(db, safeTableRows(db, "quest_progress", { limit: "500" })),
+      player_missions: enrichResolvedUsers(db, safeTableRows(db, "player_missions", { limit: "500" })),
       player_mission_sets: safeTableRows(db, "player_mission_sets", { limit: "200" }),
     },
     logs: {
@@ -3902,12 +3938,11 @@ function chooseColumn(cols, candidates) {
 }
 
 function userLookupMap(db) {
-  if (!tableExists(db, "users") || !columnExists(db, "users", "user_id") || !columnExists(db, "users", "username")) return new Map();
-  return new Map(safeRows(db, "users", ["user_id", "username"], { limit: "10000" }).map((row) => [String(row.user_id), row.username]));
+  return usernameResolutionMap(db);
 }
 
 function resolveQuestUsername(row, users) {
-  const direct = row.username || row.user_name || row.player || row.player_name || row.display_name;
+  const direct = row.resolved_username || row.username || row.user_name || row.player || row.player_name || row.display_name;
   if (direct) return direct;
   const id = row.user_id || row.player_id || row.uid || row.user || "";
   if (id && users.has(String(id))) return users.get(String(id));
@@ -3942,7 +3977,7 @@ function normalizeQuestRows(rows, users) {
 function questTableRows(db, table, limit = "500") {
   if (!tableExists(db, table)) return [];
   const info = tableInfo(db, table, limit);
-  return info.rows || [];
+  return enrichResolvedUsers(db, info.rows || []);
 }
 
 function questCatalogSpec(db) {
@@ -4762,7 +4797,7 @@ function buildQaAudit() {
     "settings-group", "sg-api", "sg-opts", "sf-toggle", "raw-edit-key", "raw-edit-val", "raw-edit-src",
     "table-search", "rarity-filter", "enabled-filter", "room-toggle", "room-edit",
     "staff-id", "remove-staff", "enabled", "room-val", "key", "vip-remove", "vip-user",
-    "badge-shop-edit", "badge-market-cancel", "luxe-shop-edit", "copy-text",
+    "badge-shop-edit", "badge-market-cancel", "luxe-shop-edit", "copy-text", "user-lookup",
     "quest-disable",
     "automation-send", "automation-archive", "automation-rotating-send", "automation-rotating-disable",
     "automation-promo", "automation-source",
@@ -4946,6 +4981,26 @@ function buildE2eAudit(db) {
   const commandConsumerGaps = visibleQueueActions
     .filter((action) => !relaySupported.has(action))
     .map((action) => ({ action, status: "QUEUED_ONLY", message: "Visible queued action is not explicitly consumed by bot_command_relay.py." }));
+  const unresolvedUserRows = (() => {
+    const users = usernameResolutionMap(db);
+    const tables = ["quest_progress", "player_missions", "event_points", "pending_coin_rewards", "weekly_rewards", "fish_inventory", "fish_catch_records", "mining_inventory", "mining_logs", "premium_balances", "premium_transactions", "owned_items", "purchase_history"];
+    const affected = [];
+    let total = 0;
+    for (const table of tables) {
+      if (!tableExists(db, table) || !columnExists(db, table, "user_id")) continue;
+      let count = 0;
+      for (const row of safeRows(db, table, ["user_id", "username"], { limit: "10000" })) {
+        if (!row.user_id) continue;
+        if (row.username || users.has(String(row.user_id))) continue;
+        count += 1;
+      }
+      if (count) {
+        affected.push({ table, unresolved_rows: count });
+        total += count;
+      }
+    }
+    return { count: total, tables: affected };
+  })();
   const criticalIssues = [
     ...publicPages.filter((row) => row.status !== "PASS").map((row) => ({ severity: "CRITICAL", area: "public", item: row.page, message: row.status })),
     ...ownerPages.filter((row) => row.status !== "PASS").map((row) => ({ severity: "CRITICAL", area: "owner", item: row.page, message: row.status })),
@@ -4958,6 +5013,7 @@ function buildE2eAudit(db) {
     ...qa.buttons_without_handlers.map((row) => ({ severity: "WARNING", area: "button", item: row.selector, message: row.reason })),
     ...permissionAudit.warnings.map((row) => ({ severity: "WARNING", area: "permission", item: `${row.method} ${row.path}`, message: row.warning })),
     ...commandConsumerGaps.map((row) => ({ severity: "WARNING", area: "command-queue", item: row.action, message: row.message })),
+    ...(unresolvedUserRows.count ? [{ severity: "WARNING", area: "identity", item: "unresolved_user_rows", message: `${unresolvedUserRows.count} row(s) could not resolve to usernames.` }] : []),
   ];
   const passedChecks = [
     { check: "Public portal route registry", status: publicPages.every((row) => row.status === "PASS") ? "PASS" : "FAIL" },
@@ -4982,6 +5038,7 @@ function buildE2eAudit(db) {
     permission_issues: permissionAudit.warnings,
     public_safety_issues: publicSafetyIssues,
     token_exposure_check: tokenExposureCheck,
+    unresolved_user_rows: unresolvedUserRows,
     command_queue_health: {
       counts: queueHealth.counts,
       visible_queue_actions: visibleQueueActions,
