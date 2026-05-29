@@ -2591,15 +2591,12 @@ async def teleport_bot_to_saved_spawn(
         f"x={x} y={y} z={z} facing={facing}"
     )
 
-    if is_host:
-        if not bot_uid or not await _is_bot_currently_in_room(bot, bot_uid):
-            print(
-                f"[SPAWN_RESTORE] host_not_in_room_skip_spawn "
-                f"bot={_username!r} uid={bot_uid or 'none'}"
-            )
-            return (False, pos, row, "host_not_in_room", saved_key) if return_details else False
-
     print("[BOT SPAWN] teleport_attempt=true")
+    if is_host:
+        print(
+            f"[SPAWN_RESTORE] host_spawn_restore_attempt "
+            f"bot={_username!r} uid={bot_uid or 'none'} saved_key={saved_key or 'none'}"
+        )
 
     if bot_uid:
         try:
@@ -2610,7 +2607,7 @@ async def teleport_bot_to_saved_spawn(
             print(f"[BOT SPAWN] teleport_success=false error={exc!r}")
             if is_host and _exc_contains(exc, "server error"):
                 print(
-                    f"[SPAWN_RESTORE] host_spawn_restore_retry "
+                    f"[SPAWN_RESTORE] host_spawn_restore_teleport_failed_retry "
                     f"bot={_username!r} reason=teleport_server_error"
                 )
                 return (False, pos, row, "teleport_server_error", saved_key) if return_details else False
@@ -2627,10 +2624,10 @@ async def teleport_bot_to_saved_spawn(
             print(f"[BOT SPAWN] walk_success=false error={exc!r}")
             if is_host and _exc_contains(exc, "not in room"):
                 print(
-                    f"[SPAWN_RESTORE] host_not_in_room_skip_spawn "
+                    f"[SPAWN_RESTORE] host_spawn_restore_not_in_room_retry "
                     f"bot={_username!r} reason=walk_not_in_room"
                 )
-                return (False, pos, row, "host_not_in_room", saved_key) if return_details else False
+                return (False, pos, row, "walk_not_in_room", saved_key) if return_details else False
     else:
         print("[BOT SPAWN] fallback_walk=false")
 
@@ -2650,12 +2647,17 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
     _bot_spawn_restore_tasks[key] = asyncio.current_task()  # type: ignore[assignment]
 
     is_host = _is_chilltopia_host(bot_username, getattr(_cfg, "BOT_MODE", "main"))
-    delays = (20.0, 30.0, 60.0, 120.0) if is_host else (8.0, 18.0, 35.0, 60.0)
+    delays = (12.0, 20.0, 35.0, 60.0, 90.0) if is_host else (8.0, 18.0, 35.0, 60.0)
     expected: Position | None = None
     actual: Position | None = None
     try:
         for attempt, delay in enumerate(delays, 1):
             if delay:
+                if is_host and attempt == 1:
+                    print(
+                        f"[SPAWN_RESTORE] host_spawn_restore_wait_ready "
+                        f"bot={key} delay={delay}s"
+                    )
                 await asyncio.sleep(delay)
             try:
                 details = await teleport_bot_to_saved_spawn(
@@ -2678,6 +2680,8 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
             await asyncio.sleep(0.75)
             actual = await _get_bot_position(bot, bot_uid)
             success = bool(ok and expected is not None and _pos_close(actual, expected))
+            if is_host and ok and expected is not None and actual is None:
+                success = True
             expected_facing = getattr(expected, "facing", "") if expected is not None else ""
             actual_facing = getattr(actual, "facing", "") if actual is not None else ""
             print(
@@ -2687,7 +2691,14 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
                 f"actual_facing={actual_facing or 'unknown'} "
                 f"success={success} reason={reason}"
             )
-            if success or expected is None:
+            if success:
+                if is_host:
+                    print(
+                        f"[SPAWN_RESTORE] host_spawn_restore_success "
+                        f"bot={key} attempt={attempt} reason={reason}"
+                    )
+                return
+            if expected is None:
                 return
             if is_host:
                 print(
@@ -2701,7 +2712,7 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
         )
         if is_host:
             print(
-                f"[SPAWN_RESTORE] host_spawn_restore_failed_safe "
+                f"[SPAWN_RESTORE] host_spawn_restore_gave_up "
                 f"bot={key} expected={_format_pos(expected)} actual={_format_pos(actual)}"
             )
     finally:
