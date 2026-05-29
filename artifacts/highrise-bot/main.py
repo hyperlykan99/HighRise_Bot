@@ -973,6 +973,7 @@ from modules.room_utils import (
     handle_setbotspawn, handle_setbotspawnhere, handle_botspawns,
     handle_clearbotspawn, apply_bot_spawn,
     start_bot_presence_watchdog,
+    run_delayed_anchor_restores,
     teleport_bot_to_saved_spawn, handle_returnbots,
     handle_mypos, handle_positiondebug,
     handle_dance, handle_wave, handle_sit, handle_clap,
@@ -4068,6 +4069,10 @@ class HangoutBot(BaseBot):
         _safe_task(
             apply_bot_spawn(self, get_bot_username() or config.BOT_USERNAME),
             "apply_bot_spawn"
+        )
+        _safe_task(
+            run_delayed_anchor_restores(self, get_bot_username() or config.BOT_USERNAME),
+            "delayed_anchor_restore"
         )
 
     # ── on_chat safety wrapper ────────────────────────────────────────────────

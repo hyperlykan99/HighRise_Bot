@@ -418,6 +418,8 @@ async def _stream_and_buffer(
     stream: asyncio.StreamReader,
     ring: "collections.deque[str]",
     flags: "dict | None" = None,
+    proc: "asyncio.subprocess.Process | None" = None,
+    mode: str = "",
 ) -> None:
     """
     Read subprocess stdout/stderr line-by-line, echo each line immediately
@@ -437,6 +439,27 @@ async def _stream_and_buffer(
         ring.append(decoded)
         if flags is not None and "Multilogin closing connection" in decoded:
             flags["multilogin"] = True
+        if "[BOT_RESTART_REQUEST]" in decoded:
+            snippet = decoded[:240]
+            if flags is not None:
+                flags["child_restart_requested"] = True
+                flags["child_restart_reason"] = snippet
+            print(
+                f"[BOT_WATCHDOG] mode={mode} state=child_restart_requested "
+                f"reason={snippet}",
+                flush=True,
+            )
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
+                except Exception as exc:
+                    print(
+                        f"[BOT_WATCHDOG] mode={mode} "
+                        f"state=child_restart_terminate_failed error={exc!r}",
+                        flush=True,
+                    )
 
 
 def _utc_ts() -> str:
@@ -542,8 +565,10 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                 )
                 # Echo output in real-time AND buffer last 50 lines for pre-restart summary
                 _flags["multilogin"] = False   # reset for this run
+                _flags["child_restart_requested"] = False
+                _flags["child_restart_reason"] = ""
                 _reader = asyncio.create_task(
-                    _stream_and_buffer(proc.stdout, _log_ring, _flags),  # type: ignore[arg-type]
+                    _stream_and_buffer(proc.stdout, _log_ring, _flags, proc, spec.bot_mode),  # type: ignore[arg-type]
                     name=f"log_reader_{spec.bot_id}",
                 )
                 code = await proc.wait()
@@ -573,15 +598,18 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     await asyncio.sleep(_ml_delay)
                     continue   # back to top — don't touch fast-exit counters
                 _ts2 = _utc_ts()
-                _last_reason = (
-                    "clean exit"       if code == 0   else
-                    "Python exception" if code == 1   else
-                    "usage/OS error"   if code == 2   else
-                    "SIGTERM"          if code == -15  else
-                    "SIGKILL"          if code == -9   else
-                    f"signal {-code}"  if code and code < 0 else
-                    f"code {code}"
-                )
+                if _flags.get("child_restart_requested"):
+                    _last_reason = "child_restart_requested"
+                else:
+                    _last_reason = (
+                        "clean exit"       if code == 0   else
+                        "Python exception" if code == 1   else
+                        "usage/OS error"   if code == 2   else
+                        "SIGTERM"          if code == -15  else
+                        "SIGKILL"          if code == -9   else
+                        f"signal {-code}"  if code and code < 0 else
+                        f"code {code}"
+                    )
                 _log_lifecycle(
                     spec,
                     "disconnect",
