@@ -42,6 +42,7 @@ from __future__ import annotations
 import os
 import uuid
 import asyncio
+import shutil
 from datetime import datetime, timezone
 
 _LOG = "[LOCAL_REPLAY]"
@@ -175,6 +176,29 @@ def _list_jobs(limit: int = 10) -> list[dict]:
         return []
 
 
+def _local_map_row_by_file_id(azura_file_id: str) -> dict:
+    try:
+        import database as _db
+        with _db.db_conn() as conn:
+            row = conn.execute(
+                "SELECT azura_file_id, unique_id, title, artist, path, filename "
+                "FROM local_media_map WHERE azura_file_id=? LIMIT 1",
+                (str(azura_file_id or ""),),
+            ).fetchone()
+        if row:
+            return {
+                "azura_file_id": row[0],
+                "unique_id": row[1],
+                "title": row[2],
+                "artist": row[3],
+                "path": row[4],
+                "filename": row[5],
+            }
+    except Exception as exc:
+        print(f"{_LOG} local_media_map fid lookup error: {exc!r}")
+    return {}
+
+
 def _register_as_yt_request_job(
     user_id: str, username: str, title: str,
     temp_filename: str, azura_file_id: str, azura_song_id: str,
@@ -302,6 +326,7 @@ def _get_sftp_cfg() -> dict:
 # The SFTP user may be chrooted or see a different filesystem layout.
 _SFTP_FALLBACK_ROOTS: list[str] = [
     "/var/lib/docker/volumes/azuracast_station_data/_data/chilltopia/media",
+    "/var/lib/docker/volumes/azuracast_station_data/data/chilltopia/media",
     "/var/azuracast/stations/chilltopia/media",
     "chilltopia/media",
     "media",
@@ -309,7 +334,160 @@ _SFTP_FALLBACK_ROOTS: list[str] = [
 ]
 
 
-def _build_path_candidates(azura_file_path: str) -> list[str]:
+def _dedupe_paths(paths: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        clean = str(path or "").strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            out.append(clean)
+    return out
+
+
+def _media_root_candidates() -> list[str]:
+    roots: list[str] = []
+    env_root = os.environ.get("AZURA_MEDIA_SFTP_PATH", "").strip()
+    if env_root:
+        roots.append(env_root)
+        if "/_data/" in env_root:
+            roots.append(env_root.replace("/_data/", "/data/"))
+        if "/data/" in env_root:
+            roots.append(env_root.replace("/data/", "/_data/"))
+    roots.extend(_SFTP_FALLBACK_ROOTS)
+    return _dedupe_paths([r for r in roots if r])
+
+
+def _relative_path_candidates(azura_file_path: str, filename: str = "") -> list[str]:
+    rel = str(azura_file_path or "").strip().lstrip("/")
+    fname = os.path.basename(str(filename or "").strip()) or os.path.basename(rel)
+    paths = [rel]
+    if fname and fname != rel:
+        parent = os.path.dirname(rel)
+        if parent:
+            paths.append(f"{parent}/{fname}")
+        paths.append(fname)
+    return _dedupe_paths(paths)
+
+
+def _log_source_candidate(kind: str, path: str, exists: bool) -> None:
+    print(f"{_LOG} source_path_candidate kind={kind} path={path!r} exists={str(bool(exists)).lower()}")
+
+
+def _find_by_basename(root: str, basenames: list[str]) -> str | None:
+    wanted = {os.path.basename(b) for b in basenames if os.path.basename(b)}
+    if not wanted or not root or not os.path.isdir(root):
+        return None
+    try:
+        for dirpath, dirnames, filenames in os.walk(root):
+            # Avoid wandering into request temp/history folders while looking
+            # for immutable library media.
+            dirnames[:] = [d for d in dirnames if d.lower() not in {"requests", ".trash", "trash"}]
+            for fname in filenames:
+                if fname in wanted:
+                    return os.path.join(dirpath, fname)
+    except Exception as exc:
+        print(f"{_LOG} basename_search error root={root!r} error={exc!r}")
+    return None
+
+
+def _resolve_local_source_path(azura_file_path: str, filename: str = "") -> str | None:
+    rels = _relative_path_candidates(azura_file_path, filename)
+    candidates: list[str] = []
+    for rel in rels:
+        if os.path.isabs(rel):
+            candidates.append(rel)
+    for root in _media_root_candidates():
+        for rel in rels:
+            candidates.append(rel if os.path.isabs(rel) else os.path.join(root, rel))
+
+    for path in _dedupe_paths(candidates):
+        exists = os.path.isfile(path)
+        _log_source_candidate("local", path, exists)
+        if exists:
+            print(f"{_LOG} source_path_resolved method=local path={path!r}")
+            return path
+
+    found = _find_by_basename(_media_root_candidates()[0] if _media_root_candidates() else "", rels)
+    if not found:
+        for root in _media_root_candidates()[1:]:
+            found = _find_by_basename(root, rels)
+            if found:
+                break
+    if found:
+        _log_source_candidate("local_basename_search", found, True)
+        print(f"{_LOG} source_path_resolved method=local path={found!r}")
+        return found
+
+    print(f"{_LOG} source_path_missing original={azura_file_path!r} base={os.path.basename(filename or azura_file_path)!r}")
+    return None
+
+
+def _local_requests_dir_for_source(source_path: str) -> str | None:
+    src = os.path.abspath(source_path)
+    roots = sorted(_media_root_candidates(), key=len, reverse=True)
+    for root in roots:
+        abs_root = os.path.abspath(root)
+        try:
+            if os.path.commonpath([src, abs_root]) == abs_root:
+                return os.path.join(abs_root, os.environ.get("AZURA_REQUESTS_FOLDER", "Requests").strip("/") or "Requests")
+        except Exception:
+            continue
+    env_root = os.environ.get("AZURA_MEDIA_SFTP_PATH", "").strip()
+    if env_root:
+        return os.path.join(env_root, os.environ.get("AZURA_REQUESTS_FOLDER", "Requests").strip("/") or "Requests")
+    return None
+
+
+def _local_copy_to_temp(azura_file_path: str, temp_filename: str, filename: str = "") -> bool:
+    if not _safe_temp_filename(temp_filename):
+        print(f"{_LOG} local copy refused — unsafe temp filename: {temp_filename!r}")
+        return False
+    source = _resolve_local_source_path(azura_file_path, filename)
+    if not source:
+        return False
+    dest_dir = _local_requests_dir_for_source(source)
+    if not dest_dir:
+        print(f"{_LOG} local copy unavailable — no requests directory root resolved")
+        return False
+    dest = os.path.join(dest_dir, temp_filename)
+    if os.path.exists(dest) and not _safe_temp_filename(os.path.basename(dest)):
+        print(f"{_LOG} local copy refused — destination not temp-safe: {dest!r}")
+        return False
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        print(f"{_LOG} local_temp_copy_started source={source!r} dest={dest!r}")
+        shutil.copyfile(source, dest)
+        size = os.path.getsize(dest)
+        print(f"{_LOG} local_temp_copy_done bytes={size}")
+        return True
+    except Exception as exc:
+        print(f"{_LOG} local copy failed; falling back to SFTP: {exc!r}")
+        return False
+
+
+def _copy_to_temp(azura_file_path: str, temp_filename: str, filename: str = "") -> tuple[bool, str]:
+    """
+    Copy a library file to a temp request file.
+
+    Returns (ok, reason):
+      ok                         — local or SFTP copy succeeded
+      local_source_missing       — no local/SFTP source path resolved
+      local_temp_copy_failed     — source resolved but copy failed
+    """
+    if _local_copy_to_temp(azura_file_path, temp_filename, filename):
+        return True, "ok"
+
+    resolved_sftp, _trial_log = _sftp_stat_exists_with_log(azura_file_path, filename)
+    if not resolved_sftp:
+        return False, "local_source_missing"
+
+    if _sftp_copy_to_temp(azura_file_path, temp_filename, filename):
+        return True, "ok"
+    return False, "local_temp_copy_failed"
+
+
+def _build_path_candidates(azura_file_path: str, filename: str = "") -> list[str]:
     """
     Return an ordered list of absolute/relative SFTP paths to probe.
 
@@ -318,21 +496,22 @@ def _build_path_candidates(azura_file_path: str) -> list[str]:
       2–6. _SFTP_FALLBACK_ROOTS
     Duplicates are silently skipped.
     """
-    rel = azura_file_path.lstrip("/")
     candidates: list[str] = []
     seen: set[str] = set()
 
-    def _add(root: str) -> None:
-        path = f"{root.rstrip('/')}/{rel}" if root else rel
+    def _add(path: str) -> None:
         if path not in seen:
             seen.add(path)
             candidates.append(path)
 
-    env_root = os.environ.get("AZURA_MEDIA_SFTP_PATH", "").strip()
-    if env_root:
-        _add(env_root)
-    for root in _SFTP_FALLBACK_ROOTS:
-        _add(root)
+    rels = _relative_path_candidates(azura_file_path, filename)
+    for rel in rels:
+        _add(rel)
+        _add(f"media/{rel}")
+        _add(f"chilltopia/media/{rel}")
+    for root in _media_root_candidates():
+        for rel in rels:
+            _add(rel if os.path.isabs(rel) else f"{root.rstrip('/')}/{rel}")
 
     return candidates
 
@@ -355,17 +534,21 @@ def _sftp_resolve_path(
         try:
             sftp.stat(path)
             trial_log.append((i, path, True))
+            _log_source_candidate("sftp", path, True)
             resolved = path
+            print(f"{_LOG} source_path_resolved method=sftp path={path!r}")
             break
         except (IOError, FileNotFoundError):
             trial_log.append((i, path, False))
+            _log_source_candidate("sftp", path, False)
         except Exception as exc:
             trial_log.append((i, path, False))
+            _log_source_candidate("sftp", path, False)
             print(f"{_LOG} resolve candidate {i} error: {exc!r}")
     return resolved, trial_log
 
 
-def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str) -> bool:
+def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str, filename: str = "") -> bool:
     """
     Open an SFTP session, resolve the source path via candidate probing,
     and stream-copy to requests_folder/temp_filename.
@@ -384,7 +567,7 @@ def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str) -> bool:
         print(f"{_LOG} SFTP not configured — copy aborted")
         return False
 
-    candidates   = _build_path_candidates(azura_file_path)
+    candidates   = _build_path_candidates(azura_file_path, filename)
     dest_path    = f"{cfg['folder'].rstrip('/')}/{temp_filename}"
 
     ssh  = paramiko.SSHClient()
@@ -402,6 +585,7 @@ def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str) -> bool:
         if not resolved:
             tried = ", ".join(p for _, p, _ in trial_log)
             print(f"{_LOG} source not found — tried: {tried}")
+            print(f"{_LOG} source_path_missing original={azura_file_path!r} base={os.path.basename(filename or azura_file_path)!r}")
             return False
 
         print(f"{_LOG} copying {resolved!r} → {dest_path!r}")
@@ -429,6 +613,7 @@ def _sftp_copy_to_temp(azura_file_path: str, temp_filename: str) -> bool:
 
 def _sftp_stat_exists_with_log(
     azura_file_path: str,
+    filename: str = "",
 ) -> "tuple[str | None, list[tuple[int, str, bool]]]":
     """
     Probe all candidate paths via SFTP stat without copying anything.
@@ -445,7 +630,7 @@ def _sftp_stat_exists_with_log(
     if not cfg.get("host") or not cfg.get("user"):
         return None, []
 
-    candidates = _build_path_candidates(azura_file_path)
+    candidates = _build_path_candidates(azura_file_path, filename)
 
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -745,6 +930,12 @@ async def _prepare_local_fav_request(
         azura_file_rec = await loop.run_in_executor(None, get_media_file, azura_fid) or {}
     except Exception as exc:
         print(f"{_LOG} queue_local_fav get_media_file error: {exc!r}")
+    if azura_fid:
+        map_by_fid = await loop.run_in_executor(None, _local_map_row_by_file_id, azura_fid)
+        if map_by_fid:
+            azura_file_rec = {**map_by_fid, **azura_file_rec}
+            if not azura_file_rec.get("filename") and map_by_fid.get("filename"):
+                azura_file_rec["filename"] = map_by_fid["filename"]
 
     # Fallback: local_media_map search
     if not azura_file_rec:
@@ -755,6 +946,7 @@ async def _prepare_local_fav_request(
                 _fav_backfill(fav["id"], map_row["azura_file_id"], map_row["unique_id"])
                 azura_file_rec = {
                     "path":      map_row["path"],
+                    "filename":  map_row.get("filename", ""),
                     "unique_id": map_row["unique_id"],
                     "id":        map_row["azura_file_id"],
                 }
@@ -767,6 +959,7 @@ async def _prepare_local_fav_request(
         return
 
     azura_file_path = (azura_file_rec.get("path") or "").strip()
+    azura_filename = (azura_file_rec.get("filename") or azura_file_rec.get("name") or "").strip()
     if not azura_file_path:
         await _fail(f"❌ AzuraCast record has no path for '{fav_title}'.",
                     "local_source_path_missing")
@@ -804,14 +997,23 @@ async def _prepare_local_fav_request(
         source_path=azura_file_path,
     )
     copy_ok = False
+    copy_reason = "local_temp_copy_failed"
     try:
-        copy_ok = await loop.run_in_executor(None, _sftp_copy_to_temp, azura_file_path, temp_filename)
+        copy_ok, copy_reason = await loop.run_in_executor(None, _copy_to_temp, azura_file_path, temp_filename, azura_filename)
     except Exception as exc:
         print(f"{_LOG} queue_local_fav copy error: {exc!r}")
 
     if not copy_ok:
+        if copy_reason == "local_source_missing":
+            await _fail(
+                f"❌ Local file not found on VPS for '{fav_title}'.",
+                "local_source_missing",
+                temp_filename,
+                azura_file_path,
+            )
+            return
         await _fail(
-            f"❌ Could not prepare '{fav_title}'. Check SFTP config.",
+            f"❌ Could not prepare '{fav_title}'. Check local replay copy path.",
             "local_temp_copy_failed",
             temp_filename,
             azura_file_path,
@@ -907,7 +1109,7 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
     # ── Feature flags ────────────────────────────────────────────────────────
     ok, reason = _flags_enabled()
     if not ok:
-        await _w(f"🔒 Local replay disabled.\n{reason}")
+        await _w("🔒 Local replay is currently unavailable.")
         return
 
     # ── Arg validation ───────────────────────────────────────────────────────
@@ -976,6 +1178,11 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
             ) or {}
         except Exception as exc:
             print(f"{_LOG} get_media_file error: {exc!r}")
+        map_by_fid = await loop.run_in_executor(None, _local_map_row_by_file_id, azura_fid)
+        if map_by_fid:
+            azura_file_rec = {**map_by_fid, **azura_file_rec}
+            if not azura_file_rec.get("filename") and map_by_fid.get("filename"):
+                azura_file_rec["filename"] = map_by_fid["filename"]
 
     # Fallback: search local_media_map by normalized title/artist
     if not azura_file_rec:
@@ -993,6 +1200,7 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
                 # Build a minimal azura_file_rec from the map row
                 azura_file_rec = {
                     "path":      map_row["path"],
+                    "filename":  map_row.get("filename", ""),
                     "unique_id": map_row["unique_id"],
                     "id":        map_row["azura_file_id"],
                 }
@@ -1030,6 +1238,7 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         return
 
     azura_file_path = (azura_file_rec.get("path") or "").strip()
+    azura_filename = (azura_file_rec.get("filename") or azura_file_rec.get("name") or "").strip()
     if not azura_file_path:
         await _w("❌ AzuraCast record has no path field. Cannot copy.")
         return
@@ -1038,14 +1247,28 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
 
     # ── !localreplaytest debug whisper ───────────────────────────────────────
     if is_test:
-        resolved_path, trial_log = await loop.run_in_executor(
-            None, _sftp_stat_exists_with_log, azura_file_path
+        flags_ok, flags_reason = _flags_enabled()
+        local_path = await loop.run_in_executor(
+            None, _resolve_local_source_path, azura_file_path, azura_filename
         )
-        found_label = f"found ✅" if resolved_path else "missing ❌"
+        resolved_path, trial_log = await loop.run_in_executor(
+            None, _sftp_stat_exists_with_log, azura_file_path, azura_filename
+        )
+        cfg = _get_sftp_cfg()
+        dest_path = f"{str(cfg.get('folder') or os.environ.get('AZURA_REQUESTS_FOLDER', 'Requests')).rstrip('/')}/{temp_filename if 'temp_filename' in locals() else 'tmp_replay_*.mp3'}"
+        found_label = f"found ✅" if (local_path or resolved_path) else "missing ❌"
         await _w(
             f"🔍 [TEST] #{pos} {fav_title}\n"
-            f"Path: {azura_file_path}\n"
+            f"Flags: {'on' if flags_ok else 'off'} {flags_reason[:40]}\n"
             f"Source: {found_label}"
+        )
+        await _w(
+            f"DB path: {azura_file_path[:100]}\n"
+            f"Local: {(local_path or 'missing')[:100]}\n"
+            f"SFTP: {(resolved_path or 'missing')[:100]}"
+        )
+        await _w(
+            f"Requests dest: {dest_path[:160]}"
         )
         # Show every probed path so the owner can see which root works
         if trial_log:
@@ -1075,17 +1298,20 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
 
     # ── SFTP: copy source → temp ─────────────────────────────────────────────
     copy_ok = False
+    copy_reason = "local_temp_copy_failed"
     try:
-        copy_ok = await loop.run_in_executor(
-            None, _sftp_copy_to_temp, azura_file_path, temp_filename
+        copy_ok, copy_reason = await loop.run_in_executor(
+            None, _copy_to_temp, azura_file_path, temp_filename, azura_filename
         )
     except Exception as exc:
         print(f"{_LOG} copy executor error: {exc!r}")
 
     if not copy_ok:
+        if copy_reason == "local_source_missing":
+            await _w(f"❌ Local file not found on VPS for '{fav_title}'.")
+            return
         await _w(
-            f"❌ Copy failed for '{fav_title}'.\n"
-            f"Check SFTP config and AZURA_MEDIA_SFTP_PATH."
+            f"❌ Could not prepare '{fav_title}'. Check local replay copy path."
         )
         return
 
