@@ -1108,9 +1108,14 @@ function renderPublicHome(d) {
     <div class="pub-hero">
       <div class="pub-hero-glow"></div>
       <div class="pub-hero-content">
-        <div class="pub-hero-badge">🎵 Live Now</div>
-        <h1 class="pub-hero-title">Welcome to<br><span class="gradient-text">ChillTopia</span></h1>
-        <p class="pub-hero-sub">Relax, play, request music, mine, fish, and win rewards.</p>
+        <div class="pub-hero-badge">🎵 Live Now · Neon Lounge</div>
+        <h1 class="pub-hero-title">ChillTopia</h1>
+        <p class="pub-hero-sub">A relaxed VIP game room for music requests, casino nights, mining, fishing, events, and rewards.</p>
+        <div class="pub-hero-status">
+          <span class="pill ok">Radio Live</span>
+          <span class="pill info">Games Open</span>
+          <span class="pill def">Public Read Only</span>
+        </div>
         <div class="pub-hero-now">
           ${np ? `<span class="pub-now-label">Now Playing</span>
           <span class="pub-now-song">${esc(np.title || "Auto DJ")}</span>
@@ -1118,10 +1123,10 @@ function renderPublicHome(d) {
           : `<span class="pub-now-label">Auto DJ is in the house 🎧</span>`}
         </div>
         <div class="pub-quick-links">
-          <button class="btn primary" data-pub-page="radio">📻 Listen to Radio</button>
-          <button class="btn ghost" data-pub-page="howtoplay">📖 How to Play</button>
-          <button class="btn cyan" data-pub-page="rankings">🏆 View Rankings</button>
-          <a class="btn ghost" href="${esc(d.join_url || "#")}" ${d.join_url ? `target="_blank" rel="noopener"` : ""}>🚪 Join on Highrise</a>
+          <button class="btn primary large" data-pub-page="radio">📻 Listen to Radio</button>
+          <button class="btn ghost large" data-pub-page="howtoplay">📖 How to Play</button>
+          <button class="btn cyan large" data-pub-page="rankings">🏆 View Rankings</button>
+          <a class="btn ghost large" href="${esc(d.join_url || "#")}" ${d.join_url ? `target="_blank" rel="noopener"` : ""}>🚪 Join on Highrise</a>
         </div>
       </div>
     </div>
