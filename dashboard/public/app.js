@@ -4538,12 +4538,12 @@ function renderFishingRaritiesPage() {
   return `<div class="card">
     <div class="card-header">
       <div><h2>Rarity Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from runtime fish catalog catch weights.")}</div></div>
-      <span class="pill warn">Dashboard planning</span>
+      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !fish" : "Dashboard planning"}</span>
     </div>
     ${renderRaritySummaryCards(d.rows || [], "Fishing")}
     ${futureControls([
-      { endpoint: "PUT /api/fishing/rarities/:rarity", purpose: "Dashboard planning base rarity chances", status: "Stored, runtime not connected" },
-      { endpoint: "PUT /api/fishing/drop-weights", purpose: "Direct catch weight editing", status: "Unverified schema" },
+      { endpoint: "PUT /api/fishing/rarities/:rarity", purpose: "Edit base rarity weights", status: d.runtime_connected ? "Connected to !fish" : "Stored, runtime not connected" },
+      { endpoint: "PUT /api/fishing/fish/:id", purpose: "Edit per-fish catch weights", status: d.runtime_connected ? "Connected to !fish" : "Unverified schema" },
     ], "Advanced / Rarity Writes")}
   </div>`;
 }
@@ -4592,22 +4592,45 @@ function renderFishingCatalogPage() {
   if (!order.includes(state.ownerRarity.Fishing)) state.ownerRarity.Fishing = order[0] || "common";
   const current = state.ownerRarity.Fishing;
   const rows = (d.rows || []).filter((row) => normalizeGameRarity(row.rarity) === current);
+  const writable = !!d.writable;
   return `<div class="card">
-    <div class="card-header"><div><h2>Fish Catalog</h2><div class="muted text-sm">${esc(d.message || "Runtime code catalog")}</div></div><span class="pill warn">Runtime constant</span></div>
+    <div class="card-header"><div><h2>Fish Catalog</h2><div class="muted text-sm">${esc(d.message || "DB-backed fish_catalog editor")}</div></div><span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !fish" : "Runtime constant"}</span></div>
     ${ownerRarityTabs("Fishing", order)}
     ${renderResourceToolbar({ search: "Search fish" })}
+    ${writable ? `<details class="advanced-collapse" open>
+      <summary class="advanced-summary"><span class="pill info">Add</span> Add Fish</summary>
+      <div class="advanced-content">
+        <form id="fishingFishAddForm" class="settings-fields">
+          ${["fish_id","name","emoji"].map((key) => renderSettingsField({ key, label: key.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase()), type: "text" }, "")).join("")}
+          ${renderSettingsField({ key: "rarity", label: "Rarity", type: "select", options: GAME_RARITY_ORDER.map((rarity) => [rarity, gameRarityLabel(rarity)]) }, current)}
+          ${renderSettingsField({ key: "base_value", label: "Base Value", type: "number" }, "")}
+          ${renderSettingsField({ key: "min_weight", label: "Min Weight", type: "number" }, "")}
+          ${renderSettingsField({ key: "max_weight", label: "Max Weight", type: "number" }, "")}
+          ${renderSettingsField({ key: "catch_weight", label: "Catch Weight", type: "number", hint: "Distribution weight inside this rarity. Active !fish reads fish_catalog.catch_weight." }, "")}
+          ${renderSettingsField({ key: "event_only", label: "Event Only", type: "toggle" }, false)}
+          ${renderSettingsField({ key: "catch_enabled", label: "Catch Enabled", type: "toggle" }, true)}
+          <button class="btn primary sm" type="submit">Save Fish</button>
+        </form>
+      </div>
+    </details>` : ""}
     ${table(rows, [
       { key: "fish_id", label: "Fish ID" },
-      { key: "name", label: "Name" },
-      { key: "rarity", label: "Rarity", render: (r) => rarityChipHtml(r.rarity, r.rarity_label || gameRarityLabel(r.rarity)) },
-      { key: "base_value", label: "Base Value", render: (r) => Number(r.base_value || 0).toLocaleString() },
+      { key: "name", label: "Name", render: (r) => writable ? `<input name="name" value="${esc(r.name || "")}" form="fish_${esc(r.fish_id)}" />` : esc(r.name || "") },
+      { key: "emoji", label: "Icon", render: (r) => writable ? `<input name="emoji" value="${esc(r.emoji || "")}" form="fish_${esc(r.fish_id)}" />` : esc(r.emoji || "") },
+      { key: "rarity", label: "Rarity", render: (r) => writable ? `<select name="rarity" form="fish_${esc(r.fish_id)}">${GAME_RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${normalizeGameRarity(r.rarity) === rarity ? "selected" : ""}>${esc(gameRarityLabel(rarity))}</option>`).join("")}</select>` : rarityChipHtml(r.rarity, r.rarity_label || gameRarityLabel(r.rarity)) },
+      { key: "base_value", label: "Base Value", render: (r) => writable ? `<input type="number" name="base_value" value="${esc(r.base_value || 0)}" form="fish_${esc(r.fish_id)}" />` : Number(r.base_value || 0).toLocaleString() },
       { key: "base_fxp", label: "XP" },
-      { key: "min_weight", label: "Min Weight", render: (r) => publicLbs(r.min_weight) },
-      { key: "max_weight", label: "Max Weight", render: (r) => publicLbs(r.max_weight) },
-      { key: "drop_weight", label: "Catch Weight" },
+      { key: "min_weight", label: "Min Weight", render: (r) => writable ? `<input type="number" step="0.1" name="min_weight" value="${esc(r.min_weight ?? "")}" form="fish_${esc(r.fish_id)}" />` : publicLbs(r.min_weight) },
+      { key: "max_weight", label: "Max Weight", render: (r) => writable ? `<input type="number" step="0.1" name="max_weight" value="${esc(r.max_weight ?? "")}" form="fish_${esc(r.fish_id)}" />` : publicLbs(r.max_weight) },
+      { key: "catch_weight", label: "Catch Weight", render: (r) => writable ? `<input type="number" step="0.000001" name="catch_weight" value="${esc(r.catch_weight ?? r.drop_weight ?? "")}" form="fish_${esc(r.fish_id)}" />` : esc(r.catch_weight ?? r.drop_weight ?? "") },
       { key: "chance_percent", label: "Calculated Chance", render: (r) => r.chance_label || publicPercent(r.chance_percent) },
-    ])}
-    ${futureControls([{ endpoint: "POST /api/fishing/fish", purpose: "Add/edit fish catalog", status: "Unverified schema" }], "Advanced / Fish Catalog Writes")}
+      { key: "catch_enabled", label: "Enabled", render: (r) => writable ? `<label class="switch compact"><input type="checkbox" name="catch_enabled" form="fish_${esc(r.fish_id)}" ${Number(r.enabled ?? r.catch_enabled ?? 1) ? "checked" : ""}><span></span></label>` : pill(Number(r.enabled ?? r.catch_enabled ?? 1) ? "enabled" : "disabled") },
+      { key: "event_only", label: "Event", render: (r) => writable ? `<label class="switch compact"><input type="checkbox" name="event_only" form="fish_${esc(r.fish_id)}" ${Number(r.event_only) ? "checked" : ""}><span></span></label>` : (Number(r.event_only) ? pill("event") : "") },
+    ], (r) => writable ? `<form id="fish_${esc(r.fish_id)}" data-fishing-fish-form="${esc(r.fish_id)}" class="inline-actions">
+        <button class="btn primary sm" type="submit">Save</button>
+        <button class="btn danger sm" type="button" data-fishing-fish-disable="${esc(r.fish_id)}">Disable</button>
+      </form>` : "")}
+    ${futureControls([{ endpoint: "POST/PUT /api/fishing/fish", purpose: "Add/edit fish catalog", status: writable ? "Connected to !fish" : "Unverified schema" }], "Advanced / Fish Catalog Writes")}
   </div>`;
 }
 
@@ -4649,12 +4672,12 @@ function renderFishingAdvancedPage() {
   const raw = d.raw || {};
   return `
     ${futureControls([
-      { endpoint: "POST /api/fishing/fish", purpose: "Fish catalog writes", status: "Unverified schema" },
+      { endpoint: "POST/PUT /api/fishing/fish", purpose: "Fish catalog writes", status: d.table_status?.fish_catalog ? "Connected to !fish" : "Unverified schema" },
       { endpoint: "POST /api/fishing/rods", purpose: "Rod catalog writes", status: "Unverified schema" },
-      { endpoint: "PUT /api/fishing/drop-weights", purpose: "Catch chance edits", status: "Unverified schema" },
+      { endpoint: "PUT /api/fishing/fish/:id", purpose: "Catch chance edits", status: d.table_status?.fish_catalog ? "Connected through catch_weight" : "Unverified schema" },
       { endpoint: "forced fishing drops", purpose: "Create/clear forced_fishing_drops", status: "Endpoint needed" },
     ], "Advanced / Unverified Fishing Controls")}
-    <div class="card"><h2>Raw Fishing Settings</h2>${table(raw.auto_activity_settings || [])}${table(raw.room_settings || [])}</div>
+    <div class="card"><h2>Raw Fishing Sources</h2>${table(raw.fish_catalog || [])}${table(raw.game_rarity_settings || [])}${table(raw.fish_profiles || [])}${table(raw.auto_activity_settings || [])}${table(raw.room_settings || [])}</div>
     <div class="card"><h2>Table Status</h2>${table(Object.entries(d.table_status || {}).map(([table_name, exists]) => ({ table_name, exists: exists ? "present" : "missing" })))}</div>
   `;
 }
@@ -7356,7 +7379,7 @@ function bindAdminPageEvents() {
       const apiPath = section === "Fishing" ? `/api/fishing/rarities/${encodeURIComponent(rarity)}` : `/api/mining/rarities/${encodeURIComponent(rarity)}`;
       const message = section === "Mining"
         ? "Rarity weight saved. Active !mine reads this value."
-        : "Rarity planning value saved. Runtime still uses active bot constants until migrated.";
+        : "Rarity weight saved. Active !fish reads this value.";
       await action(message, () => api(apiPath, { method: "PUT", body: JSON.stringify(body) }));
     });
   });
@@ -7390,6 +7413,39 @@ function bindAdminPageEvents() {
       const itemId = btn.dataset.miningOreDisable;
       confirmAction("Disable Ore", `Soft-disable ${itemId}? Existing player inventories are preserved.`, async () => {
         await action("Ore disabled.", () => api(`/api/mining/ores/${encodeURIComponent(itemId)}`, { method: "DELETE", body: JSON.stringify({}) }));
+      });
+    });
+  });
+
+  document.getElementById("fishingFishAddForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Fish saved.", () => api("/api/fishing/fish", { method: "POST", body: JSON.stringify(body) }));
+  });
+
+  document.querySelectorAll("[data-fishing-fish-form]").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fishId = form.dataset.fishingFishForm;
+      const body = {};
+      Array.from(form.elements).forEach((el) => {
+        if (!el.name) return;
+        body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+      });
+      await action("Fish updated.", () => api(`/api/fishing/fish/${encodeURIComponent(fishId)}`, { method: "PUT", body: JSON.stringify(body) }));
+    });
+  });
+
+  document.querySelectorAll("[data-fishing-fish-disable]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const fishId = btn.dataset.fishingFishDisable;
+      confirmAction("Disable Fish", `Soft-disable ${fishId}? Existing player inventories are preserved.`, async () => {
+        await action("Fish disabled.", () => api(`/api/fishing/fish/${encodeURIComponent(fishId)}`, { method: "DELETE", body: JSON.stringify({}) }));
       });
     });
   });

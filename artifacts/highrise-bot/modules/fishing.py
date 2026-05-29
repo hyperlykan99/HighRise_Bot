@@ -224,6 +224,126 @@ FISH_CATALOG: list[dict] = [
 _FISH_BY_ID:    dict[str, dict] = {f["fish_id"]:        f for f in FISH_CATALOG}
 _FISH_BY_NAME:  dict[str, dict] = {f["name"].lower():   f for f in FISH_CATALOG}
 _TOTAL_WEIGHT:  float            = sum(f["drop_weight"] for f in FISH_CATALOG)
+_CATALOG_SEEDED = False
+
+
+def _seed_db_catalog_once() -> None:
+    global _CATALOG_SEEDED
+    if _CATALOG_SEEDED:
+        return
+    _CATALOG_SEEDED = True
+    try:
+        db.seed_fish_catalog(FISH_CATALOG)
+    except Exception as exc:
+        print(f"[FISH] seed_fish_catalog skipped: {exc!r}")
+
+
+def _constant_fish(fish_id: str | None, name: str | None = None) -> dict:
+    if fish_id and fish_id in _FISH_BY_ID:
+        return _FISH_BY_ID[fish_id]
+    if name and name.lower() in _FISH_BY_NAME:
+        return _FISH_BY_NAME[name.lower()]
+    return {}
+
+
+def _catalog_row(row: dict) -> dict:
+    const = _constant_fish(str(row.get("fish_id", "")), str(row.get("name", "")))
+    catch_weight = row.get("catch_weight", row.get("drop_weight", const.get("drop_weight", 1)))
+    return {
+        "fish_id": row.get("fish_id") or const.get("fish_id") or str(row.get("name", "")).lower().replace(" ", "_"),
+        "name": row.get("name") or const.get("name", "Fish"),
+        "emoji": row.get("emoji") or const.get("emoji", "🐟"),
+        "rarity": str(row.get("rarity") or const.get("rarity", "common")).lower(),
+        "base_value": int(row.get("base_value", const.get("base_value", 1)) or 1),
+        "base_fxp": int(row.get("base_fxp", const.get("base_fxp", 5)) or 5),
+        "min_weight": float(row.get("min_weight", const.get("min_weight", 0.1)) or 0.1),
+        "max_weight": float(row.get("max_weight", const.get("max_weight", 1.0)) or 1.0),
+        "drop_weight": float(catch_weight or 1),
+        "catch_weight": float(catch_weight or 1),
+        "catch_enabled": int(row.get("catch_enabled", 1) if row.get("catch_enabled") is not None else 1),
+        "event_only": int(row.get("event_only", 0) if row.get("event_only") is not None else 0),
+        "announce_default": bool(const.get("announce_default", FISH_RARITIES.get(str(row.get("rarity", "common")).lower(), {}).get("announce", False))),
+    }
+
+
+def _runtime_fish_catalog(catch_enabled: bool = True) -> list[dict]:
+    """Return DB-backed fish catalog, falling back to runtime constants."""
+    try:
+        _seed_db_catalog_once()
+        rows = db.get_fish_catalog(catch_enabled=catch_enabled)
+        if rows:
+            return [_catalog_row(row) for row in rows]
+    except Exception as exc:
+        print(f"[FISH] fish_catalog_db_fallback error={exc!r}")
+    return list(FISH_CATALOG if catch_enabled else FISH_CATALOG)
+
+
+def _runtime_fishing_rarity_weights(catalog: list[dict] | None = None) -> dict[str, float]:
+    catalog = catalog if catalog is not None else _runtime_fish_catalog(True)
+    weights: dict[str, float] = {}
+    for fish in catalog:
+        rarity = str(fish.get("rarity", "common")).lower()
+        weights[rarity] = weights.get(rarity, 0.0) + max(0.0, float(fish.get("drop_weight", fish.get("catch_weight", 1)) or 0))
+    try:
+        settings = db.get_fishing_rarity_settings()
+        for rarity, row in settings.items():
+            enabled = int(row.get("enabled", 1) if row.get("enabled") is not None else 1)
+            if enabled != 1:
+                weights[rarity] = 0.0
+                continue
+            raw_weight = row.get("base_weight")
+            if raw_weight is None or raw_weight == "":
+                raw_weight = row.get("base_chance")
+            if raw_weight is None or raw_weight == "":
+                continue
+            weights[rarity] = max(0.0, float(raw_weight))
+    except Exception as exc:
+        print(f"[FISH] rarity_weight_db_fallback error={exc!r}")
+    return weights
+
+
+def _weighted_choice(rows: list[dict], weight_key: str = "drop_weight") -> dict:
+    if not rows:
+        raise ValueError("weighted choice requires rows")
+    total = 0.0
+    for row in rows:
+        try:
+            total += max(0.0, float(row.get(weight_key, 1) or 0))
+        except Exception:
+            total += 1.0
+    if total <= 0:
+        return random.choice(rows)
+    roll = random.uniform(0, total)
+    running = 0.0
+    for row in rows:
+        try:
+            running += max(0.0, float(row.get(weight_key, 1) or 0))
+        except Exception:
+            running += 1.0
+        if roll <= running:
+            return row
+    return rows[-1]
+
+
+def _fish_chance_maps(catalog: list[dict] | None = None) -> tuple[dict[str, float], dict[str, float]]:
+    catalog = catalog if catalog is not None else _runtime_fish_catalog(True)
+    rarity_weights = _runtime_fishing_rarity_weights(catalog)
+    total_rarity = sum(max(0.0, float(v or 0)) for v in rarity_weights.values())
+    rarity_pct = {
+        rarity: (max(0.0, float(weight or 0)) / total_rarity) * 100 if total_rarity > 0 else 0.0
+        for rarity, weight in rarity_weights.items()
+    }
+    by_rarity: dict[str, list[dict]] = {}
+    for fish in catalog:
+        by_rarity.setdefault(str(fish.get("rarity", "common")).lower(), []).append(fish)
+    fish_pct: dict[str, float] = {}
+    for rarity, rows in by_rarity.items():
+        total_item = sum(max(0.0, float(row.get("drop_weight", 1) or 0)) for row in rows)
+        if total_item <= 0:
+            continue
+        for fish in rows:
+            fish_pct[str(fish.get("fish_id", ""))] = rarity_pct.get(rarity, 0.0) * (max(0.0, float(fish.get("drop_weight", 1) or 0)) / total_item)
+    return rarity_pct, fish_pct
 
 
 def _norm_uname(name: str) -> str:
@@ -254,16 +374,15 @@ def _resolve_forced_fish(
         fv  = forced["forced_value"].lower()
         fid = forced["id"]
         if ft == "rarity":
-            pool = [f for f in FISH_CATALOG if f["rarity"].lower() == fv]
+            pool = [f for f in _runtime_fish_catalog(True) if f["rarity"].lower() == fv]
             if pool:
                 db.mark_forced_fish_drop_used(fid)
                 return random.choice(pool), ""
             err = f"No fish in catalog with rarity '{fv}'"
         elif ft == "fish":
             item = (
-                _FISH_BY_ID.get(fv)
-                or _FISH_BY_ID.get(fv.replace(" ", "_"))
-                or _FISH_BY_NAME.get(fv)
+                _lookup_fish(fv)
+                or _lookup_fish(fv.replace(" ", "_"))
             )
             if item:
                 db.mark_forced_fish_drop_used(fid)
@@ -282,16 +401,25 @@ def _resolve_forced_fish(
 def _lookup_fish(query: str) -> dict | None:
     """Case-insensitive fish lookup by name or partial name."""
     q = query.lower().strip()
-    if q in _FISH_BY_NAME:
-        return _FISH_BY_NAME[q]
-    if q in _FISH_BY_ID:
-        return _FISH_BY_ID[q]
-    matches = [f for f in FISH_CATALOG if q in f["name"].lower()]
+    catalog = _runtime_fish_catalog(False)
+    by_name = {f["name"].lower(): f for f in catalog}
+    by_id = {f["fish_id"].lower(): f for f in catalog}
+    if q in by_name:
+        return by_name[q]
+    if q in by_id:
+        return by_id[q]
+    matches = [f for f in catalog if q in f["name"].lower()]
     return matches[0] if len(matches) == 1 else None
 
 
-def _display_chance(drop_weight: float) -> str:
-    ratio = _TOTAL_WEIGHT / drop_weight if drop_weight else 9999
+def _display_chance(drop_weight: float, fish_id: str | None = None) -> str:
+    if fish_id:
+        _rarity_pct, fish_pct = _fish_chance_maps()
+        pct = fish_pct.get(fish_id, 0.0)
+        if pct > 0:
+            return f"1 in {max(1, int(round(100 / pct))):,}"
+    total = sum(f.get("drop_weight", 0) for f in _runtime_fish_catalog(True)) or _TOTAL_WEIGHT
+    ratio = total / drop_weight if drop_weight else 9999
     r = int(round(ratio))
     return f"1 in {r:,}"
 
@@ -311,7 +439,8 @@ def _compact_1in_fish(n: int) -> str:
 
 def _compact_fish_chance(drop_weight: float) -> str:
     """Return compact 1:X string for a fish based on its drop_weight."""
-    ratio = _TOTAL_WEIGHT / drop_weight if drop_weight else 9999
+    total = sum(f.get("drop_weight", 0) for f in _runtime_fish_catalog(True)) or _TOTAL_WEIGHT
+    ratio = total / drop_weight if drop_weight else 9999
     return _compact_1in_fish(int(round(ratio)))
 
 
@@ -397,9 +526,36 @@ def _roll_fish(rod_name: str = "Driftwood Rod", event_eff: dict | None = None) -
     # order: common=0, rare=1, epic=2, legendary=3, mythic=4, prismatic=5, exotic=6
     _LEG_PLUS_ORDERS = {3, 4, 5, 6}
 
+    try:
+        catalog = _runtime_fish_catalog(True)
+        by_rarity: dict[str, list[dict]] = {}
+        for fish in catalog:
+            by_rarity.setdefault(fish["rarity"], []).append(fish)
+        rarity_weights = _runtime_fishing_rarity_weights(catalog)
+        for rarity in list(rarity_weights.keys()):
+            order = FISH_RARITIES.get(rarity, FISH_RARITIES["common"])["order"]
+            if order >= 3 and luck > 0:
+                rarity_weights[rarity] *= (1 + luck * (1 + order * 0.4))
+            if order in _LEG_PLUS_ORDERS and leg_plus_boost > 0:
+                rarity_weights[rarity] *= (1 + leg_plus_boost)
+            if order == 5 and prismatic_boost > 0:
+                rarity_weights[rarity] *= (1 + prismatic_boost)
+            if order == 6 and exotic_boost > 0:
+                rarity_weights[rarity] *= (1 + exotic_boost)
+        rarity_pool = [
+            {"rarity": rarity, "drop_weight": weight}
+            for rarity, weight in rarity_weights.items()
+            if weight > 0 and by_rarity.get(rarity)
+        ]
+        if rarity_pool:
+            chosen_rarity = _weighted_choice(rarity_pool)["rarity"]
+            return _weighted_choice(by_rarity.get(chosen_rarity, catalog))
+    except Exception as exc:
+        print(f"[FISH] fish_catalog_roll_fallback error={exc!r}")
+
     pool: list[tuple[dict, float]] = []
     for fish in FISH_CATALOG:
-        w     = fish["drop_weight"]
+        w = fish["drop_weight"]
         order = FISH_RARITIES[fish["rarity"]]["order"]
         if order >= 3 and luck > 0:
             w = w * (1 + luck * (1 + order * 0.4))
@@ -653,8 +809,9 @@ async def handle_fishlist(bot: BaseBot, user: User, args: list[str]) -> None:
     """/fishlist [rarity] [page] — compact format, prismatic/exotic names colored."""
     if len(args) < 2:
         lines = ["🎣 Fish List"]
+        catalog = _runtime_fish_catalog(True)
         for r in RARITY_ORDER:
-            cnt = sum(1 for f in FISH_CATALOG if f["rarity"] == r)
+            cnt = sum(1 for f in catalog if f["rarity"] == r)
             lines.append(f"[{r.upper()}] — {cnt} fish")
         lines.append("Use !fishlist common to view Common fish.")
         lines.append("!fishprices common for prices & weights.")
@@ -674,7 +831,7 @@ async def handle_fishlist(bot: BaseBot, user: User, args: list[str]) -> None:
     if len(args) >= 3 and args[2].isdigit():
         page = max(1, int(args[2]))
 
-    pool = [f for f in FISH_CATALOG if f["rarity"] == rarity]
+    pool = [f for f in _runtime_fish_catalog(True) if f["rarity"] == rarity]
     if not pool:
         await _w(bot, user.id, f"No fish found for rarity: {rarity}.")
         return
@@ -682,7 +839,7 @@ async def handle_fishlist(bot: BaseBot, user: User, args: list[str]) -> None:
     rar_label = FISH_RARITIES[rarity]["label"]
 
     def _line(f: dict) -> str:
-        chance = _compact_fish_chance(f["drop_weight"])
+        chance = _display_chance(f["drop_weight"], f.get("fish_id"))
         if rarity == "prismatic":
             name = f"<#FF66CC>{f['name']}<#FFFFFF>"
         elif rarity == "exotic":
@@ -732,7 +889,7 @@ async def handle_fishprices(bot: BaseBot, user: User, args: list[str]) -> None:
     page = 1
     if len(args) >= 3 and args[2].isdigit():
         page = max(1, int(args[2]))
-    pool       = [f for f in FISH_CATALOG if f["rarity"] == rarity]
+    pool       = [f for f in _runtime_fish_catalog(True) if f["rarity"] == rarity]
     total_pages = max(1, (len(pool) + 4) // 5)
     page = min(page, total_pages)
     start = (page - 1) * 5
@@ -758,7 +915,7 @@ async def handle_fishinfo(bot: BaseBot, user: User, args: list[str]) -> None:
     query = " ".join(args[1:])
     fish  = _lookup_fish(query)
     if not fish:
-        matches = [f["name"] for f in FISH_CATALOG
+        matches = [f["name"] for f in _runtime_fish_catalog(False)
                    if query.lower() in f["name"].lower()][:4]
         if matches:
             await _w(bot, user.id,
@@ -771,7 +928,7 @@ async def handle_fishinfo(bot: BaseBot, user: User, args: list[str]) -> None:
         f"💎 Fish Info",
         f"Name: {fish['name']}",
         f"Rarity: {rlabel}",
-        f"Chance: {_display_chance(fish['drop_weight'])}",
+        f"Chance: {_display_chance(fish['drop_weight'], fish.get('fish_id'))}",
         f"Base Value: {_fmt(fish['base_value'])} 🪙",
         f"Weight: {fish['min_weight']}–{fish['max_weight']}lb",
         f"FXP: +{fish['base_fxp']}",
@@ -896,8 +1053,9 @@ async def handle_fishbook(bot: BaseBot, user: User, args: list) -> None:
                 page = 1
 
         from collections import defaultdict as _dd
+        catalog = _runtime_fish_catalog(True)
         cat: dict = _dd(list)
-        for f in FISH_CATALOG:
+        for f in catalog:
             cat[f["rarity"]].append(f)
         totals_rar = {r: len(v) for r, v in cat.items()}
         grand_t    = sum(totals_rar.values())
@@ -1430,7 +1588,7 @@ async def _send_autofish_summary(bot: BaseBot, uid: str, uname: str,
         if len(stats["new_discoveries"]) > 3:
             names += f" +{len(stats['new_discoveries']) - 3}"
         total_fish = db.count_collection_items(uid, "fishing")
-        total_t    = len(FISH_CATALOG)
+        total_t    = len(_runtime_fish_catalog(True))
         msg2 = (f"📖 Fish Book: {total_fish}/{total_t}\n"
                 f"New: {names}\nUse !lastfishsummary.")
     saved_text = f"{msg1}\n{msg2}" if msg2 else msg1
@@ -2447,11 +2605,11 @@ async def handle_forcedropfishitem(bot: BaseBot, user: User, args: list[str]) ->
         return
     target     = _norm_uname(args[1])
     fish_query = " ".join(args[2:]).strip().lower()
-    fish_item  = _FISH_BY_ID.get(fish_query.replace(" ", "_"))
+    fish_item  = _lookup_fish(fish_query.replace(" ", "_"))
     if not fish_item:
-        fish_item = _FISH_BY_NAME.get(fish_query)
+        fish_item = _lookup_fish(fish_query)
     if not fish_item:
-        matches = [f for f in FISH_CATALOG if fish_query in f["name"].lower()]
+        matches = [f for f in _runtime_fish_catalog(False) if fish_query in f["name"].lower()]
         if len(matches) == 1:
             fish_item = matches[0]
         elif len(matches) > 1:

@@ -120,6 +120,7 @@ const IMPORTANT_TABLES = [
   "dashboard_scheduled_announcements",
   "game_rarity_settings",
   "mining_item_weights",
+  "fish_catalog",
   "jail_sentences",
   "first_find_announce_pending",
   "host_dm_queue",
@@ -644,6 +645,21 @@ function ensureDashboardSchema(db) {
       drop_weight REAL DEFAULT 1,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS fish_catalog (
+      fish_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      rarity TEXT NOT NULL,
+      base_value INTEGER DEFAULT 0,
+      min_weight REAL,
+      max_weight REAL,
+      catch_weight REAL DEFAULT 1,
+      catch_enabled INTEGER DEFAULT 1,
+      event_only INTEGER DEFAULT 0,
+      emoji TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
     `,
   );
   const afterTables = tableNames(db);
@@ -738,6 +754,19 @@ function ensureDashboardSchema(db) {
   addColumnIfMissing(db, "mining_item_weights", "item_id", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "mining_item_weights", "drop_weight", "REAL DEFAULT 1", migration);
   addColumnIfMissing(db, "mining_item_weights", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "fish_catalog", "fish_id", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "fish_catalog", "name", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "fish_catalog", "rarity", "TEXT NOT NULL DEFAULT 'common'", migration);
+  addColumnIfMissing(db, "fish_catalog", "base_value", "INTEGER DEFAULT 0", migration);
+  addColumnIfMissing(db, "fish_catalog", "min_weight", "REAL", migration);
+  addColumnIfMissing(db, "fish_catalog", "max_weight", "REAL", migration);
+  addColumnIfMissing(db, "fish_catalog", "catch_weight", "REAL DEFAULT 1", migration);
+  addColumnIfMissing(db, "fish_catalog", "catch_enabled", "INTEGER DEFAULT 1", migration);
+  addColumnIfMissing(db, "fish_catalog", "event_only", "INTEGER DEFAULT 0", migration);
+  addColumnIfMissing(db, "fish_catalog", "emoji", "TEXT", migration);
+  addColumnIfMissing(db, "fish_catalog", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP", migration);
+  addColumnIfMissing(db, "fish_catalog", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP", migration);
   if (tableExists(db, "mining_items") && tableExists(db, "mining_item_weights")) {
     db.prepare(`
       INSERT OR IGNORE INTO mining_item_weights (item_id, drop_weight, updated_at)
@@ -755,6 +784,34 @@ function ensureDashboardSchema(db) {
       const weight = Number(MINING_RARITY_PROBS[rarity] || 1);
       seedRarity.run(rarity, weight, weight);
     }
+  }
+  if (tableExists(db, "fish_catalog")) {
+    try {
+      const { fish } = readFishingCodeCatalog();
+      const seedFish = db.prepare(`
+        INSERT OR IGNORE INTO fish_catalog
+          (fish_id, name, rarity, base_value, min_weight, max_weight, catch_weight, catch_enabled, event_only, emoji, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, datetime('now'), datetime('now'))
+      `);
+      const rarityWeights = {};
+      for (const row of fish) {
+        const fishId = String(row.fish_id || "").trim();
+        if (!fishId) continue;
+        const rarity = normalizeRarity(row.rarity);
+        const weight = Number(row.drop_weight || row.catch_weight || 1);
+        rarityWeights[rarity] = (rarityWeights[rarity] || 0) + Math.max(0, weight);
+        seedFish.run(fishId, row.name || fishId, rarity, Math.trunc(Number(row.base_value || 0)), row.min_weight ?? null, row.max_weight ?? null, weight, row.emoji || "");
+      }
+      const seedFishingRarity = db.prepare(`
+        INSERT OR IGNORE INTO game_rarity_settings (system, rarity, base_weight, base_chance, enabled, updated_at)
+        VALUES ('fishing', ?, ?, ?, 1, datetime('now'))
+      `);
+      const seedFishingRarities = ["common", "uncommon", "epic", "legendary", "mythic", "prismatic", "exotic"];
+      for (const rarity of [...Object.keys(rarityWeights), ...seedFishingRarities.filter((rarity) => !Object.prototype.hasOwnProperty.call(rarityWeights, rarity))]) {
+        const weight = Number(rarityWeights[rarity] || 0);
+        seedFishingRarity.run(rarity, weight, weight);
+      }
+    } catch {}
   }
 
   addColumnIfMissing(db, "schema_version", "component", "TEXT NOT NULL DEFAULT ''", migration);
@@ -3012,6 +3069,12 @@ function readRaritySettings(db, system) {
 
 function defaultRarityWeight(system, rarity) {
   if (system === "mining") return Number(MINING_RARITY_PROBS[rarity] || 0);
+  if (system === "fishing") {
+    const { fish } = readFishingCodeCatalog();
+    return fish
+      .filter((row) => normalizeRarity(row.rarity) === rarity)
+      .reduce((sum, row) => sum + Number(row.drop_weight || row.catch_weight || 0), 0);
+  }
   return null;
 }
 
@@ -3075,6 +3138,62 @@ function calculateFishDropRows() {
   }));
 }
 
+function fishCatalogRows(db, includeDisabled = true) {
+  if (!db || !tableExists(db, "fish_catalog")) return [];
+  const cols = ["fish_id", "name", "emoji", "rarity", "base_value", "min_weight", "max_weight", "catch_weight", "catch_enabled", "event_only", "created_at", "updated_at"]
+    .filter((col) => columnExists(db, "fish_catalog", col));
+  return safeRows(db, "fish_catalog", cols, {
+    where: includeDisabled ? "" : (columnExists(db, "fish_catalog", "catch_enabled") ? "catch_enabled=1" : ""),
+    orderBy: "rarity, base_value, name",
+    limit: "1000",
+  });
+}
+
+function calculateFishDropRowsFromDb(db) {
+  const items = fishCatalogRows(db, false);
+  if (!items.length) return calculateFishDropRows();
+  const byRarity = items.reduce((acc, item) => {
+    const rarity = normalizeRarity(item.rarity);
+    acc[rarity] = acc[rarity] || [];
+    acc[rarity].push(item);
+    return acc;
+  }, {});
+  const rarityWeights = {};
+  for (const item of items) {
+    const rarity = normalizeRarity(item.rarity);
+    rarityWeights[rarity] = (rarityWeights[rarity] || 0) + Math.max(0, Number(item.catch_weight || 0));
+  }
+  for (const [rarity, row] of Object.entries(readRaritySettings(db, "fishing"))) {
+    if (Number(row.enabled ?? 1) !== 1) {
+      rarityWeights[rarity] = 0;
+      continue;
+    }
+    const raw = row.base_weight ?? row.base_chance;
+    if (raw !== undefined && raw !== null && raw !== "" && Number.isFinite(Number(raw))) rarityWeights[rarity] = Math.max(0, Number(raw));
+  }
+  const totalRarityWeight = Object.values(rarityWeights).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
+  return items.map((item) => {
+    const rarity = normalizeRarity(item.rarity);
+    const rarityChance = totalRarityWeight > 0 ? (Math.max(0, Number(rarityWeights[rarity] || 0)) / totalRarityWeight) * 100 : 0;
+    const weight = Number(item.catch_weight || 0);
+    const peerWeightTotal = byRarity[rarity]?.reduce((sum, row) => sum + Math.max(0, Number(row.catch_weight || 0)), 0) || 0;
+    const chance = peerWeightTotal > 0 ? rarityChance * (Math.max(0, weight) / peerWeightTotal) : 0;
+    return {
+      fish_id: item.fish_id,
+      fish: item.name,
+      rarity,
+      weight,
+      catch_weight: weight,
+      chance_percent: chance,
+      rarity_chance_percent: rarityChance,
+      enabled: item.catch_enabled,
+      event_only: item.event_only ?? 0,
+      source: "game_rarity_settings + fish_catalog.catch_weight",
+      writable: true,
+    };
+  });
+}
+
 function enrichedMiningOreRows(db, includeDisabled = true) {
   const odds = calculateMiningDropRows(db);
   return miningItemRows(db, includeDisabled).map((row) => {
@@ -3098,36 +3217,42 @@ function enrichedMiningOreRows(db, includeDisabled = true) {
     || String(a.name || "").localeCompare(String(b.name || "")));
 }
 
-function enrichedFishingRows() {
+function enrichedFishingRows(db = null) {
+  const dbRows = db ? fishCatalogRows(db, true) : [];
   const { fish, source, error } = readFishingCodeCatalog();
-  const odds = calculateFishDropRows();
-  const rows = fish.map((row) => {
+  const codeById = new Map(fish.map((row) => [row.fish_id, row]));
+  const sourceRows = dbRows.length ? dbRows.map((row) => ({ ...codeById.get(row.fish_id), ...row, drop_weight: row.catch_weight })) : fish;
+  const odds = dbRows.length ? calculateFishDropRowsFromDb(db) : calculateFishDropRows();
+  const rows = sourceRows.map((row) => {
     const odd = odds.find((o) => o.fish_id === row.fish_id || o.fish === row.name);
     const chance = odd?.chance_percent ?? null;
     return {
       ...row,
       rarity: normalizeRarity(row.rarity),
       rarity_label: RARITY_LABELS[normalizeRarity(row.rarity)] || row.rarity || "Common",
-      weight: odd?.weight ?? row.drop_weight ?? null,
+      weight: odd?.weight ?? row.catch_weight ?? row.drop_weight ?? null,
+      catch_weight: row.catch_weight ?? row.drop_weight ?? odd?.weight ?? null,
+      drop_weight: row.catch_weight ?? row.drop_weight ?? odd?.weight ?? null,
       chance_percent: chance,
       chance_label: chanceTextFromPercent(chance, "Not currently catching"),
-      enabled: 1,
-      event_only: 0,
-      source: "modules/fishing.py FISH_CATALOG",
-      writable: false,
+      enabled: row.catch_enabled ?? 1,
+      event_only: row.event_only ?? 0,
+      source: dbRows.length ? "fish_catalog + game_rarity_settings" : "modules/fishing.py FISH_CATALOG",
+      writable: !!dbRows.length,
     };
   }).sort((a, b) => rarityRank(a.rarity, FISHING_RARITY_ORDER) - rarityRank(b.rarity, FISHING_RARITY_ORDER)
     || Number(b.chance_percent ?? -1) - Number(a.chance_percent ?? -1)
     || Number(b.base_value || 0) - Number(a.base_value || 0)
     || Number(b.max_weight || 0) - Number(a.max_weight || 0)
     || String(a.name || "").localeCompare(String(b.name || "")));
-  return { rows, source, error };
+  return { rows, source: dbRows.length ? "fish_catalog" : source, error, runtime_connected: !!dbRows.length };
 }
 
 function raritySummaryRows(items, order, { valueKey = "value", weightKey = "weight", zeroText = "Not currently dropping", source = "runtime_code", itemLabel = "items", system = "" } = {}, db = null) {
   const enabled = items.filter((row) => row.enabled !== 0 && row.enabled !== false && row.drop_enabled !== 0 && row.catch_enabled !== 0);
   const settings = db && system ? readRaritySettings(db, system) : {};
-  const runtimeConnected = system === "mining" && !!db && tableExists(db, "game_rarity_settings") && tableExists(db, "mining_item_weights");
+  const runtimeConnected = !!db && tableExists(db, "game_rarity_settings")
+    && ((system === "mining" && tableExists(db, "mining_item_weights")) || (system === "fishing" && tableExists(db, "fish_catalog")));
   const rarityWeights = {};
   for (const rarity of order) {
     const setting = settings[rarity] || {};
@@ -3164,7 +3289,7 @@ function raritySummaryRows(items, order, { valueKey = "value", weightKey = "weig
       runtime_connected: runtimeConnected,
       source,
       notes: runtimeConnected
-        ? `Connected to !mine. Rarity base weight is read from game_rarity_settings; item odds are calculated from ${itemLabel}.`
+        ? `Connected to !${system === "fishing" ? "fish" : "mine"}. Rarity base weight is read from game_rarity_settings; item odds are calculated from ${itemLabel}.`
         : `Base rarity values are stored for dashboard planning only; active runtime still uses ${source}. Item odds are calculated from ${itemLabel}.`,
     };
   });
@@ -3205,6 +3330,7 @@ function miningOverview(db) {
 
 function fishingOverview(db) {
   const codeCatalog = readFishingCodeCatalog();
+  const fishRows = enrichedFishingRows(db);
   return {
     settings: readActiveFishingSettings(db),
     stats: {
@@ -3215,9 +3341,12 @@ function fishingOverview(db) {
       biggest_catch: oneOrNull(db, "fish_catch_records", "SELECT fish_name, username, weight, final_value FROM fish_catch_records ORDER BY weight DESC LIMIT 1"),
       auto_sell_rows: countTable(db, "fish_auto_sell_settings"),
     },
-    catalog: { fish_count: codeCatalog.fish.length, rod_count: codeCatalog.rods.length, source: codeCatalog.source },
-    table_status: Object.fromEntries(["auto_activity_settings", "fish_profiles", "fish_catch_records", "fish_inventory", "fish_auto_sell_settings", "forced_fishing_drops", "player_rods", "owned_items"].map((t) => [t, tableExists(db, t)])),
+    catalog: { fish_count: fishRows.rows.length || codeCatalog.fish.length, rod_count: codeCatalog.rods.length, source: fishRows.source || codeCatalog.source, runtime_connected: fishRows.runtime_connected },
+    table_status: Object.fromEntries(["auto_activity_settings", "game_rarity_settings", "fish_catalog", "fish_profiles", "fish_catch_records", "fish_inventory", "fish_auto_sell_settings", "forced_fishing_drops", "player_rods", "owned_items"].map((t) => [t, tableExists(db, t)])),
     raw: {
+      fish_catalog: safeTableRows(db, "fish_catalog", { orderBy: "rarity, base_value, name", limit: "500" }),
+      game_rarity_settings: safeTableRows(db, "game_rarity_settings", { orderBy: "system, rarity", limit: "200" }).filter((row) => row.system === "fishing"),
+      fish_profiles: safeTableRows(db, "fish_profiles", { orderBy: "total_catches DESC", limit: "100" }),
       auto_activity_settings: Object.entries(readKeyValueMap(db, "auto_activity_settings")).filter(([key]) => key.startsWith("fish_") || key.startsWith("autofish")).map(([key, value]) => ({ key, value })),
       room_settings: Object.entries(readKeyValueMap(db, "room_settings")).filter(([key]) => key.startsWith("fishing_") || key.startsWith("fish_weight_")).map(([key, value]) => ({ key, value })),
     },
@@ -3856,11 +3985,13 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     display_name: "Fish Catalog",
     dashboard_page: "Fishing",
     dashboard_section: "Fish Catalog",
-    db_table: "modules/fishing.py",
-    db_key_or_column: "FISH_CATALOG",
-    readSource: "modules/fishing.py FISH_CATALOG",
-    status: "READ ONLY",
-    notes: "Active fishing runtime reads the Python FISH_CATALOG constant. Dashboard parses it read-only and rejects writes as unverified_schema.",
+    db_table: "fish_catalog",
+    db_key_or_column: "fish_id,name,rarity,base_value,min_weight,max_weight,catch_weight,catch_enabled,event_only,emoji",
+    readSource: "modules/fishing.py _runtime_fish_catalog reads database.get_fish_catalog()",
+    writeEndpoint: "POST/PUT/DELETE /api/fishing/fish",
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: "Active !fish reads fish_catalog when present and falls back to FISH_CATALOG constants if the table is missing. fish_profiles remains player profile data only.",
   }),
   auditRow({
     module: "fishing",
@@ -3868,11 +3999,13 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     display_name: "Fish Catch Chances",
     dashboard_page: "Fishing",
     dashboard_section: "Rarity Chances",
-    db_table: "modules/fishing.py",
-    db_key_or_column: "FISH_CATALOG.drop_weight",
-    readSource: "modules/fishing.py FISH_CATALOG drop_weight",
-    status: "READ ONLY",
-    notes: "Catch chance percentages are calculated from FISH_CATALOG drop_weight. No verified DB weight table is used by active fishing.",
+    db_table: "game_rarity_settings + fish_catalog",
+    db_key_or_column: "game_rarity_settings.base_weight + fish_catalog.catch_weight",
+    readSource: "modules/fishing.py _runtime_fishing_rarity_weights + database.get_fish_catalog",
+    writeEndpoint: "PUT /api/fishing/rarities/:rarity + PUT /api/fishing/fish/:id",
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: "Active !fish chooses rarity from game_rarity_settings where system='fishing', then chooses fish by fish_catalog.catch_weight.",
   }),
   auditRow({
     module: "fishing",
@@ -5060,8 +5193,8 @@ function publicHowToPlayPayload(db) {
   for (const col of ["item_id", "name", "rarity", "sell_value", "drop_enabled"]) missingColumn("mining_items", col);
   const ores = enrichedMiningOreRows(db, true).map((row) => ({ ...row, value: row.sell_value })).slice(0, 200);
   const fishCode = readFishingCodeCatalog();
-  const fishingOdds = calculateFishDropRows();
-  const fish = enrichedFishingRows().rows.slice(0, 200);
+  const fishingOdds = calculateFishDropRowsFromDb(db);
+  const fish = enrichedFishingRows(db).rows.slice(0, 200);
   const miningCommands = verifiedCommands([
     { command: "mine", display: "!mine", description: "Mine for ores, coins, and mining XP." },
     { command: "topminers", display: "!topminers", description: "Open the mining leaderboard." },
@@ -6088,30 +6221,106 @@ app.get("/api/fishing", requireAuth, requirePermission("manage_fishing"), (req, 
 
 app.get("/api/fishing/fish", requireAuth, requirePermission("manage_fishing"), (req, res) => {
   const rarity = req.query.rarity ? normalizeRarity(req.query.rarity) : "";
-  const { rows, source, error } = enrichedFishingRows();
-  json(res, { rows: rows.filter((row) => !rarity || normalizeRarity(row.rarity) === rarity), writable: false, schema_verified: false, source, error, rarity_order: FISHING_RARITY_ORDER, message: "Active fish catalog is defined in modules/fishing.py FISH_CATALOG; dashboard keeps it read-only." });
-});
-app.post("/api/fishing/fish", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
-app.put("/api/fishing/fish/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
-app.delete("/api/fishing/fish/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
+  const { rows, source, error, runtime_connected } = enrichedFishingRows(req.db);
+  json(res, {
+    rows: rows.filter((row) => !rarity || normalizeRarity(row.rarity) === rarity),
+    writable: tableExists(req.db, "fish_catalog"),
+    schema_verified: tableExists(req.db, "fish_catalog"),
+    runtime_connected,
+    source,
+    error,
+    table: "fish_catalog",
+    columns: tableColumns(req.db, "fish_catalog"),
+    rarity_order: FISHING_RARITY_ORDER,
+    message: runtime_connected ? "Fish catalog is connected to !fish." : "Fish catalog DB table missing; runtime falls back to modules/fishing.py FISH_CATALOG.",
+  });
+}, closeDb);
+app.post("/api/fishing/fish", requireAuth, requirePermission("manage_fishing"), (req, res) => {
+  if (!tableExists(req.db, "fish_catalog")) return unverifiedSchema(res, "fish_catalog table is missing.");
+  const fishId = String(req.body?.fish_id || "").trim();
+  if (!validCatalogId(fishId)) return json(res, { error: "invalid_fish_id" }, 400);
+  const row = {
+    fish_id: fishId,
+    name: String(req.body?.name || fishId).trim(),
+    emoji: String(req.body?.emoji || "").trim(),
+    rarity: normalizeRarity(req.body?.rarity || "common"),
+    base_value: Math.max(0, Math.trunc(Number(req.body?.base_value || 0))),
+    min_weight: req.body?.min_weight === "" || req.body?.min_weight === undefined ? null : Number(req.body.min_weight),
+    max_weight: req.body?.max_weight === "" || req.body?.max_weight === undefined ? null : Number(req.body.max_weight),
+    catch_weight: req.body?.catch_weight === "" || req.body?.catch_weight === undefined ? 1 : Math.max(0, Number(req.body.catch_weight)),
+    catch_enabled: req.body?.catch_enabled === false || req.body?.catch_enabled === "0" ? 0 : 1,
+    event_only: req.body?.event_only === true || req.body?.event_only === "1" || req.body?.event_only === "on" ? 1 : 0,
+  };
+  if (![row.min_weight, row.max_weight, row.catch_weight].every((v) => v === null || Number.isFinite(v))) return json(res, { error: "weights_must_be_numbers" }, 400);
+  req.db.prepare(`
+    INSERT INTO fish_catalog (fish_id, name, emoji, rarity, base_value, min_weight, max_weight, catch_weight, catch_enabled, event_only, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+  `).run(row.fish_id, row.name, row.emoji, row.rarity, row.base_value, row.min_weight, row.max_weight, row.catch_weight, row.catch_enabled, row.event_only);
+  const after = enrichedFishingRows(req.db).rows.find((fish) => fish.fish_id === fishId);
+  audit(req.db, req.user.username, "fishing_fish_create", "fish_catalog", fishId, null, after, req.ip);
+  json(res, { ok: true, row: after, runtime_connected: true });
+}, closeDb);
+app.put("/api/fishing/fish/:id", requireAuth, requirePermission("manage_fishing"), (req, res) => {
+  if (!tableExists(req.db, "fish_catalog")) return unverifiedSchema(res, "fish_catalog table is missing.");
+  const id = String(req.params.id || "").trim();
+  if (!validCatalogId(id)) return json(res, { error: "invalid_fish_id" }, 400);
+  const before = req.db.prepare("SELECT * FROM fish_catalog WHERE fish_id=?").get(id);
+  if (!before) return json(res, { error: "fish_not_found" }, 404);
+  const allowed = {
+    name: req.body?.name,
+    emoji: req.body?.emoji,
+    rarity: req.body?.rarity === undefined ? undefined : normalizeRarity(req.body.rarity),
+    base_value: req.body?.base_value === undefined ? undefined : Math.max(0, Math.trunc(Number(req.body.base_value || 0))),
+    min_weight: req.body?.min_weight === undefined || req.body?.min_weight === "" ? undefined : Number(req.body.min_weight),
+    max_weight: req.body?.max_weight === undefined || req.body?.max_weight === "" ? undefined : Number(req.body.max_weight),
+    catch_weight: req.body?.catch_weight === undefined || req.body?.catch_weight === "" ? undefined : Math.max(0, Number(req.body.catch_weight)),
+    catch_enabled: req.body?.catch_enabled === undefined ? undefined : (req.body.catch_enabled === true || req.body.catch_enabled === "1" || req.body.catch_enabled === 1 ? 1 : 0),
+    event_only: req.body?.event_only === undefined ? undefined : (req.body.event_only === true || req.body.event_only === "1" || req.body.event_only === 1 ? 1 : 0),
+    updated_at: new Date().toISOString(),
+  };
+  if ([allowed.min_weight, allowed.max_weight, allowed.catch_weight].some((v) => v !== undefined && !Number.isFinite(v))) return json(res, { error: "weights_must_be_numbers" }, 400);
+  const updates = Object.entries(allowed).filter(([, value]) => value !== undefined);
+  if (!updates.length) return json(res, { error: "no_verified_columns" }, 400);
+  req.db.prepare(`UPDATE fish_catalog SET ${updates.map(([key]) => `${sqlIdent(key)}=?`).join(", ")} WHERE fish_id=?`).run(...updates.map(([, value]) => String(value).trim()), id);
+  const after = enrichedFishingRows(req.db).rows.find((fish) => fish.fish_id === id);
+  audit(req.db, req.user.username, "fishing_fish_update", "fish_catalog", id, before, after, req.ip);
+  json(res, { ok: true, row: after, runtime_connected: true });
+}, closeDb);
+app.delete("/api/fishing/fish/:id", requireAuth, requirePermission("manage_fishing"), (req, res) => {
+  if (!tableExists(req.db, "fish_catalog")) return unverifiedSchema(res, "fish_catalog table is missing.");
+  const id = String(req.params.id || "").trim();
+  const before = req.db.prepare("SELECT * FROM fish_catalog WHERE fish_id=?").get(id);
+  if (!before) return json(res, { error: "fish_not_found" }, 404);
+  const hard = req.body?.hard === true || req.query.hard === "1";
+  if (!hard) {
+    req.db.prepare("UPDATE fish_catalog SET catch_enabled=0, updated_at=datetime('now') WHERE fish_id=?").run(id);
+    audit(req.db, req.user.username, "fishing_fish_disable", "fish_catalog", id, before, { ...before, catch_enabled: 0 }, req.ip);
+    return json(res, { ok: true, mode: "soft_disable" });
+  }
+  if (req.user.role !== "owner") return json(res, { error: "owner_required" }, 403);
+  if (String(req.body?.confirmation || "") !== "DELETE FISH") return json(res, { error: "typed_confirmation_required" }, 400);
+  req.db.prepare("DELETE FROM fish_catalog WHERE fish_id=?").run(id);
+  audit(req.db, req.user.username, "fishing_fish_hard_delete", "fish_catalog", id, before, { hard_delete: true }, req.ip);
+  json(res, { ok: true, mode: "hard_delete" });
+}, closeDb);
 
 app.get("/api/fishing/rarities", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
-  const rows = raritySummaryRows(enrichedFishingRows().rows, FISHING_RARITY_ORDER, {
+  const rows = raritySummaryRows(enrichedFishingRows(_req.db).rows, FISHING_RARITY_ORDER, {
     valueKey: "base_value",
-    weightKey: "weight",
+    weightKey: "catch_weight",
     zeroText: "Not currently catching",
-    source: "modules/fishing.py FISH_CATALOG",
+    source: "fish_catalog + game_rarity_settings",
     system: "fishing",
-    itemLabel: "runtime fish catalog catch weights",
+    itemLabel: "enabled fish_catalog rows with catch_weight",
   }, _req.db);
   json(res, {
     rows,
     writable: true,
-    schema_verified: tableExists(_req.db, "game_rarity_settings"),
+    schema_verified: tableExists(_req.db, "game_rarity_settings") && tableExists(_req.db, "fish_catalog"),
     rarity_order: FISHING_RARITY_ORDER,
-    source: "game_rarity_settings planning + runtime constants",
-    runtime_connected: false,
-    message: "Base rarity chances are dashboard planning values. Active fishing runtime still uses modules/fishing.py FISH_CATALOG drop_weight values.",
+    source: "game_rarity_settings + fish_catalog",
+    runtime_connected: tableExists(_req.db, "game_rarity_settings") && tableExists(_req.db, "fish_catalog"),
+    message: "Base rarity weights are connected to !fish. Individual fish weights are edited in Fish Catalog.",
   });
 }, closeDb);
 
@@ -6131,8 +6340,8 @@ app.put("/api/fishing/rarities/:rarity", requireAuth, requirePermission("manage_
     ON CONFLICT(system, rarity) DO UPDATE SET base_weight=excluded.base_weight, base_chance=excluded.base_chance, enabled=excluded.enabled, updated_at=datetime('now')
   `).run(rarity, baseWeight, baseChance, enabled);
   const after = req.db.prepare("SELECT * FROM game_rarity_settings WHERE system='fishing' AND rarity=?").get(rarity);
-  audit(req.db, req.user.username, "fishing_rarity_planning_update", "game_rarity_settings", `fishing:${rarity}`, before, after, req.ip);
-  json(res, { ok: true, row: after, runtime_connected: false, message: "Saved as dashboard planning only. Active fishing runtime does not consume game_rarity_settings yet." });
+  audit(req.db, req.user.username, "fishing_rarity_runtime_update", "game_rarity_settings", `fishing:${rarity}`, before, after, req.ip);
+  json(res, { ok: true, row: after, runtime_connected: true, message: "Saved. Active !fish reads this rarity weight." });
 }, closeDb);
 
 app.get("/api/fishing/rods", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
@@ -6143,10 +6352,10 @@ app.post("/api/fishing/rods", requireAuth, requirePermission("manage_fishing"), 
 app.put("/api/fishing/rods/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
 app.delete("/api/fishing/rods/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Rod catalog is a runtime code catalog, not a verified DB table."));
 
-app.get("/api/fishing/drop-weights", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
-  json(res, { rows: calculateFishDropRows(), writable: false, schema_verified: false, source: "runtime_code", message: "Active fish chances are modules/fishing.py FISH_CATALOG drop_weight values." });
-});
-app.put("/api/fishing/drop-weights", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish drop weights are not stored in a verified DB table."));
+app.get("/api/fishing/drop-weights", requireAuth, requirePermission("manage_fishing"), (req, res) => {
+  json(res, { rows: calculateFishDropRowsFromDb(req.db), writable: tableExists(req.db, "fish_catalog"), schema_verified: tableExists(req.db, "fish_catalog") && tableExists(req.db, "game_rarity_settings"), source: "game_rarity_settings + fish_catalog.catch_weight", message: "Active !fish chances are calculated from rarity base weights and per-fish catch weights." });
+}, closeDb);
+app.put("/api/fishing/drop-weights", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Use PUT /api/fishing/fish/:id to update fish_catalog.catch_weight."));
 app.get("/api/fishing/players", requireAuth, requirePermission("manage_fishing"), (req, res) => {
   const rows = tableExists(req.db, "fish_auto_sell_settings")
     ? rowsOrEmpty(req.db, "fish_profiles", `SELECT fp.*, fas.auto_sell_enabled, fas.auto_sell_rare_enabled FROM fish_profiles fp LEFT JOIN fish_auto_sell_settings fas ON fp.user_id=fas.user_id ORDER BY fp.total_catches DESC LIMIT 250`)

@@ -1092,6 +1092,23 @@ def init_db():
 
     # ── Fishing tables ────────────────────────────────────────────────────────
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS fish_catalog (
+            fish_id       TEXT PRIMARY KEY,
+            name          TEXT NOT NULL,
+            rarity        TEXT NOT NULL,
+            base_value    INTEGER DEFAULT 0,
+            min_weight    REAL,
+            max_weight    REAL,
+            catch_weight  REAL DEFAULT 1,
+            catch_enabled INTEGER DEFAULT 1,
+            event_only    INTEGER DEFAULT 0,
+            emoji         TEXT,
+            created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS fish_profiles (
             user_id          TEXT PRIMARY KEY,
             username         TEXT NOT NULL,
@@ -1870,6 +1887,20 @@ def _migrate_db():
         "created_at TEXT NOT NULL DEFAULT (datetime('now')))",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_event_votes_user "
         "ON event_votes(user_id)",
+        # ── Fish catalog ───────────────────────────────────────────────────────
+        "CREATE TABLE IF NOT EXISTS fish_catalog ("
+        "fish_id TEXT PRIMARY KEY, "
+        "name TEXT NOT NULL, "
+        "rarity TEXT NOT NULL, "
+        "base_value INTEGER DEFAULT 0, "
+        "min_weight REAL, "
+        "max_weight REAL, "
+        "catch_weight REAL DEFAULT 1, "
+        "catch_enabled INTEGER DEFAULT 1, "
+        "event_only INTEGER DEFAULT 0, "
+        "emoji TEXT, "
+        "created_at TEXT DEFAULT CURRENT_TIMESTAMP, "
+        "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)",
         # ── Fish inventory ─────────────────────────────────────────────────────
         "CREATE TABLE IF NOT EXISTS fish_inventory ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -13011,6 +13042,108 @@ def get_fish_catches(user_id: str, limit: int = 5) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def seed_fish_catalog(fish_rows: list[dict]) -> None:
+    """Seed DB-backed fish catalog and rarity weights from runtime constants."""
+    if not fish_rows:
+        return
+    conn = get_connection()
+    try:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS fish_catalog (
+               fish_id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               rarity TEXT NOT NULL,
+               base_value INTEGER DEFAULT 0,
+               min_weight REAL,
+               max_weight REAL,
+               catch_weight REAL DEFAULT 1,
+               catch_enabled INTEGER DEFAULT 1,
+               event_only INTEGER DEFAULT 0,
+               emoji TEXT,
+               created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+               updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS game_rarity_settings (
+               system TEXT NOT NULL,
+               rarity TEXT NOT NULL,
+               base_weight REAL DEFAULT 1,
+               base_chance REAL,
+               enabled INTEGER DEFAULT 1,
+               updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+               UNIQUE(system, rarity))"""
+        )
+        rarity_weights: dict[str, float] = {}
+        for fish in fish_rows:
+            fish_id = str(fish.get("fish_id") or "").strip()
+            if not fish_id:
+                continue
+            catch_weight = float(fish.get("catch_weight", fish.get("drop_weight", 1)) or 1)
+            rarity = str(fish.get("rarity") or "common").lower()
+            rarity_weights[rarity] = rarity_weights.get(rarity, 0.0) + max(0.0, catch_weight)
+            conn.execute(
+                """INSERT OR IGNORE INTO fish_catalog
+                   (fish_id, name, rarity, base_value, min_weight, max_weight,
+                    catch_weight, catch_enabled, event_only, emoji, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, datetime('now'), datetime('now'))""",
+                (
+                    fish_id,
+                    str(fish.get("name") or fish_id),
+                    rarity,
+                    int(fish.get("base_value", 0) or 0),
+                    fish.get("min_weight"),
+                    fish.get("max_weight"),
+                    catch_weight,
+                    str(fish.get("emoji") or ""),
+                ),
+            )
+        seed_rarities = ["common", "uncommon", "epic", "legendary", "mythic", "prismatic", "exotic"]
+        for rarity in list(rarity_weights.keys()) + [r for r in seed_rarities if r not in rarity_weights]:
+            weight = rarity_weights.get(rarity, 0.0)
+            conn.execute(
+                """INSERT OR IGNORE INTO game_rarity_settings
+                   (system, rarity, base_weight, base_chance, enabled, updated_at)
+                   VALUES ('fishing', ?, ?, ?, 1, datetime('now'))""",
+                (rarity, weight, weight),
+            )
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        print(f"[DB] seed_fish_catalog skipped: {exc!r}")
+    finally:
+        conn.close()
+
+
+def get_fish_catalog(catch_enabled: bool = True) -> list[dict]:
+    conn = get_connection()
+    try:
+        q = "SELECT * FROM fish_catalog"
+        if catch_enabled:
+            q += " WHERE catch_enabled=1"
+        q += " ORDER BY rarity, base_value, name"
+        rows = conn.execute(q).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+
+
+def get_fishing_rarity_settings() -> dict:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT rarity, base_weight, base_chance, enabled
+               FROM game_rarity_settings
+               WHERE system='fishing'"""
+        ).fetchall()
+        return {str(r["rarity"]).lower(): dict(r) for r in rows}
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        conn.close()
 
 
 def get_top_fishers(limit: int = 10) -> list[dict]:
