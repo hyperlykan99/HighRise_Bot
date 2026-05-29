@@ -2116,7 +2116,7 @@ function buildLeaderboards(db, options = {}) {
     const missing = ["username", "ore_name", "rarity"].filter((col) => !cols.includes(col));
     if (missing.length) return markMissingColumns("mining_rarest", "ore_weight_records", missing);
     const valueCol = choose(cols, ["final_value", "base_value"]);
-    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("ore_name")} AS ore, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("mined_at") ? `, ${sqlIdent("mined_at")} AS mined_at` : ""} FROM ${sqlIdent("ore_weight_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'prismatic' THEN 1 WHEN 'exotic' THEN 2 WHEN 'legendary' THEN 3 WHEN 'mythic' THEN 4 WHEN 'epic' THEN 5 WHEN 'rare' THEN 6 WHEN 'uncommon' THEN 7 WHEN 'common' THEN 8 ELSE 20 END ASC${cols.includes("weight") ? `, ${numericExpr("weight")} DESC` : ""}${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""}${timeExpr(cols, ["mined_at", "created_at", "found_at"])} LIMIT ?`;
+    const sql = `SELECT ${sqlIdent("username")} AS username, ${sqlIdent("ore_name")} AS ore, ${sqlIdent("rarity")} AS rarity${cols.includes("weight") ? `, ${sqlIdent("weight")} AS weight` : ""}${valueCol ? `, ${sqlIdent(valueCol)} AS value` : ""}${cols.includes("mined_at") ? `, ${sqlIdent("mined_at")} AS mined_at` : ""} FROM ${sqlIdent("ore_weight_records")} WHERE ${sqlIdent("rarity")} IS NOT NULL AND ${sqlIdent("rarity")} <> '' ORDER BY CASE ${textExpr("rarity")} WHEN 'exotic' THEN 1 WHEN 'prismatic' THEN 2 WHEN 'mythic' THEN 3 WHEN 'legendary' THEN 4 WHEN 'epic' THEN 5 WHEN 'uncommon' THEN 6 WHEN 'common' THEN 7 ELSE 20 END ASC${cols.includes("weight") ? `, ${numericExpr("weight")} DESC` : ""}${valueCol ? `, ${numericExpr(valueCol)} DESC` : ""}${timeExpr(cols, ["mined_at", "created_at", "found_at"])} LIMIT ?`;
     return runSql("mining_rarest", "ore_weight_records", ["username", "ore_name", "rarity", "weight", valueCol, "mined_at"].filter(Boolean), sql, [limit], "Rarest ore finds by rarity rank.");
   })();
   const miningStreaks = tableExists(db, "mining_players") && columnExists(db, "mining_players", "streak_days")
@@ -2653,7 +2653,7 @@ const ACTIVE_MINING_FIELDS = [
   { field: "base_cooldown_seconds", label: "Mine Cooldown", table: "mining_settings", key: "base_cooldown_seconds", type: "int", fallback: "30", min: 5, max: 3600 },
   { field: "mining_requires_room", label: "Requires Room", table: "mining_settings", key: "mining_requires_room", type: "bool_true_false", fallback: "true" },
   { field: "mining_announce_enabled", label: "Mining Announcements", table: "mining_settings", key: "mining_announce_enabled", type: "bool_10", fallback: "1" },
-  { field: "mining_announce_min_rarity", label: "Announce Minimum Rarity", table: "mining_settings", key: "mining_announce_min_rarity", type: "enum", fallback: "legendary", values: ["common", "uncommon", "rare", "epic", "legendary", "mythic", "ultra_rare", "exotic"] },
+  { field: "mining_announce_min_rarity", label: "Announce Minimum Rarity", table: "mining_settings", key: "mining_announce_min_rarity", type: "enum", fallback: "legendary", values: ["common", "uncommon", "epic", "legendary", "mythic", "prismatic", "exotic"] },
   { field: "normal_multiplier_cap", label: "Normal Multiplier Cap", table: "mining_settings", key: "normal_multiplier_cap", type: "float", fallback: "3.0", min: 0, max: 100 },
   { field: "blessing_multiplier_cap", label: "Blessing Multiplier Cap", table: "mining_settings", key: "blessing_multiplier_cap", type: "float", fallback: "5.0", min: 0, max: 100 },
   { field: "weights_enabled", label: "Ore Weights Enabled", table: "mining_weight_settings", key: "weights_enabled", type: "bool_10", fallback: "1", optionalTable: true },
@@ -2787,8 +2787,9 @@ const MINING_RARITY_PROBS = {
   exotic: 0.0002,
 };
 
-const MINING_RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic", "exotic", "prismatic"];
-const FISHING_RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic", "exotic"];
+const GAME_RARITY_ORDER = ["common", "uncommon", "epic", "legendary", "mythic", "prismatic", "exotic"];
+const MINING_RARITY_ORDER = GAME_RARITY_ORDER;
+const FISHING_RARITY_ORDER = GAME_RARITY_ORDER;
 const RARITY_LABELS = {
   common: "Common",
   uncommon: "Uncommon",
@@ -2808,7 +2809,7 @@ function normalizeRarity(value) {
 
 function rarityRank(value, order = MINING_RARITY_ORDER) {
   const idx = order.indexOf(normalizeRarity(value));
-  return idx === -1 ? -1 : idx;
+  return idx === -1 ? order.length : idx;
 }
 
 function chanceTextFromPercent(value, zeroText = "Not currently dropping") {
@@ -2929,13 +2930,13 @@ function miningItemRows(db, includeDisabled = true) {
 function calculateMiningDropRows(db) {
   const items = miningItemRows(db, false);
   const byRarity = items.reduce((acc, item) => {
-    const rarity = item.rarity || "common";
+    const rarity = normalizeRarity(item.rarity);
     acc[rarity] = acc[rarity] || [];
     acc[rarity].push(item);
     return acc;
   }, {});
   return items.map((item) => {
-    const rarity = item.rarity || "common";
+    const rarity = normalizeRarity(item.rarity);
     const rarityChance = Number(MINING_RARITY_PROBS[rarity] || 0);
     const peers = Math.max(1, byRarity[rarity]?.length || 1);
     const chance = rarityChance / peers;
@@ -2960,7 +2961,7 @@ function calculateFishDropRows() {
   return fish.map((row) => ({
     fish_id: row.fish_id,
     fish: row.name,
-    rarity: row.rarity,
+    rarity: normalizeRarity(row.rarity),
     weight: row.drop_weight,
     chance_percent: total ? (Number(row.drop_weight || 0) / total) * 100 : 0,
     enabled: 1,
@@ -2968,6 +2969,79 @@ function calculateFishDropRows() {
     source: "modules/fishing.py FISH_CATALOG drop_weight",
     writable: false,
   }));
+}
+
+function enrichedMiningOreRows(db, includeDisabled = true) {
+  const odds = calculateMiningDropRows(db);
+  return miningItemRows(db, includeDisabled).map((row) => {
+    const odd = odds.find((o) => o.item_id === row.item_id || o.ore === row.name);
+    const chance = odd?.chance_percent ?? null;
+    return {
+      ...row,
+      rarity: normalizeRarity(row.rarity),
+      rarity_label: RARITY_LABELS[normalizeRarity(row.rarity)] || row.rarity || "Common",
+      weight: odd?.weight ?? null,
+      chance_percent: chance,
+      chance_label: chanceTextFromPercent(chance, "Not currently dropping"),
+      event_only: odd?.event_only ?? 0,
+      source: "mining_items + modules/mining.py RARITIES",
+    };
+  }).sort((a, b) => rarityRank(a.rarity, MINING_RARITY_ORDER) - rarityRank(b.rarity, MINING_RARITY_ORDER)
+    || Number(b.chance_percent ?? -1) - Number(a.chance_percent ?? -1)
+    || Number(b.sell_value || 0) - Number(a.sell_value || 0)
+    || String(a.name || "").localeCompare(String(b.name || "")));
+}
+
+function enrichedFishingRows() {
+  const { fish, source, error } = readFishingCodeCatalog();
+  const odds = calculateFishDropRows();
+  const rows = fish.map((row) => {
+    const odd = odds.find((o) => o.fish_id === row.fish_id || o.fish === row.name);
+    const chance = odd?.chance_percent ?? null;
+    return {
+      ...row,
+      rarity: normalizeRarity(row.rarity),
+      rarity_label: RARITY_LABELS[normalizeRarity(row.rarity)] || row.rarity || "Common",
+      weight: odd?.weight ?? row.drop_weight ?? null,
+      chance_percent: chance,
+      chance_label: chanceTextFromPercent(chance, "Not currently catching"),
+      enabled: 1,
+      event_only: 0,
+      source: "modules/fishing.py FISH_CATALOG",
+      writable: false,
+    };
+  }).sort((a, b) => rarityRank(a.rarity, FISHING_RARITY_ORDER) - rarityRank(b.rarity, FISHING_RARITY_ORDER)
+    || Number(b.chance_percent ?? -1) - Number(a.chance_percent ?? -1)
+    || Number(b.base_value || 0) - Number(a.base_value || 0)
+    || Number(b.max_weight || 0) - Number(a.max_weight || 0)
+    || String(a.name || "").localeCompare(String(b.name || "")));
+  return { rows, source, error };
+}
+
+function raritySummaryRows(items, order, { valueKey = "value", weightKey = "weight", zeroText = "Not currently dropping", source = "runtime_code", itemLabel = "items" } = {}) {
+  const enabled = items.filter((row) => row.enabled !== 0 && row.enabled !== false && row.drop_enabled !== 0 && row.catch_enabled !== 0);
+  const totalWeight = enabled.reduce((sum, row) => sum + Number(row[weightKey] ?? row.chance_percent ?? 0), 0);
+  return order.map((rarity) => {
+    const rows = items.filter((row) => normalizeRarity(row.rarity) === rarity);
+    const enabledRows = rows.filter((row) => row.enabled !== 0 && row.enabled !== false && row.drop_enabled !== 0 && row.catch_enabled !== 0);
+    const rarityWeight = enabledRows.reduce((sum, row) => sum + Number(row[weightKey] ?? row.chance_percent ?? 0), 0);
+    const chance = totalWeight ? (rarityWeight / totalWeight) * 100 : 0;
+    const maxValue = rows.reduce((max, row) => Math.max(max, Number(row[valueKey] || row.sell_value || row.base_value || 0)), 0);
+    return {
+      rarity,
+      label: RARITY_LABELS[rarity] || rarity,
+      total_items: rows.length,
+      enabled_items: enabledRows.length,
+      total_weight: rarityWeight,
+      chance_percent: chance,
+      chance_label: chanceTextFromPercent(chance, zeroText),
+      max_value: maxValue,
+      writable: false,
+      schema_verified: false,
+      source,
+      notes: `Rarity odds are calculated from ${itemLabel}; edit verified individual item weights/values where available.`,
+    };
+  });
 }
 
 function countTable(db, table, where = "") {
@@ -3578,7 +3652,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     command: "!minechances / !orechances",
     display_name: "Ore Drop Chances",
     dashboard_page: "Mining",
-    dashboard_section: "Drop Chances",
+    dashboard_section: "Rarities & Odds",
     db_table: "modules/mining.py",
     db_key_or_column: "RARITIES",
     readSource: "modules/mining.py RARITIES split across enabled mining_items",
@@ -3663,7 +3737,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     command: "!fishchances",
     display_name: "Fish Catch Chances",
     dashboard_page: "Fishing",
-    dashboard_section: "Catch Chances",
+    dashboard_section: "Rarities & Odds",
     db_table: "modules/fishing.py",
     db_key_or_column: "FISH_CATALOG.drop_weight",
     readSource: "modules/fishing.py FISH_CATALOG drop_weight",
@@ -3929,7 +4003,7 @@ function buildQaAudit() {
     .map((pathValue) => ({ endpoint: pathValue, reason: "No matching server route pattern found" }));
   const dataAttrs = [...new Set([...appSource.matchAll(/data-([a-z0-9-]+)=/gi)].map((m) => m[1]))];
   const handledAttrs = new Set([
-    "pub-page", "manual-tab", "ranking-tab", "admin-page", "admin-tab", "nav-id", "page-tab", "maint-tab", "action",
+    "pub-page", "manual-tab", "manual-rarity", "manual-section", "manual-game-section", "manual-game-tab", "public-rarity", "owner-rarity", "rarity-section", "ranking-tab", "admin-page", "admin-tab", "nav-id", "page-tab", "maint-tab", "action",
     "bot-command", "target-bot", "dancefloor-command", "sync-command", "sync-persist",
     "command-id",
     "player-jump", "remove-item", "quick-item", "quick-type", "remove-title", "remove-badge",
@@ -4854,48 +4928,10 @@ function publicHowToPlayPayload(db) {
   const miningOdds = calculateMiningDropRows(db);
   if (!tableExists(db, "mining_items")) missingTable("mining_items");
   for (const col of ["item_id", "name", "rarity", "sell_value", "drop_enabled"]) missingColumn("mining_items", col);
-  const ores = miningItemRows(db, true).map((row) => {
-    const odd = miningOdds.find((o) => o.item_id === row.item_id || o.ore === row.name);
-    const chance = odd?.chance_percent ?? null;
-    return {
-      item_id: row.item_id,
-      name: row.name,
-      emoji: row.emoji,
-      rarity: normalizeRarity(row.rarity),
-      rarity_label: RARITY_LABELS[normalizeRarity(row.rarity)] || row.rarity || "Common",
-      value: row.sell_value,
-      enabled: row.drop_enabled,
-      chance_percent: chance,
-      chance_label: chanceTextFromPercent(chance, "Not currently dropping"),
-      event_only: odd?.event_only ?? 0,
-    };
-  }).sort((a, b) => rarityRank(a.rarity, MINING_RARITY_ORDER) - rarityRank(b.rarity, MINING_RARITY_ORDER)
-    || Number(b.chance_percent ?? -1) - Number(a.chance_percent ?? -1)
-    || Number(b.value || 0) - Number(a.value || 0)
-    || String(a.name || "").localeCompare(String(b.name || ""))).slice(0, 200);
+  const ores = enrichedMiningOreRows(db, true).map((row) => ({ ...row, value: row.sell_value })).slice(0, 200);
   const fishCode = readFishingCodeCatalog();
   const fishingOdds = calculateFishDropRows();
-  const fish = fishCode.fish.map((row) => {
-    const odd = fishingOdds.find((o) => o.fish_id === row.fish_id || o.fish === row.name);
-    const chance = odd?.chance_percent ?? null;
-    return {
-      fish_id: row.fish_id,
-      name: row.name,
-      rarity: normalizeRarity(row.rarity),
-      rarity_label: RARITY_LABELS[normalizeRarity(row.rarity)] || row.rarity || "Common",
-      base_value: row.base_value,
-      min_weight: row.min_weight,
-      max_weight: row.max_weight,
-      catch_weight: row.drop_weight,
-      chance_percent: chance,
-      chance_label: chanceTextFromPercent(chance, "Not currently catching"),
-      event_only: 0,
-    };
-  }).sort((a, b) => rarityRank(a.rarity, FISHING_RARITY_ORDER) - rarityRank(b.rarity, FISHING_RARITY_ORDER)
-    || Number(b.chance_percent ?? -1) - Number(a.chance_percent ?? -1)
-    || Number(b.base_value || 0) - Number(a.base_value || 0)
-    || Number(b.max_weight || 0) - Number(a.max_weight || 0)
-    || String(a.name || "").localeCompare(String(b.name || ""))).slice(0, 200);
+  const fish = enrichedFishingRows().rows.slice(0, 200);
   const miningCommands = verifiedCommands([
     { command: "mine", display: "!mine", description: "Mine for ores, coins, and mining XP." },
     { command: "topminers", display: "!topminers", description: "Open the mining leaderboard." },
@@ -4931,13 +4967,13 @@ function publicHowToPlayPayload(db) {
     { command: "topweightfish", display: "!topweightfish", description: "Show heaviest fish rankings." },
   ]);
   const rareMiningPreview = ores
-    .filter((row) => Number(row.chance_percent || 0) > 0 && ["prismatic", "exotic", "legendary", "mythic", "epic", "rare"].includes(row.rarity))
+    .filter((row) => Number(row.chance_percent || 0) > 0 && ["exotic", "prismatic", "mythic", "legendary", "epic"].includes(row.rarity))
     .sort((a, b) => rarityRank(b.rarity, MINING_RARITY_ORDER) - rarityRank(a.rarity, MINING_RARITY_ORDER)
       || Number(a.chance_percent || 0) - Number(b.chance_percent || 0)
       || Number(b.value || 0) - Number(a.value || 0))
     .slice(0, 6);
   const rareFishingPreview = fish
-    .filter((row) => Number(row.chance_percent || 0) > 0 && ["mythic", "legendary", "exotic", "epic", "rare"].includes(row.rarity))
+    .filter((row) => Number(row.chance_percent || 0) > 0 && ["exotic", "prismatic", "mythic", "legendary", "epic"].includes(row.rarity))
     .sort((a, b) => rarityRank(b.rarity, FISHING_RARITY_ORDER) - rarityRank(a.rarity, FISHING_RARITY_ORDER)
       || Number(a.chance_percent || 0) - Number(b.chance_percent || 0)
       || Number(b.base_value || 0) - Number(a.base_value || 0))
@@ -5713,9 +5749,32 @@ app.get("/api/mining", requireAuth, requirePermission("manage_mining"), (req, re
 }, closeDb);
 
 app.get("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (req, res) => {
-  const rows = miningItemRows(req.db, true);
-  json(res, { rows, schema_verified: tableExists(req.db, "mining_items"), writable: tableExists(req.db, "mining_items"), table: "mining_items", columns: tableColumns(req.db, "mining_items") });
+  const rarity = req.query.rarity ? normalizeRarity(req.query.rarity) : "";
+  const rows = enrichedMiningOreRows(req.db, true).filter((row) => !rarity || normalizeRarity(row.rarity) === rarity);
+  json(res, { rows, schema_verified: tableExists(req.db, "mining_items"), writable: tableExists(req.db, "mining_items"), table: "mining_items", columns: tableColumns(req.db, "mining_items"), rarity_order: MINING_RARITY_ORDER });
 }, closeDb);
+
+app.get("/api/mining/rarities", requireAuth, requirePermission("manage_mining"), (req, res) => {
+  const rows = raritySummaryRows(enrichedMiningOreRows(req.db, true), MINING_RARITY_ORDER, {
+    valueKey: "sell_value",
+    weightKey: "weight",
+    zeroText: "Not currently dropping",
+    source: "mining_items + modules/mining.py RARITIES",
+    itemLabel: "enabled mining_items rows and runtime rarity probabilities",
+  });
+  json(res, {
+    rows,
+    writable: false,
+    schema_verified: false,
+    rarity_order: MINING_RARITY_ORDER,
+    source: "calculated",
+    message: "Mining rarity odds are calculated from enabled ores and runtime rarity probabilities. Edit DB-backed ore values/enabled state in the Ores tab.",
+  });
+}, closeDb);
+
+app.put("/api/mining/rarities/:rarity", requireAuth, requirePermission("manage_mining"), (_req, res) => {
+  unverifiedSchema(res, "Mining rarity odds are runtime-derived, not a verified DB rarity table. Edit individual DB-backed ores where supported.");
+});
 
 app.post("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (req, res) => {
   if (!tableExists(req.db, "mining_items")) return unverifiedSchema(res, "mining_items table is missing.");
@@ -5827,13 +5886,36 @@ app.get("/api/fishing", requireAuth, requirePermission("manage_fishing"), (req, 
   });
 }, closeDb);
 
-app.get("/api/fishing/fish", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
-  const { fish, source, error } = readFishingCodeCatalog();
-  json(res, { rows: fish, writable: false, schema_verified: false, source, error, message: "Active fish catalog is defined in modules/fishing.py FISH_CATALOG; dashboard keeps it read-only." });
+app.get("/api/fishing/fish", requireAuth, requirePermission("manage_fishing"), (req, res) => {
+  const rarity = req.query.rarity ? normalizeRarity(req.query.rarity) : "";
+  const { rows, source, error } = enrichedFishingRows();
+  json(res, { rows: rows.filter((row) => !rarity || normalizeRarity(row.rarity) === rarity), writable: false, schema_verified: false, source, error, rarity_order: FISHING_RARITY_ORDER, message: "Active fish catalog is defined in modules/fishing.py FISH_CATALOG; dashboard keeps it read-only." });
 });
 app.post("/api/fishing/fish", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
 app.put("/api/fishing/fish/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
 app.delete("/api/fishing/fish/:id", requireAuth, requirePermission("manage_fishing"), (_req, res) => unverifiedSchema(res, "Fish catalog is a runtime code catalog, not a verified DB table."));
+
+app.get("/api/fishing/rarities", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
+  const rows = raritySummaryRows(enrichedFishingRows().rows, FISHING_RARITY_ORDER, {
+    valueKey: "base_value",
+    weightKey: "weight",
+    zeroText: "Not currently catching",
+    source: "modules/fishing.py FISH_CATALOG",
+    itemLabel: "runtime fish catalog catch weights",
+  });
+  json(res, {
+    rows,
+    writable: false,
+    schema_verified: false,
+    rarity_order: FISHING_RARITY_ORDER,
+    source: "runtime_code",
+    message: "Fishing rarity odds are calculated from modules/fishing.py FISH_CATALOG drop_weight values. Fish catalog writes remain read-only until the runtime moves to a verified DB table.",
+  });
+});
+
+app.put("/api/fishing/rarities/:rarity", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
+  unverifiedSchema(res, "Fishing rarity odds are runtime code constants, not a verified DB rarity table.");
+});
 
 app.get("/api/fishing/rods", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
   const { rods, source, error } = readFishingCodeCatalog();
