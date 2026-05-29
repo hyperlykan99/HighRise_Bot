@@ -152,13 +152,23 @@ const ECONOMY_TABS = [
   { id: "Overview", api: "/api/economy/overview" },
   { id: "Economy", api: "/api/economy/settings" },
   { id: "Bank", api: "/api/bank/settings" },
+  { id: "Commerce", api: "/api/commerce/overview" },
   { id: "VIP", api: "/api/vip" },
   { id: "Titles", api: "/api/titles" },
   { id: "Badges", api: "/api/badges/catalog" },
+  { id: "Badge Shop", api: "/api/badge-shop" },
+  { id: "Badge Market", api: "/api/badge-market" },
+  { id: "Luxe Shop", api: "/api/luxe/shop" },
+  { id: "Luxe Tickets", api: "/api/luxe" },
   { id: "Rewards", api: "/api/rewards" },
   { id: "Shop", api: "/api/shop" },
+  { id: "Owned Items", api: "/api/rewards" },
   { id: "Quests", api: "/api/quests" },
   { id: "Player Grants", api: "/api/rewards" },
+  { id: "Purchase History", api: "/api/shop/purchases" },
+  { id: "Transactions", api: "/api/luxe/transactions" },
+  { id: "Achievements", api: "/api/commerce/overview" },
+  { id: "Diagnostics", api: "/api/commerce/source-map" },
   { id: "Logs", api: "/api/rewards/logs" },
   { id: "Advanced", api: "/api/rewards" },
 ];
@@ -5538,13 +5548,23 @@ function renderEconomyRewards(tab) {
     ${tab === "Games"           ? renderGamesTab() : ""}
     ${tab === "Economy"         ? renderCoinsTab() : ""}
     ${tab === "Bank"            ? renderBankTab() : ""}
+    ${tab === "Commerce"        ? renderCommerceOverviewTab() : ""}
     ${tab === "VIP"             ? renderVipTab() : ""}
     ${tab === "Titles"          ? renderTitlesTab() : ""}
     ${tab === "Badges"          ? renderBadgesTab() : ""}
+    ${tab === "Badge Shop"      ? renderBadgeShopTab() : ""}
+    ${tab === "Badge Market"    ? renderBadgeMarketTab() : ""}
+    ${tab === "Luxe Shop"       ? renderLuxeShopTab() : ""}
+    ${tab === "Luxe Tickets"    ? renderLuxeTicketsTab() : ""}
     ${tab === "Rewards"         ? renderRewardsTab() : ""}
     ${tab === "Shop"            ? renderShopTab() : ""}
+    ${tab === "Owned Items"     ? renderOwnedItemsTab() : ""}
     ${tab === "Quests"          ? renderQuestsTab() : ""}
     ${tab === "Player Grants"   ? renderPlayerGrantsTab() : ""}
+    ${tab === "Purchase History" ? renderPurchaseHistoryTab() : ""}
+    ${tab === "Transactions"    ? renderPremiumTransactionsTab() : ""}
+    ${tab === "Achievements"    ? renderAchievementsTab() : ""}
+    ${tab === "Diagnostics"     ? renderCommerceDiagnosticsTab() : ""}
     ${tab === "Logs"            ? renderRewardLogsTab() : ""}
     ${tab === "Advanced"        ? renderRewardsAdvancedTab() : ""}
   `;
@@ -6115,6 +6135,43 @@ function renderBankTab() {
   </div>`;
 }
 
+function statusPill(status) {
+  const s = String(status || "READ ONLY").toUpperCase();
+  const cls = s.includes("CONNECTED") ? "info" : s.includes("CONSTANT") ? "warn" : s.includes("UNVERIFIED") ? "warn" : "def";
+  return `<span class="pill ${cls}">${esc(s)}</span>`;
+}
+
+function renderCommerceOverviewTab() {
+  const d = state.data || {};
+  const o = d.overview || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+      ${metricCard("VIP Players", o.vip_players ?? 0, "owned_items", "accent-green", "⭐")}
+      ${metricCard("Badge Listings", o.active_badge_listings ?? 0, "active market", "", "🏷️")}
+      ${metricCard("Luxe Balances", o.luxe_balances ?? 0, "premium_balances", "accent-cyan", "🎟️")}
+      ${metricCard("Owned Items", o.owned_items ?? 0, "owned_items", "", "🎒")}
+      ${metricCard("Purchases", o.purchases ?? 0, "purchase_history", "", "🧾")}
+      ${metricCard("Transactions", o.premium_transactions ?? 0, "premium_transactions", "", "💎")}
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>Rewards Commerce Control Center</h2>
+          <p class="muted">Titles, badges, badge market, Luxe Tickets, VIP, owned items, purchases, and premium economy in one place.</p>
+        </div>
+        <span class="pill info">Owner Controls</span>
+      </div>
+      ${table(d.source_map || [], [
+        { key: "system", label: "System" },
+        { key: "command", label: "Commands" },
+        { key: "source", label: "Runtime Source" },
+        { key: "status", label: "Status", render: (r) => statusPill(r.status) },
+        { key: "notes", label: "Notes" },
+      ])}
+    </div>
+  `;
+}
+
 function renderVipTab() {
   const d = state.data || {};
   const rows = d.vip_players || [];
@@ -6191,6 +6248,150 @@ function renderBadgesTab() {
   ])}`;
 }
 
+function renderBadgeShopTab() {
+  const d = state.data || {};
+  const catalog = d.catalog || d.badge_shop?.catalog || [];
+  const writable = Boolean(d.writable ?? d.badge_shop?.writable);
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>🏪 Badge Shop Catalog</h2>
+          <p class="muted">Connected badge catalog when <code>emoji_badges</code> exists. Classic shop constants stay marked as runtime constants.</p>
+        </div>
+        ${statusPill(writable ? "CONNECTED" : "RUNTIME_CONSTANT")}
+      </div>
+      ${table(catalog, [
+        { key: "badge_id", label: "Badge ID" },
+        { key: "emoji", label: "Emoji" },
+        { key: "name", label: "Name" },
+        { key: "rarity", label: "Rarity" },
+        { key: "price", label: "Price", render: (r) => Number(r.price || 0).toLocaleString() },
+        { key: "purchasable", label: "Buy", render: (r) => pill(Number(r.purchasable) ? "on" : "off") },
+        { key: "tradeable", label: "Trade", render: (r) => pill(Number(r.tradeable) ? "on" : "off") },
+        { key: "sellable", label: "Sell", render: (r) => pill(Number(r.sellable) ? "on" : "off") },
+      ], writable && state.user?.role === "owner" ? (r) => `<button class="btn secondary sm" data-badge-shop-edit="${esc(r.badge_id)}">Edit</button>` : null)}
+    </div>
+    ${writable && state.user?.role === "owner" ? `<div class="card">
+      <h2>Edit Badge Shop Item</h2>
+      <form id="badgeShopForm" class="settings-form">
+        <div class="field"><label class="field-label">Badge ID</label><input name="badge_id" required /></div>
+        <div class="field"><label class="field-label">Emoji</label><input name="emoji" /></div>
+        <div class="field"><label class="field-label">Name</label><input name="name" /></div>
+        <div class="field"><label class="field-label">Rarity</label><input name="rarity" /></div>
+        <div class="field"><label class="field-label">Price</label><input name="price" type="number" min="0" /></div>
+        <label class="check-row"><input type="checkbox" name="purchasable" value="1" /> Purchasable</label>
+        <label class="check-row"><input type="checkbox" name="tradeable" value="1" /> Tradeable</label>
+        <label class="check-row"><input type="checkbox" name="sellable" value="1" /> Sellable</label>
+        <div class="field"><label class="field-label">Reason</label><input name="reason" required /></div>
+        <button class="btn primary">Save Badge Item</button>
+      </form>
+    </div>` : `<div class="notice">Badge catalog edits are hidden because the active catalog is runtime constant or schema is unverified.</div>`}
+  `;
+}
+
+function renderBadgeMarketTab() {
+  const d = state.data || {};
+  const listings = d.listings || d.badge_market?.listings || [];
+  const logs = d.logs || d.badge_market?.logs || [];
+  const fee = d.fee_percent || d.badge_market?.fee_percent || "5";
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+      ${metricCard("Active Listings", listings.filter((r) => String(r.status || "").toLowerCase() === "active").length, "badge_market_listings", "", "🏷️")}
+      ${metricCard("Market Logs", logs.length, "recent rows", "", "📜")}
+      ${metricCard("Market Fee", `${fee}%`, "bot_settings", "accent-cyan", "💸")}
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>Badge Market Settings</h2>${statusPill("CONNECTED")}</div>
+      ${state.user?.role === "owner" ? `<form id="badgeMarketSettingsForm" class="toolbar" style="flex-wrap:wrap">
+        <input name="badge_market_fee_percent" type="number" min="0" max="50" step="0.1" value="${esc(fee)}" />
+        <input name="reason" required placeholder="Reason" />
+        <button class="btn primary">Save Fee</button>
+      </form>` : `<div class="notice">Owner role required for market fee writes.</div>`}
+    </div>
+    <div class="card">
+      <h2>Active / Recent Listings</h2>
+      ${table(listings, [
+        { key: "id", label: "ID" },
+        { key: "seller_username", label: "Seller" },
+        { key: "badge_id", label: "Badge" },
+        { key: "emoji", label: "Emoji" },
+        { key: "price", label: "Price", render: (r) => Number(r.price || 0).toLocaleString() },
+        { key: "status", label: "Status", render: (r) => pill(r.status || "unknown") },
+        { key: "buyer_username", label: "Buyer" },
+        { key: "listed_at", label: "Listed" },
+      ], state.user?.role === "owner" ? (r) => String(r.status || "").toLowerCase() === "active" ? `<button class="btn danger sm" data-badge-market-cancel="${esc(r.id)}">Cancel</button>` : "" : null)}
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Market Logs</h2>${table(logs)}</div>
+      <div class="card"><h2>Wishlist</h2>${table(d.wishlist || d.badge_market?.wishlist || [])}</div>
+      <div class="card"><h2>Trades</h2>${table(d.trades || d.badge_market?.trades || [])}</div>
+    </div>
+  `;
+}
+
+function renderLuxeShopTab() {
+  const d = state.data || {};
+  const rows = d.rows || d.shop || [];
+  const writable = Boolean(d.writable ?? true);
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div><h2>🎟️ Luxe Shop</h2><p class="muted">Item identity comes from <code>modules/luxe.py</code>; prices and durations are connected through <code>premium_settings</code>.</p></div>
+        ${statusPill(writable ? "CONNECTED" : "RUNTIME_CONSTANT")}
+      </div>
+      ${table(rows, [
+        { key: "number", label: "#" },
+        { key: "item_key", label: "Key" },
+        { key: "name", label: "Item" },
+        { key: "category", label: "Category" },
+        { key: "price", label: "Price", render: (r) => `${Number(r.price || 0).toLocaleString()} tickets` },
+        { key: "duration_seconds", label: "Duration", render: (r) => Number(r.duration_seconds || 0) ? `${Math.round(Number(r.duration_seconds) / 60).toLocaleString()} min` : "instant" },
+        { key: "status", label: "Status", render: (r) => statusPill(r.status) },
+      ], state.user?.role === "owner" ? (r) => `<button class="btn secondary sm" data-luxe-shop-edit="${esc(r.item_key)}">Edit</button>` : null)}
+    </div>
+    ${state.user?.role === "owner" ? `<div class="card">
+      <h2>Edit Luxe Shop Price / Duration</h2>
+      <form id="luxeShopForm" class="settings-form">
+        <div class="field"><label class="field-label">Item Key</label><input name="item_key" required /></div>
+        <div class="field"><label class="field-label">Price in Tickets</label><input name="price" type="number" min="0" /></div>
+        <div class="field"><label class="field-label">Duration Seconds</label><input name="duration_seconds" type="number" min="0" /></div>
+        <div class="field"><label class="field-label">Reason</label><input name="reason" required /></div>
+        <button class="btn primary">Save Luxe Item</button>
+      </form>
+    </div>` : ""}
+  `;
+}
+
+function renderLuxeTicketsTab() {
+  const d = state.data || {};
+  const balances = d.balances || d.luxe?.balances || [];
+  const transactions = d.transactions || d.luxe?.transactions || [];
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>Luxe Ticket Balances</h2>
+        ${table(balances, [
+          { key: "username", label: "Player" },
+          { key: "user_id", label: "User ID" },
+          { key: "luxe_tickets", label: "Tickets", render: (r) => Number(r.luxe_tickets || 0).toLocaleString() },
+          { key: "updated_at", label: "Updated" },
+        ])}
+      </div>
+      <div class="card">
+        <h2>Grant / Remove Luxe Tickets</h2>
+        ${state.user?.role === "owner" ? `<form id="luxeGrantForm" class="settings-form">
+          <div class="field"><label class="field-label">Username or User ID</label><input name="query" required /></div>
+          <div class="field"><label class="field-label">Amount</label><input name="amount" type="number" required placeholder="Use negative to remove" /></div>
+          <div class="field"><label class="field-label">Reason</label><input name="reason" required /></div>
+          <button class="btn primary">Apply Tickets</button>
+        </form>` : `<div class="notice">Owner role required for Luxe ticket writes.</div>`}
+      </div>
+    </div>
+    <div class="card"><h2>Premium Transactions</h2>${table(transactions)}</div>
+  `;
+}
+
 function renderRewardsTab() {
   const d = state.data || {};
   const o = d.overview || {};
@@ -6225,6 +6426,72 @@ function renderShopTab() {
     { endpoint: "POST /api/shop/items", purpose: "Shop item writes", status: "Unverified schema" },
     { endpoint: "PUT /api/shop/items/:id", purpose: "Shop item edits/disable", status: "Unverified schema" },
   ])}`;
+}
+
+function renderOwnedItemsTab() {
+  const d = state.data || {};
+  return `<div class="card">
+    <div class="card-header"><h2>🎒 Owned Items</h2><span class="pill info">CONNECTED</span></div>
+    ${table(d.owned_items || [], [
+      { key: "user_id", label: "User ID" },
+      { key: "item_id", label: "Item" },
+      { key: "item_type", label: "Type" },
+    ])}
+    <div class="notice" style="margin-top:12px">Use Player Grants for owner-audited item add/remove actions. Normal view never deletes rows without a confirmation and reason.</div>
+  </div>`;
+}
+
+function renderPurchaseHistoryTab() {
+  const d = state.data || {};
+  return `<div class="grid">
+    <div class="card"><h2>Purchase History</h2>${table(d.purchases || d.purchase_history || [])}</div>
+    <div class="card"><h2>Premium Transactions</h2>${table(d.premium_transactions || [])}</div>
+  </div>`;
+}
+
+function renderPremiumTransactionsTab() {
+  const d = state.data || {};
+  return `<div class="grid">
+    <div class="card"><h2>Premium Transactions</h2>${table(d.transactions || d.premium_transactions || [])}</div>
+    <div class="card"><h2>Luxe Ticket Logs</h2>${table(d.ticket_logs || [])}</div>
+    <div class="card"><h2>Conversion Logs</h2>${table(d.conversion_logs || [])}</div>
+  </div>`;
+}
+
+function renderAchievementsTab() {
+  const d = state.data || {};
+  const a = d.achievements || {};
+  return `<div class="grid">
+    <div class="card"><h2>Badge Claims</h2>${table(a.badge_claims || [])}</div>
+    <div class="card"><h2>Onboarding Rewards</h2>${table(a.onboarding || [])}</div>
+    <div class="card"><h2>Weekly Rewards</h2>${table(a.weekly_rewards || [])}</div>
+    <div class="card"><h2>Weekly Snapshots</h2>${table(a.weekly_snapshots || [])}</div>
+  </div>
+  <div class="notice">Achievement and claim data is read-only until grant/revoke schemas are verified against runtime.</div>`;
+}
+
+function renderCommerceDiagnosticsTab() {
+  const d = state.data || {};
+  const rows = d.rows || d.source_map || [];
+  const statusRows = Object.entries(d.table_status || {}).map(([table_name, present]) => ({
+    table_name,
+    status: present ? "present" : "missing",
+    columns: (d.columns?.[table_name] || []).join(", "),
+  }));
+  return `<div class="grid">
+    <div class="card">
+      <h2>Commerce Source Map</h2>
+      ${table(rows, [
+        { key: "system", label: "System" },
+        { key: "command", label: "Commands" },
+        { key: "module", label: "Module" },
+        { key: "source", label: "Source" },
+        { key: "status", label: "Status", render: (r) => statusPill(r.status) },
+        { key: "notes", label: "Notes" },
+      ])}
+    </div>
+    <div class="card"><h2>Reward Table Status</h2>${table(statusRows)}</div>
+  </div>`;
 }
 
 function renderQuestsTab() {
@@ -6265,9 +6532,12 @@ function renderPlayerGrantsTab() {
     ${p ? `<div class="grid">
       <div class="card"><h2>Grant Coins</h2><form id="grantCoinsForm" class="settings-form"><input type="hidden" name="action" value="add_balance" /><div class="field"><label class="field-label">Amount</label><input name="amount" type="number" required /></div><div class="field"><label class="field-label">Reason</label><input name="reason" required /></div><button class="btn primary">Grant Coins</button></form></div>
       <div class="card"><h2>VIP</h2><form id="grantVipForm" class="settings-form"><input name="reason" required placeholder="Reason" /><button class="btn primary">Grant VIP</button><button class="btn danger" type="button" id="removeVipGrantBtn">Remove VIP</button></form></div>
+      <div class="card"><h2>Luxe Tickets</h2><form id="grantLuxeTicketsForm" class="settings-form"><div class="field"><label class="field-label">Amount</label><input name="amount" type="number" required placeholder="Negative removes tickets" /></div><div class="field"><label class="field-label">Reason</label><input name="reason" required /></div><button class="btn primary">Apply Tickets</button></form></div>
       <div class="card"><h2>Grant Item</h2><form id="grantItemForm" class="settings-form"><div class="field"><label class="field-label">Item ID</label><input name="item_id" required /></div><div class="field"><label class="field-label">Item Type</label><input name="item_type" required /></div><div class="field"><label class="field-label">Reason</label><input name="reason" required /></div><button class="btn primary">Grant Item</button></form></div>
       <div class="card"><h2>Grant Title</h2><form id="grantTitleForm" class="settings-form"><input name="title_id" required placeholder="title_id" /><input name="reason" required placeholder="Reason" /><button class="btn primary">Grant Title</button></form></div>
+      <div class="card"><h2>Equip Title</h2><form id="equipTitleForm" class="settings-form"><input name="title_id" required placeholder="title_id" /><input name="reason" required placeholder="Reason" /><button class="btn secondary">Equip Title</button></form></div>
       <div class="card"><h2>Grant Badge</h2><form id="grantBadgeForm" class="settings-form"><input name="badge_id" required placeholder="badge_id" /><input name="reason" required placeholder="Reason" /><button class="btn primary">Grant Badge</button></form></div>
+      <div class="card"><h2>Equip Badge</h2><form id="equipBadgeForm" class="settings-form"><input name="badge_id" required placeholder="badge_id" /><input name="reason" required placeholder="Reason" /><button class="btn secondary">Equip Badge</button></form></div>
     </div>` : ""}
   `;
 }
@@ -7502,6 +7772,14 @@ function bindAdminPageEvents() {
       await applyPlayerWrite("Item granted.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/items`, { method: "POST", body: JSON.stringify(data) }));
     });
   });
+  document.getElementById("grantLuxeTicketsForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Apply Luxe Tickets", `Apply ${data.amount} Luxe Tickets for @${p?.username}?`, async () => {
+      await applyPlayerWrite("Luxe tickets updated.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/luxe`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
   document.getElementById("grantTitleForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const p = state.playerResult;
@@ -7510,12 +7788,100 @@ function bindAdminPageEvents() {
       await applyPlayerWrite("Title granted.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/titles`, { method: "POST", body: JSON.stringify(data) }));
     });
   });
+  document.getElementById("equipTitleForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Equip Title", `Equip title ${data.title_id} for @${p?.username}?`, async () => {
+      await applyPlayerWrite("Title equipped.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/equip-title`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
   document.getElementById("grantBadgeForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const p = state.playerResult;
     const data = Object.fromEntries(new FormData(e.currentTarget));
     confirmAction("Grant Badge", `Grant ${data.badge_id} to @${p?.username}?`, async () => {
       await applyPlayerWrite("Badge granted.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/badges`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+  document.getElementById("equipBadgeForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerResult;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Equip Badge", `Equip badge ${data.badge_id} for @${p?.username}?`, async () => {
+      await applyPlayerWrite("Badge equipped.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/equip-badge`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+
+  document.querySelectorAll("[data-badge-shop-edit]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.badgeShopEdit;
+      const row = (state.data?.catalog || state.data?.badge_shop?.catalog || []).find((item) => String(item.badge_id) === String(id));
+      const form = document.getElementById("badgeShopForm");
+      if (!form || !row) return;
+      ["badge_id", "emoji", "name", "rarity", "price"].forEach((key) => { if (form.elements[key]) form.elements[key].value = row[key] ?? ""; });
+      ["purchasable", "tradeable", "sellable"].forEach((key) => { if (form.elements[key]) form.elements[key].checked = Number(row[key]) === 1; });
+    });
+  });
+  document.getElementById("badgeShopForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const badgeId = String(fd.get("badge_id") || "").trim();
+    const body = Object.fromEntries(fd);
+    ["purchasable", "tradeable", "sellable"].forEach((key) => { body[key] = fd.get(key) === "1" ? "1" : "0"; });
+    confirmAction("Save Badge Item", `Save badge ${badgeId}?`, async () => {
+      await action("Badge item saved.", () => api(`/api/badge-shop/${encodeURIComponent(badgeId)}`, { method: "PUT", body: JSON.stringify(body) }));
+      await loadAdmin();
+    });
+  });
+  document.getElementById("badgeMarketSettingsForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Save Market Fee", `Set badge market fee to ${data.badge_market_fee_percent}%?`, async () => {
+      await action("Badge market fee saved.", () => api("/api/badge-market/settings", { method: "PUT", body: JSON.stringify(data) }));
+      await loadAdmin();
+    });
+  });
+  document.querySelectorAll("[data-badge-market-cancel]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.badgeMarketCancel;
+      const reason = prompt("Reason for cancelling this badge listing?");
+      if (!reason) return;
+      confirmAction("Cancel Listing", `Cancel badge market listing #${id}?`, async () => {
+        await action("Listing cancelled.", () => api(`/api/badge-market/listings/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }));
+        await loadAdmin();
+      });
+    });
+  });
+  document.querySelectorAll("[data-luxe-shop-edit]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.luxeShopEdit;
+      const row = (state.data?.rows || state.data?.shop || []).find((item) => item.item_key === key);
+      const form = document.getElementById("luxeShopForm");
+      if (!form || !row) return;
+      form.elements.item_key.value = row.item_key || "";
+      form.elements.price.value = row.price ?? "";
+      form.elements.duration_seconds.value = row.duration_seconds ?? "";
+    });
+  });
+  document.getElementById("luxeShopForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    const key = String(data.item_key || "").trim();
+    confirmAction("Save Luxe Item", `Save Luxe item ${key}?`, async () => {
+      await action("Luxe item saved.", () => api(`/api/luxe/shop/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(data) }));
+      await loadAdmin();
+    });
+  });
+  document.getElementById("luxeGrantForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    const found = await api(`/api/player/search?q=${encodeURIComponent(data.query)}`);
+    const player = found.player;
+    if (!player) return action("Player not found.", () => Promise.reject(new Error("player_not_found")));
+    confirmAction("Apply Luxe Tickets", `Apply ${data.amount} tickets to @${player.username}?`, async () => {
+      await action("Luxe tickets updated.", () => api(`/api/player/${encodeURIComponent(player.user_id)}/luxe`, { method: "POST", body: JSON.stringify(data) }));
+      await loadAdmin();
     });
   });
 

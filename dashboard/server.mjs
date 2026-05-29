@@ -3673,7 +3673,8 @@ function readRewardsDashboard(db) {
     "badge_claims", "badge_market_listings", "badge_market_logs", "badge_trades", "badge_wishlist",
     "onboarding_rewards_log", "pending_coin_rewards", "weekly_rewards", "weekly_leaderboard_snapshots",
     "quest_progress", "player_missions", "player_mission_sets", "shop_view_sessions", "purchase_history",
-    "premium_balances", "premium_transactions", "subscriber_users", "subscriber_announcements",
+    "premium_balances", "premium_transactions", "premium_settings", "luxe_ticket_logs", "luxe_conversion_logs",
+    "subscriber_users", "subscriber_announcements", "emoji_badges",
   ];
   const ownedItems = safeTableRows(db, "owned_items", { limit: "500" });
   const vipPlayers = vipRows(db);
@@ -3735,6 +3736,151 @@ function readRewardsDashboard(db) {
     },
     table_status: tableStatusMap(db, tables),
     columns: tableColumnsMap(db, tables),
+  };
+}
+
+function readPlayerRewardsInventory(db, idOrQuery) {
+  const player = readPlayerProfile(db, idOrQuery);
+  if (!player) return null;
+  const userId = player.user_id || "";
+  const username = player.username || "";
+  return {
+    player,
+    owned_items: safeRows(db, "owned_items", ["user_id", "item_id", "item_type"], {
+      where: "user_id=?",
+      params: [userId],
+      orderBy: columnExists(db, "owned_items", "item_type") ? "item_type, item_id" : "",
+      limit: "500",
+    }),
+    titles: safeRows(db, "user_titles", ["user_id", "username", "title_id", "source", "unlocked_at", "expires_at"], {
+      where: "user_id=?",
+      params: [userId],
+      orderBy: columnExists(db, "user_titles", "unlocked_at") ? "unlocked_at DESC" : "",
+      limit: "500",
+    }),
+    badges: safeRows(db, "user_badges", ["id", "username", "badge_id", "acquired_at", "source", "equipped", "locked"], {
+      where: "lower(username)=lower(?)",
+      params: [username],
+      orderBy: columnExists(db, "user_badges", "acquired_at") ? "acquired_at DESC" : "",
+      limit: "500",
+    }),
+    vip: vipRows(db).filter((row) => row.user_id === userId || String(row.username || "").toLowerCase() === String(username).toLowerCase()),
+    luxe_balance: safeOne(db, "premium_balances", ["user_id", "username", "luxe_tickets", "updated_at"], { where: "user_id=? OR lower(username)=lower(?)", params: [userId, username] }),
+    purchases: safeRows(db, "purchase_history", ["id", "user_id", "username", "item_id", "price", "created_at"], {
+      where: "user_id=? OR lower(username)=lower(?)",
+      params: [userId, username],
+      orderBy: columnExists(db, "purchase_history", "created_at") ? "created_at DESC" : "",
+      limit: "200",
+    }),
+    premium_transactions: safeRows(db, "premium_transactions", ["id", "user_id", "username", "type", "amount", "currency", "details", "created_at"], {
+      where: "user_id=? OR lower(username)=lower(?)",
+      params: [userId, username],
+      orderBy: columnExists(db, "premium_transactions", "created_at") ? "created_at DESC" : "",
+      limit: "200",
+    }),
+    badge_market_listings: safeRows(db, "badge_market_listings", ["id", "seller_username", "badge_id", "emoji", "price", "listed_at", "status", "buyer_username", "sold_at"], {
+      where: "lower(seller_username)=lower(?) OR lower(buyer_username)=lower(?)",
+      params: [username, username],
+      orderBy: columnExists(db, "badge_market_listings", "listed_at") ? "listed_at DESC" : "id DESC",
+      limit: "200",
+    }),
+  };
+}
+
+const LUXE_SHOP_ITEMS = [
+  { item_key: "vip", number: 1, name: "VIP Pass", category: "vip", default_price: 500, default_duration_seconds: 2592000 },
+  { item_key: "automine1h", number: 2, name: "Auto-Mine 1h", category: "mining", default_price: 100, default_duration_seconds: 3600 },
+  { item_key: "automine3h", number: 3, name: "Auto-Mine 3h", category: "mining", default_price: 250, default_duration_seconds: 10800 },
+  { item_key: "automine5h", number: 4, name: "Auto-Mine 5h", category: "mining", default_price: 400, default_duration_seconds: 18000 },
+  { item_key: "autofish1h", number: 5, name: "Auto-Fish 1h", category: "fishing", default_price: 100, default_duration_seconds: 3600 },
+  { item_key: "autofish3h", number: 6, name: "Auto-Fish 3h", category: "fishing", default_price: 250, default_duration_seconds: 10800 },
+  { item_key: "autofish5h", number: 7, name: "Auto-Fish 5h", category: "fishing", default_price: 400, default_duration_seconds: 18000 },
+  { item_key: "luckyhour", number: 8, name: "Lucky Hour Boost", category: "boosts", default_price: 150, default_duration_seconds: 3600 },
+  { item_key: "treasurehour", number: 9, name: "Treasure Hour Boost", category: "boosts", default_price: 200, default_duration_seconds: 3600 },
+  { item_key: "smallcoins", number: 10, name: "Small ChillCoins", category: "coins", default_price: 50, default_duration_seconds: 0 },
+  { item_key: "mediumcoins", number: 11, name: "Medium ChillCoins", category: "coins", default_price: 100, default_duration_seconds: 0 },
+  { item_key: "largecoins", number: 12, name: "Large ChillCoins", category: "coins", default_price: 250, default_duration_seconds: 0 },
+];
+
+function commerceSourceMap(db) {
+  const hasEmojiBadges = tableExists(db, "emoji_badges");
+  const hasTitleCatalog = tableExists(db, "title_catalog");
+  return [
+    { system: "Titles", command: "!shop titles / !buy title / !equip title", module: "modules/shop.py", source: hasTitleCatalog ? "title_catalog + owned_items/user_titles" : "modules/shop.py TITLES + owned_items", dashboard_page: "Economy & Rewards / Titles", status: hasTitleCatalog ? "CONNECTED" : "RUNTIME_CONSTANT", notes: hasTitleCatalog ? "DB catalog exists; classic shop constants may still be fallback." : "Runtime title catalog is a Python constant; grants/equips remain DB-backed." },
+    { system: "Badges", command: "!badgeshop / !buy badge / !equip badge", module: "modules/badge_market.py + modules/shop.py", source: hasEmojiBadges ? "emoji_badges + user_badges" : "modules/shop.py BADGES + user_badges", dashboard_page: "Economy & Rewards / Badge Shop", status: hasEmojiBadges ? "CONNECTED" : "RUNTIME_CONSTANT", notes: hasEmojiBadges ? "Badge market catalog table supports price and availability edits." : "Classic badge catalog is a Python constant; ownership remains DB-backed." },
+    { system: "Badge Market", command: "!badgemarket / !badgelist / !badgebuy / !badgecancel", module: "modules/badge_market.py", source: "badge_market_listings, badge_market_logs, badge_trades, badge_wishlist, bot_settings.badge_market_fee_percent", dashboard_page: "Economy & Rewards / Badge Market", status: tableExists(db, "badge_market_listings") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Listings are cancelled/archived, not deleted." },
+    { system: "Luxe Shop", command: "!luxeshop / !buyluxe / !luxeadmin set price|duration", module: "modules/luxe.py", source: "modules/luxe.py _SHOP_ITEMS + premium_settings price_* and duration_*", dashboard_page: "Economy & Rewards / Luxe Shop", status: tableExists(db, "premium_settings") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Catalog identity is runtime constant; price and duration are DB-backed." },
+    { system: "Luxe Tickets", command: "!luxe / !addtickets / !removetickets / !settickets", module: "modules/luxe.py + modules/luxe_admin.py", source: "premium_balances, premium_transactions, luxe_ticket_logs", dashboard_page: "Economy & Rewards / Luxe Tickets", status: tableExists(db, "premium_balances") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Owner grants write premium_balances and premium_transactions." },
+    { system: "VIP", command: "!vip / Luxe VIP Pass", module: "modules/luxe.py + modules/shop.py", source: "owned_items.item_id='vip'", dashboard_page: "Economy & Rewards / VIP", status: tableExists(db, "owned_items") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Dashboard avoids duplicate VIP ownership rows." },
+    { system: "Owned Items", command: "!myitems / shop ownership", module: "modules/shop.py", source: "owned_items, purchase_history", dashboard_page: "Economy & Rewards / Owned Items", status: tableExists(db, "owned_items") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Catalog edits depend on the relevant catalog source." },
+    { system: "Achievements", command: "achievement / badge claim systems", module: "modules/achievements.py", source: "badge_claims, onboarding_rewards_log, weekly_rewards", dashboard_page: "Economy & Rewards / Achievements", status: tableExists(db, "badge_claims") || tableExists(db, "weekly_rewards") ? "READ_ONLY" : "UNVERIFIED_SCHEMA", notes: "Visible as diagnostics unless grant/revoke schema is verified." },
+  ];
+}
+
+function readLuxeSettings(db) {
+  return readKeyValueMap(db, "premium_settings");
+}
+
+function readLuxeShop(db) {
+  const settings = readLuxeSettings(db);
+  const rows = LUXE_SHOP_ITEMS.map((item) => ({
+    ...item,
+    price: Number(settings[`price_${item.item_key}`] ?? item.default_price),
+    duration_seconds: Number(settings[`duration_${item.item_key}`] ?? item.default_duration_seconds),
+    status: tableExists(db, "premium_settings") ? "CONNECTED" : "RUNTIME_CONSTANT",
+    source: "modules/luxe.py _SHOP_ITEMS + premium_settings overrides",
+  }));
+  return { rows, settings, writable: tableExists(db, "premium_settings"), source: "premium_settings" };
+}
+
+function readCommerceDashboard(db) {
+  const rewards = readRewardsDashboard(db);
+  const badgeCatalog = safeTableRows(db, "emoji_badges", { orderBy: columnExists(db, "emoji_badges", "rarity") ? "rarity, badge_id" : "", limit: "1000" });
+  const marketListings = safeTableRows(db, "badge_market_listings", { orderBy: columnExists(db, "badge_market_listings", "listed_at") ? "listed_at DESC" : "id DESC", limit: "500" });
+  const marketLogs = safeTableRows(db, "badge_market_logs", { orderBy: columnExists(db, "badge_market_logs", "timestamp") ? "timestamp DESC" : "id DESC", limit: "500" });
+  const luxe = readLuxeShop(db);
+  return {
+    overview: {
+      title_catalog: rowCountSafe(db, "title_catalog") ?? 0,
+      badge_catalog: rowCountSafe(db, "emoji_badges") ?? 0,
+      active_badge_listings: marketListings.filter((r) => String(r.status || "").toLowerCase() === "active").length,
+      luxe_balances: rowCountSafe(db, "premium_balances") ?? 0,
+      owned_items: rowCountSafe(db, "owned_items") ?? 0,
+      purchases: rowCountSafe(db, "purchase_history") ?? 0,
+      premium_transactions: rowCountSafe(db, "premium_transactions") ?? 0,
+      vip_players: rewards.overview.vip_players,
+    },
+    source_map: commerceSourceMap(db),
+    titles: rewards.titles,
+    badge_shop: { catalog: badgeCatalog, writable: tableExists(db, "emoji_badges"), source: tableExists(db, "emoji_badges") ? "emoji_badges" : "modules/shop.py BADGES runtime constant" },
+    badge_market: {
+      listings: marketListings,
+      logs: marketLogs,
+      trades: safeTableRows(db, "badge_trades", { orderBy: columnExists(db, "badge_trades", "created_at") ? "created_at DESC" : "", limit: "300" }),
+      wishlist: safeTableRows(db, "badge_wishlist", { orderBy: columnExists(db, "badge_wishlist", "created_at") ? "created_at DESC" : "", limit: "300" }),
+      fee_percent: readKeyValueMap(db, "bot_settings").badge_market_fee_percent ?? "5",
+      source: "bot_settings.badge_market_fee_percent",
+    },
+    luxe: {
+      shop: luxe.rows,
+      settings: luxe.settings,
+      balances: safeTableRows(db, "premium_balances", { orderBy: columnExists(db, "premium_balances", "luxe_tickets") ? "luxe_tickets DESC" : "", limit: "500" }),
+      transactions: safeTableRows(db, "premium_transactions", { orderBy: columnExists(db, "premium_transactions", "created_at") ? "created_at DESC" : "id DESC", limit: "500" }),
+      ticket_logs: safeTableRows(db, "luxe_ticket_logs", { orderBy: columnExists(db, "luxe_ticket_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "300" }),
+      conversion_logs: safeTableRows(db, "luxe_conversion_logs", { orderBy: columnExists(db, "luxe_conversion_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "300" }),
+    },
+    vip: { rows: vipRows(db), source: "owned_items.item_id='vip'" },
+    owned_items: rewards.owned_items,
+    purchase_history: rewards.shop.purchases,
+    premium_transactions: rewards.shop.premium_transactions,
+    achievements: {
+      badge_claims: rewards.badges.claims,
+      onboarding: rewards.rewards.onboarding,
+      weekly_rewards: rewards.rewards.weekly_rewards,
+      weekly_snapshots: rewards.rewards.weekly_snapshots,
+    },
+    table_status: { ...rewards.table_status, emoji_badges: tableExists(db, "emoji_badges"), luxe_ticket_logs: tableExists(db, "luxe_ticket_logs"), luxe_conversion_logs: tableExists(db, "luxe_conversion_logs") },
+    columns: { ...rewards.columns, emoji_badges: tableExists(db, "emoji_badges") ? tableColumns(db, "emoji_badges") : [], luxe_ticket_logs: tableExists(db, "luxe_ticket_logs") ? tableColumns(db, "luxe_ticket_logs") : [] },
   };
 }
 
@@ -3989,6 +4135,7 @@ const KEY_VALUE_SETTING_TABLES = new Set([
   "gold_rain_settings",
   "room_settings",
   "bot_settings",
+  "premium_settings",
   "event_settings",
 ]);
 
@@ -4011,6 +4158,44 @@ const auditRow = ({
 });
 
 const SETTINGS_AUDIT_DEFINITIONS = [
+  ...[
+    ["!setbadgemarketfee", "Badge Market Fee", "bot_settings", "badge_market_fee_percent", "PUT /api/badge-market/settings", "Badge Market"],
+    ["!luxeadmin set rate", "Luxe Ticket Rate", "premium_settings", "luxe_rate", "PUT /api/luxe/settings", "Luxe Tickets"],
+    ["!luxeadmin set price vip", "VIP Luxe Price", "premium_settings", "price_vip", "PUT /api/luxe/shop/vip", "Luxe Shop"],
+    ["!vipadmin set duration", "VIP Duration Days", "premium_settings", "vip_duration_days", "PUT /api/luxe/settings", "Luxe Shop"],
+    ["!setcoinpack small", "Small Coin Pack Tickets", "premium_settings", "coinpack_small_tickets", "PUT /api/luxe/settings", "Luxe Shop"],
+    ["!setcoinpack medium", "Medium Coin Pack Tickets", "premium_settings", "coinpack_medium_tickets", "PUT /api/luxe/settings", "Luxe Shop"],
+    ["!setcoinpack large", "Large Coin Pack Tickets", "premium_settings", "coinpack_large_tickets", "PUT /api/luxe/settings", "Luxe Shop"],
+  ].map(([command, displayName, dbTable, key, writeEndpoint, section]) => auditRow({
+    module: "rewards_commerce",
+    command,
+    display_name: displayName,
+    dashboard_page: "Economy & Rewards",
+    dashboard_section: section,
+    db_table: dbTable,
+    db_key_or_column: key,
+    writeEndpoint,
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: "Rewards Commerce Control Center writes the same key-value source read by the in-room commerce command.",
+  })),
+  ...[
+    ["!shop titles / !buy title", "Classic Title Catalog", "modules/shop.py TITLES"],
+    ["!shop badges / !buy badge", "Classic Badge Catalog", "modules/shop.py BADGES"],
+    ["!luxeshop", "Luxe Catalog Identity", "modules/luxe.py _SHOP_ITEMS"],
+  ].map(([command, displayName, source]) => auditRow({
+    module: "rewards_commerce",
+    command,
+    display_name: displayName,
+    dashboard_page: "Economy & Rewards",
+    dashboard_section: "Diagnostics",
+    db_table: "runtime_constants",
+    db_key_or_column: source,
+    dashboardConnected: true,
+    status: "RUNTIME_CONSTANT",
+    notes: "Dashboard shows this source honestly and only edits DB-backed ownership/settings around it.",
+    readSource: source,
+  })),
   ...[
     ["!rbj settings / !bjadmin settings", "Enabled", "rbj_enabled"],
     ["!setrbjminbet", "Min Bet", "min_bet"],
@@ -4577,6 +4762,7 @@ function buildQaAudit() {
     "settings-group", "sg-api", "sg-opts", "sf-toggle", "raw-edit-key", "raw-edit-val", "raw-edit-src",
     "table-search", "rarity-filter", "enabled-filter", "room-toggle", "room-edit",
     "staff-id", "remove-staff", "enabled", "room-val", "key", "vip-remove", "vip-user",
+    "badge-shop-edit", "badge-market-cancel", "luxe-shop-edit",
     "quest-disable",
     "automation-send", "automation-archive", "automation-rotating-send", "automation-rotating-disable",
     "automation-promo", "automation-source",
@@ -5682,6 +5868,23 @@ function publicHowToPlayPayload(db) {
       { category: "Gold / Tips", command: "!topdonators", description: "Top gold supporters." },
       { category: "Gold / Tips", command: "!toptippers", description: "Top P2P senders." },
       { category: "Gold / Tips", command: "!toptipped", description: "Top P2P receivers." },
+      { category: "Badges", command: "!badgeshop", description: "Browse purchasable badges." },
+      { category: "Badges", command: "!allbadges", description: "Browse all known badges if enabled." },
+      { category: "Badges", command: "!badgeinfo [id]", description: "Show badge details." },
+      { category: "Badges", command: "!buy badge [id]", description: "Buy a badge from the badge shop." },
+      { category: "Badges", command: "!equip badge [id]", description: "Equip an owned badge." },
+      { category: "Badges", command: "!mybadges", description: "View your badges." },
+      { category: "Badge Market", command: "!badgemarket", description: "Browse player badge listings." },
+      { category: "Badge Market", command: "!badgelist [id] [price]", description: "List a tradeable badge for sale." },
+      { category: "Badge Market", command: "!badgebuy [listing_id]", description: "Buy a badge market listing." },
+      { category: "Badge Market", command: "!badgecancel [listing_id]", description: "Cancel your own active listing." },
+      { category: "Titles", command: "!shop titles / !titleshop", description: "Browse title shop pages." },
+      { category: "Titles", command: "!buy title [id]", description: "Buy a title." },
+      { category: "Titles", command: "!equip title [id]", description: "Equip an owned title." },
+      { category: "Luxe", command: "!luxe / !tickets", description: "Check Luxe Ticket info and balance." },
+      { category: "Luxe", command: "!luxeshop", description: "Browse the Luxe Ticket shop." },
+      { category: "Luxe", command: "!buyluxe [number]", description: "Buy an item from the Luxe shop." },
+      { category: "Luxe", command: "!packs / !buycoins", description: "View or buy ChillCoins with Luxe Tickets." },
       { category: "Blackjack", command: "!bj [amount]", description: "Join Realistic Blackjack." },
       { category: "Blackjack", command: "!hit", description: "Take another card." },
       { category: "Blackjack", command: "!stand", description: "Hold your hand." },
@@ -6766,6 +6969,158 @@ app.get("/api/rewards", requireAuth, requireAnyPermission("manage_rewards", "man
   json(res, readRewardsDashboard(req.db));
 }, closeDb);
 
+app.get("/api/commerce/overview", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy", "manage_players", "view_logs"), (req, res) => {
+  json(res, readCommerceDashboard(req.db));
+}, closeDb);
+
+app.get("/api/commerce/source-map", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "view_logs"), (req, res) => {
+  json(res, { rows: commerceSourceMap(req.db), generated_at: new Date().toISOString() });
+}, closeDb);
+
+app.get("/api/badge-shop", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_players"), (req, res) => {
+  const data = readCommerceDashboard(req.db);
+  json(res, {
+    ...data.badge_shop,
+    owned: data.badges?.owned || readRewardsDashboard(req.db).badges.owned,
+    claims: data.achievements.badge_claims,
+    source_map: data.source_map.filter((row) => row.system.includes("Badge")),
+  });
+}, closeDb);
+
+app.put("/api/badge-shop/:badge_id", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory"), (req, res) => {
+  if (req.user?.role !== "owner" && !req.permissions?.manage_rewards) return json(res, { error: "forbidden", permission: "manage_rewards" }, 403);
+  if (!tableExists(req.db, "emoji_badges")) return unverifiedSchema(res, "emoji_badges table is required before badge shop catalog writes are safe.");
+  const cols = tableColumns(req.db, "emoji_badges");
+  if (!cols.includes("badge_id")) return unverifiedSchema(res, "emoji_badges.badge_id is required before badge shop writes are safe.");
+  const badgeId = String(req.params.badge_id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!validCatalogId(badgeId)) return json(res, { error: "bad_badge_id" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const allowed = ["emoji", "name", "rarity", "price", "purchasable", "tradeable", "sellable", "source"];
+  const updateCols = allowed.filter((col) => cols.includes(col) && req.body?.[col] !== undefined);
+  if (!updateCols.length) return json(res, { error: "no_verified_columns" }, 400);
+  const before = safeOne(req.db, "emoji_badges", cols, { where: "badge_id=?", params: [badgeId] });
+  if (!before) {
+    const insertCols = ["badge_id", ...updateCols];
+    req.db.prepare(`INSERT INTO emoji_badges (${insertCols.map(sqlIdent).join(",")}) VALUES (${insertCols.map(() => "?").join(",")})`).run(badgeId, ...updateCols.map((col) => String(req.body[col] ?? "")));
+  } else {
+    req.db.prepare(`UPDATE emoji_badges SET ${updateCols.map((col) => `${sqlIdent(col)}=?`).join(", ")} WHERE badge_id=?`).run(...updateCols.map((col) => String(req.body[col] ?? "")), badgeId);
+  }
+  const after = safeOne(req.db, "emoji_badges", cols, { where: "badge_id=?", params: [badgeId] });
+  audit(req.db, req.user.username, before ? "badge_shop_update" : "badge_shop_create", "emoji_badges", badgeId, before, { row: after, reason }, req.ip);
+  json(res, { ok: true, row: after });
+}, closeDb);
+
+app.get("/api/badge-market", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "view_logs"), (req, res) => {
+  json(res, readCommerceDashboard(req.db).badge_market);
+}, closeDb);
+
+app.put("/api/badge-market/settings", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory"), (req, res) => {
+  if (req.user?.role !== "owner" && !req.permissions?.manage_rewards) return json(res, { error: "forbidden", permission: "manage_rewards" }, 403);
+  const reason = String(req.body?.reason || "").trim();
+  const fee = Number(req.body?.badge_market_fee_percent);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  if (!Number.isFinite(fee) || fee < 0 || fee > 50) return json(res, { error: "bad_fee_percent" }, 400);
+  const before = readKeyValueMap(req.db, "bot_settings").badge_market_fee_percent ?? "5";
+  writeKeyValue(req.db, "bot_settings", "badge_market_fee_percent", String(fee));
+  audit(req.db, req.user.username, "badge_market_fee_update", "bot_settings", "badge_market_fee_percent", before, { value: fee, reason }, req.ip);
+  json(res, { ok: true, badge_market_fee_percent: String(fee) });
+}, closeDb);
+
+app.post("/api/badge-market/listings/:id/cancel", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory"), (req, res) => {
+  if (req.user?.role !== "owner" && !req.permissions?.manage_rewards) return json(res, { error: "forbidden", permission: "manage_rewards" }, 403);
+  if (!tableExists(req.db, "badge_market_listings")) return json(res, { error: "badge_market_listings_missing" }, 404);
+  const cols = tableColumns(req.db, "badge_market_listings");
+  if (!cols.includes("id") || !cols.includes("status")) return unverifiedSchema(res, "badge_market_listings requires id and status for safe cancellation.");
+  const id = Number(req.params.id);
+  const reason = String(req.body?.reason || "").trim();
+  if (!Number.isInteger(id) || id <= 0) return json(res, { error: "bad_listing_id" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = safeOne(req.db, "badge_market_listings", cols, { where: "id=?", params: [id] });
+  const info = req.db.prepare("UPDATE badge_market_listings SET status='cancelled' WHERE id=? AND lower(COALESCE(status,''))='active'").run(id);
+  const after = safeOne(req.db, "badge_market_listings", cols, { where: "id=?", params: [id] });
+  audit(req.db, req.user.username, "badge_market_listing_cancel", "badge_market_listings", id, before, { row: after, changed: info.changes, reason }, req.ip);
+  json(res, { ok: true, changed: info.changes, row: after });
+}, closeDb);
+
+app.get("/api/badge-market/logs", requireAuth, requireAnyPermission("manage_rewards", "view_logs"), (req, res) => {
+  const d = readCommerceDashboard(req.db).badge_market;
+  json(res, { logs: d.logs, trades: d.trades, wishlist: d.wishlist });
+}, closeDb);
+
+app.get("/api/luxe", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy", "manage_players"), (req, res) => {
+  json(res, readCommerceDashboard(req.db).luxe);
+}, closeDb);
+
+app.get("/api/luxe/shop", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy"), (req, res) => {
+  json(res, readLuxeShop(req.db));
+}, closeDb);
+
+app.put("/api/luxe/shop/:item_key", requireAuth, requireAnyPermission("manage_rewards", "manage_economy"), (req, res) => {
+  if (req.user?.role !== "owner" && !req.permissions?.manage_rewards) return json(res, { error: "forbidden", permission: "manage_rewards" }, 403);
+  if (!tableExists(req.db, "premium_settings")) return unverifiedSchema(res, "premium_settings is required for Luxe shop price/duration writes.");
+  const item = LUXE_SHOP_ITEMS.find((row) => row.item_key === String(req.params.item_key || ""));
+  const reason = String(req.body?.reason || "").trim();
+  if (!item) return json(res, { error: "unknown_luxe_item" }, 404);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = readLuxeShop(req.db).rows.find((row) => row.item_key === item.item_key);
+  const price = req.body?.price === undefined || req.body.price === "" ? null : Number(req.body.price);
+  const duration = req.body?.duration_seconds === undefined || req.body.duration_seconds === "" ? null : Number(req.body.duration_seconds);
+  if (price != null && (!Number.isFinite(price) || price < 0)) return json(res, { error: "bad_price" }, 400);
+  if (duration != null && (!Number.isFinite(duration) || duration < 0)) return json(res, { error: "bad_duration_seconds" }, 400);
+  if (price != null) writeKeyValue(req.db, "premium_settings", `price_${item.item_key}`, String(Math.round(price)));
+  if (duration != null) writeKeyValue(req.db, "premium_settings", `duration_${item.item_key}`, String(Math.round(duration)));
+  const after = readLuxeShop(req.db).rows.find((row) => row.item_key === item.item_key);
+  audit(req.db, req.user.username, "luxe_shop_update", "premium_settings", item.item_key, before, { row: after, reason }, req.ip);
+  json(res, { ok: true, row: after });
+}, closeDb);
+
+app.get("/api/luxe/balances", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy", "manage_players"), (req, res) => {
+  json(res, { rows: safeTableRows(req.db, "premium_balances", { orderBy: columnExists(req.db, "premium_balances", "luxe_tickets") ? "luxe_tickets DESC" : "", limit: "1000" }) });
+}, closeDb);
+
+app.post("/api/player/:id/luxe", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy"), (req, res) => {
+  if (req.user?.role !== "owner" && !req.permissions?.manage_rewards) return json(res, { error: "forbidden", permission: "manage_rewards" }, 403);
+  const player = readPlayerProfile(req.db, req.params.id);
+  const amount = Number(req.body?.amount);
+  const reason = String(req.body?.reason || "").trim();
+  if (!player) return json(res, { error: "not_found" }, 404);
+  if (!tableExists(req.db, "premium_balances") || !tableExists(req.db, "premium_transactions")) return unverifiedSchema(res, "premium_balances and premium_transactions are required for Luxe ticket grants.");
+  if (!Number.isFinite(amount) || amount === 0) return json(res, { error: "bad_amount" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = safeOne(req.db, "premium_balances", ["user_id", "username", "luxe_tickets", "updated_at"], { where: "user_id=?", params: [player.user_id] });
+  const current = Number(before?.luxe_tickets || 0);
+  const next = Math.max(0, current + Math.trunc(amount));
+  req.db.prepare("INSERT INTO premium_balances (user_id, username, luxe_tickets, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, luxe_tickets=excluded.luxe_tickets, updated_at=datetime('now')").run(player.user_id, player.username, next);
+  req.db.prepare("INSERT INTO premium_transactions (user_id, username, type, amount, currency, details) VALUES (?, ?, ?, ?, 'luxe', ?)").run(player.user_id, player.username, amount > 0 ? "dashboard_grant" : "dashboard_remove", Math.abs(Math.trunc(amount)), reason);
+  const after = safeOne(req.db, "premium_balances", ["user_id", "username", "luxe_tickets", "updated_at"], { where: "user_id=?", params: [player.user_id] });
+  audit(req.db, req.user.username, amount > 0 ? "luxe_ticket_grant" : "luxe_ticket_remove", "premium_balances", player.user_id, before, { row: after, amount, reason }, req.ip);
+  json(res, { ok: true, row: after, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.get("/api/luxe/transactions", requireAuth, requireAnyPermission("manage_rewards", "manage_economy", "view_logs"), (req, res) => {
+  const d = readCommerceDashboard(req.db).luxe;
+  json(res, { transactions: d.transactions, ticket_logs: d.ticket_logs, conversion_logs: d.conversion_logs });
+}, closeDb);
+
+app.put("/api/luxe/settings", requireAuth, requireAnyPermission("manage_rewards", "manage_economy"), (req, res) => {
+  if (req.user?.role !== "owner" && !req.permissions?.manage_rewards) return json(res, { error: "forbidden", permission: "manage_rewards" }, 403);
+  if (!tableExists(req.db, "premium_settings")) return unverifiedSchema(res, "premium_settings is required for Luxe settings writes.");
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const allowed = ["luxe_rate", "vip_duration_days", "coinpack_small_tickets", "coinpack_small_coins", "coinpack_medium_tickets", "coinpack_medium_coins", "coinpack_large_tickets", "coinpack_large_coins"];
+  const before = readLuxeSettings(req.db);
+  const updates = {};
+  for (const key of allowed) {
+    if (req.body?.[key] === undefined || req.body[key] === "") continue;
+    updates[key] = String(req.body[key]);
+    writeKeyValue(req.db, "premium_settings", key, updates[key]);
+  }
+  if (!Object.keys(updates).length) return json(res, { error: "no_supported_settings" }, 400);
+  audit(req.db, req.user.username, "luxe_settings_update", "premium_settings", "luxe", before, { updates, reason }, req.ip);
+  json(res, { ok: true, settings: readLuxeSettings(req.db) });
+}, closeDb);
+
 app.get("/api/vip", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_players"), (req, res) => {
   json(res, { vip_players: vipRows(req.db), source: "owned_items.item_id=vip", table_status: { owned_items: tableExists(req.db, "owned_items") } });
 }, closeDb);
@@ -6815,7 +7170,7 @@ app.post("/api/titles/catalog", requireAuth, requireOwner, (req, res) => {
   const reason = String(req.body?.reason || "").trim();
   if (!validCatalogId(titleId)) return json(res, { error: "bad_title_id" }, 400);
   if (!reason) return json(res, { error: "reason_required" }, 400);
-  const allowed = ["title_id", "display", "display_name", "name", "description", "tier", "rarity", "color", "enabled", "archived"];
+  const allowed = ["title_id", "display", "display_name", "name", "description", "tier", "rarity", "color", "price", "buyable", "active", "enabled", "archived", "category", "perks_json"];
   const insertCols = allowed.filter((col) => cols.includes(col) && (col === "title_id" || req.body?.[col] !== undefined));
   const values = insertCols.map((col) => col === "title_id" ? titleId : String(req.body[col] ?? ""));
   req.db.prepare(`INSERT OR IGNORE INTO title_catalog (${insertCols.map(sqlIdent).join(",")}) VALUES (${insertCols.map(() => "?").join(",")})`).run(...values);
@@ -6832,7 +7187,7 @@ app.put("/api/titles/catalog/:id", requireAuth, requireOwner, (req, res) => {
   if (!validCatalogId(titleId)) return json(res, { error: "bad_title_id" }, 400);
   if (!reason) return json(res, { error: "reason_required" }, 400);
   const before = safeOne(req.db, "title_catalog", cols, { where: "title_id=?", params: [titleId] });
-  const allowed = ["display", "display_name", "name", "description", "tier", "rarity", "color", "enabled", "archived"];
+  const allowed = ["display", "display_name", "name", "description", "tier", "rarity", "color", "price", "buyable", "active", "enabled", "archived", "category", "perks_json"];
   const updateCols = allowed.filter((col) => cols.includes(col) && req.body?.[col] !== undefined);
   if (!updateCols.length) return json(res, { error: "no_verified_columns" }, 400);
   req.db.prepare(`UPDATE title_catalog SET ${updateCols.map((col) => `${sqlIdent(col)}=?`).join(", ")} WHERE title_id=?`).run(...updateCols.map((col) => String(req.body[col] ?? "")), titleId);
@@ -6842,11 +7197,49 @@ app.put("/api/titles/catalog/:id", requireAuth, requireOwner, (req, res) => {
 
 app.get("/api/badges/catalog", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_players"), (req, res) => {
   const rewards = readRewardsDashboard(req.db);
-  json(res, { ...rewards.badges, table_status: rewards.table_status, columns: rewards.columns, writable: false, message: "No verified badge catalog table found; user_badges and badge market/claim tables are read-only here." });
+  const catalog = safeTableRows(req.db, "emoji_badges", { orderBy: columnExists(req.db, "emoji_badges", "rarity") ? "rarity, badge_id" : "", limit: "1000" });
+  json(res, {
+    ...rewards.badges,
+    catalog,
+    table_status: { ...rewards.table_status, emoji_badges: tableExists(req.db, "emoji_badges") },
+    columns: { ...rewards.columns, emoji_badges: tableExists(req.db, "emoji_badges") ? tableColumns(req.db, "emoji_badges") : [] },
+    writable: tableExists(req.db, "emoji_badges"),
+    source: tableExists(req.db, "emoji_badges") ? "emoji_badges" : "modules/shop.py BADGES runtime constant",
+    message: tableExists(req.db, "emoji_badges") ? "Badge catalog is DB-backed." : "No verified badge catalog table found; ownership and market tables remain visible.",
+  });
 }, closeDb);
 
-app.post("/api/badges/catalog", requireAuth, requireOwner, (_req, res) => unverifiedSchema(res, "No verified badge catalog table exists in the live schema."));
-app.put("/api/badges/catalog/:id", requireAuth, requireOwner, (_req, res) => unverifiedSchema(res, "No verified badge catalog table exists in the live schema."));
+app.post("/api/badges/catalog", requireAuth, requireOwner, (req, res) => {
+  if (!tableExists(req.db, "emoji_badges")) return unverifiedSchema(res, "emoji_badges table is required before badge catalog writes are safe.");
+  const cols = tableColumns(req.db, "emoji_badges");
+  const badgeId = String(req.body?.badge_id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!validCatalogId(badgeId)) return json(res, { error: "bad_badge_id" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const allowed = ["badge_id", "emoji", "name", "rarity", "price", "purchasable", "tradeable", "sellable", "source"];
+  const insertCols = allowed.filter((col) => cols.includes(col) && (col === "badge_id" || req.body?.[col] !== undefined));
+  if (!insertCols.includes("badge_id")) return unverifiedSchema(res, "emoji_badges.badge_id is required before badge catalog writes are safe.");
+  req.db.prepare(`INSERT OR IGNORE INTO emoji_badges (${insertCols.map(sqlIdent).join(",")}) VALUES (${insertCols.map(() => "?").join(",")})`).run(...insertCols.map((col) => col === "badge_id" ? badgeId : String(req.body[col] ?? "")));
+  audit(req.db, req.user.username, "badge_catalog_create", "emoji_badges", badgeId, "", { badge_id: badgeId, reason }, req.ip);
+  json(res, { ok: true, rows: safeTableRows(req.db, "emoji_badges", { limit: "1000" }) });
+}, closeDb);
+app.put("/api/badges/catalog/:id", requireAuth, requireOwner, (req, res) => {
+  if (!tableExists(req.db, "emoji_badges")) return unverifiedSchema(res, "emoji_badges table is required before badge catalog writes are safe.");
+  const cols = tableColumns(req.db, "emoji_badges");
+  if (!cols.includes("badge_id")) return unverifiedSchema(res, "emoji_badges.badge_id is required before badge catalog writes are safe.");
+  const badgeId = String(req.params.id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!validCatalogId(badgeId)) return json(res, { error: "bad_badge_id" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const allowed = ["emoji", "name", "rarity", "price", "purchasable", "tradeable", "sellable", "source"];
+  const updateCols = allowed.filter((col) => cols.includes(col) && req.body?.[col] !== undefined);
+  if (!updateCols.length) return json(res, { error: "no_verified_columns" }, 400);
+  const before = safeOne(req.db, "emoji_badges", cols, { where: "badge_id=?", params: [badgeId] });
+  req.db.prepare(`UPDATE emoji_badges SET ${updateCols.map((col) => `${sqlIdent(col)}=?`).join(", ")} WHERE badge_id=?`).run(...updateCols.map((col) => String(req.body[col] ?? "")), badgeId);
+  const after = safeOne(req.db, "emoji_badges", cols, { where: "badge_id=?", params: [badgeId] });
+  audit(req.db, req.user.username, "badge_catalog_update", "emoji_badges", badgeId, before, { row: after, reason }, req.ip);
+  json(res, { ok: true, row: after });
+}, closeDb);
 
 app.get("/api/shop", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy"), (req, res) => {
   const rewards = readRewardsDashboard(req.db);
@@ -8437,6 +8830,27 @@ app.post("/api/player/:id/items", requireAuth, requireOwner, (req, res) => {
   json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
+app.get("/api/player/:id/rewards-inventory", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_players"), (req, res) => {
+  const inventory = readPlayerRewardsInventory(req.db, req.params.id);
+  if (!inventory) return json(res, { error: "not_found" }, 404);
+  json(res, inventory);
+}, closeDb);
+
+app.post("/api/player/:id/owned-items", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  if (!tableExists(req.db, "owned_items")) return json(res, { error: "owned_items_missing" }, 404);
+  const itemId = String(req.body?.item_id || "").trim().slice(0, 120);
+  const itemType = String(req.body?.item_type || "").trim().slice(0, 80);
+  const reason = String(req.body?.reason || "").trim();
+  if (!itemId || !itemType) return json(res, { error: "item_id_and_type_required" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = safeOne(req.db, "owned_items", ["user_id","item_id","item_type"], { where: "user_id=? AND item_id=?", params: [player.user_id, itemId] });
+  req.db.prepare("INSERT OR IGNORE INTO owned_items (user_id, item_id, item_type) VALUES (?, ?, ?)").run(player.user_id, itemId, itemType);
+  audit(req.db, req.user.username, "player_owned_item_add", "owned_items", `${player.user_id}:${itemId}`, before, { item_id: itemId, item_type: itemType, reason }, req.ip);
+  json(res, { ok: true, inventory: readPlayerRewardsInventory(req.db, player.user_id) });
+}, closeDb);
+
 app.delete("/api/player/:id/items/:item_id", requireAuth, requireOwner, (req, res) => {
   const player = readPlayerProfile(req.db, req.params.id);
   if (!player) return json(res, { error: "not_found" }, 404);
@@ -8448,6 +8862,19 @@ app.delete("/api/player/:id/items/:item_id", requireAuth, requireOwner, (req, re
   const info = req.db.prepare("DELETE FROM owned_items WHERE user_id=? AND item_id=?").run(player.user_id, itemId);
   audit(req.db, req.user.username, "player_item_remove", "owned_items", `${player.user_id}:${itemId}`, before, { removed: info.changes, reason }, req.ip);
   json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.delete("/api/player/:id/owned-items/:item_id", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  if (!tableExists(req.db, "owned_items")) return json(res, { error: "owned_items_missing" }, 404);
+  const itemId = String(req.params.item_id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = safeOne(req.db, "owned_items", ["user_id","item_id","item_type"], { where: "user_id=? AND item_id=?", params: [player.user_id, itemId] });
+  const info = req.db.prepare("DELETE FROM owned_items WHERE user_id=? AND item_id=?").run(player.user_id, itemId);
+  audit(req.db, req.user.username, "player_owned_item_remove", "owned_items", `${player.user_id}:${itemId}`, before, { removed: info.changes, reason }, req.ip);
+  json(res, { ok: true, removed: info.changes, inventory: readPlayerRewardsInventory(req.db, player.user_id) });
 }, closeDb);
 
 app.post("/api/player/:id/titles", requireAuth, requireOwner, (req, res) => {
@@ -8475,6 +8902,22 @@ app.delete("/api/player/:id/titles/:title_id", requireAuth, requireOwner, (req, 
   json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
+app.post("/api/player/:id/equip-title", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  const titleId = String(req.body?.title_id || "").trim().slice(0, 120);
+  const reason = String(req.body?.reason || "").trim();
+  if (!titleId) return json(res, { error: "title_id_required" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const cols = tableExists(req.db, "users") ? tableColumns(req.db, "users") : [];
+  const targetCol = cols.includes("equipped_title_id") ? "equipped_title_id" : (cols.includes("equipped_title") ? "equipped_title" : "");
+  if (!targetCol) return unverifiedSchema(res, "users equipped title column was not found.");
+  const before = readPlayerProfile(req.db, player.user_id);
+  req.db.prepare(`UPDATE users SET ${sqlIdent(targetCol)}=? WHERE user_id=?`).run(titleId, player.user_id);
+  audit(req.db, req.user.username, "player_title_equip", "users", player.user_id, before, { title_id: titleId, reason }, req.ip);
+  json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
 app.post("/api/player/:id/badges", requireAuth, requireOwner, (req, res) => {
   const player = readPlayerProfile(req.db, req.params.id);
   if (!player) return json(res, { error: "not_found" }, 404);
@@ -8498,6 +8941,29 @@ app.delete("/api/player/:id/badges/:badge_id", requireAuth, requireOwner, (req, 
   const info = tableExists(req.db, "user_badges") ? req.db.prepare("DELETE FROM user_badges WHERE lower(username)=lower(?) AND badge_id=?").run(player.username, badgeId) : { changes: 0 };
   audit(req.db, req.user.username, "player_badge_remove", "user_badges", `${player.username}:${badgeId}`, before, { removed: info.changes, reason }, req.ip);
   json(res, { ok: true, removed: info.changes, player: readPlayerProfile(req.db, player.user_id) });
+}, closeDb);
+
+app.post("/api/player/:id/equip-badge", requireAuth, requireOwner, (req, res) => {
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "not_found" }, 404);
+  const badgeId = String(req.body?.badge_id || "").trim().slice(0, 120);
+  const reason = String(req.body?.reason || "").trim();
+  if (!badgeId) return json(res, { error: "badge_id_required" }, 400);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const before = {
+    player: readPlayerProfile(req.db, player.user_id),
+    badges: safeRows(req.db, "user_badges", ["id", "username", "badge_id", "equipped"], { where: "lower(username)=lower(?)", params: [player.username], limit: "200" }),
+  };
+  if (tableExists(req.db, "user_badges") && columnExists(req.db, "user_badges", "equipped")) {
+    req.db.prepare("UPDATE user_badges SET equipped=0 WHERE lower(username)=lower(?)").run(player.username);
+    req.db.prepare("UPDATE user_badges SET equipped=1 WHERE lower(username)=lower(?) AND badge_id=?").run(player.username, badgeId);
+  }
+  const cols = tableExists(req.db, "users") ? tableColumns(req.db, "users") : [];
+  const targetCol = cols.includes("equipped_badge_id") ? "equipped_badge_id" : (cols.includes("equipped_badge") ? "equipped_badge" : "");
+  if (targetCol) req.db.prepare(`UPDATE users SET ${sqlIdent(targetCol)}=? WHERE user_id=?`).run(badgeId, player.user_id);
+  if (!targetCol && !(tableExists(req.db, "user_badges") && columnExists(req.db, "user_badges", "equipped"))) return unverifiedSchema(res, "No verified equipped badge column was found.");
+  audit(req.db, req.user.username, "player_badge_equip", "users", player.user_id, before, { badge_id: badgeId, reason }, req.ip);
+  json(res, { ok: true, player: readPlayerProfile(req.db, player.user_id) });
 }, closeDb);
 
 function writeModerationLog(db, actor, player, actionName, reason, duration = 0) {
