@@ -81,6 +81,14 @@ _bot_user_id: str = ""
 _bot_username: str = ""
 # Other bots discovered in room — excluded from gold rain targets
 _known_bot_ids: set[str] = set()
+_last_room_cache_ok: float = 0.0
+
+try:
+    from modules.log_throttle import log_cooldown
+except Exception:
+    def log_cooldown(_key: str, message: str, seconds: float = 60.0, *, cross_process: bool = False) -> bool:
+        print(message)
+        return True
 
 # ---------------------------------------------------------------------------
 # Known bot username list + eligibility helper
@@ -181,19 +189,37 @@ async def refresh_room_cache(bot) -> None:
     """Fetch the live room user list and rebuild the cache.
     Also resolves the bot's own username if not yet known.
     """
-    global _bot_username
+    global _bot_username, _last_room_cache_ok
     try:
         resp = await bot.highrise.get_room_users()
         if hasattr(resp, "content"):
+            content = list(resp.content)
+            if not content:
+                for key in list(_room_cache.keys()):
+                    if key not in _KNOWN_BOT_USERNAMES:
+                        _room_cache.pop(key, None)
+                log_cooldown(
+                    "room_cache:empty_preserve",
+                    "[ROOM_CACHE] room users empty; preserving last known bot state only",
+                    seconds=120,
+                    cross_process=True,
+                )
+                return
             _room_cache.clear()
-            for ru, _ in resp.content:
+            _last_room_cache_ok = time.time()
+            for ru, _ in content:
                 _room_cache[ru.username.lower()] = (ru.id, ru.username)
                 # Auto-discover bot's own username by matching user ID
                 if ru.id == _bot_user_id and not _bot_username:
                     _bot_username = ru.username
                     print(f"[GOLD] Bot username resolved: {_bot_username}")
     except Exception as exc:
-        print(f"[GOLD] refresh_room_cache error: {exc}")
+        log_cooldown(
+            f"room_cache:refresh_error:{type(exc).__name__}",
+            f"[ROOM_CACHE] room users unavailable, preserving last known bot state error={exc!r}",
+            seconds=120,
+            cross_process=True,
+        )
 
 
 def _get_eligible_players(include_staff: bool = True) -> list[tuple[str, str]]:

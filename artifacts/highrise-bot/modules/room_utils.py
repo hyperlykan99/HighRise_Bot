@@ -22,6 +22,7 @@ from modules.emote_targeting import (
     log_emote_command_received,
     send_targeted_emote,
 )
+from modules.log_throttle import log_cooldown
 from modules.permissions import (
     is_owner, is_admin, is_manager, is_moderator, can_moderate,
 )
@@ -51,6 +52,8 @@ _emote_loops: dict[str, asyncio.Task] = {}
 
 # Startup bot spawn restore task by bot username/mode.
 _bot_spawn_restore_tasks: dict[str, asyncio.Task] = {}
+_bot_presence_watchdog_task: asyncio.Task | None = None
+_bot_presence_retry_last: dict[str, float] = {}
 
 # Fallback keys used when upgraded-room startup cannot resolve the live bot
 # username before spawn restore runs. Exact username rows still win first.
@@ -66,6 +69,17 @@ _BOT_SPAWN_MODE_ALIASES: dict[str, tuple[str, ...]] = {
     "fisher": ("masterangler",),
     "security": ("keanushield",),
     "dj": ("dj_dudu",),
+}
+
+_CANONICAL_BOT_USERNAMES: dict[str, str] = {
+    "dj": "DJ_DUDU",
+    "host": "ChillTopiaMC",
+    "banker": "BankingBot",
+    "blackjack": "AceSinatra",
+    "poker": "ChipSoprano",
+    "miner": "GreatestProspector",
+    "fisher": "MasterAngler",
+    "security": "KeanuShield",
 }
 
 _BOT_SPAWN_USAGE = (
@@ -230,6 +244,136 @@ async def _is_bot_currently_in_room(bot: BaseBot, bot_uid: str) -> bool:
     except Exception as exc:
         print(f"[SPAWN_RESTORE] get_room_users_failed error={exc!r}")
     return False
+
+
+def _current_canonical_bot_identity() -> tuple[str, str]:
+    try:
+        import config as _cfg
+        mode = str(getattr(_cfg, "BOT_MODE", "") or "main").strip().lower()
+        username = str(getattr(_cfg, "BOT_USERNAME", "") or "").strip()
+    except Exception:
+        mode = "main"
+        username = ""
+    if not username:
+        try:
+            from modules.gold import get_bot_username
+            username = str(get_bot_username() or "").strip()
+        except Exception:
+            username = ""
+    if not username:
+        username = _CANONICAL_BOT_USERNAMES.get(mode, mode)
+    return mode, username
+
+
+async def _probe_current_bot_presence(bot: BaseBot) -> str:
+    """Return present|uncertain.
+
+    The Highrise room list can omit the current bot, so a miss is not treated
+    as offline. Actual not-in-room SDK errors trigger spawn restore separately.
+    """
+    mode, username = _current_canonical_bot_identity()
+    try:
+        from modules.gold import get_bot_user_id
+        bot_uid = get_bot_user_id()
+    except Exception:
+        bot_uid = ""
+    try:
+        resp = await bot.highrise.get_room_users()
+        pairs = list(resp.content) if hasattr(resp, "content") else []
+    except Exception as exc:
+        log_cooldown(
+            f"bot_presence:room_users_unavailable:{mode}:{type(exc).__name__}",
+            f"[ROOM_CACHE] room users unavailable, preserving last known bot state mode={mode!r} error={exc!r}",
+            seconds=120,
+            cross_process=True,
+        )
+        return "uncertain"
+    for room_user, pos in pairs:
+        if bot_uid and getattr(room_user, "id", "") == bot_uid:
+            if pos is not None:
+                update_user_position(bot_uid, pos)
+            log_cooldown(
+                f"bot_presence:present:{mode}",
+                f"[BOT_PRESENCE] mode={mode!r} username={username!r} state=present",
+                seconds=300,
+                cross_process=True,
+            )
+            return "present"
+        if username and getattr(room_user, "username", "").strip().lower() == username.lower():
+            if pos is not None and bot_uid:
+                update_user_position(bot_uid, pos)
+            log_cooldown(
+                f"bot_presence:present:{mode}",
+                f"[BOT_PRESENCE] mode={mode!r} username={username!r} state=present",
+                seconds=300,
+                cross_process=True,
+            )
+            return "present"
+    log_cooldown(
+        f"bot_presence:uncertain:{mode}",
+        f"[BOT_PRESENCE] mode={mode!r} username={username!r} state=uncertain reason=self_not_listed count={len(pairs)}",
+        seconds=300,
+        cross_process=True,
+    )
+    return "uncertain"
+
+
+def schedule_bot_presence_retry(bot: BaseBot, reason: str = "not_in_room", cooldown: float = 180.0) -> None:
+    """Throttle a safe spawn-restore retry for the current bot."""
+    mode, username = _current_canonical_bot_identity()
+    now = time.time()
+    key = f"{mode}:{username}:{reason}"
+    if now - _bot_presence_retry_last.get(key, 0.0) < cooldown:
+        return
+    _bot_presence_retry_last[key] = now
+    log_cooldown(
+        f"bot_watchdog:retry:{mode}:{reason}",
+        f"[BOT_WATCHDOG] mode={mode!r} username={username!r} action=spawn_restore reason={reason}",
+        seconds=60,
+        cross_process=True,
+    )
+    try:
+        asyncio.create_task(apply_bot_spawn(bot, username), name=f"bot_presence_retry:{mode}")
+    except Exception as exc:
+        log_cooldown(
+            f"bot_watchdog:retry_failed:{mode}:{type(exc).__name__}",
+            f"[BOT_WATCHDOG] mode={mode!r} action=spawn_restore_schedule_failed error={exc!r}",
+            seconds=120,
+            cross_process=True,
+        )
+
+
+async def start_bot_presence_watchdog(bot: BaseBot) -> None:
+    """Watch the current bot's own room presence without relying on players."""
+    global _bot_presence_watchdog_task
+    if _bot_presence_watchdog_task and not _bot_presence_watchdog_task.done():
+        return
+
+    async def _loop() -> None:
+        uncertain_count = 0
+        await asyncio.sleep(45)
+        while True:
+            try:
+                state = await _probe_current_bot_presence(bot)
+                if state == "present":
+                    uncertain_count = 0
+                else:
+                    uncertain_count += 1
+                    if uncertain_count >= 3:
+                        schedule_bot_presence_retry(bot, "presence_uncertain", cooldown=300.0)
+                        uncertain_count = 0
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log_cooldown(
+                    f"bot_watchdog:error:{type(exc).__name__}",
+                    f"[BOT_WATCHDOG] state=error error={exc!r}",
+                    seconds=120,
+                    cross_process=True,
+                )
+            await asyncio.sleep(60)
+
+    _bot_presence_watchdog_task = asyncio.create_task(_loop(), name="bot_presence_watchdog")
 
 
 def _get_room_users_cached() -> dict[str, tuple[str, Position]]:

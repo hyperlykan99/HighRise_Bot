@@ -972,6 +972,7 @@ from modules.room_utils import (
     handle_emote, handle_stopemote,
     handle_setbotspawn, handle_setbotspawnhere, handle_botspawns,
     handle_clearbotspawn, apply_bot_spawn,
+    start_bot_presence_watchdog,
     teleport_bot_to_saved_spawn, handle_returnbots,
     handle_mypos, handle_positiondebug,
     handle_dance, handle_wave, handle_sit, handle_clap,
@@ -4051,6 +4052,9 @@ class HangoutBot(BaseBot):
             print("[STARTUP ERROR] start_interval_loop failed — bot continues.")
         # Multi-bot heartbeat
         _safe_task(start_multibot_heartbeat(self), "start_multibot_heartbeat")
+        # Bot room-presence watchdog. This tracks the bot independently from
+        # owner/player room presence and uses spawn restore as a safe retry.
+        _safe_task(start_bot_presence_watchdog(self), "bot_presence_watchdog")
         # 3.3A — AI delegated task loop removed (old EmceeBot system quarantined)
         # Startup safety checks (logs warnings only)
         try:
