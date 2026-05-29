@@ -92,6 +92,8 @@ class _BotSpec(NamedTuple):
 
 _bot_supervisor_tasks: dict[str, asyncio.Task] = {}
 _BOT_TASK_RESTART_DELAY = 10.0
+_BOT_CONTROL_VALID_MODES = ("dj", "host", "banker", "blackjack", "poker", "miner", "fisher", "security")
+_bot_control_restart_last: dict[str, float] = {}
 
 
 def _bot_task_key(spec: _BotSpec) -> str:
@@ -482,6 +484,123 @@ def _write_rc_stats(mode: str, rc: int, reason: str, ts: str) -> None:
         pass
 
 
+def _ensure_bot_control_table() -> None:
+    try:
+        import database as _dbs
+        conn = _dbs.get_connection()
+        try:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS bot_control_requests (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       action TEXT NOT NULL,
+                       target_mode TEXT NOT NULL,
+                       requested_by TEXT,
+                       requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                       handled_at TEXT,
+                       status TEXT DEFAULT 'pending'
+                   )"""
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[BOT_CONTROL] state=table_check_failed error={exc!r}", flush=True)
+
+
+def _claim_control_request(action: str, targets: tuple[str, ...]) -> dict | None:
+    try:
+        import database as _dbs
+        _ensure_bot_control_table()
+        conn = _dbs.get_connection()
+        try:
+            placeholders = ",".join("?" for _ in targets)
+            row = conn.execute(
+                f"""SELECT id, action, target_mode, requested_by
+                    FROM bot_control_requests
+                    WHERE status='pending'
+                      AND action=?
+                      AND target_mode IN ({placeholders})
+                    ORDER BY id
+                    LIMIT 1""",
+                (action, *targets),
+            ).fetchone()
+            if not row:
+                return None
+            cur = conn.execute(
+                """UPDATE bot_control_requests
+                   SET status='handled', handled_at=CURRENT_TIMESTAMP
+                   WHERE id=? AND status='pending'""",
+                (row["id"],),
+            )
+            conn.commit()
+            if cur.rowcount:
+                return dict(row)
+            return None
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[BOT_CONTROL] action={action} status=poll_failed error={exc!r}", flush=True)
+        return None
+
+
+def _enqueue_control_request(action: str, target_mode: str, requested_by: str = "") -> None:
+    try:
+        import database as _dbs
+        _ensure_bot_control_table()
+        conn = _dbs.get_connection()
+        try:
+            conn.execute(
+                """INSERT INTO bot_control_requests (action, target_mode, requested_by, status)
+                   VALUES (?, ?, ?, 'pending')""",
+                (action, target_mode, requested_by),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[BOT_CONTROL] action={action} target={target_mode} status=enqueue_failed error={exc!r}", flush=True)
+
+
+async def _manual_restart_watch(proc: asyncio.subprocess.Process, spec: _BotSpec) -> None:
+    mode = spec.bot_mode.strip().lower()
+    if mode not in _BOT_CONTROL_VALID_MODES:
+        return
+    while proc.returncode is None:
+        row = _claim_control_request("restart_bot", (mode,))
+        if row:
+            now = time.time()
+            if now - _bot_control_restart_last.get(mode, 0.0) < 10.0:
+                print(f"[BOT_CONTROL] action=restart_bot target={mode} status=throttled requested_by={row.get('requested_by','')}")
+            else:
+                _bot_control_restart_last[mode] = now
+                print(
+                    f"[BOT_CONTROL] action=restart_bot target={mode} status=accepted "
+                    f"requested_by={row.get('requested_by','')}",
+                    flush=True,
+                )
+                if proc.returncode is None:
+                    print(f"[BOT_WATCHDOG] mode={mode} state=manual_restart_requested terminating=true", flush=True)
+                    try:
+                        proc.terminate()
+                    except ProcessLookupError:
+                        pass
+            await asyncio.sleep(1)
+        else:
+            await asyncio.sleep(3)
+
+
+async def _bot_control_dispatch_loop(specs: list[_BotSpec]) -> None:
+    valid_modes = tuple(s.bot_mode.strip().lower() for s in specs if s.bot_mode.strip().lower() in _BOT_CONTROL_VALID_MODES)
+    while True:
+        row = _claim_control_request("wake_bots", ("all",))
+        if row:
+            requested_by = row.get("requested_by", "") or ""
+            print(f"[BOT_CONTROL] action=wake_bots status=accepted requested_by={requested_by}", flush=True)
+            for mode in valid_modes:
+                _enqueue_control_request("anchor_bot", mode, requested_by)
+        await asyncio.sleep(3)
+
+
 async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
     """
     Keep one bot alive as a subprocess — isolated per bot account.
@@ -575,8 +694,14 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     _stream_and_buffer(proc.stdout, _log_ring, _flags, proc, spec.bot_mode),  # type: ignore[arg-type]
                     name=f"log_reader_{spec.bot_id}",
                 )
+                _control_reader = asyncio.create_task(
+                    _manual_restart_watch(proc, spec),
+                    name=f"manual_restart_watch_{spec.bot_id}",
+                )
                 code = await proc.wait()
                 await _reader   # drain remaining buffered output
+                _control_reader.cancel()
+                await asyncio.gather(_control_reader, return_exceptions=True)
                 uptime = asyncio.get_event_loop().time() - started_at
 
                 # ── Multilogin fast-path ─────────────────────────────────────
@@ -817,6 +942,9 @@ async def _run_all(specs: list[_BotSpec]) -> None:
         _start_bot_supervisor_task(s, startup_delay=float(i * 12))
 
     dashboard_tasks: list[asyncio.Task] = []
+    control_tasks: list[asyncio.Task] = [
+        asyncio.create_task(_bot_control_dispatch_loop(specs), name="bot-control-dispatch")
+    ]
     if _ENABLE_WEB_DASHBOARD:
         dashboard_tasks.append(asyncio.create_task(_run_web_dashboard(), name="web-dashboard"))
     else:
@@ -825,7 +953,7 @@ async def _run_all(specs: list[_BotSpec]) -> None:
     def _shutdown(sig: int) -> None:
         nonlocal shutting_down
         shutting_down = True
-        tasks = list(_bot_supervisor_tasks.values()) + dashboard_tasks
+        tasks = list(_bot_supervisor_tasks.values()) + dashboard_tasks + control_tasks
         alive = sum(1 for t in tasks if not t.done())
         print(f"[SHUTDOWN] {signal.Signals(sig).name} received — "
               f"cancelling {alive}/{len(tasks)} bot task(s)...")
@@ -841,7 +969,7 @@ async def _run_all(specs: list[_BotSpec]) -> None:
 
     try:
         while True:
-            tasks = list(_bot_supervisor_tasks.values()) + dashboard_tasks
+            tasks = list(_bot_supervisor_tasks.values()) + dashboard_tasks + control_tasks
             if not tasks:
                 print("[BOT_WATCHDOG] mode=all state=missing no_supervisor_tasks=true")
                 return
@@ -860,6 +988,22 @@ async def _run_all(specs: list[_BotSpec]) -> None:
                             )
                         else:
                             print("[BOT_TASK_EXIT] mode=dashboard exception=None message=completed")
+                    continue
+                if task in control_tasks:
+                    control_tasks.remove(task)
+                    if task.cancelled():
+                        print("[BOT_TASK_EXIT] mode=bot_control exception=CancelledError message=cancelled")
+                    else:
+                        exc = task.exception()
+                        if exc:
+                            print(
+                                f"[BOT_TASK_EXIT] mode=bot_control exception={type(exc).__name__} "
+                                f"message={str(exc)[:160]!r}"
+                            )
+                        else:
+                            print("[BOT_TASK_EXIT] mode=bot_control exception=None message=completed")
+                    if not shutting_down:
+                        control_tasks.append(asyncio.create_task(_bot_control_dispatch_loop(specs), name="bot-control-dispatch"))
                     continue
 
                 finished_key = None
@@ -887,7 +1031,7 @@ async def _run_all(specs: list[_BotSpec]) -> None:
                 _start_bot_supervisor_task(finished_spec, startup_delay=0.0)
     except asyncio.CancelledError:
         shutting_down = True
-        tasks = list(_bot_supervisor_tasks.values()) + dashboard_tasks
+        tasks = list(_bot_supervisor_tasks.values()) + dashboard_tasks + control_tasks
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)

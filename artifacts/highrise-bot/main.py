@@ -974,8 +974,10 @@ from modules.room_utils import (
     handle_clearbotspawn, apply_bot_spawn,
     start_bot_presence_watchdog,
     run_delayed_anchor_restores,
+    start_bot_control_anchor_loop,
     is_known_bot_username,
     teleport_bot_to_saved_spawn, handle_returnbots,
+    handle_restartbot_control, handle_wakebots_control,
     handle_mypos, handle_positiondebug,
     handle_dance, handle_wave, handle_sit, handle_clap,
     handle_forceemote, handle_forceemoteall,
@@ -1346,7 +1348,7 @@ OWNER_ONLY_CMDS = {
     "debugtips",
     "restarthelp", "restartstatus",
     "softrestart",
-    "restartbot",
+    "restartbot", "botrestart", "wakebots", "anchorbots",
     "testnotifyall",
     "fixcommandregistry",
     "previewannounce",
@@ -1401,7 +1403,7 @@ ALL_KNOWN_COMMANDS = (
         "pokertest", "pokereconomy", "pokerverify",
         "botstatus", "botregistry", "botdiag", "dbstats", "backup",
         "maintenance", "reloadsettings", "cleanup",
-        "restarthelp", "restartstatus", "softrestart", "restartbot",
+        "restarthelp", "restartstatus", "softrestart", "restartbot", "botrestart", "wakebots", "anchorbots",
         "casinosettings", "casinolimits", "casinotoggles",
         "setbjlimits", "setrbjlimits",
         "wallet", "w", "dash", "dashboard", "casinodash", "mycasino",
@@ -4093,6 +4095,7 @@ class HangoutBot(BaseBot):
             run_delayed_anchor_restores(self, get_bot_username() or config.BOT_USERNAME),
             "delayed_anchor_restore"
         )
+        start_bot_control_anchor_loop(self)
 
     # ── on_chat safety wrapper ────────────────────────────────────────────────
     async def on_chat(self, user: User, message: str) -> None:
@@ -4650,8 +4653,10 @@ class HangoutBot(BaseBot):
                 await handle_restartstatus(self, user)
             elif cmd == "softrestart":
                 await handle_softrestart(self, user)
-            elif cmd == "restartbot":
-                await handle_restartbot(self, user)
+            elif cmd in ("restartbot", "botrestart"):
+                await handle_restartbot_control(self, user, args)
+            elif cmd in ("wakebots", "anchorbots"):
+                await handle_wakebots_control(self, user, args)
             elif cmd == "healthcheck":
                 await handle_healthcheck(self, user)
             elif cmd == "announce_vip":
@@ -7784,8 +7789,8 @@ class HangoutBot(BaseBot):
             await handle_botspawns(self, user)
         elif cmd == "clearbotspawn":
             await handle_clearbotspawn(self, user, args)
-        elif cmd in ("returnbots", "botshome"):
-            await handle_returnbots(self, user, args)
+        elif cmd in ("wakebots", "anchorbots", "returnbots", "botshome"):
+            await handle_wakebots_control(self, user, args)
         elif cmd == "botspawn" and len(args) >= 2 and args[1].lower() in ("return", "returnall"):
             await handle_returnbots(self, user, args)
         elif cmd == "mypos":

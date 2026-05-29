@@ -1411,6 +1411,9 @@ REGISTRY: dict[str, Cmd] = {
     "restartstatus":         Cmd("host",    "admin",   False, True,  False, perm="owner"),
     "softrestart":           Cmd("host",    "admin",   False, False, True,  perm="owner"),
     "restartbot":            Cmd("host",    "admin",   False, False, True,  perm="owner"),
+    "botrestart":            Cmd("host",    "admin",   False, False, True,  perm="owner"),
+    "wakebots":              Cmd("host",    "admin",   False, False, True,  perm="owner"),
+    "anchorbots":            Cmd("host",    "admin",   False, False, True,  perm="owner"),
 
     # ── Notification admin ────────────────────────────────────────────────────
     "notify":                Cmd("host",    "help",    True,  True,  False),

@@ -59,6 +59,7 @@ _bot_presence_restore_failures: dict[str, int] = {}
 _bot_restart_request_last: dict[str, float] = {}
 _bot_presence_safe: bool = True
 _bad_spawn_cleanup_done: bool = False
+_bot_control_anchor_task: asyncio.Task | None = None
 
 # Fallback keys used when upgraded-room startup cannot resolve the live bot
 # username before spawn restore runs. Exact username rows still win first.
@@ -86,6 +87,9 @@ _CANONICAL_BOT_USERNAMES: dict[str, str] = {
     "fisher": "MasterAngler",
     "security": "KeanuShield",
 }
+_VALID_CONTROL_BOT_MODES: tuple[str, ...] = (
+    "dj", "host", "banker", "blackjack", "poker", "miner", "fisher", "security",
+)
 
 _BOT_SPAWN_USAGE = (
     "Usage: !botspawnhere @bot "
@@ -291,6 +295,57 @@ def is_known_bot_username(username: str | None) -> bool:
         known.update(a.lower() for a in aliases)
     known.update({"main", "all", "host", "banker", "blackjack", "poker", "miner", "fisher", "security", "dj"})
     return name in known
+
+
+def normalize_control_bot_mode(target: str | None) -> str:
+    raw = str(target or "").strip().lower().lstrip("@")
+    if raw in _VALID_CONTROL_BOT_MODES:
+        return raw
+    for mode, username in _CANONICAL_BOT_USERNAMES.items():
+        if mode in _VALID_CONTROL_BOT_MODES and raw == username.lower():
+            return mode
+    for mode, aliases in _BOT_SPAWN_MODE_ALIASES.items():
+        if mode in _VALID_CONTROL_BOT_MODES and raw in {a.lower() for a in aliases}:
+            return mode
+    return ""
+
+
+def control_bot_display_name(mode: str) -> str:
+    return _CANONICAL_BOT_USERNAMES.get(mode, mode)
+
+
+def _ensure_bot_control_table() -> None:
+    conn = db.get_connection()
+    try:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS bot_control_requests (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   action TEXT NOT NULL,
+                   target_mode TEXT NOT NULL,
+                   requested_by TEXT,
+                   requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                   handled_at TEXT,
+                   status TEXT DEFAULT 'pending'
+               )"""
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def enqueue_bot_control_request(action: str, target_mode: str, requested_by: str = "") -> int:
+    _ensure_bot_control_table()
+    conn = db.get_connection()
+    try:
+        cur = conn.execute(
+            """INSERT INTO bot_control_requests (action, target_mode, requested_by, status)
+               VALUES (?, ?, ?, 'pending')""",
+            (action, target_mode, requested_by),
+        )
+        conn.commit()
+        return int(cur.lastrowid or 0)
+    finally:
+        conn.close()
 
 
 def _request_child_restart(reason: str, *, cooldown: float = 60.0) -> bool:
@@ -553,6 +608,84 @@ async def run_delayed_anchor_restores(bot: BaseBot, bot_username: str, delays: t
                 f"reason=delayed_anchor_restore delay={delay} error={exc!r}",
                 cooldown=60.0,
             )
+
+
+def start_bot_control_anchor_loop(bot: BaseBot) -> None:
+    """Poll DB control requests for manual non-fatal wake/anchor requests for this child."""
+    global _bot_control_anchor_task
+    if _bot_control_anchor_task and not _bot_control_anchor_task.done():
+        return
+
+    async def _loop() -> None:
+        import config as _cfg
+        mode = str(getattr(_cfg, "BOT_MODE", "main") or "main").strip().lower()
+        bot_username = str(getattr(_cfg, "BOT_USERNAME", "") or "").strip()
+        if mode not in _VALID_CONTROL_BOT_MODES:
+            return
+        while True:
+            try:
+                _ensure_bot_control_table()
+                conn = db.get_connection()
+                try:
+                    row = conn.execute(
+                        """SELECT id, requested_by FROM bot_control_requests
+                           WHERE status='pending'
+                             AND action='anchor_bot'
+                             AND target_mode IN (?, 'all')
+                           ORDER BY id
+                           LIMIT 1""",
+                        (mode,),
+                    ).fetchone()
+                    if row:
+                        conn.execute(
+                            """UPDATE bot_control_requests
+                               SET status='handled', handled_at=CURRENT_TIMESTAMP
+                               WHERE id=? AND status='pending'""",
+                            (row["id"],),
+                        )
+                        conn.commit()
+                    else:
+                        conn.close()
+                        await asyncio.sleep(3)
+                        continue
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+                cur_mode, cur_username = _current_canonical_bot_identity()
+                _guardian_log(
+                    cur_mode,
+                    cur_username,
+                    "manual_wake_anchor_scheduled",
+                    f"requested_by={row['requested_by'] or 'unknown'}",
+                    cooldown=5.0,
+                )
+
+                async def _manual_anchor() -> None:
+                    last_delay = 0
+                    for delay in (5, 15, 30, 60):
+                        await asyncio.sleep(max(0, delay - last_delay))
+                        last_delay = delay
+                        m, u = _current_canonical_bot_identity()
+                        _guardian_log(m, u, "manual_wake_anchor_attempt", f"delay={delay}", cooldown=1.0)
+                        try:
+                            await apply_bot_spawn(bot, bot_username or u, allow_restart=False)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            _guardian_log(m, u, "anchor_deferred", f"reason=manual_wake_anchor error={exc!r}", cooldown=60.0)
+
+                asyncio.create_task(_manual_anchor(), name=f"manual_wake_anchor:{mode}")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                mode_now, username_now = _current_canonical_bot_identity()
+                _guardian_log(mode_now, username_now, "manual_wake_anchor_poll_failed", f"error={exc!r}", cooldown=60.0)
+                await asyncio.sleep(5)
+
+    _bot_control_anchor_task = asyncio.create_task(_loop(), name="bot_control_anchor_loop")
 
 
 def _get_room_users_cached() -> dict[str, tuple[str, Position]]:
@@ -3108,6 +3241,33 @@ async def handle_returnbots(bot: BaseBot, user: User, args: list[str]) -> None:
             "\u26a0\ufe0f No saved spawn found for this bot. "
             "Use !setbotspawnhere @BotName first.",
         )
+
+
+async def handle_restartbot_control(bot: BaseBot, user: User, args: list[str]) -> None:
+    """Owner/admin — request parent supervisor to restart one child bot process."""
+    if not (is_owner(user.username) or is_admin(user.username)):
+        await _w(bot, user.id, "This command is owner-only.")
+        return
+    target = args[1] if len(args) > 1 else ""
+    mode = normalize_control_bot_mode(target)
+    valid = ", ".join(_VALID_CONTROL_BOT_MODES)
+    if not mode:
+        await _w(bot, user.id, f"Unknown bot. Valid bots: {valid}")
+        return
+    enqueue_bot_control_request("restart_bot", mode, user.username)
+    display = control_bot_display_name(mode)
+    print(f"[BOT_CONTROL] action=restart_bot target={mode} status=queued requested_by={user.username}")
+    await _w(bot, user.id, f"🔁 Restarting {display} only.")
+
+
+async def handle_wakebots_control(bot: BaseBot, user: User, args: list[str]) -> None:
+    """Owner/admin — request all child bots to re-anchor to saved spawns without restart."""
+    if not (is_owner(user.username) or is_admin(user.username)):
+        await _w(bot, user.id, "This command is owner-only.")
+        return
+    enqueue_bot_control_request("wake_bots", "all", user.username)
+    print(f"[BOT_CONTROL] action=wake_bots target=all status=queued requested_by={user.username}")
+    await _w(bot, user.id, "🌅 Waking bots and sending them back to saved spawns.")
 
 
 async def handle_mypos(bot: BaseBot, user: User, args: list[str]) -> None:
