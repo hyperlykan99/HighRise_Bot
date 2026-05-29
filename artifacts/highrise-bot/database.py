@@ -1,22 +1,17 @@
 """
 database.py
 -----------
-All SQLite database logic for the Mini Game Bot.
+SQLite helpers for the ChillTopia bot system.
 
-Tables:
-  users            — one row per player (id, username, balance, xp, level,
-                     wins, coins_earned, equipped display values and IDs)
-  daily_claims     — tracks the last date each player claimed /daily
-  game_wins        — running win count per player per game type
-  coinflip_history — log of every /coinflip result
-  owned_items      — shop items each player has purchased
-  purchase_history — log of every shop purchase
+This module owns safe connection setup, schema initialization, and table helpers
+used by the room bots and dashboard. The live database now includes economy and
+player profile tables, casino stats, mining/fishing catalogs and inventories,
+radio/request state, dashboard sessions/audits, bot command queue rows, rewards,
+moderation, room settings, and event data.
 
 Column notes for equipped cosmetics:
-  equipped_badge    / equipped_title    — display values ("🔥" / "[High Roller]")
-                                          used by get_display_name()
-  equipped_badge_id / equipped_title_id — catalog IDs ("fire_badge" / "high_roller")
-                                          used by get_equipped_ids() for benefit lookups
+  equipped_badge    / equipped_title    — display values used by get_display_name()
+  equipped_badge_id / equipped_title_id — catalog IDs used by get_equipped_ids()
 """
 
 import math

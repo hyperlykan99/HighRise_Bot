@@ -745,6 +745,7 @@ const state = {
   maintenanceTab: "Overview",
   releaseTab: "Overview",
   releaseChecklist: null,
+  operationsQueueTab: "Pending",
   navSearch: "",
   howToPlayTab: "Quick Start",
   manualGameSection: { Mining: "Basics", Fishing: "Basics" },
@@ -1103,10 +1104,14 @@ function publicFmt(v) {
 }
 function publicCoins(v) { return v === null || v === undefined || v === "" ? "—" : `${publicFmt(v)} coins`; }
 function publicLbs(v) { return v === null || v === undefined || v === "" ? "—" : `${publicFmt(v)} lbs`; }
-function publicPercent(v) {
+function publicPercent(v, kind = "") {
   if (v === null || v === undefined || v === "") return "—";
   const n = Number(v);
-  return Number.isFinite(n) ? `${n.toFixed(n < 1 ? 4 : 2)}%` : String(v);
+  if (!Number.isFinite(n)) return String(v);
+  if (n <= 0) return kind === "fish" ? "Not currently catching" : kind === "ore" ? "Not currently dropping" : "Not currently active";
+  if (n < 0.0001) return "Very Rare";
+  const decimals = n < 0.01 ? 4 : n < 1 ? 3 : 2;
+  return `${n.toFixed(decimals).replace(/\.?0+$/, "")}%`;
 }
 function publicCommandChips(commands) {
   return `<div class="chip-row pub-command-chips">${commands.map((cmd) => `<code class="manual-command">${esc(cmd)}</code>`).join("")}</div>`;
@@ -1139,7 +1144,7 @@ function publicCatalogCards(rows, kind) {
       <span><b>Value</b>${esc(publicCoins(row.value ?? row.sell_value ?? row.base_value))}</span>
       ${kind === "fish" ? `<span><b>Weight</b>${esc(`${publicLbs(row.min_weight)}–${publicLbs(row.max_weight)}`)}</span>` : ""}
       ${kind === "ore" && Number(row.weight || 0) > 0 ? `<span><b>Weight</b>${esc(publicLbs(row.weight))}</span>` : ""}
-      <span><b>Chance</b>${esc(row.chance_label || publicPercent(row.chance_percent))}</span>
+      <span><b>Chance</b>${esc(row.chance_label || publicPercent(row.chance_percent, kind))}</span>
       <span><b>Event Only</b>${row.event_only ? "Yes" : "No"}</span>
     </div>
   </div>`).join("")}</div>`;
@@ -2394,34 +2399,45 @@ function renderOperationsRadio(d) {
 
 function renderOperationsQueue(d) {
   const c = d.counts || {};
-  const failedColumns = [
+  const queueColumns = [
     { key: "id", label: "ID" },
     { key: "target_bot", label: "Target" },
     { key: "action", label: "Action" },
+    { key: "status", label: "Status" },
     { key: "payload_summary", label: "Payload" },
     { key: "failure", label: "Error / Result" },
     { key: "created_at", label: "Created" },
     { key: "reviewed_at", label: "Reviewed" },
     { key: "actions", label: "", render: (row) => row.reviewed_at
       ? `<span class="pill ok">reviewed</span>`
-      : `<button class="btn small ghost" data-action="queue-review" data-command-id="${esc(row.id)}">Mark Reviewed</button>` },
+      : ["failed", "error", "unknown_action"].includes(String(row.status || "").toLowerCase())
+        ? `<button class="btn small ghost" data-action="queue-review" data-command-id="${esc(row.id)}">Mark Reviewed</button>`
+        : "" },
   ];
+  const tabs = ["Pending", "Failed", "Reviewed", "Completed", "All"];
+  if (!tabs.includes(state.operationsQueueTab)) state.operationsQueueTab = "Pending";
+  const key = state.operationsQueueTab.toLowerCase();
+  const rows = key === "all" ? (d.all || d.recent || []) : (d[key] || []);
   return `
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
       ${metricCard("Pending", c.pending ?? 0, "queued", "", "P")}
       ${metricCard("Claimed", c.claimed ?? 0, "in progress", "", "C")}
       ${metricCard("Completed", c.completed ?? 0, "historical", "accent-green", "✓")}
       ${metricCard("Failed", c.failed ?? 0, "needs review", Number(c.failed) ? "accent-red" : "accent-green", "!")}
+      ${metricCard("Reviewed", c.reviewed ?? 0, "history only", "", "R")}
       ${metricCard("Paused", c.paused ?? 0, "paused", "", "Ⅱ")}
     </div>
     <div class="card"><h2>Queue Counts</h2>${table(d.by_status || [])}</div>
-    <div class="card"><h2>Pending / Claimed</h2>${table(d.pending || [])}</div>
     <div class="card">
-      <h2>Failed Commands</h2>
-      <p class="muted text-sm">Failed rows stay in the queue for audit. Review marks the row as seen without deleting it.</p>
-      ${table(d.failed || [], failedColumns)}
+      <div class="card-header">
+        <div>
+          <h2>Command Queue</h2>
+          <p class="muted text-sm">Reviewed failures stay in history and no longer count against active health.</p>
+        </div>
+      </div>
+      <div class="tabbar compact">${tabs.map((tab) => `<button class="${state.operationsQueueTab === tab ? "active" : ""}" data-ops-queue-tab="${esc(tab)}">${esc(tab)}</button>`).join("")}</div>
+      ${table(rows, queueColumns)}
     </div>
-    <div class="card"><h2>Recent Commands</h2>${table(d.recent || [])}</div>
   `;
 }
 
@@ -4385,14 +4401,15 @@ function ownerRarityTabs(section, order = GAME_RARITY_ORDER) {
 function renderRaritySummaryCards(rows, section) {
   const byRarity = new Map((rows || []).map((row) => [normalizeGameRarity(row.rarity), row]));
   return `<div class="owner-rarity-grid">${GAME_RARITY_ORDER.map((rarity) => {
-    const row = byRarity.get(rarity) || { rarity, label: gameRarityLabel(rarity), total_items: 0, total_weight: 0, chance_label: "Not currently dropping" };
+    const emptyChance = section === "Fishing" ? "Not currently catching" : "Not currently dropping";
+    const row = byRarity.get(rarity) || { rarity, label: gameRarityLabel(rarity), total_items: 0, total_weight: 0, chance_label: emptyChance };
     const commandLabel = section === "Fishing" ? "!FISH" : "!MINE";
     const itemLabel = section === "Fishing" ? "Fish in rarity" : "Ores in rarity";
     const enabledLabel = section === "Fishing" ? "Enabled fish" : "Enabled ores";
     const emptyHelper = section === "Fishing" && Number(row.total_items || 0) === 0 && Number(row.enabled_items || 0) === 0
       ? `<p class="manual-note">No fish currently assigned to this rarity.</p>`
       : "";
-    const runtimeLabel = row.runtime_connected ? `CONNECTED TO ${commandLabel}` : "Planning";
+    const runtimeLabel = row.runtime_connected ? `CONNECTED TO ${commandLabel}` : "DASHBOARD ONLY";
     return `<div class="card owner-rarity-card">
       <div class="owner-rarity-head">${rarityChipHtml(rarity, row.label || gameRarityLabel(rarity))}<span class="pill ${row.runtime_connected ? "ok" : "warn"}">${runtimeLabel}</span></div>
       <div class="manual-info-grid compact">
@@ -4405,7 +4422,7 @@ function renderRaritySummaryCards(rows, section) {
       <form class="settings-fields compact rarityChanceForm" data-rarity-chance-form="${esc(section)}" data-rarity="${esc(rarity)}">
         <label class="field-label">Base Weight / Chance</label>
         <input type="number" step="0.0001" min="0" name="base_weight" value="${esc(row.base_weight ?? row.base_chance ?? "")}" />
-        <label class="switch compact"><input type="checkbox" name="enabled" ${Number(row.planning_enabled ?? 1) ? "checked" : ""}><span></span><em>${row.runtime_connected ? "Runtime enabled" : "Planning enabled"}</em></label>
+        <label class="switch compact"><input type="checkbox" name="enabled" ${Number(row.planning_enabled ?? 1) ? "checked" : ""}><span></span><em>${row.runtime_connected ? "Runtime enabled" : "Dashboard-only enabled"}</em></label>
         <button class="btn primary sm" type="submit">Save</button>
       </form>
       <p class="manual-note">${esc(row.notes || "Edit verified individual catalog rows where supported.")}</p>
@@ -4418,7 +4435,7 @@ function renderMiningRaritiesPage() {
   return `<div class="card">
     <div class="card-header">
       <div><h2>Rarity Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from DB-backed ores and active runtime rarity odds.")}</div></div>
-      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !MINE" : "Dashboard planning"}</span>
+      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !MINE" : "DASHBOARD ONLY"}</span>
     </div>
     ${renderRaritySummaryCards(d.rows || [], "Mining")}
     ${futureControls([
@@ -4809,7 +4826,7 @@ function renderFishingRaritiesPage() {
   return `<div class="card">
     <div class="card-header">
       <div><h2>Rarity Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from runtime fish catalog catch weights.")}</div></div>
-      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !FISH" : "Dashboard planning"}</span>
+      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !FISH" : "DASHBOARD ONLY"}</span>
     </div>
     ${renderRaritySummaryCards(d.rows || [], "Fishing")}
     ${futureControls([
@@ -4865,7 +4882,7 @@ function renderFishingCatalogPage() {
   const rows = (d.rows || []).filter((row) => normalizeGameRarity(row.rarity) === current);
   const writable = !!d.writable;
   return `<div class="card">
-    <div class="card-header"><div><h2>Fish Catalog</h2><div class="muted text-sm">${esc(d.message || "DB-backed fish_catalog editor")}</div></div><span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !FISH" : "Runtime constant"}</span></div>
+    <div class="card-header"><div><h2>Fish Catalog</h2><div class="muted text-sm">${esc(d.message || "DB-backed fish_catalog editor")}</div></div><span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !FISH" : "RUNTIME CONSTANT"}</span></div>
     ${ownerRarityTabs("Fishing", order)}
     ${renderResourceToolbar({ search: "Search fish" })}
     ${writable ? `<details class="advanced-collapse" open>
@@ -4959,7 +4976,19 @@ function renderFishingLogsPage() {
 function renderFishingAdvancedPage() {
   const d = state.data || {};
   const raw = d.raw || {};
+  const sourceMap = [
+    { table: "fish_catalog", role: "Fish definitions", status: d.table_status?.fish_catalog ? "CONNECTED TO !FISH" : "MISSING" },
+    { table: "game_rarity_settings", role: "Fishing rarity base weights where system='fishing'", status: d.table_status?.game_rarity_settings ? "CONNECTED TO !FISH" : "MISSING" },
+    { table: "fish_profiles", role: "Player fishing profile stats only, not fish definitions", status: d.table_status?.fish_profiles ? "READ ONLY" : "MISSING" },
+    { table: "fish_inventory", role: "Player caught fish inventory", status: d.table_status?.fish_inventory ? "READ ONLY / OWNER EDITS" : "MISSING" },
+    { table: "fish_catch_records", role: "Catch history and logs", status: d.table_status?.fish_catch_records ? "READ ONLY" : "MISSING" },
+  ];
   return `
+    <div class="card">
+      <h2>Fishing Source Map</h2>
+      <p class="muted text-sm">Live <code>!fish</code> reads fish definitions from <code>fish_catalog</code> and rarity weights from <code>game_rarity_settings</code>. Player profile rows remain separate.</p>
+      ${table(sourceMap)}
+    </div>
     ${futureControls([
       { endpoint: "POST/PUT /api/fishing/fish", purpose: "Fish catalog writes", status: d.table_status?.fish_catalog ? "Connected to !FISH" : "Unverified schema" },
       { endpoint: "POST /api/fishing/rods", purpose: "Rod catalog writes", status: "Unverified schema" },
@@ -7384,6 +7413,12 @@ function bindAdminPageEvents() {
 
   document.querySelectorAll("[data-release-tab]").forEach((btn) => {
     btn.addEventListener("click", () => loadReleaseTab(btn.dataset.releaseTab));
+  });
+  document.querySelectorAll("[data-ops-queue-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.operationsQueueTab = btn.dataset.opsQueueTab || "Pending";
+      render();
+    });
   });
   document.querySelectorAll("[data-release-action]").forEach((btn) => {
     btn.addEventListener("click", async () => {

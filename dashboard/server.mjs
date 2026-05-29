@@ -278,7 +278,7 @@ function dbHealthSnapshot(db) {
     ? db.prepare("SELECT COUNT(*) AS n FROM bot_command_queue WHERE status IN ('pending','queued','claimed','running')").get().n
     : 0;
   const commandFailed = tableExists(db, "bot_command_queue") && columnExists(db, "bot_command_queue", "status")
-    ? db.prepare("SELECT COUNT(*) AS n FROM bot_command_queue WHERE status='failed'").get().n
+    ? db.prepare(`SELECT COUNT(*) AS n FROM bot_command_queue WHERE ${activeFailedCommandWhere(db)}`).get().n
     : 0;
   const staleBots = tableExists(db, "bot_instances") && columnExists(db, "bot_instances", "last_heartbeat_at")
     ? db.prepare("SELECT COUNT(*) AS n FROM bot_instances WHERE last_heartbeat_at IS NULL OR datetime(last_heartbeat_at) < datetime('now','-10 minutes')").get().n
@@ -4480,7 +4480,7 @@ function buildQaAudit() {
     "report-review", "report-resolve", "security-unmute", "security-bot-action",
     "remove-request", "unblock-requester", "unblock-track", "mining-ore-form", "mining-ore-disable",
     "disable-announcement", "toggle-module", "emergency", "maint-action", "maint-cleanup",
-    "release-tab", "release-action",
+    "release-tab", "release-action", "ops-queue-tab",
     "settings-group", "sg-api", "sg-opts", "sf-toggle", "raw-edit-key", "raw-edit-val", "raw-edit-src",
     "table-search", "rarity-filter", "enabled-filter", "room-toggle", "room-edit",
     "staff-id", "remove-staff", "enabled", "room-val", "key", "vip-remove", "vip-user",
@@ -4864,7 +4864,7 @@ app.get("/api/release/logs", requireAuth, requireOwner, async (req, res) => {
     dashboard_errors: safeTableRows(req.db, "admin_action_logs", { orderBy: columnExists(req.db, "admin_action_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }).filter((row) => JSON.stringify(row).toLowerCase().includes("error") || JSON.stringify(row).toLowerCase().includes("fail")),
     bot_errors: safeTableRows(req.db, "command_error_logs", { orderBy: columnExists(req.db, "command_error_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }),
     audit_events: safeRows(req.db, "audit_logs", ["id","actor","action_type","target_type","target_id","old_value","new_value","ip_address","created_at"], { orderBy: columnExists(req.db, "audit_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }),
-    command_queue_failures: safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: "status='failed'", orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }),
+    command_queue_failures: safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: activeFailedCommandWhere(req.db), orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }),
   });
 }, closeDb);
 
@@ -5031,7 +5031,7 @@ app.get("/api/maintenance/runtime-health", requireAuth, requireOwner, async (req
     bot_heartbeats: bots,
     heartbeat_count: bots.length,
     command_queue_counts: queueCounts,
-    command_queue_failures: safeRows(req.db, "bot_command_queue", ["id","target_bot","action","status","requester_id","created_at","claimed_by","completed_at","error_text"], { where: "status='failed'", orderBy: "id DESC", limit: "50" }),
+    command_queue_failures: safeRows(req.db, "bot_command_queue", ["id","target_bot","action","status","requester_id","created_at","claimed_by","completed_at","error_text"], { where: activeFailedCommandWhere(req.db), orderBy: "id DESC", limit: "50" }),
   });
 }, closeDb);
 
@@ -5039,7 +5039,7 @@ app.get("/api/maintenance/logs", requireAuth, requireOwner, (req, res) => {
   json(res, {
     audit_logs: safeRows(req.db, "audit_logs", ["id","actor","action_type","target_type","target_id","old_value","new_value","ip_address","created_at"], { orderBy: "id DESC", limit: "100" }),
     admin_action_logs: safeTableRows(req.db, "admin_action_logs", { orderBy: "id DESC", limit: "100" }),
-    command_queue_failures: safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_by","completed_at","error_text"], { where: "status='failed'", orderBy: "id DESC", limit: "100" }),
+    command_queue_failures: safeRows(req.db, "bot_command_queue", ["id","target_bot","action","payload","status","requester_id","created_at","claimed_by","completed_at","error_text"], { where: activeFailedCommandWhere(req.db), orderBy: "id DESC", limit: "100" }),
     radio_failures: tableExists(req.db, "yt_request_jobs") ? safeRows(req.db, "yt_request_jobs", ["id","title","username","status","error","created_at","finished_at"], { where: "status IN ('failed','failed_download','error','cancelled')", orderBy: "id DESC", limit: "100" }) : [],
   });
 }, closeDb);
@@ -6473,6 +6473,20 @@ app.get("/api/fishing", requireAuth, requirePermission("manage_fishing"), (req, 
       forced_fishing_drops: safeTableRows(req.db, "forced_fishing_drops", { orderBy: "id DESC", limit: "50" }),
       fish_auto_sell_settings: safeTableRows(req.db, "fish_auto_sell_settings", { orderBy: "updated_at DESC", limit: "100" }),
     },
+    table_status: {
+      fish_catalog: tableExists(req.db, "fish_catalog"),
+      game_rarity_settings: tableExists(req.db, "game_rarity_settings"),
+      fish_profiles: tableExists(req.db, "fish_profiles"),
+      fish_inventory: tableExists(req.db, "fish_inventory"),
+      fish_catch_records: tableExists(req.db, "fish_catch_records"),
+    },
+    raw: {
+      fish_catalog: safeTableRows(req.db, "fish_catalog", { orderBy: columnExists(req.db, "fish_catalog", "rarity") ? "rarity, name" : "", limit: "300" }),
+      game_rarity_settings: tableExists(req.db, "game_rarity_settings") ? rowsOrEmpty(req.db, "game_rarity_settings", "SELECT * FROM game_rarity_settings WHERE system='fishing' ORDER BY rarity") : [],
+      fish_profiles: safeTableRows(req.db, "fish_profiles", { orderBy: columnExists(req.db, "fish_profiles", "total_catches") ? "total_catches DESC" : "", limit: "100" }),
+      fish_inventory: safeTableRows(req.db, "fish_inventory", { orderBy: columnExists(req.db, "fish_inventory", "id") ? "id DESC" : "", limit: "100" }),
+      fish_catch_records: safeTableRows(req.db, "fish_catch_records", { orderBy: columnExists(req.db, "fish_catch_records", "id") ? "id DESC" : "", limit: "100" }),
+    },
   });
 }, closeDb);
 
@@ -7235,6 +7249,19 @@ function statusCounts(db, table, statusColumn = "status") {
   return rowsOrEmpty(db, table, `SELECT ${sqlIdent(statusColumn)} AS status, COUNT(*) AS count FROM ${sqlIdent(table)} GROUP BY ${sqlIdent(statusColumn)} ORDER BY count DESC`);
 }
 
+function activeFailedCommandWhere(db) {
+  const base = "status IN ('failed','error','unknown_action')";
+  return columnExists(db, "bot_command_queue", "reviewed_at")
+    ? `${base} AND COALESCE(reviewed_at,'')=''`
+    : base;
+}
+
+function reviewedCommandWhere(db) {
+  const parts = ["status='reviewed'"];
+  if (columnExists(db, "bot_command_queue", "reviewed_at")) parts.push("COALESCE(reviewed_at,'')!=''");
+  return `(${parts.join(" OR ")})`;
+}
+
 function newestTimestamp(values) {
   return values.filter(Boolean).sort((a, b) => String(b).localeCompare(String(a)))[0] || null;
 }
@@ -7248,10 +7275,12 @@ function readOperationsQueue(db) {
   const pendingStatuses = ["pending", "queued"];
   const claimedStatuses = ["claimed", "running"];
   const completedStatuses = ["completed"];
-  const failedStatuses = ["failed", "error", "unknown_action"];
   const quoted = (items) => items.map(() => "?").join(",");
   const hasQueue = tableExists(db, "bot_command_queue");
   const hasStatus = hasQueue && columnExists(db, "bot_command_queue", "status");
+  const createdOrder = columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "";
+  const failedWhere = activeFailedCommandWhere(db);
+  const reviewedWhere = reviewedCommandWhere(db);
   const summarizePayload = (row) => {
     if (!row || !row.payload) return "";
     try {
@@ -7272,20 +7301,27 @@ function readOperationsQueue(db) {
     payload_summary: summarizePayload(row),
     failure: row.error_text || row.result_text || "",
   }));
-  const pending = hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted([...pendingStatuses, ...claimedStatuses])})`, params: [...pendingStatuses, ...claimedStatuses], orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "75" }) : [];
-  const failed = hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted(failedStatuses)})`, params: failedStatuses, orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "75" }) : [];
-  const recent = hasQueue ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "100" }) : [];
+  const pending = hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted([...pendingStatuses, ...claimedStatuses])})`, params: [...pendingStatuses, ...claimedStatuses], orderBy: createdOrder, limit: "75" }) : [];
+  const failed = hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: failedWhere, orderBy: createdOrder, limit: "75" }) : [];
+  const reviewed = hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: reviewedWhere, orderBy: columnExists(db, "bot_command_queue", "reviewed_at") ? "reviewed_at DESC" : createdOrder, limit: "75" }) : [];
+  const completed = hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted(completedStatuses)})`, params: completedStatuses, orderBy: createdOrder, limit: "75" }) : [];
+  const all = hasQueue ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { orderBy: createdOrder, limit: "150" }) : [];
+  const recent = all.slice(0, 100);
   return {
     counts: {
       pending: hasStatus ? countWhereSafe(db, "bot_command_queue", `status IN (${quoted(pendingStatuses)})`, pendingStatuses) : 0,
       claimed: hasStatus ? countWhereSafe(db, "bot_command_queue", `status IN (${quoted(claimedStatuses)})`, claimedStatuses) : 0,
       completed: hasStatus ? countWhereSafe(db, "bot_command_queue", `status IN (${quoted(completedStatuses)})`, completedStatuses) : 0,
-      failed: hasStatus ? countWhereSafe(db, "bot_command_queue", `status IN (${quoted(failedStatuses)})`, failedStatuses) : 0,
+      failed: hasStatus ? countWhereSafe(db, "bot_command_queue", failedWhere) : 0,
+      reviewed: hasStatus ? countWhereSafe(db, "bot_command_queue", reviewedWhere) : 0,
       paused: hasStatus ? countWhereSafe(db, "bot_command_queue", "status='paused'") : 0,
     },
     by_status: statusCounts(db, "bot_command_queue"),
     pending: formatRows(pending),
     failed: formatRows(failed),
+    reviewed: formatRows(reviewed),
+    completed: formatRows(completed),
+    all: formatRows(all),
     recent: formatRows(recent),
   };
 }
@@ -7331,7 +7367,7 @@ function readOperationsRadio(db, bots) {
 
 function readOperationsErrors(db) {
   const commandErrors = safeTableRows(db, "command_error_logs", { orderBy: columnExists(db, "command_error_logs", "created_at") ? "created_at DESC" : columnExists(db, "command_error_logs", "id") ? "id DESC" : "", limit: "100" });
-  const failedCommands = safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: "status IN ('failed','error','unknown_action')", orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "100" });
+  const failedCommands = safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: activeFailedCommandWhere(db), orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "100" });
   const failedAdmin = safeTableRows(db, "admin_action_logs", { orderBy: columnExists(db, "admin_action_logs", "created_at") ? "created_at DESC" : columnExists(db, "admin_action_logs", "id") ? "id DESC" : "", limit: "100" }).filter((row) => JSON.stringify(row).toLowerCase().includes("fail") || JSON.stringify(row).toLowerCase().includes("error"));
   const failedRadio = tableExists(db, "yt_request_jobs") && columnExists(db, "yt_request_jobs", "status")
     ? safeRows(db, "yt_request_jobs", ["id", "title", "username", "status", "error", "created_at", "finished_at"], { where: "status IN ('failed','failed_download','error','cancelled')", orderBy: columnExists(db, "yt_request_jobs", "created_at") ? "created_at DESC" : "", limit: "100" })
@@ -8451,7 +8487,15 @@ app.post("/api/bot-command-queue/:id/review", requireAuth, requireOwner, (req, r
   if (!["failed", "error", "unknown_action"].includes(String(existing.status || "").toLowerCase())) {
     return json(res, { error: "not_failed_command", message: "Only failed command rows can be marked reviewed." }, 400);
   }
-  req.db.prepare("UPDATE bot_command_queue SET reviewed_at=CURRENT_TIMESTAMP, reviewed_by=? WHERE id=?").run(req.user.username, id);
+  const assignments = ["status='reviewed'"];
+  const params = [];
+  if (columnExists(req.db, "bot_command_queue", "reviewed_at")) assignments.push("reviewed_at=CURRENT_TIMESTAMP");
+  if (columnExists(req.db, "bot_command_queue", "reviewed_by")) {
+    assignments.push("reviewed_by=?");
+    params.push(req.user.username);
+  }
+  params.push(id);
+  req.db.prepare(`UPDATE bot_command_queue SET ${assignments.join(", ")} WHERE id=?`).run(...params);
   const updated = req.db.prepare("SELECT * FROM bot_command_queue WHERE id=?").get(id);
   audit(req.db, req.user.username, "bot_command_reviewed", "bot_command_queue", id, existing, updated, req.ip);
   json(res, { ok: true, command: updated });
