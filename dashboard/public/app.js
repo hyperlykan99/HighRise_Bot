@@ -2406,6 +2406,8 @@ function renderOperationsCenter(tab) {
 
 function renderOperationsOverview(d) {
   const o = d.overview || {};
+  const activeAlerts = d.active_alerts || (d.alerts || []).filter((alert) => ["WARNING", "CRITICAL"].includes(String(alert.severity || "").toUpperCase()));
+  const infoNotices = d.info_notices || (d.alerts || []).filter((alert) => String(alert.severity || "").toUpperCase() === "INFO");
   return `
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:14px">
       ${metricCard("System Status", o.system_status || d.system_status || "unknown", "overall health", /CRITICAL/i.test(o.system_status) ? "accent-red" : /WARNING/i.test(o.system_status) ? "" : "accent-green", "SYS")}
@@ -2416,15 +2418,24 @@ function renderOperationsOverview(d) {
       ${metricCard("Queue", `${o.command_queue_pending ?? 0}/${o.command_queue_failed ?? 0}`, "pending / failed", Number(o.command_queue_failed) ? "accent-red" : "", "Q")}
       ${metricCard("Room Users", o.room_users ?? 0, "live_status", "accent-cyan", "👥")}
       ${metricCard("Alerts", o.active_alerts ?? 0, "active warnings", Number(o.active_alerts) ? "accent-red" : "accent-green", "!")}
+      ${metricCard("Notices", o.info_notices ?? infoNotices.length, "informational", Number(o.info_notices ?? infoNotices.length) ? "" : "accent-green", "i")}
     </div>
     <div class="grid">
       <div class="card">
         <div class="card-header"><h2>Active Alerts</h2>${operationsStatusChip(d.system_status)}</div>
-        ${(d.alerts || []).length ? table(d.alerts, [
+        ${activeAlerts.length ? table(activeAlerts, [
           { key: "severity", label: "Severity", render: (r) => operationsStatusChip(r.severity) },
           { key: "message", label: "Alert" },
           { key: "detail", label: "Detail" },
         ]) : `<div class="notice success">No active operational alerts.</div>`}
+      </div>
+      <div class="card">
+        <div class="card-header"><h2>Info Notices</h2><span class="pill def">${infoNotices.length}</span></div>
+        ${infoNotices.length ? table(infoNotices, [
+          { key: "severity", label: "Type", render: (r) => operationsStatusChip(r.severity) },
+          { key: "message", label: "Notice" },
+          { key: "detail", label: "Detail" },
+        ]) : `<div class="notice success">No informational notices.</div>`}
       </div>
       <div class="card">
         <h2>Quick Snapshot</h2>
@@ -2586,15 +2597,26 @@ function renderOperationsErrors(d) {
 
 function renderOperationsAlerts(d) {
   const alerts = d.alerts || [];
+  const activeAlerts = d.active_alerts || alerts.filter((alert) => ["WARNING", "CRITICAL"].includes(String(alert.severity || "").toUpperCase()));
+  const infoNotices = d.info_notices || alerts.filter((alert) => String(alert.severity || "").toUpperCase() === "INFO");
   return `
     <div class="card">
       <div class="card-header"><h2>Operational Alerts</h2>${operationsStatusChip(d.system_status)}</div>
-      ${alerts.length ? table(alerts, [
+      ${activeAlerts.length ? table(activeAlerts, [
         { key: "severity", label: "Severity", render: (r) => operationsStatusChip(r.severity) },
         { key: "key", label: "Alert Key" },
         { key: "message", label: "Message" },
         { key: "detail", label: "Detail" },
       ]) : `<div class="notice success">No active alerts.</div>`}
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>Info Notices</h2><span class="pill def">${infoNotices.length}</span></div>
+      ${infoNotices.length ? table(infoNotices, [
+        { key: "severity", label: "Type", render: (r) => operationsStatusChip(r.severity) },
+        { key: "key", label: "Notice Key" },
+        { key: "message", label: "Message" },
+        { key: "detail", label: "Detail" },
+      ]) : `<div class="notice success">No informational notices.</div>`}
     </div>
   `;
 }

@@ -8010,9 +8010,11 @@ async function readOperationsSnapshot(db) {
   const radio = readOperationsRadio(db, bots);
   const errors = readOperationsErrors(db);
   const alerts = buildOperationsAlerts({ bots, room, radio, queue, database });
+  const activeAlerts = alerts.filter((alert) => ["WARNING", "CRITICAL"].includes(String(alert.severity || "").toUpperCase()));
+  const infoNotices = alerts.filter((alert) => String(alert.severity || "").toUpperCase() === "INFO");
   const onlineBots = bots.filter((b) => String(b.status || "").toLowerCase() === "online").length;
   const dashboardProc = pm2.processes.find((p) => /dashboard/i.test(p.name || "")) || null;
-  const systemStatus = alerts.some((a) => a.severity === "CRITICAL") ? "CRITICAL" : alerts.some((a) => a.severity === "WARNING") ? "WARNING" : "HEALTHY";
+  const systemStatus = activeAlerts.some((a) => a.severity === "CRITICAL") ? "CRITICAL" : activeAlerts.some((a) => a.severity === "WARNING") ? "WARNING" : "HEALTHY";
   const lastRestart = newestTimestamp([dashboardProc?.uptime, ...pm2.processes.map((p) => p.uptime)].filter(Boolean).map((t) => new Date(t).toISOString()));
   const logs = {
     audit_logs: safeRows(db, "audit_logs", ["id", "actor", "action_type", "target_type", "target_id", "old_value", "new_value", "ip_address", "created_at"], { orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }),
@@ -8034,7 +8036,8 @@ async function readOperationsSnapshot(db) {
       command_queue_failed: queue.counts.failed,
       room_users: room.room_users_count,
       last_restart: lastRestart,
-      active_alerts: alerts.length,
+      active_alerts: activeAlerts.length,
+      info_notices: infoNotices.length,
     },
     bots,
     raw_bot_instances: audit.raw_rows,
@@ -8044,6 +8047,8 @@ async function readOperationsSnapshot(db) {
     database,
     errors,
     alerts,
+    active_alerts: activeAlerts,
+    info_notices: infoNotices,
     logs,
     pm2,
     advanced: {
@@ -8135,7 +8140,7 @@ async function sendOperationsSection(req, res, section = "all") {
     queue: { updated_at: data.updated_at, ...data.queue, alerts: data.alerts.filter((a) => /queue|command/.test(a.key)) },
     database: { updated_at: data.updated_at, ...data.database, alerts: data.alerts.filter((a) => /db|backup/.test(a.key)) },
     errors: { updated_at: data.updated_at, ...data.errors },
-    alerts: { updated_at: data.updated_at, alerts: data.alerts, system_status: data.system_status },
+    alerts: { updated_at: data.updated_at, alerts: data.alerts, active_alerts: data.active_alerts, info_notices: data.info_notices, system_status: data.system_status },
     logs: { updated_at: data.updated_at, ...data.logs },
   };
   json(res, sections[section] || data);
