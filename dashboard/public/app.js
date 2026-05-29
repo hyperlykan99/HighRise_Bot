@@ -2441,9 +2441,16 @@ function renderOperationsOverview(d) {
 
 function renderOperationsBots(d) {
   const bots = d.bots || [];
+  const canRuntimeBotControl = state.user?.role === "owner";
   return `
     <div class="card">
-      <div class="card-header"><h2>Canonical Bots</h2><span class="pill info">${bots.length}/8</span></div>
+      <div class="card-header">
+        <h2>Canonical Bots</h2>
+        <div class="inline-actions">
+          ${canRuntimeBotControl ? `<button class="btn primary sm" data-bot-runtime-wake>Wake / return all bots</button>` : ""}
+          <span class="pill info">${bots.length}/8</span>
+        </div>
+      </div>
       ${table(bots, [
         { key: "status", label: "Status", render: (r) => operationsStatusChip(r.status) },
         { key: "bot_username", label: "Username", render: (r) => `<strong>@${esc(r.bot_username)}</strong>` },
@@ -2452,9 +2459,9 @@ function renderOperationsBots(d) {
         { key: "current_room_id", label: "Room" },
         { key: "last_error", label: "Recent Error", render: (r) => `<span class="muted">${esc(r.last_error || "—")}</span>` },
       ], (r) => `
-        <button class="btn sm" data-bot-command="return_home" data-target-bot="${esc(r.bot_mode)}">Queue Home</button>
+        ${canRuntimeBotControl ? `<button class="btn sm" data-bot-runtime-anchor data-target-bot="${esc(r.bot_mode)}">Anchor / return to spawn</button>` : ""}
         <button class="btn sm" data-bot-command="stop_emote" data-target-bot="${esc(r.bot_mode)}">Queue Stop Emote</button>
-        <button class="btn danger sm" data-bot-command="restart_requested" data-target-bot="${esc(r.bot_mode)}">Queue Restart</button>
+        ${canRuntimeBotControl ? `<button class="btn danger sm" data-bot-runtime-restart data-target-bot="${esc(r.bot_mode)}">Restart this bot</button>` : ""}
       `)}
       ${queueHelp()}
     </div>
@@ -2644,7 +2651,7 @@ function renderCommandCenter() {
     <div class="card">
       <div class="card-header"><h2>⚡ Quick Actions</h2></div>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:4px">
-        ${can("manage_bot_config") ? `<button class="btn primary" id="qaRestartBots">🔄 Restart Bots</button>` : ""}
+        ${state.user?.role === "owner" ? `<button class="btn primary" id="qaWakeBots">🌅 Wake / return all bots</button>` : ""}
         ${can("manage_radio") ? `<button class="btn cyan" id="qaToggleRequests">${r.queue_open ? "🚫 Close Requests" : "✅ Open Requests"}</button>` : ""}
         ${can("manage_room") || can("manage_events") ? `<button class="btn" id="qaAnnouncement">📣 Queue Announcement</button>` : ""}
         ${can("view_logs") ? `<button class="btn" data-admin-page="Operations Center" data-admin-tab="Alerts">🩺 View Alerts</button>` : ""}
@@ -2713,6 +2720,7 @@ function renderBotStatus() {
   const rawDebugRows = state.data?.raw_duplicate_rows || [];
   const auditSummary = state.data?.audit_summary || {};
   const queue = state.data?.command_queue || {};
+  const canRuntimeBotControl = state.user?.role === "owner";
 
   if (!bots.length) return `<div class="card">
     <h2>🤖 Bot Status</h2>
@@ -2726,6 +2734,15 @@ function renderBotStatus() {
 
   return `
     ${dupeNote}
+    ${canRuntimeBotControl ? `<div class="card" style="padding:14px 18px">
+      <div class="card-header" style="margin-bottom:0">
+        <div>
+          <h2>Runtime Bot Controls</h2>
+          <p class="muted text-sm">Single-bot restart and anchor requests are queued through <code>bot_control_requests</code>; they do not restart the dashboard or PM2 fleet.</p>
+        </div>
+        <button class="btn primary" data-bot-runtime-wake>Wake / return all bots</button>
+      </div>
+    </div>` : ""}
     <div class="grid">
       ${bots.map((b) => {
         const rawRowCount = b.raw_row_count ?? b.raw_duplicate_count ?? 0;
@@ -2755,9 +2772,9 @@ function renderBotStatus() {
             ${b.last_error ? `<span style="color:var(--red)">⚠ ${esc(String(b.last_error).slice(0, 120))}</span>` : ""}
           </div>
           <div class="inline-actions">
-            <button class="btn sm" data-bot-command="return_home" data-target-bot="${esc(b.bot_username)}">🏠 Queue Home</button>
+            ${canRuntimeBotControl ? `<button class="btn sm" data-bot-runtime-anchor data-target-bot="${esc(b.bot_mode || b.bot_username)}">Anchor / return to spawn</button>` : ""}
             <button class="btn sm" data-bot-command="stop_emote" data-target-bot="${esc(b.bot_username)}">⏹ Queue Stop</button>
-            <button class="btn danger sm" data-bot-command="restart_requested" data-target-bot="${esc(b.bot_username)}">🔄 Queue Restart</button>
+            ${canRuntimeBotControl ? `<button class="btn danger sm" data-bot-runtime-restart data-target-bot="${esc(b.bot_mode || b.bot_username)}">Restart this bot</button>` : ""}
           </div>
         </div>`;
       }).join("")}
@@ -2789,9 +2806,9 @@ function renderBotConfig() {
           <div class="inline-actions">
             <button class="btn primary" type="submit">💾 Save Config</button>
             <button class="btn" type="button" id="saveAndRestartBtn">💾 Save + Restart</button>
-            <button class="btn danger" type="button" id="restartBotsBtn">🔄 Restart Bots</button>
+            <button class="btn danger" type="button" id="restartBotsBtn">Emergency: Restart Full Bot Fleet (PM2)</button>
           </div>
-          <p class="muted text-sm" style="margin-top:12px">ℹ️ Restart writes a flag to the DB. Each bot picks it up on its next heartbeat (~15–30 s) — the process is not killed immediately.</p>
+          <p class="muted text-sm" style="margin-top:12px">Use single-bot controls on Bot Status for normal restarts. This emergency fleet control is only for cases where runtime control requests are not enough.</p>
         </form>
       </div>
       <div class="card">
@@ -8382,8 +8399,38 @@ function bindAdminPageEvents() {
 
   /* Restart Bots */
   document.getElementById("restartBotsBtn")?.addEventListener("click", () => {
-    confirmAction("Restart Bots", "Write a restart flag to the DB. Bots will restart on next heartbeat.", async () => {
-      await action("Restart flag written.", () => api("/api/bot-config/restart", { method: "POST", body: JSON.stringify({}) }));
+    confirmAction("Emergency Fleet Restart", "Restart the full bot fleet. Use single-bot restart or wake controls first unless the fleet is truly stuck.", async () => {
+      await action("Emergency fleet restart requested.", () => api("/api/bot-config/restart", { method: "POST", body: JSON.stringify({}) }));
+    });
+  });
+
+  /* Runtime bot control requests */
+  document.querySelectorAll("[data-bot-runtime-restart]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const targetBot = btn.dataset.targetBot;
+      confirmAction("Restart This Bot", `Queue a restart request for ${targetBot} only?`, async () => {
+        await action("Bot restart request queued.", () =>
+          api(`/api/owner/bots/${encodeURIComponent(targetBot)}/restart`, { method: "POST", body: JSON.stringify({}) }));
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-bot-runtime-anchor]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const targetBot = btn.dataset.targetBot;
+      confirmAction("Anchor This Bot", `Queue a saved-spawn anchor request for ${targetBot}?`, async () => {
+        await action("Bot anchor request queued.", () =>
+          api(`/api/owner/bots/${encodeURIComponent(targetBot)}/anchor`, { method: "POST", body: JSON.stringify({}) }));
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-bot-runtime-wake]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      confirmAction("Wake Bots", "Queue non-fatal saved-spawn anchors for all bot children?", async () => {
+        await action("Wake request queued for all bots.", () =>
+          api("/api/owner/bots/wake", { method: "POST", body: JSON.stringify({}) }));
+      });
     });
   });
 
@@ -8406,9 +8453,10 @@ function bindAdminPageEvents() {
   });
 
   /* Command Center quick actions */
-  document.getElementById("qaRestartBots")?.addEventListener("click", () => {
-    confirmAction("Restart Bots", "Write a restart flag. Bots will restart on next heartbeat check.", async () => {
-      await action("Restart flag written.", () => api("/api/bot-config/restart", { method: "POST", body: JSON.stringify({}) }));
+  document.getElementById("qaWakeBots")?.addEventListener("click", () => {
+    confirmAction("Wake Bots", "Queue non-fatal saved-spawn anchors for all bot children.", async () => {
+      await action("Wake request queued for all bots.", () =>
+        api("/api/owner/bots/wake", { method: "POST", body: JSON.stringify({}) }));
     });
   });
   document.getElementById("qaToggleRequests")?.addEventListener("click", async () => {

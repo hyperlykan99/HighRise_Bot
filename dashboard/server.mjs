@@ -4787,7 +4787,7 @@ function buildQaAudit() {
   const dataAttrs = [...new Set([...appSource.matchAll(/data-([a-z0-9-]+)=/gi)].map((m) => m[1]))];
   const handledAttrs = new Set([
     "pub-page", "manual-tab", "manual-rarity", "manual-section", "manual-game-section", "manual-game-tab", "public-game-section", "public-game-tab", "public-rarity", "owner-rarity", "rarity-section", "rarity", "rarity-chance-form", "ranking-tab", "admin-page", "admin-tab", "nav-id", "page-tab", "maint-tab", "action",
-    "bot-command", "target-bot", "dancefloor-command", "sync-command", "sync-persist",
+    "bot-command", "bot-runtime-restart", "bot-runtime-anchor", "bot-runtime-wake", "target-bot", "dancefloor-command", "sync-command", "sync-persist",
     "command-id",
     "player-jump", "remove-item", "quick-item", "quick-type", "remove-title", "remove-badge",
     "report-review", "report-resolve", "security-unmute", "security-bot-action",
@@ -7656,6 +7656,8 @@ const CANONICAL_BOTS = [
 
 const CANONICAL_BY_MODE = new Map(CANONICAL_BOTS.map((bot) => [bot.mode, bot]));
 const CANONICAL_BY_USERNAME = new Map(CANONICAL_BOTS.map((bot) => [bot.username.toLowerCase(), bot]));
+const BOT_CONTROL_VALID_MODES = ["dj", "host", "banker", "blackjack", "poker", "miner", "fisher", "security"];
+const BOT_CONTROL_VALID_MESSAGE = `Unknown bot. Valid bots: ${BOT_CONTROL_VALID_MODES.join(", ")}`;
 const BOT_MODE_ALIASES = new Map([
   ["shopkeeper", "banker"],
   ["shop", "banker"],
@@ -7671,6 +7673,41 @@ const BOT_INSTANCE_COLUMNS = ["bot_id", "bot_mode", "bot_username", "status", "e
 
 function botKey(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function normalizeBotControlMode(value) {
+  const key = botKey(value);
+  if (CANONICAL_BY_MODE.has(key)) return key;
+  return CANONICAL_BY_USERNAME.get(key)?.mode || null;
+}
+
+function ensureBotControlRequestsTable(db) {
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS bot_control_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT NOT NULL,
+      target_mode TEXT NOT NULL,
+      requested_by TEXT,
+      requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      handled_at TEXT,
+      status TEXT DEFAULT 'pending'
+    )
+  `).run();
+}
+
+function queueBotControlRequest(db, { action, targetMode, requestedBy }) {
+  ensureBotControlRequestsTable(db);
+  return db.prepare(`
+    INSERT INTO bot_control_requests (action, target_mode, requested_by, status)
+    VALUES (?, ?, ?, 'pending')
+  `).run(action, targetMode, requestedBy || "dashboard").lastInsertRowid;
+}
+
+function botControlMessage(action, targetMode) {
+  if (action === "wake_bots") return "Wake request queued for all bots.";
+  const username = CANONICAL_BY_MODE.get(targetMode)?.username || targetMode;
+  const label = action === "anchor_bot" ? "Anchor request" : "Restart request";
+  return `${label} queued for ${username}.`;
 }
 
 function readBotInstanceRows(db) {
@@ -7945,7 +7982,12 @@ function buildOperationsAlerts({ bots, room, radio, queue, database }) {
   const offline = bots.filter((b) => String(b.status || "").toLowerCase() !== "online");
   if (offline.length) add("CRITICAL", "bot_offline", `${offline.length} canonical bot${offline.length === 1 ? "" : "s"} offline or missing.`, offline.map((b) => b.bot_username).join(", "));
   const stale = bots.filter((b) => !b.last_heartbeat_at || Date.now() - new Date(b.last_heartbeat_at).getTime() > 10 * 60 * 1000);
-  if (stale.length) add("WARNING", "bot_heartbeat_stale", `${stale.length} bot heartbeat${stale.length === 1 ? "" : "s"} stale.`, stale.map((b) => b.bot_username).join(", "));
+  const allCanonicalOnline = bots.length === CANONICAL_BOTS.length && offline.length === 0;
+  if (stale.length && allCanonicalOnline) {
+    add("INFO", "bot_heartbeat_source_stale", "Bot heartbeat source stale / runtime health uncertain.", stale.map((b) => b.bot_username).join(", "));
+  } else if (stale.length) {
+    add("WARNING", "bot_heartbeat_stale", `${stale.length} bot heartbeat${stale.length === 1 ? "" : "s"} stale.`, stale.map((b) => b.bot_username).join(", "));
+  }
   if (database.integrity_check && database.integrity_check !== "ok") add("CRITICAL", "db_integrity_failed", `SQLite integrity_check: ${database.integrity_check}`);
   if ((queue.counts?.failed || 0) > 0) add("WARNING", "command_queue_failed", `${queue.counts.failed} failed command queue row${queue.counts.failed === 1 ? "" : "s"}.`);
   if ((radio.failed_jobs_count || 0) > 0) add("WARNING", "radio_failed_jobs", `${radio.failed_jobs_count} failed radio job${radio.failed_jobs_count === 1 ? "" : "s"}.`);
@@ -8032,6 +8074,32 @@ app.get("/api/bot-control", requireAuth, requireAnyPermission("manage_bots", "vi
     audit_summary: auditResult.summary,
     command_queue: { pending: pendingCommands, recent: recentCommands },
   });
+}, closeDb);
+
+app.post("/api/owner/bots/wake", requireAuth, requireOwner, (req, res) => {
+  const action = "wake_bots";
+  const targetMode = "all";
+  const id = queueBotControlRequest(req.db, { action, targetMode, requestedBy: req.user?.username });
+  audit(req.db, req.user.username, "bot_control_wake_requested", "bot_control_requests", id, "", { action, target_mode: targetMode }, req.ip);
+  json(res, { ok: true, action, target_mode: targetMode, message: botControlMessage(action, targetMode) });
+}, closeDb);
+
+app.post("/api/owner/bots/:mode/restart", requireAuth, requireOwner, (req, res) => {
+  const targetMode = normalizeBotControlMode(req.params.mode);
+  if (!targetMode) return json(res, { ok: false, error: BOT_CONTROL_VALID_MESSAGE }, 400);
+  const action = "restart_bot";
+  const id = queueBotControlRequest(req.db, { action, targetMode, requestedBy: req.user?.username });
+  audit(req.db, req.user.username, "bot_control_restart_requested", "bot_control_requests", id, "", { action, target_mode: targetMode }, req.ip);
+  json(res, { ok: true, action, target_mode: targetMode, message: botControlMessage(action, targetMode) });
+}, closeDb);
+
+app.post("/api/owner/bots/:mode/anchor", requireAuth, requireOwner, (req, res) => {
+  const targetMode = normalizeBotControlMode(req.params.mode);
+  if (!targetMode) return json(res, { ok: false, error: BOT_CONTROL_VALID_MESSAGE }, 400);
+  const action = "anchor_bot";
+  const id = queueBotControlRequest(req.db, { action, targetMode, requestedBy: req.user?.username });
+  audit(req.db, req.user.username, "bot_control_anchor_requested", "bot_control_requests", id, "", { action, target_mode: targetMode }, req.ip);
+  json(res, { ok: true, action, target_mode: targetMode, message: botControlMessage(action, targetMode) });
 }, closeDb);
 
 app.get("/api/bot-audit", requireAuth, requireAnyPermission("manage_bots", "view_logs"), (req, res) => {
