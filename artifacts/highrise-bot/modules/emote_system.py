@@ -401,30 +401,54 @@ def _emote_exc_contains(exc: Exception, needle: str) -> bool:
     return needle.lower() in repr(exc).lower() or needle.lower() in str(exc).lower()
 
 
-def _log_host_emote_skip_once(bot_mode: str, eid: str, reason: str, cooldown: float = 180.0) -> None:
+def _log_bot_emote_skip_once(bot_mode: str, eid: str, reason: str, cooldown: float = 180.0) -> None:
     log_cooldown(
-        f"host_emote_skip:{bot_mode}:{eid}:{reason}",
-        f"[EMOTE_SKIP] host_emote_skipped_not_in_room mode={bot_mode!r} eid={eid!r} reason={reason}",
+        f"bot_emote_skip:{bot_mode}:{eid}:{reason}",
+        f"[EMOTE_SKIP] bot_emote_skipped_not_in_room mode={bot_mode!r} eid={eid!r} reason={reason}",
         seconds=cooldown,
     )
 
 
-async def _host_bot_is_in_room(bot: "BaseBot", bot_uid: str = "") -> bool:
-    uid = bot_uid
-    if not uid:
-        try:
+def _log_bot_emote_fail_once(bot_mode: str, eid: str, iteration: int,
+                             exc: Exception, cooldown: float = 180.0) -> None:
+    log_cooldown(
+        f"bot_emote_fail:{bot_mode}:{eid}:{type(exc).__name__}:{repr(exc)[:120]}",
+        f"[EMOTE BOT FAIL] mode={bot_mode!r} eid={eid!r} iter={iteration} error={exc!r}",
+        seconds=cooldown,
+    )
+
+
+async def _bot_presence_known(bot: "BaseBot", bot_uid: str = "") -> bool | None:
+    """Best-effort self-presence check.
+
+    Highrise does not reliably include the current bot in get_room_users(),
+    so a miss is treated as unknown rather than offline. send_emote remains
+    the authoritative check and Not-in-room errors are throttled below.
+    """
+    uid = bot_uid or ""
+    username = ""
+    try:
+        from config import BOT_USERNAME
+        username = (BOT_USERNAME or "").strip().lower()
+    except Exception:
+        username = ""
+    try:
+        if not uid:
             from modules.gold import get_bot_user_id
             uid = get_bot_user_id()
-        except Exception:
-            uid = ""
-    if not uid:
-        return False
+    except Exception:
+        uid = ""
     try:
         resp = await bot.highrise.get_room_users()
         pairs = list(resp.content) if hasattr(resp, "content") else []
-        return any(getattr(room_user, "id", "") == uid for room_user, _pos in pairs)
+        for room_user, _pos in pairs:
+            if uid and getattr(room_user, "id", "") == uid:
+                return True
+            if username and getattr(room_user, "username", "").strip().lower() == username:
+                return True
+        return None
     except Exception:
-        return False
+        return None
 
 
 def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
@@ -446,20 +470,19 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
                 print(f"[EMOTE BOT] mode={bot_mode!r} eid={eid!r}"
                       f" iter={_iter} sleep={sleep_time}s")
             try:
-                if _is_host_bot_mode(bot_mode) and not await _host_bot_is_in_room(bot, bot_uid):
-                    _log_host_emote_skip_once(bot_mode, eid, "preflight")
+                if await _bot_presence_known(bot, bot_uid) is False:
+                    _log_bot_emote_skip_once(bot_mode, eid, "preflight")
                     await asyncio.sleep(sleep_time)
                     continue
                 await bot.highrise.send_emote(eid)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                if _is_host_bot_mode(bot_mode) and _emote_exc_contains(exc, "not in room"):
-                    _log_host_emote_skip_once(bot_mode, eid, "send_emote_not_in_room")
+                if _emote_exc_contains(exc, "not in room") or _emote_exc_contains(exc, "user not in room"):
+                    _log_bot_emote_skip_once(bot_mode, eid, "send_emote_not_in_room")
                     await asyncio.sleep(sleep_time)
                     continue
-                print(f"[EMOTE BOT FAIL] mode={bot_mode!r} eid={eid!r}"
-                      f" iter={_iter} error={exc!r}")
+                _log_bot_emote_fail_once(bot_mode, eid, _iter, exc)
             await asyncio.sleep(sleep_time)
 
     _bot_loops[bot_mode] = asyncio.create_task(_loop())

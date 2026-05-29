@@ -7218,6 +7218,9 @@ function classifyBotRow(row) {
   if (DEBUG_ONLY_MODES.has(mode)) return { debugOnly: true, reason: `${mode} is orchestrator/debug only` };
   const aliasMode = BOT_MODE_ALIASES.get(mode);
   if (aliasMode) return { canonicalMode: aliasMode, reason: `${mode} aliases ${aliasMode}` };
+  if (CANONICAL_BY_MODE.has(mode) && (!username || username === mode)) {
+    return { debugOnly: true, reason: `${mode}/${username || "blank"} is a stale generic alias row` };
+  }
   if (CANONICAL_BY_MODE.has(mode)) return { canonicalMode: mode, reason: "canonical mode" };
   const byUsername = CANONICAL_BY_USERNAME.get(username);
   if (byUsername) return { canonicalMode: byUsername.mode, reason: "canonical username" };
@@ -7305,7 +7308,7 @@ function readCanonicalBotAudit(db) {
       last_error: best?.last_error || null,
       current_room_id: best?.current_room_id || null,
       raw_row_count: rows.length,
-      raw_duplicate_count: rows.length,
+      raw_duplicate_count: Math.max(0, rows.length - 1),
       source_bot_mode: best?.bot_mode || null,
       source_bot_username: best?.bot_username || null,
     };
