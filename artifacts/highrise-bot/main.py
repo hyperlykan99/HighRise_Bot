@@ -3842,6 +3842,7 @@ class HangoutBot(BaseBot):
         # can match "KeanuShield, outfit status" right from the first message.
         # We fetch room users once inline; refresh_room_cache (below) will also
         # update the room cache in full — the extra call is negligible overhead.
+        _startup_existing_human_username = ""
         try:
             _ru_resp = await self.highrise.get_room_users()
             if hasattr(_ru_resp, "content"):
@@ -3864,6 +3865,11 @@ class HangoutBot(BaseBot):
                     if _ru.id == session_metadata.user_id:
                         set_bot_identity(session_metadata.user_id, _ru.username)
                         print(f"[HangoutBot] Bot username: {_ru.username}")
+                        break
+                for _ru, _ in _content:
+                    _uname = str(getattr(_ru, "username", "") or "").strip()
+                    if _ru.id != session_metadata.user_id and _uname and not is_known_bot_username(_uname):
+                        _startup_existing_human_username = _uname
                         break
             else:
                 print(
@@ -3903,6 +3909,18 @@ class HangoutBot(BaseBot):
         _join_type = "first_connect" if bot_state.RESTART_COUNT == 1 else f"reconnect #{bot_state.RESTART_COUNT - 1}"
         print(f"[ROOM JOIN SUCCESS] bot={BOT_MODE} room={config.ROOM_ID} type={_join_type} @ {_now_ts}")
         _safe_task = create_guarded_startup_task
+        if _startup_existing_human_username:
+            _bot_username = get_bot_username() or config.BOT_USERNAME
+            print(
+                f"[BOT_GUARDIAN] mode={BOT_MODE} username={_bot_username} "
+                f"event=room_wake_anchor_scheduled source=startup_existing_user "
+                f"joined_user={_startup_existing_human_username}",
+                flush=True,
+            )
+            _safe_task(
+                run_delayed_anchor_restores(self, _bot_username, delays=(10, 30, 60)),
+                "startup_existing_user_anchor_restore",
+            )
         _safe_task(_log_upgraded_room_diag(self, "on_start"), "room_diag_startup")
         _install_task_exception_handler()
         # Health-check: log when this subprocess exits (disconnect / crash / kick)
