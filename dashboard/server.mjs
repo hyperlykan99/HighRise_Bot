@@ -2993,6 +2993,88 @@ function readKeyValueMap(db, table) {
   );
 }
 
+function writeKeyValue(db, table, key, value) {
+  if (!KEY_VALUE_SETTING_TABLES.has(table)) throw new Error("unsupported_setting_table");
+  if (!tableExists(db, table)) throw new Error(`${table}_missing`);
+  db.prepare(`INSERT OR REPLACE INTO ${sqlIdent(table)} (key, value) VALUES (?, ?)`).run(key, String(value));
+}
+
+const ECONOMY_SETTING_FIELDS = [
+  { key: "daily_coins", label: "Daily Coins", type: "int", min: 0, max: 1000000, fallback: "50" },
+  { key: "trivia_reward", label: "Trivia Reward", type: "int", min: 0, max: 1000000, fallback: "20" },
+  { key: "scramble_reward", label: "Scramble Reward", type: "int", min: 0, max: 1000000, fallback: "20" },
+  { key: "riddle_reward", label: "Riddle Reward", type: "int", min: 0, max: 1000000, fallback: "25" },
+  { key: "max_balance", label: "Max Balance", type: "int", min: 0, max: 100000000000, fallback: "1000000" },
+];
+
+const BANK_SETTING_FIELDS = [
+  { key: "min_send_amount", label: "Minimum Send", type: "int", min: 1, max: 1000000000, fallback: "10" },
+  { key: "max_send_amount", label: "Maximum Send", type: "int", min: 1, max: 1000000000, fallback: "5000" },
+  { key: "daily_send_limit", label: "Daily Send Limit", type: "int", min: 1, max: 1000000000, fallback: "20000" },
+  { key: "send_tax_percent", label: "Transfer Tax", type: "float", min: 0, max: 100, fallback: "0" },
+  { key: "new_account_days", label: "New Account Days", type: "int", min: 0, max: 3650, fallback: "0" },
+  { key: "min_level_to_send", label: "Minimum Send Level", type: "int", min: 0, max: 1000000, fallback: "0" },
+  { key: "min_total_earned_to_send", label: "Minimum Total Earned", type: "int", min: 0, max: 100000000000, fallback: "0" },
+  { key: "min_daily_claim_days_to_send", label: "Minimum Daily Claims", type: "int", min: 0, max: 1000000, fallback: "0" },
+  { key: "high_risk_blocks", label: "High Risk Blocks", type: "bool", fallback: "false" },
+];
+
+function normalizeTypedSetting(spec, value) {
+  if (spec.type === "bool") {
+    return (value === true || value === 1 || ["1", "true", "yes", "on", "enabled"].includes(String(value ?? "").toLowerCase()))
+      ? "true"
+      : "false";
+  }
+  if (spec.type === "int") {
+    const n = Number(value);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) throw new Error(`${spec.key}_must_be_integer`);
+    if (spec.min !== undefined && n < spec.min) throw new Error(`${spec.key}_too_low`);
+    if (spec.max !== undefined && n > spec.max) throw new Error(`${spec.key}_too_high`);
+    return String(n);
+  }
+  if (spec.type === "float") {
+    const n = Number(value);
+    if (!Number.isFinite(n)) throw new Error(`${spec.key}_must_be_number`);
+    if (spec.min !== undefined && n < spec.min) throw new Error(`${spec.key}_too_low`);
+    if (spec.max !== undefined && n > spec.max) throw new Error(`${spec.key}_too_high`);
+    return String(n);
+  }
+  const out = String(value ?? "");
+  if (out.length > 2000) throw new Error(`${spec.key}_too_long`);
+  return out;
+}
+
+function readTypedSettings(db, table, fields) {
+  const map = readKeyValueMap(db, table);
+  return {
+    source: table,
+    table_exists: tableExists(db, table),
+    settings: Object.fromEntries(fields.map((f) => [f.key, map[f.key] ?? f.fallback ?? ""])),
+    fields,
+  };
+}
+
+function normalizeSettingsBody(body, fields) {
+  const specs = new Map(fields.map((f) => [f.key, f]));
+  const out = {};
+  for (const [key, value] of Object.entries(body || {})) {
+    const spec = specs.get(key);
+    if (!spec) continue;
+    out[key] = normalizeTypedSetting(spec, value);
+  }
+  return out;
+}
+
+function validateBankSettings(next) {
+  const num = (key) => Number(next[key]);
+  if (next.min_send_amount !== undefined && next.max_send_amount !== undefined && num("min_send_amount") > num("max_send_amount")) {
+    throw new Error("min_send_amount_cannot_exceed_max_send_amount");
+  }
+  if (next.max_send_amount !== undefined && next.daily_send_limit !== undefined && num("max_send_amount") > num("daily_send_limit")) {
+    throw new Error("max_send_amount_cannot_exceed_daily_send_limit");
+  }
+}
+
 function readActiveMiningSettings(db) {
   const tableMaps = {};
   for (const table of [...new Set(ACTIVE_MINING_FIELDS.map((f) => f.table))]) tableMaps[table] = readKeyValueMap(db, table);
@@ -4061,11 +4143,15 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     command,
     display_name: displayName,
     dashboard_page: "Economy & Rewards",
-    dashboard_section: table === "bank_settings" ? "Bank Settings" : "Economy Settings",
+    dashboard_section: table === "bank_settings" ? "Bank / P2P Settings" : "Economy Settings",
     db_table: table,
     db_key_or_column: key,
-    status: "BROKEN",
-    notes: "Verified command source. Keep dashboard writes hidden until an exact endpoint writes this key.",
+    writeEndpoint: table === "bank_settings" ? "PUT /api/bank/settings" : "PUT /api/economy/settings",
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: table === "bank_settings"
+      ? "Active bank command source. Dashboard writes the same bank_settings key read by BankingBot."
+      : "Active economy command source. Dashboard writes the same economy_settings key read by runtime economy helpers.",
   })),
   ...[
     ["!setminecooldown", "Mine Cooldown", "mining_settings", "base_cooldown_seconds"],
@@ -4245,18 +4331,22 @@ const SETTINGS_AUDIT_DEFINITIONS = [
   ...[
     ["!setroomsetting", "Room Setting", "room_settings", "<dynamic key>"],
     ["!setwelcome", "Welcome Message", "room_settings", "welcome_message"],
-    ["!setemoteloopinterval", "Emote Loop Interval", "room_settings", "emote_loop_interval"],
+    ["!setemoteloopinterval", "Emote Loop Interval", "room_settings", "emote_loop_interval_seconds"],
     ["!setemote <alias> time", "Emote Timing Override", "room_settings", "emote_timing_overrides"],
   ].map(([command, displayName, table, key]) => auditRow({
     module: "room_utils",
     command,
     display_name: displayName,
-    dashboard_page: "Room & Content",
-    dashboard_section: "Room/Emotes",
+    dashboard_page: command.includes("emote") ? "Emotes" : "Room & Content",
+    dashboard_section: command === "!setwelcome" ? "Welcome" : command.includes("emote") ? "Timing Overrides" : "Advanced / Dynamic Room Setting",
     db_table: table,
     db_key_or_column: key,
-    status: key.includes("<") ? "UNKNOWN" : "BROKEN",
-    notes: key.includes("<") ? "Dynamic key; audit confirms table but not a single dashboard field." : "Verified source; dashboard writes should use the exact room_settings key only.",
+    writeEndpoint: key.includes("<") ? "" : command === "!setwelcome" ? "PUT /api/room/welcome" : "PUT /api/emotes/timing",
+    dashboardConnected: !key.includes("<"),
+    status: key.includes("<") ? "UNKNOWN" : "CONNECTED",
+    notes: key.includes("<")
+      ? "Dynamic admin command; audit confirms table but this is not a single dashboard field."
+      : "Verified room_settings source connected to a dashboard endpoint that writes the exact runtime key.",
   })),
 ];
 
@@ -7532,6 +7622,56 @@ for (const [pathName, section] of [
 }
 
 /* ── Economy Overview (read-only) ───────────────────── */
+app.get("/api/economy/settings", requireAuth, requireAnyPermission("manage_economy", "manage_rewards", "emergency_controls"), (req, res) => {
+  json(res, readTypedSettings(req.db, "economy_settings", ECONOMY_SETTING_FIELDS));
+}, closeDb);
+
+app.put("/api/economy/settings", requireAuth, requireAnyPermission("manage_economy", "emergency_controls"), (req, res) => {
+  if (!tableExists(req.db, "economy_settings")) return json(res, { error: "economy_settings_missing" }, 404);
+  let updates;
+  try {
+    updates = normalizeSettingsBody(req.body || {}, ECONOMY_SETTING_FIELDS);
+  } catch (err) {
+    return json(res, { error: err.message || "invalid_economy_setting" }, 400);
+  }
+  if (!Object.keys(updates).length) return json(res, { error: "no_supported_settings" }, 400);
+  const before = readTypedSettings(req.db, "economy_settings", ECONOMY_SETTING_FIELDS).settings;
+  try {
+    for (const [key, value] of Object.entries(updates)) writeKeyValue(req.db, "economy_settings", key, value);
+    const after = readTypedSettings(req.db, "economy_settings", ECONOMY_SETTING_FIELDS).settings;
+    audit(req.db, req.user.username, "economy_settings_update", "economy_settings", Object.keys(updates).join(","), before, updates, req.ip);
+    json(res, { ok: true, settings: after, source: "economy_settings" });
+  } catch (err) {
+    json(res, { error: err.message || "economy_settings_update_failed" }, 500);
+  }
+}, closeDb);
+
+app.get("/api/bank/settings", requireAuth, requireAnyPermission("manage_economy", "manage_rewards", "view_logs", "emergency_controls"), (req, res) => {
+  json(res, readTypedSettings(req.db, "bank_settings", BANK_SETTING_FIELDS));
+}, closeDb);
+
+app.put("/api/bank/settings", requireAuth, requireAnyPermission("manage_economy", "emergency_controls"), (req, res) => {
+  if (!tableExists(req.db, "bank_settings")) return json(res, { error: "bank_settings_missing" }, 404);
+  let updates;
+  try {
+    updates = normalizeSettingsBody(req.body || {}, BANK_SETTING_FIELDS);
+    const current = readTypedSettings(req.db, "bank_settings", BANK_SETTING_FIELDS).settings;
+    validateBankSettings({ ...current, ...updates });
+  } catch (err) {
+    return json(res, { error: err.message || "invalid_bank_setting" }, 400);
+  }
+  if (!Object.keys(updates).length) return json(res, { error: "no_supported_settings" }, 400);
+  const before = readTypedSettings(req.db, "bank_settings", BANK_SETTING_FIELDS).settings;
+  try {
+    for (const [key, value] of Object.entries(updates)) writeKeyValue(req.db, "bank_settings", key, value);
+    const after = readTypedSettings(req.db, "bank_settings", BANK_SETTING_FIELDS).settings;
+    audit(req.db, req.user.username, "bank_settings_update", "bank_settings", Object.keys(updates).join(","), before, updates, req.ip);
+    json(res, { ok: true, settings: after, source: "bank_settings" });
+  } catch (err) {
+    json(res, { error: err.message || "bank_settings_update_failed" }, 500);
+  }
+}, closeDb);
+
 app.get("/api/economy/overview", requireAuth, requireAnyPermission("manage_economy","manage_casino","manage_games","emergency_controls"), (req, res) => {
   const stats = (() => {
     try {
@@ -8663,6 +8803,91 @@ app.post("/api/automation/send", requireAuth, requireAnyPermission("manage_autom
   } catch (err) {
     json(res, { error: err.message || "send_failed" }, 400);
   }
+}, closeDb);
+
+app.get("/api/room/welcome", requireAuth, requireAnyPermission("manage_room", "view_logs", "emergency_controls"), (req, res) => {
+  const settings = readKeyValueMap(req.db, "room_settings");
+  const seenCols = tableExists(req.db, "room_welcome_seen") ? tableColumns(req.db, "room_welcome_seen") : [];
+  const seenOrder = seenCols.includes("seen_at") ? "seen_at DESC" : seenCols.includes("created_at") ? "created_at DESC" : "";
+  json(res, {
+    source: "room_settings",
+    table_exists: tableExists(req.db, "room_settings"),
+    settings: {
+      welcome_enabled: settings.welcome_enabled ?? "true",
+      welcome_message: settings.welcome_message ?? "",
+      first_time_welcome: settings.first_time_welcome ?? "",
+      returning_welcome: settings.returning_welcome ?? "",
+    },
+    seen: safeTableRows(req.db, "room_welcome_seen", { orderBy: seenOrder, limit: "50" }),
+  });
+}, closeDb);
+
+app.put("/api/room/welcome", requireAuth, requireAnyPermission("manage_room", "emergency_controls"), (req, res) => {
+  if (!tableExists(req.db, "room_settings")) return json(res, { error: "room_settings_missing" }, 404);
+  const updates = {};
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "welcome_message")) {
+    const value = String(req.body.welcome_message ?? "").trim().slice(0, 200);
+    if (!value) return json(res, { error: "welcome_message_required" }, 400);
+    updates.welcome_message = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "welcome_enabled")) {
+    updates.welcome_enabled = boolFromSetting(req.body.welcome_enabled, false) ? "true" : "false";
+  }
+  if (!Object.keys(updates).length) return json(res, { error: "no_supported_settings" }, 400);
+  const before = readKeyValueMap(req.db, "room_settings");
+  for (const [key, value] of Object.entries(updates)) writeKeyValue(req.db, "room_settings", key, value);
+  const after = readKeyValueMap(req.db, "room_settings");
+  audit(req.db, req.user.username, "room_welcome_update", "room_settings", Object.keys(updates).join(","), before, updates, req.ip);
+  json(res, { ok: true, source: "room_settings", settings: { welcome_enabled: after.welcome_enabled ?? "true", welcome_message: after.welcome_message ?? "" } });
+}, closeDb);
+
+app.get("/api/emotes/timing", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes", "view_logs"), (req, res) => {
+  const settings = readKeyValueMap(req.db, "room_settings");
+  let overrides = {};
+  try {
+    overrides = JSON.parse(settings.emote_timing_overrides || "{}") || {};
+  } catch {
+    overrides = {};
+  }
+  json(res, {
+    source: "room_settings",
+    table_exists: tableExists(req.db, "room_settings"),
+    loop_interval_seconds: settings.emote_loop_interval_seconds ?? "30",
+    overrides,
+    rows: Object.entries(overrides).map(([alias, seconds]) => ({ alias, seconds })),
+  });
+}, closeDb);
+
+app.put("/api/emotes/timing", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {
+  if (!tableExists(req.db, "room_settings")) return json(res, { error: "room_settings_missing" }, 404);
+  const before = readKeyValueMap(req.db, "room_settings");
+  const updates = {};
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "loop_interval_seconds")) {
+    const sec = Number(req.body.loop_interval_seconds);
+    if (!Number.isFinite(sec) || !Number.isInteger(sec) || sec < 3 || sec > 3600) return json(res, { error: "loop_interval_seconds_invalid" }, 400);
+    updates.emote_loop_interval_seconds = String(sec);
+  }
+  const alias = String(req.body?.alias || "").trim().toLowerCase();
+  if (alias) {
+    if (!/^[a-z0-9_.:-]{1,80}$/.test(alias)) return json(res, { error: "bad_alias" }, 400);
+    const seconds = Number(req.body?.seconds);
+    if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 3600) return json(res, { error: "seconds_invalid" }, 400);
+    let overrides = {};
+    try {
+      overrides = JSON.parse(before.emote_timing_overrides || "{}") || {};
+    } catch {
+      overrides = {};
+    }
+    overrides[alias] = seconds;
+    updates.emote_timing_overrides = JSON.stringify(overrides);
+  }
+  if (!Object.keys(updates).length) return json(res, { error: "no_supported_settings" }, 400);
+  for (const [key, value] of Object.entries(updates)) writeKeyValue(req.db, "room_settings", key, value);
+  const after = readKeyValueMap(req.db, "room_settings");
+  let overrides = {};
+  try { overrides = JSON.parse(after.emote_timing_overrides || "{}") || {}; } catch {}
+  audit(req.db, req.user.username, "emote_timing_update", "room_settings", Object.keys(updates).join(","), before, updates, req.ip);
+  json(res, { ok: true, source: "room_settings", loop_interval_seconds: after.emote_loop_interval_seconds ?? "30", overrides });
 }, closeDb);
 
 app.get("/api/emotes/overview", requireAuth, requireAnyPermission("emergency_controls", "manage_emotes"), (req, res) => {

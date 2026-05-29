@@ -127,7 +127,7 @@ const LEADERBOARD_TABS = [
 const ROOM_TABS = [
   { id: "Overview", api: "/api/room-control" },
   { id: "Room Settings", api: "/api/room-control" },
-  { id: "Welcome", api: "/api/room-control" },
+  { id: "Welcome", api: "/api/room/welcome" },
   { id: "Announcements", api: "/api/room-control" },
   { id: "Events", api: "/api/events" },
   { id: "Event Rewards", api: "/api/events" },
@@ -150,6 +150,8 @@ const RADIO_TABS = [
 ];
 const ECONOMY_TABS = [
   { id: "Overview", api: "/api/economy/overview" },
+  { id: "Economy", api: "/api/economy/settings" },
+  { id: "Bank", api: "/api/bank/settings" },
   { id: "VIP", api: "/api/vip" },
   { id: "Titles", api: "/api/titles" },
   { id: "Badges", api: "/api/badges/catalog" },
@@ -224,6 +226,7 @@ const EMOTE_TABS = [
   { id: "Dancefloor", api: "/api/emotes/dancefloor" },
   { id: "Sync", api: "/api/emotes/sync" },
   { id: "Social / Hearts", api: "/api/emotes/social" },
+  { id: "Timing Overrides", api: "/api/emotes/timing" },
   { id: "Logs", api: "/api/emotes/logs" },
   { id: "Advanced", api: "/api/emotes/overview" },
 ];
@@ -2905,6 +2908,7 @@ function renderEmotesOwnerPage(tab) {
     ${tab === "Dancefloor" ? renderDancefloorOwner(d) : ""}
     ${tab === "Sync" ? renderSyncOwner(d) : ""}
     ${tab === "Social / Hearts" ? renderSocialHearts(d) : ""}
+    ${tab === "Timing Overrides" ? renderEmoteTimingOverrides(d) : ""}
     ${tab === "Logs" ? renderEmoteLogs(d) : ""}
     ${tab === "Advanced" ? renderEmotesAdvanced(d) : ""}
   `;
@@ -3083,6 +3087,43 @@ function renderSocialHearts(d) {
   ${futureControls([
     { endpoint: "heart/social limit writes", purpose: "Needs exact active source mapping before normal controls", status: "UNVERIFIED" },
   ])}`;
+}
+
+function renderEmoteTimingOverrides(d) {
+  const rows = d.rows || [];
+  return `<div class="grid">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>⏱ Emote Loop Timing</h2>
+          <div class="muted text-sm">Connected to <code>room_settings.emote_loop_interval_seconds</code>, the same key used by <code>!setemoteloopinterval</code>.</div>
+        </div>
+        <span class="pill info">CONNECTED</span>
+      </div>
+      ${d.table_exists ? `<form id="emoteTimingLoopForm" class="settings-form">
+        ${renderSettingsField({ key: "loop_interval_seconds", label: "Emote Loop Interval", type: "number", suffix: "sec", hint: "Minimum 3 seconds" }, d.loop_interval_seconds)}
+        <button class="btn primary sm" type="submit">Save Loop Interval</button>
+      </form>` : `<div class="notice warn"><code>room_settings</code> table is missing.</div>`}
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>🎭 Timing Overrides</h2>
+          <div class="muted text-sm">Connected to <code>room_settings.emote_timing_overrides</code>, persisted by <code>!setemote &lt;alias&gt; time</code>.</div>
+        </div>
+        <span class="pill info">CONNECTED</span>
+      </div>
+      ${d.table_exists ? `<form id="emoteTimingOverrideForm" class="toolbar" style="flex-wrap:wrap;margin-bottom:12px">
+        <input name="alias" placeholder="alias" required style="min-width:160px" />
+        <input name="seconds" type="number" min="0.1" step="0.1" placeholder="seconds" required style="max-width:140px" />
+        <button class="btn primary sm">Save Override</button>
+      </form>` : ""}
+      ${rows.length ? table(rows, [
+        { key: "alias", label: "Alias" },
+        { key: "seconds", label: "Seconds" },
+      ]) : `<div class="notice">No custom timing overrides saved yet.</div>`}
+    </div>
+  </div>`;
 }
 
 function renderEmoteLogs(d) {
@@ -4211,6 +4252,31 @@ function renderAnnouncementsTab() {
 
 function renderWelcomeTab() {
   const d = state.data || {};
+  if (d.source === "room_settings" && d.settings) {
+    const settings = d.settings || {};
+    const seenRows = d.seen?.rows || d.seen || [];
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2>👋 Welcome Message</h2>
+            <div class="muted text-sm">Connected to <code>room_settings.welcome_message</code>, the same key used by <code>!setwelcome</code>.</div>
+          </div>
+          <span class="pill info">CONNECTED</span>
+        </div>
+        ${d.table_exists ? `<form id="welcomeSettingsForm" class="settings-form">
+          <label class="switch"><input type="checkbox" name="welcome_enabled" ${truthy(settings.welcome_enabled) ? "checked" : ""}/><span>Welcome enabled</span></label>
+          ${renderSettingsField({ key: "welcome_message", label: "Welcome Message", type: "textarea", hint: "room_settings.welcome_message" }, settings.welcome_message)}
+          <button class="btn primary sm" type="submit">Save Welcome Message</button>
+        </form>` : `<div class="notice warn"><code>room_settings</code> table is missing.</div>`}
+      </div>
+      <div class="card">
+        <h2>Welcome Seen</h2>
+        ${seenRows.length ? table(seenRows) : `<div class="notice">No welcome-seen rows loaded.</div>`}
+      </div>
+      ${futureControls([{ endpoint: "reset room_welcome_seen", purpose: "Cleanup requires typed confirmation; no default deletion", status: "Advanced only" }])}
+    `;
+  }
   const known = d.known_settings || {};
   const extra = d.extra_settings || [];
   const allRaw = Object.entries(known).map(([key, value]) => ({ key, value, source: "room_settings" })).concat(extra);
@@ -5471,6 +5537,7 @@ function renderEconomyRewards(tab) {
     ${tab === "Fishing"         ? renderFishingTab() : ""}
     ${tab === "Games"           ? renderGamesTab() : ""}
     ${tab === "Economy"         ? renderCoinsTab() : ""}
+    ${tab === "Bank"            ? renderBankTab() : ""}
     ${tab === "VIP"             ? renderVipTab() : ""}
     ${tab === "Titles"          ? renderTitlesTab() : ""}
     ${tab === "Badges"          ? renderBadgesTab() : ""}
@@ -5943,6 +6010,7 @@ function renderGamesTab() {
 
 function renderCoinsTab() {
   const d = state.data || {};
+  if (d.settings && d.source === "economy_settings") return renderEconomySettingsTab(d);
   const s = d.stats;
   return `
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
@@ -5987,6 +6055,64 @@ function renderCoinsTab() {
       { endpoint: "GET /api/economy/transactions", purpose: "Transaction history", status: "Connected" },
     ])}
   `;
+}
+
+function renderEconomySettingsTab(d) {
+  const settings = d.settings || {};
+  const fields = [
+    { key: "daily_coins", label: "Daily Coins", type: "number", suffix: "coins", hint: "economy_settings.daily_coins" },
+    { key: "trivia_reward", label: "Trivia Reward", type: "number", suffix: "coins", hint: "economy_settings.trivia_reward" },
+    { key: "scramble_reward", label: "Scramble Reward", type: "number", suffix: "coins", hint: "economy_settings.scramble_reward" },
+    { key: "riddle_reward", label: "Riddle Reward", type: "number", suffix: "coins", hint: "economy_settings.riddle_reward" },
+    { key: "max_balance", label: "Max Balance", type: "number", suffix: "coins", hint: "economy_settings.max_balance" },
+  ];
+  return `<div class="card">
+    <div class="card-header">
+      <div>
+        <h2>💰 Economy Settings</h2>
+        <div class="muted text-sm">Connected to <code>economy_settings</code>, the same source used by <code>!setdailycoins</code>, <code>!setgamereward</code>, and <code>!setmaxbalance</code>.</div>
+      </div>
+      <span class="pill info">CONNECTED</span>
+    </div>
+    ${d.table_exists ? `<form id="economySettingsForm">
+      <div class="settings-fields">
+        ${fields.map((f) => renderSettingsField(f, settings[f.key])).join("")}
+      </div>
+      <div style="margin-top:14px"><button class="btn primary sm" type="submit">Save Economy Settings</button></div>
+    </form>` : `<div class="notice warn"><code>economy_settings</code> table is missing.</div>`}
+  </div>`;
+}
+
+function renderBankTab() {
+  const d = state.data || {};
+  const settings = d.settings || {};
+  const fields = [
+    { key: "min_send_amount", label: "Minimum Send", type: "number", suffix: "coins", hint: "bank_settings.min_send_amount" },
+    { key: "max_send_amount", label: "Maximum Send", type: "number", suffix: "coins", hint: "bank_settings.max_send_amount" },
+    { key: "daily_send_limit", label: "Daily Send Limit", type: "number", suffix: "coins", hint: "bank_settings.daily_send_limit" },
+    { key: "send_tax_percent", label: "Transfer Tax", type: "number", suffix: "%", hint: "bank_settings.send_tax_percent" },
+    { key: "new_account_days", label: "New Account Days", type: "number", suffix: "days", hint: "bank_settings.new_account_days" },
+    { key: "min_level_to_send", label: "Minimum Send Level", type: "number", hint: "bank_settings.min_level_to_send" },
+    { key: "min_total_earned_to_send", label: "Minimum Total Earned", type: "number", suffix: "coins", hint: "bank_settings.min_total_earned_to_send" },
+    { key: "min_daily_claim_days_to_send", label: "Minimum Daily Claims", type: "number", hint: "bank_settings.min_daily_claim_days_to_send" },
+    { key: "high_risk_blocks", label: "High Risk Blocks", type: "toggle", hint: "bank_settings.high_risk_blocks" },
+  ];
+  return `<div class="card">
+    <div class="card-header">
+      <div>
+        <h2>🏦 Bank / P2P Settings</h2>
+        <div class="muted text-sm">Connected to <code>bank_settings</code>, the same source used by the in-room bank setter commands.</div>
+      </div>
+      <span class="pill info">CONNECTED</span>
+    </div>
+    ${d.table_exists ? `<form id="bankSettingsForm">
+      <div class="settings-fields">
+        ${fields.map((f) => renderSettingsField(f, settings[f.key])).join("")}
+      </div>
+      <div class="notice" style="margin-top:12px">Validation matches BankingBot guardrails: minimum send cannot exceed maximum send, and maximum send cannot exceed the daily send limit.</div>
+      <div style="margin-top:14px"><button class="btn primary sm" type="submit">Save Bank Settings</button></div>
+    </form>` : `<div class="notice warn"><code>bank_settings</code> table is missing.</div>`}
+  </div>`;
 }
 
 function renderVipTab() {
@@ -7710,6 +7836,57 @@ function bindAdminPageEvents() {
     });
     await action("Fishing settings saved.", () =>
       api("/api/fishing-settings", { method: "PUT", body: JSON.stringify(body) }));
+  });
+
+  document.getElementById("economySettingsForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Economy settings saved.", () =>
+      api("/api/economy/settings", { method: "PUT", body: JSON.stringify(body) }));
+  });
+
+  document.getElementById("bankSettingsForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body = {};
+    Array.from(form.elements).forEach((el) => {
+      if (!el.name) return;
+      body[el.name] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    await action("Bank settings saved.", () =>
+      api("/api/bank/settings", { method: "PUT", body: JSON.stringify(body) }));
+  });
+
+  document.getElementById("welcomeSettingsForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    await action("Welcome settings saved.", () =>
+      api("/api/room/welcome", {
+        method: "PUT",
+        body: JSON.stringify({
+          welcome_enabled: form.elements.welcome_enabled?.checked,
+          welcome_message: form.elements.welcome_message?.value || "",
+        }),
+      }));
+  });
+
+  document.getElementById("emoteTimingLoopForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Emote loop interval saved.", () =>
+      api("/api/emotes/timing", { method: "PUT", body: JSON.stringify({ loop_interval_seconds: data.loop_interval_seconds }) }));
+  });
+
+  document.getElementById("emoteTimingOverrideForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Emote timing override saved.", () =>
+      api("/api/emotes/timing", { method: "PUT", body: JSON.stringify(data) }));
   });
 
   document.getElementById("questCatalogCreateForm")?.addEventListener("submit", async (e) => {
