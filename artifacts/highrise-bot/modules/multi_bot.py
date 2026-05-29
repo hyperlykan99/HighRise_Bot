@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 import database as db
 from config import BOT_ID, BOT_MODE, BOT_USERNAME, BOT_EXTRA_MODES
+from modules.log_throttle import log_cooldown
 from modules.permissions import can_manage_economy
 
 # ---------------------------------------------------------------------------
@@ -1389,16 +1390,22 @@ def should_this_bot_run_module(module: str) -> bool:
 
     # Rule 2: split bot that doesn't own this module
     if mode in _SPLIT_BOT_MODES:
-        print(f"[MODULE] {module} skipped — {mode} bot never runs {module} "
-              f"(owner={owner_mode}).")
+        log_cooldown(
+            f"module_skip:{mode}:{module}:{owner_mode}",
+            f"[MODULE_SKIP] module={module} mode={mode} owner={owner_mode} reason=not_owner",
+            seconds=300,
+        )
         return False
 
     # Rule 3: all-mode — only if owner bot is currently offline
     if mode == "all":
         try:
             if _is_mode_online(owner_mode):
-                print(f"[MODULE] {module} skipped on all-mode; "
-                      f"{owner_mode} bot is online.")
+                log_cooldown(
+                    f"module_skip:all:{module}:{owner_mode}:owner_online",
+                    f"[MODULE_SKIP] module={module} mode=all owner={owner_mode} reason=owner_online",
+                    seconds=300,
+                )
                 return False
             return True
         except Exception:
@@ -1425,8 +1432,11 @@ async def send_module_room_message(
     Returns True if message was sent, False if skipped.
     """
     if not should_this_bot_run_module(module):
-        print(f"[{module.upper()}] Restore msg skipped (not owner, "
-              f"mode={BOT_MODE}): {message[:60]}")
+        log_cooldown(
+            f"module_restore_skip:{BOT_MODE}:{module}",
+            f"[MODULE_SKIP] module={module} mode={BOT_MODE} reason=restore_not_owner",
+            seconds=300,
+        )
         return False
 
     try:

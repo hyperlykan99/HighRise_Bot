@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 import database as db
 from modules.admin_cmds import is_admin, is_owner, can_moderate
+from modules.log_throttle import log_cooldown
 from modules.emote_targeting import (
     UPGRADED_ROOM_EMOTE_NOTICE,
     log_emote_command_received,
@@ -263,7 +264,6 @@ def _log(stage: str, **kw: object) -> None:
 _player_loops:  dict[str, asyncio.Task] = {}
 _player_emotes: dict[str, str]          = {}
 _bot_loops:     dict[str, asyncio.Task] = {}
-_host_not_in_room_log_at: dict[str, float] = {}
 # Shared registry lives in modules.live_bot_registry — re-exported here for callers.
 from modules.live_bot_registry import LIVE_BOTS, get_live_bot, live_bot_keys
 
@@ -401,15 +401,11 @@ def _emote_exc_contains(exc: Exception, needle: str) -> bool:
     return needle.lower() in repr(exc).lower() or needle.lower() in str(exc).lower()
 
 
-def _log_host_emote_skip_once(bot_mode: str, eid: str, reason: str, cooldown: float = 60.0) -> None:
-    key = f"{bot_mode}:{eid}:{reason}"
-    now = time.time()
-    if now - _host_not_in_room_log_at.get(key, 0.0) < cooldown:
-        return
-    _host_not_in_room_log_at[key] = now
-    print(
-        f"[EMOTE BOT] host_emote_skipped_not_in_room "
-        f"mode={bot_mode!r} eid={eid!r} reason={reason}"
+def _log_host_emote_skip_once(bot_mode: str, eid: str, reason: str, cooldown: float = 180.0) -> None:
+    log_cooldown(
+        f"host_emote_skip:{bot_mode}:{eid}:{reason}",
+        f"[EMOTE_SKIP] host_emote_skipped_not_in_room mode={bot_mode!r} eid={eid!r} reason={reason}",
+        seconds=cooldown,
     )
 
 

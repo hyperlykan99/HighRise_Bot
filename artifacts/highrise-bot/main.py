@@ -38,6 +38,7 @@ from highrise.__main__ import BotDefinition, main as highrise_main
 import database as db
 import config
 from modules import dashboard_settings as dash_settings
+from modules.log_throttle import log_cooldown
 
 # Shared root-level modules (reusable by any future bot)
 from economy import (
@@ -3944,27 +3945,27 @@ class HangoutBot(BaseBot):
             _safe_task(startup_event_check(self),       "startup_event_check")
             _safe_task(startup_mining_event_check(self),"startup_mining_event_check")
         else:
-            print(f"[EVENTS] Startup check skipped — not events bot ({BOT_MODE}).")
+            log_cooldown(f"startup_skip:{BOT_MODE}:events", f"[MODULE_SKIP] module=events mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # Recover BJ/RBJ tables — blackjack bot only
         if should_this_bot_run_module("blackjack"):
             _safe_task(startup_bj_recovery(self),  "startup_bj_recovery")
             _safe_task(startup_rbj_recovery(self), "startup_rbj_recovery")
         else:
-            print(f"[BJ] Recovery skipped — not blackjack bot ({BOT_MODE}).")
+            log_cooldown(f"startup_skip:{BOT_MODE}:blackjack", f"[MODULE_SKIP] module=blackjack mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # Recover poker table — poker bot only
         if should_this_bot_run_module("poker"):
             _safe_task(startup_poker_recovery(self), "startup_poker_recovery")
         else:
-            print(f"[POKER] Recovery skipped — not poker bot ({BOT_MODE}).")
+            log_cooldown(f"startup_skip:{BOT_MODE}:poker", f"[MODULE_SKIP] module=poker mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # Recover AutoMine / AutoFish sessions — miner/fisher bots only
         if should_this_bot_run_module("mining"):
             _safe_task(startup_automine_recovery(self), "startup_automine_recovery")
         else:
-            print(f"[AUTOMINE] Recovery skipped — not miner bot ({BOT_MODE}).")
+            log_cooldown(f"startup_skip:{BOT_MODE}:mining", f"[MODULE_SKIP] module=mining mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         if should_this_bot_run_module("fishing"):
             _safe_task(startup_autofish_recovery(self), "startup_autofish_recovery")
         else:
-            print(f"[AUTOFISH] Recovery skipped — not fisher bot ({BOT_MODE}).")
+            log_cooldown(f"startup_skip:{BOT_MODE}:fishing", f"[MODULE_SKIP] module=fishing mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # Seed Title V2 catalog from TITLE_CATALOG dict (idempotent, fast)
         try:
             seed_title_catalog_startup()
@@ -3988,24 +3989,24 @@ class HangoutBot(BaseBot):
         if should_this_bot_run_module("timeexp"):
             _safe_task(time_exp_loop(self), "time_exp_loop")
         else:
-            print(f"[TIME_EXP] Loop skipped — not host bot ({BOT_MODE}).")
+            log_cooldown(f"startup_skip:{BOT_MODE}:timeexp", f"[MODULE_SKIP] module=timeexp mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # Luxe Jail recovery + expiry loop — security bot only
         if should_this_bot_run_module("security"):
             _safe_task(startup_jail_recovery(self), "startup_jail_recovery")
         else:
-            print(f"[JAIL] Recovery/expiry loop skipped — not security bot ({BOT_MODE}).")
+            log_cooldown(f"startup_skip:{BOT_MODE}:security", f"[MODULE_SKIP] module=security mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # Rotating announcements loop — host bot only
         if should_this_bot_run_module("host"):
             _safe_task(rotating_announcement_loop(self), "rotating_announcement_loop")
             _safe_task(startup_host_dm_queue_loop(self), "startup_host_dm_queue_loop")
         else:
-            print(f"[ANNOUNCE] Rotating loop skipped — not host bot ({BOT_MODE}).")
+            log_cooldown(f"startup_skip:{BOT_MODE}:host", f"[MODULE_SKIP] module=host mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # AzuraCast request cleanup + announcement loop — DJ bot only
         if should_this_bot_run_module("yt_request"):
             print(f"[DJ_RADIO] Starting radio systems — BOT_MODE={BOT_MODE}")
             _safe_task(startup_radio(self), "startup_radio")
         else:
-            print(f"[DJ_RADIO] Skipped radio startup — BOT_MODE={BOT_MODE}")
+            log_cooldown(f"startup_skip:{BOT_MODE}:yt_request", f"[MODULE_SKIP] module=yt_request mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # Bot emote loop recovery — all bot modes (each bot checks its own DB key)
         _safe_task(startup_bot_emote_recovery(self), "startup_bot_emote_recovery")
         # Dancefloor recovery — DJ owns the polling loop in multi-bot deployments
@@ -4025,7 +4026,7 @@ class HangoutBot(BaseBot):
         if BOT_MODE == "dj":
             _safe_task(startup_emote_discovery(self), "startup_emote_discovery")
         else:
-            print(f"[EMOTE] Discovery skipped — not dj bot ({BOT_MODE})")
+            log_cooldown(f"startup_skip:{BOT_MODE}:emote_discovery", f"[MODULE_SKIP] module=emote_discovery mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # Background automation loops (idempotent — safe on reconnect)
         try:
             start_auto_game_loop(self)
@@ -8868,10 +8869,11 @@ class HangoutBot(BaseBot):
     async def on_user_join(self, user: User, position) -> None:
         """Register new players and greet them when they enter the room."""
         _ROOM_DIAG_STATE["last_join"] = time.time()
-        print(
-            f"[ROOM_DIAG] event=on_user_join user={user.username!r} "
-            f"user_id={user.id!r} position_type={type(position).__name__} "
-            f"position={repr(position)[:120]}"
+        log_cooldown(
+            f"room_event:join:{user.id}:{user.username}",
+            f"[ROOM_EVENT] type=user_joined username={user.username!r} user_id={user.id!r}",
+            seconds=15,
+            cross_process=True,
         )
         try:
             db.ensure_user(user.id, user.username)
@@ -9020,7 +9022,12 @@ class HangoutBot(BaseBot):
         try:
             remove_from_room_cache(user.id)
             time_exp_record_leave(user.id)
-            print(f"[HangoutBot] {user.username} left.")
+            log_cooldown(
+                f"room_event:left:{user.id}:{user.username}",
+                f"[ROOM_EVENT] type=user_left username={user.username!r} user_id={user.id!r}",
+                seconds=15,
+                cross_process=True,
+            )
         except Exception as _e:
             print(f"[ON_LEAVE ERROR] cache for @{user.username}: {_e!r}")
         try:

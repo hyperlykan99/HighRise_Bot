@@ -28,6 +28,7 @@ from highrise import BaseBot, User
 
 import database as db
 from config import BOT_ID, BOT_MODE, BOT_EXTRA_MODES
+from modules.log_throttle import log_cooldown
 from modules.maintenance import is_maintenance
 from modules.permissions  import can_manage_games, can_moderate, is_admin, is_owner
 import modules.trivia   as trivia
@@ -500,7 +501,11 @@ def start_auto_event_loop(bot: BaseBot) -> None:
         return
     should_run, reason = should_this_bot_run_autogames()
     if not should_run:
-        print(f"[AUTOGAMES] Event loop skipped on {BOT_MODE}; {reason}.")
+        log_cooldown(
+            f"module_skip:{BOT_MODE}:autogames:{reason}",
+            f"[MODULE_SKIP] module=autogames mode={BOT_MODE} reason={reason}",
+            seconds=300,
+        )
         return
     _auto_event_loop_task = asyncio.create_task(_auto_event_loop(bot))
     if not _scheduler_heartbeat_task or _scheduler_heartbeat_task.done():
