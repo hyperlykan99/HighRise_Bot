@@ -4315,8 +4315,9 @@ function renderRaritySummaryCards(rows, section) {
   const byRarity = new Map((rows || []).map((row) => [normalizeGameRarity(row.rarity), row]));
   return `<div class="owner-rarity-grid">${GAME_RARITY_ORDER.map((rarity) => {
     const row = byRarity.get(rarity) || { rarity, label: gameRarityLabel(rarity), total_items: 0, total_weight: 0, chance_label: "Not currently dropping" };
+    const runtimeLabel = row.runtime_connected ? "CONNECTED TO !mine" : "Planning";
     return `<div class="card owner-rarity-card">
-      <div class="owner-rarity-head">${rarityChipHtml(rarity, row.label || gameRarityLabel(rarity))}<span class="pill warn">${row.runtime_connected ? "Runtime" : "Planning"}</span></div>
+      <div class="owner-rarity-head">${rarityChipHtml(rarity, row.label || gameRarityLabel(rarity))}<span class="pill ${row.runtime_connected ? "ok" : "warn"}">${runtimeLabel}</span></div>
       <div class="manual-info-grid compact">
         <div><span>${section === "Fishing" ? "Fish" : "Ores"}</span><strong>${esc(row.total_items ?? 0)}</strong></div>
         <div><span>Enabled</span><strong>${esc(row.enabled_items ?? 0)}</strong></div>
@@ -4326,7 +4327,7 @@ function renderRaritySummaryCards(rows, section) {
       <form class="settings-fields compact rarityChanceForm" data-rarity-chance-form="${esc(section)}" data-rarity="${esc(rarity)}">
         <label class="field-label">Base Weight / Chance</label>
         <input type="number" step="0.0001" min="0" name="base_weight" value="${esc(row.base_weight ?? row.base_chance ?? "")}" />
-        <label class="switch compact"><input type="checkbox" name="enabled" ${Number(row.planning_enabled ?? 1) ? "checked" : ""}><span></span><em>Planning enabled</em></label>
+        <label class="switch compact"><input type="checkbox" name="enabled" ${Number(row.planning_enabled ?? 1) ? "checked" : ""}><span></span><em>${row.runtime_connected ? "Runtime enabled" : "Planning enabled"}</em></label>
         <button class="btn primary sm" type="submit">Save</button>
       </form>
       <p class="manual-note">${esc(row.notes || "Edit verified individual catalog rows where supported.")}</p>
@@ -4339,12 +4340,12 @@ function renderMiningRaritiesPage() {
   return `<div class="card">
     <div class="card-header">
       <div><h2>Rarity Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from DB-backed ores and active runtime rarity odds.")}</div></div>
-      <span class="pill warn">Dashboard planning</span>
+      <span class="pill ${d.runtime_connected ? "ok" : "warn"}">${d.runtime_connected ? "CONNECTED TO !mine" : "Dashboard planning"}</span>
     </div>
     ${renderRaritySummaryCards(d.rows || [], "Mining")}
     ${futureControls([
-      { endpoint: "PUT /api/mining/rarities/:rarity", purpose: "Dashboard planning base rarity chances", status: "Stored, runtime not connected" },
-      { endpoint: "PUT /api/mining/drop-weights", purpose: "Direct percentage editing", status: "Unverified schema" },
+      { endpoint: "PUT /api/mining/rarities/:rarity", purpose: "Edit base rarity weights", status: d.runtime_connected ? "Connected to !mine" : "Stored, runtime not connected" },
+      { endpoint: "PUT /api/mining/ores/:id", purpose: "Edit per-ore drop weights", status: d.runtime_connected ? "Connected to !mine" : "Unverified schema" },
     ], "Advanced / Rarity Writes")}
   </div>`;
 }
@@ -4409,12 +4410,13 @@ function renderMiningOresPage() {
   const rows = (d.rows || []).filter((row) => normalizeGameRarity(row.rarity) === current);
   const cols = d.columns || [];
   const hasCol = (name) => cols.includes(name);
-  const chanceField = hasCol("drop_weight") ? "drop_weight" : (hasCol("chance_percent") ? "chance_percent" : "");
+  const weightWritable = !!d.weight_writable || hasCol("drop_weight");
+  const chanceField = weightWritable ? "drop_weight" : (hasCol("chance_percent") ? "chance_percent" : "");
   return `
     <div class="card">
       <div class="card-header">
-        <div><h2>Ores</h2><div class="muted text-sm">Editable source: <code>mining_items</code>. Select a rarity before editing.</div></div>
-        ${pill(d.writable ? "enabled" : "read only")}
+        <div><h2>Ores</h2><div class="muted text-sm">Editable source: <code>mining_items</code> + <code>mining_item_weights</code>. Select a rarity before editing.</div></div>
+        ${d.runtime_connected ? `<span class="pill ok">CONNECTED TO !mine</span>` : pill(d.writable ? "enabled" : "read only")}
       </div>
       ${ownerRarityTabs("Mining", order)}
       ${renderResourceToolbar({ search: "Search ores" })}
@@ -4425,7 +4427,7 @@ function renderMiningOresPage() {
             ${["item_id","name","emoji"].map((key) => renderSettingsField({ key, label: key.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase()), type: "text" }, "")).join("")}
             ${renderSettingsField({ key: "rarity", label: "Rarity", type: "select", options: GAME_RARITY_ORDER.map((rarity) => [rarity, gameRarityLabel(rarity)]) }, current)}
             ${renderSettingsField({ key: "sell_value", label: "Sell Value", type: "number" }, "")}
-            ${hasCol("drop_weight") ? renderSettingsField({ key: "drop_weight", label: "Drop Weight", type: "number", hint: "Distribution weight inside this rarity when supported by the DB schema." }, "") : ""}
+            ${weightWritable ? renderSettingsField({ key: "drop_weight", label: "Drop Weight", type: "number", hint: "Distribution weight inside this rarity. Active !mine reads mining_item_weights.drop_weight." }, "") : ""}
             ${hasCol("chance_percent") ? renderSettingsField({ key: "chance_percent", label: "Drop Chance %", type: "number", hint: "Direct percentage only when the live table stores chance_percent." }, "") : ""}
             ${hasCol("description") ? renderSettingsField({ key: "description", label: "Description", type: "textarea" }, "") : ""}
             ${hasCol("event_only") ? renderSettingsField({ key: "event_only", label: "Event Only", type: "toggle" }, false) : ""}
@@ -4440,7 +4442,7 @@ function renderMiningOresPage() {
         { key: "emoji", label: "Icon", render: (r) => `<input name="emoji" value="${esc(r.emoji || "")}" form="ore_${esc(r.item_id)}" />` },
         { key: "rarity", label: "Rarity", render: (r) => `<select name="rarity" form="ore_${esc(r.item_id)}">${GAME_RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${normalizeGameRarity(r.rarity) === rarity ? "selected" : ""}>${esc(gameRarityLabel(rarity))}</option>`).join("")}</select>` },
         { key: "sell_value", label: "Base Value", render: (r) => `<input type="number" name="sell_value" value="${esc(r.sell_value || 0)}" form="ore_${esc(r.item_id)}" />` },
-        ...(hasCol("drop_weight") ? [{ key: "drop_weight", label: "Drop Weight", render: (r) => `<input type="number" step="0.0001" name="drop_weight" value="${esc(r.drop_weight ?? "")}" form="ore_${esc(r.item_id)}" />` }] : []),
+        ...(weightWritable ? [{ key: "drop_weight", label: "Drop Weight", render: (r) => `<input type="number" step="0.0001" name="drop_weight" value="${esc(r.drop_weight ?? "")}" form="ore_${esc(r.item_id)}" />` }] : []),
         ...(hasCol("chance_percent") ? [{ key: "chance_percent", label: "Drop Chance %", render: (r) => `<input type="number" step="0.0001" name="chance_percent" value="${esc(r.chance_percent ?? "")}" form="ore_${esc(r.item_id)}" />` }] : []),
         { key: "chance_percent", label: "Calculated Chance", render: (r) => `<span class="muted">${esc(r.chance_label || publicPercent(r.chance_percent))}</span>` },
         ...(hasCol("event_only") ? [{ key: "event_only", label: "Event", render: (r) => `<label class="switch compact"><input type="checkbox" name="event_only" form="ore_${esc(r.item_id)}" ${Number(r.event_only) ? "checked" : ""}><span></span></label>` }] : []),
@@ -4458,7 +4460,7 @@ function renderMiningOresPage() {
       </details>
       ${futureControls([
         { endpoint: "POST /api/mining/ores duplicate", purpose: "Duplicate ore helper", status: "Future control" },
-        { endpoint: "PUT /api/mining/drop-weights", purpose: "Direct global drop weight editing", status: chanceField ? "Use per-ore DB field above" : "Runtime constant — not editable yet" },
+        { endpoint: "PUT /api/mining/ores/:id", purpose: "Per-ore runtime drop weight editing", status: chanceField ? "Use per-ore DB field above" : "Runtime constant — not editable yet" },
       ], "Advanced / Ore Tools")}
     </div>
   `;
@@ -4511,7 +4513,7 @@ function renderMiningAdvancedPage() {
       { endpoint: "POST /api/mining/pickaxes", purpose: "Pickaxe catalog writes", status: "Unverified schema" },
       { endpoint: "PUT /api/mining/drop-weights", purpose: "Drop chance edits", status: "Unverified schema" },
     ], "Advanced / Unverified Mining Controls")}
-    <div class="card"><h2>Raw Mining Settings</h2>${table(raw.mining_settings || [])}${table(raw.mining_weight_settings || [])}${table(raw.auto_activity_settings || [])}</div>
+    <div class="card"><h2>Raw Mining Sources</h2>${table(raw.mining_settings || [])}${table(raw.mining_weight_settings || [])}${table(raw.game_rarity_settings || [])}${table(raw.mining_item_weights || [])}${table(raw.auto_activity_settings || [])}</div>
     <div class="card"><h2>Table Status</h2>${table(Object.entries(d.table_status || {}).map(([table_name, exists]) => ({ table_name, exists: exists ? "present" : "missing" })))}</div>
   `;
 }
@@ -7352,7 +7354,10 @@ function bindAdminPageEvents() {
       const body = Object.fromEntries(new FormData(form));
       body.enabled = form.querySelector("[name='enabled']")?.checked ?? true;
       const apiPath = section === "Fishing" ? `/api/fishing/rarities/${encodeURIComponent(rarity)}` : `/api/mining/rarities/${encodeURIComponent(rarity)}`;
-      await action("Rarity planning value saved. Runtime still uses active bot constants until migrated.", () => api(apiPath, { method: "PUT", body: JSON.stringify(body) }));
+      const message = section === "Mining"
+        ? "Rarity weight saved. Active !mine reads this value."
+        : "Rarity planning value saved. Runtime still uses active bot constants until migrated.";
+      await action(message, () => api(apiPath, { method: "PUT", body: JSON.stringify(body) }));
     });
   });
 

@@ -1437,6 +1437,13 @@ def _migrate_db():
         "rarity TEXT NOT NULL DEFAULT 'common', item_type TEXT NOT NULL DEFAULT 'ore', "
         "sell_value INTEGER NOT NULL DEFAULT 0, drop_enabled INTEGER NOT NULL DEFAULT 1, "
         "created_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS mining_item_weights ("
+        "item_id TEXT PRIMARY KEY, drop_weight REAL DEFAULT 1, "
+        "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)",
+        "CREATE TABLE IF NOT EXISTS game_rarity_settings ("
+        "system TEXT NOT NULL, rarity TEXT NOT NULL, base_weight REAL DEFAULT 1, "
+        "base_chance REAL, enabled INTEGER DEFAULT 1, "
+        "updated_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(system, rarity))",
         "CREATE TABLE IF NOT EXISTS mining_settings ("
         "key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')",
         "CREATE TABLE IF NOT EXISTS mining_logs ("
@@ -2406,6 +2413,7 @@ def _migrate_db():
 
     # Seed mining ore catalog (idempotent)
     seed_mining_items()
+    seed_mining_weight_settings()
 
     # Seed event catalog — done here via deferred import to avoid circular deps
     try:
@@ -11326,6 +11334,58 @@ def seed_mining_items() -> None:
     conn.close()
 
 
+_MINING_RARITY_DEFAULT_WEIGHTS = {
+    "common": 65.00,
+    "uncommon": 22.00,
+    "epic": 2.75,
+    "legendary": 0.23,
+    "mythic": 0.015,
+    "prismatic": 0.0008,
+    "exotic": 0.0002,
+}
+
+
+def seed_mining_weight_settings() -> None:
+    """Create and seed DB-backed mining rarity/item weights without overwrites."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS mining_item_weights (
+               item_id TEXT PRIMARY KEY,
+               drop_weight REAL DEFAULT 1,
+               updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"""
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS game_rarity_settings (
+               system TEXT NOT NULL,
+               rarity TEXT NOT NULL,
+               base_weight REAL DEFAULT 1,
+               base_chance REAL,
+               enabled INTEGER DEFAULT 1,
+               updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+               UNIQUE(system, rarity))"""
+        )
+        conn.execute(
+            """INSERT OR IGNORE INTO mining_item_weights (item_id, drop_weight, updated_at)
+               SELECT item_id, 1, datetime('now')
+               FROM mining_items
+               WHERE item_type='ore'"""
+        )
+        for rarity, weight in _MINING_RARITY_DEFAULT_WEIGHTS.items():
+            conn.execute(
+                """INSERT OR IGNORE INTO game_rarity_settings
+                   (system, rarity, base_weight, base_chance, enabled, updated_at)
+                   VALUES ('mining', ?, ?, ?, 1, datetime('now'))""",
+                (rarity, weight, weight),
+            )
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        print(f"[DB] seed_mining_weight_settings skipped: {exc!r}")
+    finally:
+        conn.close()
+
+
 # ── Player record ────────────────────────────────────────────────────────────
 
 def get_or_create_miner(username: str) -> dict:
@@ -11525,22 +11585,57 @@ def sell_ore_item(username: str, user_id: str, item_id: str, qty: int) -> dict:
 
 def get_mining_item(item_id: str) -> dict | None:
     conn = get_connection()
-    row  = conn.execute(
-        "SELECT * FROM mining_items WHERE item_id=?", (item_id,)
-    ).fetchone()
-    conn.close()
+    try:
+        row = conn.execute(
+            """SELECT mi.*, COALESCE(miw.drop_weight, 1) AS drop_weight
+               FROM mining_items mi
+               LEFT JOIN mining_item_weights miw ON mi.item_id=miw.item_id
+               WHERE mi.item_id=?""",
+            (item_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        row = conn.execute(
+            "SELECT * FROM mining_items WHERE item_id=?", (item_id,)
+        ).fetchone()
+    finally:
+        conn.close()
     return dict(row) if row else None
 
 
 def get_all_mining_items(drop_enabled: bool = True) -> list:
-    conn  = get_connection()
-    q     = "SELECT * FROM mining_items"
-    if drop_enabled:
-        q += " WHERE drop_enabled=1"
-    q += " ORDER BY sell_value"
-    rows  = conn.execute(q).fetchall()
-    conn.close()
+    conn = get_connection()
+    try:
+        q = """SELECT mi.*, COALESCE(miw.drop_weight, 1) AS drop_weight
+               FROM mining_items mi
+               LEFT JOIN mining_item_weights miw ON mi.item_id=miw.item_id"""
+        if drop_enabled:
+            q += " WHERE mi.drop_enabled=1"
+        q += " ORDER BY mi.sell_value"
+        rows = conn.execute(q).fetchall()
+    except sqlite3.OperationalError:
+        q = "SELECT * FROM mining_items"
+        if drop_enabled:
+            q += " WHERE drop_enabled=1"
+        q += " ORDER BY sell_value"
+        rows = conn.execute(q).fetchall()
+    finally:
+        conn.close()
     return [dict(r) for r in rows]
+
+
+def get_mining_rarity_settings() -> dict:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT rarity, base_weight, base_chance, enabled
+               FROM game_rarity_settings
+               WHERE system='mining'"""
+        ).fetchall()
+        return {str(r["rarity"]).lower(): dict(r) for r in rows}
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        conn.close()
 
 
 # ── Forced mining drops ───────────────────────────────────────────────────────

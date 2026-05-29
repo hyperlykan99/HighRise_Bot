@@ -169,6 +169,75 @@ RARITY_ORDER = [
 
 ANNOUNCE_RARITIES = {"legendary", "mythic", "ultra_rare", "prismatic", "exotic"}
 
+
+def _runtime_rarity_probs() -> dict[str, float]:
+    """Return DB-backed mining rarity weights, falling back to code constants."""
+    probs = {rarity: float(info[0]) for rarity, info in RARITIES.items()}
+    try:
+        settings = db.get_mining_rarity_settings()
+        for rarity, row in settings.items():
+            enabled = int(row.get("enabled", 1) if row.get("enabled") is not None else 1)
+            if enabled != 1:
+                probs[rarity] = 0.0
+                continue
+            raw_weight = row.get("base_weight")
+            if raw_weight is None or raw_weight == "":
+                raw_weight = row.get("base_chance")
+            if raw_weight is None or raw_weight == "":
+                continue
+            weight = max(0.0, float(raw_weight))
+            probs[rarity] = weight
+    except Exception as exc:
+        print(f"[MINING] rarity_weight_db_fallback error={exc!r}")
+    return probs
+
+
+def _positive_weight(value: object, default: float = 1.0) -> float:
+    try:
+        weight = float(value)
+        return weight if weight > 0 else 0.0
+    except Exception:
+        return default
+
+
+def _weighted_choice(rows: list[dict], weight_key: str = "drop_weight") -> dict:
+    if not rows:
+        raise ValueError("weighted choice requires at least one row")
+    total = sum(_positive_weight(row.get(weight_key), 1.0) for row in rows)
+    if total <= 0:
+        return random.choice(rows)
+    roll = random.uniform(0, total)
+    running = 0.0
+    for row in rows:
+        running += _positive_weight(row.get(weight_key), 1.0)
+        if roll <= running:
+            return row
+    return rows[-1]
+
+
+def _ore_chance_maps(items: list[dict] | None = None) -> tuple[dict[str, float], dict[str, float]]:
+    """Return (rarity_pct, ore_pct) from active DB-backed mining weights."""
+    items = items if items is not None else db.get_all_mining_items(drop_enabled=True)
+    by_rarity: dict[str, list[dict]] = {}
+    for item in items:
+        by_rarity.setdefault(str(item.get("rarity", "common")).lower(), []).append(item)
+    probs = _runtime_rarity_probs()
+    total_rarity = sum(max(0.0, float(probs.get(rarity, 0.0))) for rarity in probs)
+    rarity_pct = {
+        rarity: (max(0.0, float(weight)) / total_rarity) * 100 if total_rarity > 0 else 0.0
+        for rarity, weight in probs.items()
+    }
+    ore_pct: dict[str, float] = {}
+    for rarity, rows in by_rarity.items():
+        total_item_weight = sum(_positive_weight(row.get("drop_weight"), 1.0) for row in rows)
+        for row in rows:
+            item_id = str(row.get("item_id", ""))
+            if not item_id or total_item_weight <= 0:
+                continue
+            ore_pct[item_id] = rarity_pct.get(rarity, 0.0) * (_positive_weight(row.get("drop_weight"), 1.0) / total_item_weight)
+    return rarity_pct, ore_pct
+
+
 # Upgrade requirements: {target_level: (coins, [(ore_id, qty), ...])}
 # Balance notes:
 #   Lv2-4: coin costs raised slightly so the first few upgrades feel earned,
@@ -283,8 +352,9 @@ def _roll_drop(
     for it in items:
         by_rarity.setdefault(it["rarity"], []).append(it)
 
-    # Build weighted probabilities
-    probs = {r: v[0] for r, v in RARITIES.items()}
+    # Build weighted probabilities. DB rarity weights override the code defaults
+    # when available; constants remain the fallback if the table is absent.
+    probs = _runtime_rarity_probs()
 
     # Tool level boosts rare+ by 0.5% per level above 1 (redistributed from common)
     tool_bonus = (tool_level - 1) * 0.5
@@ -360,11 +430,12 @@ def _roll_drop(
             chosen_rarity = r
             break
 
-    # Pick a random item in that rarity
+    # Pick a weighted item in that rarity. mining_item_weights.drop_weight
+    # controls distribution inside the selected rarity.
     pool = by_rarity.get(chosen_rarity, by_rarity.get("common", []))
     if not pool:
         pool = items
-    chosen_item = random.choice(pool)
+    chosen_item = _weighted_choice(pool)
 
     # MXP
     lo, hi = RARITIES.get(chosen_rarity, RARITIES["common"])[1]
@@ -2281,8 +2352,9 @@ async def handle_minechances(bot: BaseBot, user: User) -> None:
         "prismatic":  _ore_short_label("prismatic"),
         "exotic":     "<#FF0000>[EXOTIC]<#FFFFFF>",
     }
+    rarity_pct, _ore_pct = _ore_chance_maps()
     def _pct(r: str) -> str:
-        p = RARITIES[r][0]
+        p = rarity_pct.get(r, 0.0)
         return f"{p}%" if p >= 0.01 else f"{p:.4f}%"
     def _ln(r: str) -> str:
         return f"{_CL[r]}: {_pct(r)}"
@@ -2303,13 +2375,12 @@ async def handle_orechances(bot: BaseBot, user: User) -> None:
     by_rarity: dict[str, list] = {}
     for it in items:
         by_rarity.setdefault(it["rarity"], []).append(it)
-    probs = {r: v[0] for r, v in RARITIES.items()}
+    _rarity_pct, ore_pct = _ore_chance_maps(items)
     lines = ["<#66CCFF>⛏️ Ore Drop Chances<#FFFFFF>"]
     for rar in sorted(by_rarity.keys(), key=rarity_sort_key):
         ores   = by_rarity[rar]
-        n      = max(len(ores), 1)
-        rp     = probs.get(rar, 0)
-        per    = rp / n
+        per_values = [ore_pct.get(it.get("item_id", ""), 0.0) for it in ores]
+        per = min([p for p in per_values if p > 0], default=0.0)
         one_in = max(1, int(round(100 / per))) if per > 0 else 0
         rar_lbl = format_mining_rarity(rar)
         names  = ", ".join(f"{it['emoji']}{it['name']}" for it in ores)
@@ -2336,13 +2407,8 @@ async def handle_orechance(bot: BaseBot, user: User, args: list[str]) -> None:
         await _w(bot, user.id, f"Ore '{ore_id}' not found. Use !orelist to browse.")
         return
     rar = target["rarity"]
-    by_rarity: dict[str, list] = {}
-    for it in items:
-        by_rarity.setdefault(it["rarity"], []).append(it)
-    probs  = {r: v[0] for r, v in RARITIES.items()}
-    n      = max(len(by_rarity.get(rar, [])), 1)
-    rp     = probs.get(rar, 0)
-    per    = rp / n
+    _rarity_pct, ore_pct = _ore_chance_maps([it for it in items if it.get("drop_enabled", 1)])
+    per    = ore_pct.get(target["item_id"], 0.0)
     one_in = max(1, int(round(100 / per))) if per > 0 else 0
     rar_lbl = format_mining_rarity(rar)
     await _w(bot, user.id,
@@ -2356,8 +2422,8 @@ async def handle_setorechance(
     bot: BaseBot, user: User, args: list[str]
 ) -> None:
     """/setorechance <ore_id> <note_%> — store a display-chance note (manager+).
-    Stored in room_settings; shown in /orechance. Does not affect actual drop rolls
-    (those use the RARITIES table). Use !setraritychance to adjust rarity weights.
+    Stored in room_settings as a legacy display note. Active drop rolls use
+    game_rarity_settings and mining_item_weights when those tables exist.
     """
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")
@@ -2388,8 +2454,8 @@ async def handle_setraritychance(
     bot: BaseBot, user: User, args: list[str]
 ) -> None:
     """/setraritychance <rarity> <chance_%> — store a rarity base-weight note (manager+).
-    Stored in room_settings for display in /orechances. Actual drop weights use
-    the RARITIES dict; this is a staff reference note.
+    Stored in room_settings for display compatibility. Active drop rolls use
+    game_rarity_settings when available and fall back to RARITIES constants.
     """
     if not can_manage_economy(user.username):
         await _w(bot, user.id, "Manager/admin/owner only.")

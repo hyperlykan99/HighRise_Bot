@@ -119,6 +119,7 @@ const IMPORTANT_TABLES = [
   "bot_command_queue",
   "dashboard_scheduled_announcements",
   "game_rarity_settings",
+  "mining_item_weights",
   "jail_sentences",
   "first_find_announce_pending",
   "host_dm_queue",
@@ -637,6 +638,12 @@ function ensureDashboardSchema(db) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(system, rarity)
     );
+
+    CREATE TABLE IF NOT EXISTS mining_item_weights (
+      item_id TEXT PRIMARY KEY,
+      drop_weight REAL DEFAULT 1,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
     `,
   );
   const afterTables = tableNames(db);
@@ -727,6 +734,28 @@ function ensureDashboardSchema(db) {
   addColumnIfMissing(db, "game_rarity_settings", "base_chance", "REAL", migration);
   addColumnIfMissing(db, "game_rarity_settings", "enabled", "INTEGER NOT NULL DEFAULT 1", migration);
   addColumnIfMissing(db, "game_rarity_settings", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "mining_item_weights", "item_id", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "mining_item_weights", "drop_weight", "REAL DEFAULT 1", migration);
+  addColumnIfMissing(db, "mining_item_weights", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+  if (tableExists(db, "mining_items") && tableExists(db, "mining_item_weights")) {
+    db.prepare(`
+      INSERT OR IGNORE INTO mining_item_weights (item_id, drop_weight, updated_at)
+      SELECT item_id, 1, datetime('now')
+      FROM mining_items
+      WHERE item_type='ore'
+    `).run();
+  }
+  if (tableExists(db, "game_rarity_settings")) {
+    const seedRarity = db.prepare(`
+      INSERT OR IGNORE INTO game_rarity_settings (system, rarity, base_weight, base_chance, enabled, updated_at)
+      VALUES ('mining', ?, ?, ?, 1, datetime('now'))
+    `);
+    for (const rarity of MINING_RARITY_ORDER) {
+      const weight = Number(MINING_RARITY_PROBS[rarity] || 1);
+      seedRarity.run(rarity, weight, weight);
+    }
+  }
 
   addColumnIfMissing(db, "schema_version", "component", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "schema_version", "version", "INTEGER NOT NULL DEFAULT 1", migration);
@@ -2939,13 +2968,36 @@ function readFishingCodeCatalog() {
 }
 
 function miningItemRows(db, includeDisabled = true) {
-  const cols = ["item_id", "name", "emoji", "icon", "description", "rarity", "item_type", "sell_value", "drop_weight", "chance_percent", "event_only", "drop_enabled", "enabled", "archived", "created_at", "updated_at"]
+  if (!tableExists(db, "mining_items")) return [];
+  const cols = ["item_id", "name", "emoji", "icon", "description", "rarity", "item_type", "sell_value", "chance_percent", "event_only", "drop_enabled", "enabled", "archived", "created_at", "updated_at"]
     .filter((col) => columnExists(db, "mining_items", col));
-  return safeRows(db, "mining_items", cols, {
-    where: includeDisabled ? "" : (columnExists(db, "mining_items", "drop_enabled") ? "drop_enabled=1" : ""),
-    orderBy: "rarity, sell_value, name",
-    limit: "1000",
-  });
+  const select = cols.map((col) => `mi.${sqlIdent(col)} AS ${sqlIdent(col)}`).join(", ");
+  const where = includeDisabled ? "" : (columnExists(db, "mining_items", "drop_enabled") ? "WHERE mi.drop_enabled=1" : "");
+  if (tableExists(db, "mining_item_weights")) {
+    try {
+      db.prepare(`
+        INSERT OR IGNORE INTO mining_item_weights (item_id, drop_weight, updated_at)
+        SELECT item_id, 1, datetime('now')
+        FROM mining_items
+        WHERE item_type='ore'
+      `).run();
+    } catch {}
+    return db.prepare(`
+      SELECT ${select}, COALESCE(miw.drop_weight, 1) AS drop_weight
+      FROM mining_items mi
+      LEFT JOIN mining_item_weights miw ON mi.item_id=miw.item_id
+      ${where}
+      ORDER BY mi.rarity, mi.sell_value, mi.name
+      LIMIT 1000
+    `).all();
+  }
+  return db.prepare(`
+    SELECT ${select}, 1 AS drop_weight
+    FROM mining_items mi
+    ${where}
+    ORDER BY mi.rarity, mi.sell_value, mi.name
+    LIMIT 1000
+  `).all();
 }
 
 function readRaritySettings(db, system) {
@@ -2971,16 +3023,26 @@ function calculateMiningDropRows(db) {
     acc[rarity].push(item);
     return acc;
   }, {});
+  const settings = readRaritySettings(db, "mining");
+  const rarityWeights = { ...MINING_RARITY_PROBS };
+  for (const [rarity, row] of Object.entries(settings)) {
+    if (Number(row.enabled ?? 1) !== 1) {
+      rarityWeights[rarity] = 0;
+      continue;
+    }
+    const raw = row.base_weight ?? row.base_chance;
+    if (raw !== undefined && raw !== null && raw !== "" && Number.isFinite(Number(raw))) rarityWeights[rarity] = Math.max(0, Number(raw));
+  }
+  const totalRarityWeight = Object.values(rarityWeights).reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
   return items.map((item) => {
     const rarity = normalizeRarity(item.rarity);
-    const rarityChance = Number(MINING_RARITY_PROBS[rarity] || 0);
-    const peers = Math.max(1, byRarity[rarity]?.length || 1);
+    const rarityChance = totalRarityWeight > 0 ? (Math.max(0, Number(rarityWeights[rarity] || 0)) / totalRarityWeight) * 100 : 0;
     const explicitChance = item.chance_percent !== undefined && item.chance_percent !== null && item.chance_percent !== "" ? Number(item.chance_percent) : null;
     const customWeight = item.drop_weight !== undefined && item.drop_weight !== null && item.drop_weight !== "" ? Number(item.drop_weight) : null;
-    const peerWeightTotal = byRarity[rarity]?.reduce((sum, row) => sum + (row.drop_weight !== undefined && row.drop_weight !== null && row.drop_weight !== "" ? Number(row.drop_weight || 0) : 1), 0) || peers;
+    const peerWeightTotal = byRarity[rarity]?.reduce((sum, row) => sum + (row.drop_weight !== undefined && row.drop_weight !== null && row.drop_weight !== "" ? Number(row.drop_weight || 0) : 1), 0) || 0;
     const chance = explicitChance !== null && Number.isFinite(explicitChance)
       ? explicitChance
-      : (customWeight !== null && peerWeightTotal > 0 ? rarityChance * (customWeight / peerWeightTotal) : rarityChance / peers);
+      : (customWeight !== null && peerWeightTotal > 0 ? rarityChance * (customWeight / peerWeightTotal) : 0);
     return {
       item_id: item.item_id,
       ore: item.name,
@@ -2991,8 +3053,8 @@ function calculateMiningDropRows(db) {
       rarity_chance_percent: rarityChance,
       enabled: item.drop_enabled,
       event_only: 0,
-      source: "modules/mining.py RARITIES split across enabled mining_items",
-      writable: false,
+      source: "game_rarity_settings + mining_items + mining_item_weights",
+      writable: tableExists(db, "mining_item_weights"),
     };
   });
 }
@@ -3028,7 +3090,7 @@ function enrichedMiningOreRows(db, includeDisabled = true) {
       chance_label: chanceTextFromPercent(chance, "Not currently dropping"),
       event_only: row.event_only ?? odd?.event_only ?? 0,
       enabled: row.drop_enabled ?? row.enabled ?? 1,
-      source: "mining_items + modules/mining.py RARITIES",
+      source: "game_rarity_settings + mining_items + mining_item_weights",
     };
   }).sort((a, b) => rarityRank(a.rarity, MINING_RARITY_ORDER) - rarityRank(b.rarity, MINING_RARITY_ORDER)
     || Number(b.chance_percent ?? -1) - Number(a.chance_percent ?? -1)
@@ -3064,15 +3126,26 @@ function enrichedFishingRows() {
 
 function raritySummaryRows(items, order, { valueKey = "value", weightKey = "weight", zeroText = "Not currently dropping", source = "runtime_code", itemLabel = "items", system = "" } = {}, db = null) {
   const enabled = items.filter((row) => row.enabled !== 0 && row.enabled !== false && row.drop_enabled !== 0 && row.catch_enabled !== 0);
-  const totalWeight = enabled.reduce((sum, row) => sum + Number(row[weightKey] ?? row.chance_percent ?? 0), 0);
   const settings = db && system ? readRaritySettings(db, system) : {};
+  const runtimeConnected = system === "mining" && !!db && tableExists(db, "game_rarity_settings") && tableExists(db, "mining_item_weights");
+  const rarityWeights = {};
+  for (const rarity of order) {
+    const setting = settings[rarity] || {};
+    const raw = setting.base_weight ?? setting.base_chance ?? defaultRarityWeight(system, rarity);
+    rarityWeights[rarity] = Number(setting.enabled ?? 1) === 1 && Number.isFinite(Number(raw)) ? Math.max(0, Number(raw)) : 0;
+  }
+  const totalRarityWeight = Object.values(rarityWeights).reduce((sum, value) => sum + Number(value || 0), 0);
+  const totalWeight = enabled.reduce((sum, row) => sum + Number(row[weightKey] ?? row.chance_percent ?? 0), 0);
   return order.map((rarity) => {
     const setting = settings[rarity] || {};
     const rows = items.filter((row) => normalizeRarity(row.rarity) === rarity);
     const enabledRows = rows.filter((row) => row.enabled !== 0 && row.enabled !== false && row.drop_enabled !== 0 && row.catch_enabled !== 0);
     const rarityWeight = enabledRows.reduce((sum, row) => sum + Number(row[weightKey] ?? row.chance_percent ?? 0), 0);
-    const chance = totalWeight ? (rarityWeight / totalWeight) * 100 : 0;
     const defaultWeight = defaultRarityWeight(system, rarity);
+    const baseWeight = setting.base_weight ?? defaultWeight;
+    const chance = runtimeConnected && totalRarityWeight > 0
+      ? (Number(rarityWeights[rarity] || 0) / totalRarityWeight) * 100
+      : (totalWeight ? (rarityWeight / totalWeight) * 100 : 0);
     const maxValue = rows.reduce((max, row) => Math.max(max, Number(row[valueKey] || row.sell_value || row.base_value || 0)), 0);
     return {
       rarity,
@@ -3080,17 +3153,19 @@ function raritySummaryRows(items, order, { valueKey = "value", weightKey = "weig
       total_items: rows.length,
       enabled_items: enabledRows.length,
       total_weight: rarityWeight,
-      base_weight: setting.base_weight ?? defaultWeight,
-      base_chance: setting.base_chance ?? defaultWeight,
+      base_weight: baseWeight,
+      base_chance: setting.base_chance ?? baseWeight,
       planning_enabled: setting.enabled ?? 1,
       chance_percent: chance,
       chance_label: chanceTextFromPercent(chance, zeroText),
       max_value: maxValue,
       writable: !!db && tableExists(db, "game_rarity_settings"),
       schema_verified: !!db && tableExists(db, "game_rarity_settings"),
-      runtime_connected: false,
+      runtime_connected: runtimeConnected,
       source,
-      notes: `Base rarity values are stored for dashboard planning only; active runtime still uses ${source}. Item odds are calculated from ${itemLabel}.`,
+      notes: runtimeConnected
+        ? `Connected to !mine. Rarity base weight is read from game_rarity_settings; item odds are calculated from ${itemLabel}.`
+        : `Base rarity values are stored for dashboard planning only; active runtime still uses ${source}. Item odds are calculated from ${itemLabel}.`,
     };
   });
 }
@@ -3117,10 +3192,12 @@ function miningOverview(db) {
       rare_finds: rareWhere ? countTable(db, "mining_payout_logs", rareWhere) : 0,
       gold_rain_enabled: readKeyValueMap(db, "gold_rain_settings").gold_rain_enabled ?? readKeyValueMap(db, "gold_settings").gold_rain_enabled ?? null,
     },
-    table_status: Object.fromEntries(["mining_settings", "mining_weight_settings", "mining_players", "mining_inventory", "mining_items", "mining_logs", "mining_events", "mining_payout_logs", "forced_mining_drops", "ore_weight_records", "gold_settings", "gold_rain_settings", "gold_tip_events"].map((t) => [t, tableExists(db, t)])),
+    table_status: Object.fromEntries(["mining_settings", "mining_weight_settings", "game_rarity_settings", "mining_item_weights", "mining_players", "mining_inventory", "mining_items", "mining_logs", "mining_events", "mining_payout_logs", "forced_mining_drops", "ore_weight_records", "gold_settings", "gold_rain_settings", "gold_tip_events"].map((t) => [t, tableExists(db, t)])),
     raw: {
       mining_settings: Object.entries(readKeyValueMap(db, "mining_settings")).map(([key, value]) => ({ key, value })),
       mining_weight_settings: Object.entries(readKeyValueMap(db, "mining_weight_settings")).map(([key, value]) => ({ key, value })),
+      game_rarity_settings: safeTableRows(db, "game_rarity_settings", { orderBy: "system, rarity", limit: "200" }).filter((row) => row.system === "mining"),
+      mining_item_weights: safeTableRows(db, "mining_item_weights", { orderBy: "item_id", limit: "500" }),
       auto_activity_settings: Object.entries(readKeyValueMap(db, "auto_activity_settings")).filter(([key]) => key.startsWith("mine") || key.startsWith("automine")).map(([key, value]) => ({ key, value })),
     },
   };
@@ -3691,12 +3768,12 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     dashboard_page: "Mining",
     dashboard_section: "Ores",
     db_table: "mining_items",
-    db_key_or_column: "item_id,name,rarity,sell_value,drop_enabled",
-    readSource: "SELECT * FROM mining_items ORDER BY rarity, sell_value, name",
+    db_key_or_column: "item_id,name,rarity,sell_value,drop_enabled + mining_item_weights.drop_weight",
+    readSource: "database.get_all_mining_items() joins mining_items to mining_item_weights",
     writeEndpoint: "POST/PUT/DELETE /api/mining/ores",
     dashboardConnected: true,
     status: "CONNECTED",
-    notes: "Active mining runtime reads mining_items through database.get_all_mining_items(). Dashboard writes this table and soft-disables with drop_enabled=0.",
+    notes: "Active !mine reads mining_items and mining_item_weights.drop_weight through database.get_all_mining_items(). Dashboard writes both tables and soft-disables with drop_enabled=0.",
   }),
   auditRow({
     module: "mining",
@@ -3704,11 +3781,13 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     display_name: "Ore Drop Chances",
     dashboard_page: "Mining",
     dashboard_section: "Rarity Chances",
-    db_table: "modules/mining.py",
-    db_key_or_column: "RARITIES",
-    readSource: "modules/mining.py RARITIES split across enabled mining_items",
-    status: "READ ONLY",
-    notes: "Active drop chances are code constants, not DB weights. Dashboard calculates percentages but does not pretend writes are connected.",
+    db_table: "game_rarity_settings + mining_item_weights",
+    db_key_or_column: "game_rarity_settings.base_weight + mining_item_weights.drop_weight",
+    readSource: "modules/mining.py _runtime_rarity_probs + database.get_all_mining_items",
+    writeEndpoint: "PUT /api/mining/rarities/:rarity + PUT /api/mining/ores/:id",
+    dashboardConnected: true,
+    status: "CONNECTED",
+    notes: "Active !mine chooses rarity from game_rarity_settings where system='mining', then chooses ore by mining_item_weights.drop_weight.",
   }),
   auditRow({
     module: "mining",
@@ -5802,7 +5881,17 @@ app.get("/api/mining", requireAuth, requirePermission("manage_mining"), (req, re
 app.get("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (req, res) => {
   const rarity = req.query.rarity ? normalizeRarity(req.query.rarity) : "";
   const rows = enrichedMiningOreRows(req.db, true).filter((row) => !rarity || normalizeRarity(row.rarity) === rarity);
-  json(res, { rows, schema_verified: tableExists(req.db, "mining_items"), writable: tableExists(req.db, "mining_items"), table: "mining_items", columns: tableColumns(req.db, "mining_items"), rarity_order: MINING_RARITY_ORDER });
+  json(res, {
+    rows,
+    schema_verified: tableExists(req.db, "mining_items"),
+    writable: tableExists(req.db, "mining_items"),
+    weight_writable: tableExists(req.db, "mining_item_weights"),
+    runtime_connected: tableExists(req.db, "mining_item_weights") && tableExists(req.db, "game_rarity_settings"),
+    table: "mining_items",
+    weight_table: "mining_item_weights",
+    columns: [...tableColumns(req.db, "mining_items"), ...(tableExists(req.db, "mining_item_weights") ? ["drop_weight"] : [])],
+    rarity_order: MINING_RARITY_ORDER,
+  });
 }, closeDb);
 
 app.get("/api/mining/rarities", requireAuth, requirePermission("manage_mining"), (req, res) => {
@@ -5810,18 +5899,18 @@ app.get("/api/mining/rarities", requireAuth, requirePermission("manage_mining"),
     valueKey: "sell_value",
     weightKey: "drop_weight",
     zeroText: "Not currently dropping",
-    source: "mining_items + modules/mining.py RARITIES",
+    source: "game_rarity_settings + mining_items + mining_item_weights",
     system: "mining",
-    itemLabel: "enabled mining_items rows and runtime rarity probabilities",
+    itemLabel: "enabled mining_items rows with mining_item_weights.drop_weight",
   }, req.db);
   json(res, {
     rows,
     writable: true,
     schema_verified: tableExists(req.db, "game_rarity_settings"),
     rarity_order: MINING_RARITY_ORDER,
-    source: "game_rarity_settings planning + runtime constants",
-    runtime_connected: false,
-    message: "Base rarity chances are dashboard planning values. Active mining runtime still uses modules/mining.py rarity constants; edit DB-backed ore values/enabled state in the Ores tab.",
+    source: "game_rarity_settings + mining_items + mining_item_weights",
+    runtime_connected: tableExists(req.db, "game_rarity_settings") && tableExists(req.db, "mining_item_weights"),
+    message: "Base rarity weights are connected to !mine. Individual ore weights are edited in the Ores tab.",
   });
 }, closeDb);
 
@@ -5841,8 +5930,8 @@ app.put("/api/mining/rarities/:rarity", requireAuth, requirePermission("manage_m
     ON CONFLICT(system, rarity) DO UPDATE SET base_weight=excluded.base_weight, base_chance=excluded.base_chance, enabled=excluded.enabled, updated_at=datetime('now')
   `).run(rarity, baseWeight, baseChance, enabled);
   const after = req.db.prepare("SELECT * FROM game_rarity_settings WHERE system='mining' AND rarity=?").get(rarity);
-  audit(req.db, req.user.username, "mining_rarity_planning_update", "game_rarity_settings", `mining:${rarity}`, before, after, req.ip);
-  json(res, { ok: true, row: after, runtime_connected: false, message: "Saved as dashboard planning only. Active mining runtime does not consume game_rarity_settings yet." });
+  audit(req.db, req.user.username, "mining_rarity_runtime_update", "game_rarity_settings", `mining:${rarity}`, before, after, req.ip);
+  json(res, { ok: true, row: after, runtime_connected: true, message: "Saved. Active !mine reads this rarity weight." });
 }, closeDb);
 
 app.post("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (req, res) => {
@@ -5872,8 +5961,16 @@ app.post("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (r
   const insertCols = Object.keys(row).filter((c) => cols.includes(c));
   try {
     req.db.prepare(`INSERT INTO mining_items (${insertCols.map(sqlIdent).join(", ")}) VALUES (${insertCols.map(() => "?").join(", ")})`).run(...insertCols.map((c) => row[c]));
-    audit(req.db, req.user.username, "mining_ore_create", "mining_items", itemId, before, row, req.ip);
-    json(res, { ok: true, row: req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(itemId) });
+    if (tableExists(req.db, "mining_item_weights")) {
+      req.db.prepare(`
+        INSERT INTO mining_item_weights (item_id, drop_weight, updated_at)
+        VALUES (?, ?, datetime('now'))
+        ON CONFLICT(item_id) DO UPDATE SET drop_weight=excluded.drop_weight, updated_at=datetime('now')
+      `).run(itemId, row.drop_weight ?? 1);
+    }
+    const after = enrichedMiningOreRows(req.db, true).find((ore) => ore.item_id === itemId) || req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(itemId);
+    audit(req.db, req.user.username, "mining_ore_create", "mining_items", itemId, before, after, req.ip);
+    json(res, { ok: true, row: after, runtime_connected: tableExists(req.db, "mining_item_weights") });
   } catch (err) {
     json(res, { error: err.message || "mining_ore_create_failed" }, 400);
   }
@@ -5885,6 +5982,7 @@ app.put("/api/mining/ores/:id", requireAuth, requirePermission("manage_mining"),
   if (!validCatalogId(id)) return json(res, { error: "invalid_item_id" }, 400);
   const before = req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(id);
   if (!before) return json(res, { error: "ore_not_found" }, 404);
+  const beforeWeight = tableExists(req.db, "mining_item_weights") ? req.db.prepare("SELECT * FROM mining_item_weights WHERE item_id=?").get(id) : null;
   const cols = tableColumns(req.db, "mining_items");
   const allowed = {
     name: req.body?.name,
@@ -5901,12 +5999,23 @@ app.put("/api/mining/ores/:id", requireAuth, requirePermission("manage_mining"),
   };
   if (allowed.drop_weight !== undefined && !Number.isFinite(allowed.drop_weight)) return json(res, { error: "drop_weight_must_be_number" }, 400);
   if (allowed.chance_percent !== undefined && !Number.isFinite(allowed.chance_percent)) return json(res, { error: "chance_percent_must_be_number" }, 400);
-  const updates = Object.entries(allowed).filter(([key, value]) => value !== undefined && cols.includes(key));
-  if (!updates.length) return json(res, { error: "no_verified_columns" }, 400);
-  req.db.prepare(`UPDATE mining_items SET ${updates.map(([key]) => `${sqlIdent(key)}=?`).join(", ")} WHERE item_id=?`).run(...updates.map(([, value]) => String(value).trim()), id);
-  const after = req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(id);
-  audit(req.db, req.user.username, "mining_ore_update", "mining_items", id, before, after, req.ip);
-  json(res, { ok: true, row: after });
+  const updates = Object.entries(allowed).filter(([key, value]) => value !== undefined && key !== "drop_weight" && cols.includes(key));
+  if (!updates.length && allowed.drop_weight === undefined) return json(res, { error: "no_verified_columns" }, 400);
+  if (updates.length) {
+    req.db.prepare(`UPDATE mining_items SET ${updates.map(([key]) => `${sqlIdent(key)}=?`).join(", ")} WHERE item_id=?`).run(...updates.map(([, value]) => String(value).trim()), id);
+  }
+  if (allowed.drop_weight !== undefined) {
+    if (!tableExists(req.db, "mining_item_weights")) return unverifiedSchema(res, "mining_item_weights table is missing; cannot update runtime drop weight.");
+    req.db.prepare(`
+      INSERT INTO mining_item_weights (item_id, drop_weight, updated_at)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(item_id) DO UPDATE SET drop_weight=excluded.drop_weight, updated_at=datetime('now')
+    `).run(id, allowed.drop_weight);
+  }
+  const after = enrichedMiningOreRows(req.db, true).find((ore) => ore.item_id === id) || req.db.prepare("SELECT * FROM mining_items WHERE item_id=?").get(id);
+  const oldValue = { ...before, drop_weight: beforeWeight?.drop_weight ?? null };
+  audit(req.db, req.user.username, "mining_ore_update", "mining_items", id, oldValue, after, req.ip);
+  json(res, { ok: true, row: after, runtime_connected: tableExists(req.db, "mining_item_weights") });
 }, closeDb);
 
 app.delete("/api/mining/ores/:id", requireAuth, requirePermission("manage_mining"), (req, res) => {
@@ -5938,7 +6047,13 @@ app.put("/api/mining/pickaxes/:id", requireAuth, requirePermission("manage_minin
 app.delete("/api/mining/pickaxes/:id", requireAuth, requirePermission("manage_mining"), (_req, res) => unverifiedSchema(res, "Pickaxes are runtime constants/tool_level, not a verified DB catalog."));
 
 app.get("/api/mining/drop-weights", requireAuth, requirePermission("manage_mining"), (req, res) => {
-  json(res, { rows: calculateMiningDropRows(req.db), writable: false, schema_verified: false, source: "runtime_code", message: "Active mining drop chances are code rarity probabilities split across enabled mining_items." });
+  json(res, {
+    rows: calculateMiningDropRows(req.db),
+    writable: tableExists(req.db, "mining_item_weights"),
+    schema_verified: tableExists(req.db, "mining_item_weights") && tableExists(req.db, "game_rarity_settings"),
+    source: "game_rarity_settings + mining_item_weights",
+    message: "Active !mine chances are calculated from rarity base weights and per-ore drop weights.",
+  });
 }, closeDb);
 app.put("/api/mining/drop-weights", requireAuth, requirePermission("manage_mining"), (_req, res) => unverifiedSchema(res, "Active mining drop weights are not stored in a verified DB weight table."));
 
