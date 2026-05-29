@@ -11,45 +11,68 @@ const PUBLIC_NAV = [
   { id: "casino",    icon: "🎲", label: "Casino" },
   { id: "mining",    icon: "⛏️", label: "Mining" },
   { id: "fishing",   icon: "🎣", label: "Fishing" },
-  { id: "quests",    icon: "📜", label: "Quests" },
   { id: "events",    icon: "🎉", label: "Events" },
   { id: "rankings",  icon: "🏆", label: "Rankings" },
   { id: "roominfo",  icon: "ℹ️",  label: "Room Info" },
 ];
 
 /* ── Owner Nav ───────────────────────────────────────── */
-const OWNER_NAV = [
-  { id: "Command Center",    icon: "⚡", label: "Command Center",    group: "Monitor" },
-  { id: "Operations Center", icon: "🩺", label: "Operations Center", group: "Monitor" },
-  { id: "Bots",              icon: "🤖", label: "Bots",              group: "Control" },
-  { id: "Radio",             icon: "📻", label: "Radio",             group: "Control" },
-  { id: "Players",           icon: "👤", label: "Players",           group: "Control" },
-  { id: "Casino",            icon: "🎲", label: "Casino",            group: "Control" },
-  { id: "Security",          icon: "🛡️", label: "Security",          group: "Control" },
-  { id: "Leaderboards",      icon: "🏆", label: "Leaderboards",      group: "Control" },
-  { id: "Room & Content",    icon: "🏠", label: "Room & Content",    group: "Control" },
-  { id: "Emotes",            icon: "💃", label: "Emotes",            group: "Control" },
-  { id: "Mining",            icon: "⛏️", label: "Mining",            group: "Control" },
-  { id: "Fishing",           icon: "🎣", label: "Fishing",           group: "Control" },
-  { id: "Quests & Missions", icon: "📜", label: "Quests & Missions", group: "Control" },
-  { id: "Automation Center", icon: "⏱️", label: "Automation Center", group: "Control" },
-  { id: "Events",            icon: "🎉", label: "Events",            group: "Control" },
-  { id: "Economy & Rewards", icon: "💰", label: "Economy & Rewards", group: "Control" },
-  { id: "Staff",             icon: "👥", label: "Staff",             group: "Admin" },
-  { id: "System",            icon: "⚙️", label: "System",            group: "Admin" },
+const OWNER_NAV_GROUPS = [
+  { group: "Home", items: [
+    { id: "Command Center", icon: "⚡", label: "Command Center", keywords: "home overview quick actions" },
+    { id: "Operations Center", icon: "🩺", label: "Operations Center", permission: "view_logs", keywords: "health alerts pm2 bots database" },
+  ]},
+  { group: "Live Room", items: [
+    { id: "Bots", icon: "🤖", label: "Bots", permission: "manage_bots", keywords: "bot control spawns queue" },
+    { id: "Room & Content", icon: "🏠", label: "Room & Content", permission: "manage_room", keywords: "room welcome announcement content" },
+    { id: "Radio", icon: "📻", label: "Radio", permission: "manage_radio", keywords: "dj dudu songs requests queue" },
+    { id: "Emotes", icon: "💃", label: "Emotes", permission: "manage_emotes", keywords: "dancefloor sync botemote social" },
+    { id: "Automation Center", icon: "⏱️", label: "Automation Center", permission: "manage_automation", keywords: "scheduled announcements reminders promos" },
+  ]},
+  { group: "Games", items: [
+    { id: "Casino", icon: "🎲", label: "Casino", permission: "manage_casino", keywords: "blackjack poker rbj ace chip" },
+    { id: "Mining", icon: "⛏️", label: "Mining", permission: "manage_mining", keywords: "ores pickaxes drops" },
+    { id: "Fishing", icon: "🎣", label: "Fishing", permission: "manage_fishing", keywords: "fish rods catches" },
+    { id: "Quests & Missions", icon: "📜", label: "Quests & Missions", permission: "manage_rewards", keywords: "daily weekly challenges" },
+    { id: "Events", icon: "🎉", label: "Events", permission: "manage_events", keywords: "event points schedule votes" },
+  ]},
+  { group: "Players", items: [
+    { id: "Players", icon: "👤", label: "Players", permission: "manage_players", keywords: "player search profile inventory moderation" },
+    { id: "Economy & Rewards", icon: "💰", label: "Economy & Rewards", permission: "manage_economy", keywords: "vip titles badges rewards shop coins" },
+    { id: "Leaderboards", icon: "🏆", label: "Leaderboards", permission: "view_logs", keywords: "rankings top public diagnostics" },
+  ]},
+  { group: "Safety", items: [
+    { id: "Security", icon: "🛡️", label: "Security", permission: "manage_moderation", keywords: "moderation warnings mutes reports" },
+    { id: "Staff", icon: "👥", label: "Staff", permission: "manage_staff", ownerOnly: true, keywords: "users permissions roles" },
+    { id: "Permissions Audit", page: "System", tab: "Permissions Audit", icon: "🔐", label: "Permissions Audit", ownerOnly: true, keywords: "permission route audit" },
+  ]},
+  { group: "System", items: [
+    { id: "System Overview", page: "System", tab: "Health", icon: "⚙️", label: "System Overview", ownerOnly: true, keywords: "health system overview" },
+    { id: "Maintenance Center", page: "System", tab: "Maintenance Center", icon: "🧰", label: "Maintenance Center", ownerOnly: true, keywords: "backup restore database cleanup" },
+    { id: "Settings Audit", page: "System", tab: "Settings Audit", icon: "🧭", label: "Settings Audit", ownerOnly: true, keywords: "settings command audit mapping" },
+    { id: "QA Audit", page: "System", tab: "QA Audit", icon: "✅", label: "QA Audit", ownerOnly: true, keywords: "qa broken routes buttons" },
+    { id: "Logs / Errors", page: "System", tab: "Logs", icon: "📋", label: "Logs / Errors", permission: "view_logs", keywords: "logs audit command errors" },
+  ]},
 ];
+const OWNER_NAV = OWNER_NAV_GROUPS.flatMap((section) => section.items.map((item) => ({ ...item, group: section.group })));
 
 /* ── Staff Nav ───────────────────────────────────────── */
-const STAFF_NAV = [
-  { id: "Staff Home",  icon: "📊", label: "Staff Home",  group: "Dashboard" },
-  { id: "Radio Queue", icon: "🎵", label: "Radio Queue",  group: "Tools" },
-  { id: "Players",     icon: "👤", label: "Players",      group: "Tools" },
-  { id: "Moderation",  icon: "🛡️", label: "Moderation",   group: "Tools" },
-  { id: "Leaderboards", icon: "🏆", label: "Leaderboards", group: "Tools" },
-  { id: "Events",      icon: "🎉", label: "Events",       group: "Tools" },
-  { id: "Room Tools",  icon: "🔧", label: "Room Tools",   group: "Tools" },
-  { id: "Logs",        icon: "📋", label: "Logs",         group: "Admin" },
+const STAFF_NAV_GROUPS = [
+  { group: "Dashboard", items: [
+    { id: "Staff Home", icon: "📊", label: "Staff Home", permission: "view_dashboard" },
+  ]},
+  { group: "Tools", items: [
+    { id: "Radio Queue", icon: "🎵", label: "Radio Queue", permission: "manage_radio" },
+    { id: "Players", icon: "👤", label: "Players", permission: "manage_players" },
+    { id: "Events", icon: "🎉", label: "Events", permission: "manage_events" },
+    { id: "Room Tools", icon: "🔧", label: "Room Tools", permission: "manage_room" },
+    { id: "Moderation", icon: "🛡️", label: "Moderation", permission: "manage_moderation" },
+  ]},
+  { group: "Admin", items: [
+    { id: "Logs", icon: "📋", label: "Logs", permission: "view_logs" },
+  ]},
 ];
+const STAFF_NAV = STAFF_NAV_GROUPS.flatMap((section) => section.items.map((item) => ({ ...item, group: section.group })));
 
 /* ── Page Tabs ───────────────────────────────────────── */
 const BOT_TABS = [
@@ -274,6 +297,12 @@ const PAGE_DESC = {
   "Economy & Rewards": "Coins, VIP, shop, titles, badges, quests and grants",
   "Staff":             "Dashboard users, permissions and bot roles",
   "System":            "Health monitoring, logs and emergency controls",
+  "System Overview":   "Core dashboard service health and known DB tables",
+  "Maintenance Center":"Backups, restore previews, DB health and cleanup previews",
+  "Settings Audit":    "Verified command-to-dashboard settings source mapping",
+  "Permissions Audit": "Route protection, owner-only checks and permission coverage",
+  "QA Audit":          "Static dashboard route, renderer and button audit",
+  "Logs / Errors":     "Audit logs, command errors and admin action history",
   "Staff Home":        "Room health and pending attention items",
   "Radio Queue":       "DJ queue management and radio controls",
   "Moderation":        "Warnings, mutes, reports and player moderation lookup",
@@ -699,6 +728,7 @@ const state = {
   logs: { action_type: "", user: "", module: "", status: "", date: "", target: "", offset: 0 },
   settingsAudit: { status: "all", module: "", page: "" },
   maintenanceTab: "Overview",
+  navSearch: "",
   howToPlayTab: "Quick Start",
   publicRankingTab: "Overview",
   questSearch: "",
@@ -716,6 +746,32 @@ function esc(v) {
   return String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
 function can(p) { return state.user?.role === "owner" || !!state.user?.permissions?.[p]; }
+
+function navKey(item) {
+  return item.id;
+}
+
+function navTarget(item) {
+  return { page: item.page || item.id, tab: item.tab || null };
+}
+
+function visibleNavItems(nav) {
+  return nav.filter((item) => {
+    if (item.hidden) return false;
+    if (item.ownerOnly && state.user?.role !== "owner") return false;
+    if (state.user?.role === "owner") return true;
+    return !item.permission || can(item.permission);
+  });
+}
+
+function activeNavItem() {
+  const nav = visibleNavItems(state.user?.role === "owner" ? OWNER_NAV : STAFF_NAV);
+  return nav.find((item) => {
+    const target = navTarget(item);
+    if (target.page !== state.adminPage) return false;
+    return target.tab ? state.adminTab[target.page] === target.tab : true;
+  }) || nav.find((item) => navTarget(item).page === state.adminPage) || nav[0] || null;
+}
 
 async function api(path, options = {}) {
   const headers = { Accept: "application/json", ...(options.headers || {}) };
@@ -837,9 +893,14 @@ async function loadPublic() {
 
 async function loadAdmin() {
   const role = state.user?.role;
-  const nav = role === "owner" ? OWNER_NAV : STAFF_NAV;
-  const navIds = nav.map((n) => n.id);
-  if (!navIds.includes(state.adminPage)) state.adminPage = navIds[0];
+  const nav = visibleNavItems(role === "owner" ? OWNER_NAV : STAFF_NAV);
+  const pageIds = new Set(nav.map((n) => navTarget(n).page));
+  if (!pageIds.has(state.adminPage)) {
+    const matchedVirtual = nav.find((n) => n.id === state.adminPage);
+    const target = navTarget(matchedVirtual || nav[0] || { id: role === "owner" ? "Command Center" : "Staff Home" });
+    state.adminPage = target.page;
+    if (target.tab) state.adminTab[target.page] = target.tab;
+  }
 
   const page = state.adminPage;
   const tabs = PAGE_TABS[page];
@@ -849,7 +910,7 @@ async function loadAdmin() {
   const tab = state.adminTab[page] || null;
   const url = page === "Logs" || (page === "System" && tab === "Logs")
     ? logsUrl() : pageApi(page, tab);
-  location.hash = encodeURIComponent(page);
+  location.hash = encodeURIComponent(activeNavItem()?.id || page);
 
   if (!url) { state.data = {}; render(); return; }
   try { state.data = await api(url); state.error = ""; }
@@ -890,10 +951,14 @@ async function init() {
     const me = await api("/api/auth/me");
     state.user = me.user;
     state.csrf = me.csrf_token || "";
-    if (state.user.role === "owner" && !OWNER_NAV.map((n) => n.id).includes(state.adminPage))
-      state.adminPage = "Command Center";
-    else if (state.user.role !== "owner" && !STAFF_NAV.map((n) => n.id).includes(state.adminPage))
-      state.adminPage = "Staff Home";
+    const nav = visibleNavItems(state.user.role === "owner" ? OWNER_NAV : STAFF_NAV);
+    const pageIds = new Set(nav.map((n) => navTarget(n).page));
+    if (!pageIds.has(state.adminPage)) {
+      const matchedVirtual = nav.find((n) => n.id === state.adminPage);
+      const target = navTarget(matchedVirtual || nav[0] || { id: state.user.role === "owner" ? "Command Center" : "Staff Home" });
+      state.adminPage = target.page;
+      if (target.tab) state.adminTab[target.page] = target.tab;
+    }
     await loadAdmin();
   } catch { await loadPublic(); }
   setInterval(() => {
@@ -1842,21 +1907,37 @@ function bindPublicEvents() {
 ══════════════════════════════════════════════════════ */
 function renderAdmin() {
   const role = state.user?.role;
-  const nav = role === "owner" ? OWNER_NAV : STAFF_NAV;
+  const nav = visibleNavItems(role === "owner" ? OWNER_NAV : STAFF_NAV);
   const initials = (state.user?.username || "U").slice(0, 2).toUpperCase();
   const roleLabel = role === "owner" ? "Owner Control Center" : "Staff Console";
-
-  let lastGroup = null;
-  const navHtml = nav.map((item) => {
-    let hdr = "";
-    if (item.group !== lastGroup) {
-      hdr = `<div class="nav-label" style="margin-top:${lastGroup ? "14px" : "0"}">${item.group}</div>`;
-      lastGroup = item.group;
+  const search = state.navSearch.trim().toLowerCase();
+  const activeItem = activeNavItem();
+  const navGroups = [];
+  for (const item of nav) {
+    const haystack = `${item.label} ${item.id} ${item.group || ""} ${item.keywords || ""}`.toLowerCase();
+    if (search && !haystack.includes(search)) continue;
+    let group = navGroups.find((g) => g.group === item.group);
+    if (!group) {
+      group = { group: item.group || "Main", items: [] };
+      navGroups.push(group);
     }
-    return `${hdr}<button class="${item.id === state.adminPage ? "active" : ""}" data-admin-page="${esc(item.id)}">
-      <span class="nav-icon">${item.icon}</span>${esc(item.label)}
-    </button>`;
-  }).join("");
+    group.items.push(item);
+  }
+
+  const navHtml = navGroups.length ? navGroups.map((group) => `
+    <details class="nav-group" open>
+      <summary>${esc(group.group)}</summary>
+      <div class="nav-group-items">
+        ${group.items.map((item) => {
+          const target = navTarget(item);
+          const isActive = activeItem && navKey(activeItem) === navKey(item);
+          return `<button class="${isActive ? "active" : ""}" data-admin-page="${esc(target.page)}" data-admin-tab="${esc(target.tab || "")}" data-nav-id="${esc(navKey(item))}">
+            <span class="nav-icon">${item.icon}</span><span>${esc(item.label)}</span>
+          </button>`;
+        }).join("")}
+      </div>
+    </details>
+  `).join("") : `<div class="empty-state compact"><strong>No matches</strong><span>Try “radio”, “player”, “backup”, or “alerts”.</span></div>`;
 
   app.innerHTML = `
     <button class="hamburger" id="hamburgerBtn">☰</button>
@@ -1866,6 +1947,9 @@ function renderAdmin() {
         <div class="brand">
           <div class="mark">CT</div>
           <div><strong>ChillTopia</strong><span>${roleLabel}</span></div>
+        </div>
+        <div class="nav-search">
+          <input id="navSearchInput" placeholder="Search dashboard..." value="${esc(state.navSearch)}" />
         </div>
         <nav class="nav">${navHtml}</nav>
         <div class="sidebar-footer">
@@ -1883,10 +1967,13 @@ function renderAdmin() {
       <main class="content">
         <div class="topbar">
           <div class="topbar-left">
-            <h1>${esc(state.adminPage)}</h1>
-            <div class="page-desc">${esc(PAGE_DESC[state.adminPage] || "")}</div>
+            <div class="page-kicker">${esc(activeItem?.group || "")}</div>
+            <h1><span class="page-icon">${esc(activeItem?.icon || "")}</span>${esc(activeItem?.label || state.adminPage)}</h1>
+            <div class="page-desc">${esc(PAGE_DESC[activeItem?.id] || PAGE_DESC[state.adminPage] || "")}</div>
           </div>
           <div class="topbar-actions">
+            ${state.adminPage === "Operations Center" ? `<span class="pill info">Live Health</span>` : ""}
+            ${state.adminPage === "System" ? `<span class="pill def">${esc(state.adminTab.System || "Health")}</span>` : ""}
             <button class="btn ghost" id="refreshBtn">↻ Refresh</button>
           </div>
         </div>
@@ -1899,9 +1986,15 @@ function renderAdmin() {
   `;
 
   document.querySelectorAll("[data-admin-page]").forEach((btn) => btn.addEventListener("click", () => {
-    state.adminPage = btn.dataset.adminPage; state.notice = ""; state.error = "";
+    state.adminPage = btn.dataset.adminPage;
+    if (btn.dataset.adminTab) state.adminTab[state.adminPage] = btn.dataset.adminTab;
+    state.notice = ""; state.error = "";
     state.sidebarOpen = false; loadAdmin();
   }));
+  document.getElementById("navSearchInput")?.addEventListener("input", (e) => {
+    state.navSearch = e.currentTarget.value;
+    render();
+  });
   document.querySelectorAll("[data-page-tab]").forEach((btn) => btn.addEventListener("click", () => {
     state.notice = ""; state.error = ""; switchTab(state.adminPage, btn.dataset.pageTab);
   }));
@@ -2226,8 +2319,12 @@ function renderCommandCenter() {
     <div class="card">
       <div class="card-header"><h2>⚡ Quick Actions</h2></div>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:4px">
-        <button class="btn primary" id="qaRestartBots">🔄 Restart Bots</button>
-        <button class="btn cyan" id="qaToggleRequests">${r.queue_open ? "🚫 Close Requests" : "✅ Open Requests"}</button>
+        ${can("manage_bot_config") ? `<button class="btn primary" id="qaRestartBots">🔄 Restart Bots</button>` : ""}
+        ${can("manage_radio") ? `<button class="btn cyan" id="qaToggleRequests">${r.queue_open ? "🚫 Close Requests" : "✅ Open Requests"}</button>` : ""}
+        ${can("manage_room") || can("manage_events") ? `<button class="btn" id="qaAnnouncement">📣 Queue Announcement</button>` : ""}
+        ${can("view_logs") ? `<button class="btn" data-admin-page="Operations Center" data-admin-tab="Alerts">🩺 View Alerts</button>` : ""}
+        ${state.user?.role === "owner" ? `<button class="btn" id="qaCreateBackup">🧰 Create Backup</button>` : ""}
+        ${can("manage_players") ? `<button class="btn" data-admin-page="Players" data-admin-tab="Search">🔎 Search Player</button>` : ""}
         <button class="btn" data-admin-page="Radio">📻 Radio Controls</button>
       </div>
     </div>
@@ -6580,6 +6677,18 @@ function bindAdminPageEvents() {
         api("/api/radio/clear", { method: "POST", body: JSON.stringify({}) }));
     });
   });
+  document.getElementById("qaAnnouncement")?.addEventListener("click", () => {
+    const message = prompt("Announcement message");
+    if (!message?.trim()) return;
+    action("Announcement queued.", () =>
+      api("/api/room/announce", { method: "POST", body: JSON.stringify({ message: message.trim() }) }));
+  });
+  document.getElementById("qaCreateBackup")?.addEventListener("click", () => {
+    confirmAction("Create DB Backup", "Create a timestamped SQLite backup now?", async () => {
+      await action("Database backup created.", () =>
+        api("/api/maintenance/backup/db", { method: "POST", body: JSON.stringify({}) }));
+    });
+  });
 
   /* Radio controls */
   document.querySelectorAll('[data-action="radio-refresh"]').forEach((btn) => btn.addEventListener("click", () => loadAdmin()));
@@ -7457,7 +7566,9 @@ function bindAdminPageEvents() {
     if (!btn.dataset.boundNav) {
       btn.dataset.boundNav = "1";
       btn.addEventListener("click", () => {
-        state.adminPage = btn.dataset.adminPage; state.notice = ""; state.error = ""; loadAdmin();
+        state.adminPage = btn.dataset.adminPage;
+        if (btn.dataset.adminTab) state.adminTab[state.adminPage] = btn.dataset.adminTab;
+        state.notice = ""; state.error = ""; loadAdmin();
       });
     }
   });
