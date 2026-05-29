@@ -974,6 +974,7 @@ from modules.room_utils import (
     handle_clearbotspawn, apply_bot_spawn,
     start_bot_presence_watchdog,
     run_delayed_anchor_restores,
+    is_known_bot_username,
     teleport_bot_to_saved_spawn, handle_returnbots,
     handle_mypos, handle_positiondebug,
     handle_dance, handle_wave, handle_sit, handle_clap,
@@ -4067,7 +4068,7 @@ class HangoutBot(BaseBot):
         _safe_task(send_startup_announce(self), "send_startup_announce")
         # Bot spawn
         _safe_task(
-            apply_bot_spawn(self, get_bot_username() or config.BOT_USERNAME),
+            apply_bot_spawn(self, get_bot_username() or config.BOT_USERNAME, allow_restart=False),
             "apply_bot_spawn"
         )
         _safe_task(
@@ -8927,6 +8928,20 @@ class HangoutBot(BaseBot):
         if BOT_MODE in ("dj", "all"):
             _sj(on_custom_user_join(self, user), "on_custom_user_join")
             _sj(on_sync_leader_join(self, user),  "on_sync_leader_join")
+        try:
+            if not is_known_bot_username(user.username):
+                _bot_username = get_bot_username() or config.BOT_USERNAME
+                print(
+                    f"[BOT_GUARDIAN] mode={BOT_MODE} username={_bot_username} "
+                    f"event=room_wake_anchor_scheduled joined_user={user.username}",
+                    flush=True,
+                )
+                _sj(
+                    run_delayed_anchor_restores(self, _bot_username, delays=(10, 30, 60)),
+                    "room_wake_anchor_restore",
+                )
+        except Exception as _e:
+            print(f"[BOT_GUARDIAN] mode={BOT_MODE} event=room_wake_anchor_schedule_failed error={_e!r}")
 
     async def on_tip(self, sender: User, receiver: User, tip) -> None:
         """Crash-proof wrapper — no tip handler can disconnect the bot."""
