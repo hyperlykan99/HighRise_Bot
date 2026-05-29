@@ -1525,17 +1525,23 @@ pre.mono-block {
 }
 
 .rarity-guide,
-.rarity-tabs {
+.rarity-tabs,
+.manual-subtabs {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.rarity-tabs {
+.rarity-tabs,
+.manual-subtabs {
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: rgba(6,8,20,0.46);
+}
+
+.manual-subtabs {
+  margin: 2px 0;
 }
 
 .rarity-tab {
@@ -1557,6 +1563,31 @@ pre.mono-block {
   border-color: rgba(155,94,255,0.34);
 }
 
+.manual-subtab {
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  transition: all 0.15s;
+}
+
+.manual-subtab:hover,
+.manual-subtab:focus-visible {
+  color: var(--text);
+  background: rgba(155,94,255,0.10);
+}
+
+.manual-subtab.active {
+  color: #fff;
+  border-color: rgba(34,215,255,0.28);
+  background: linear-gradient(135deg, rgba(155,94,255,0.20), rgba(34,215,255,0.10));
+  box-shadow: 0 8px 24px rgba(34,215,255,0.08);
+}
+
 .rarity-chip {
   display: inline-flex;
   align-items: center;
@@ -1574,12 +1605,12 @@ pre.mono-block {
 }
 
 .rarity-common { color: #d6dae6; background: rgba(180,190,210,0.10); border-color: rgba(180,190,210,0.20); }
-.rarity-uncommon { color: #7dffb1; background: rgba(44,230,161,0.11); border-color: rgba(44,230,161,0.26); }
+.rarity-uncommon { color: #83d7ff; background: rgba(96,165,250,0.13); border-color: rgba(96,165,250,0.32); }
 .rarity-rare { color: #7ee8ff; background: rgba(34,215,255,0.12); border-color: rgba(34,215,255,0.30); }
 .rarity-epic { color: #d4b4ff; background: rgba(155,94,255,0.14); border-color: rgba(155,94,255,0.34); }
 .rarity-legendary { color: #ffd979; background: rgba(255,202,106,0.13); border-color: rgba(255,202,106,0.36); }
 .rarity-mythic { color: #ff90b7; background: rgba(255,77,106,0.13); border-color: rgba(255,77,106,0.34); }
-.rarity-exotic { color: #ffab7a; background: rgba(255,112,67,0.14); border-color: rgba(255,112,67,0.36); }
+.rarity-exotic { color: #ff6b6b; background: rgba(255,42,72,0.15); border-color: rgba(255,42,72,0.42); }
 .rarity-prismatic {
   color: #fff;
   background: linear-gradient(135deg, rgba(155,94,255,0.25), rgba(34,215,255,0.22), rgba(44,230,161,0.18));
@@ -2026,13 +2057,18 @@ pre.mono-block {
   white-space: nowrap;
 }
 
-.rarity-uncommon { color: #6ee7b7; border-color: rgba(110,231,183,0.24); background: rgba(110,231,183,0.08); }
-.rarity-rare { color: #60a5fa; border-color: rgba(96,165,250,0.28); background: rgba(96,165,250,0.08); }
-.rarity-epic { color: #c084fc; border-color: rgba(192,132,252,0.3); background: rgba(192,132,252,0.09); }
-.rarity-legendary { color: #fbbf24; border-color: rgba(251,191,36,0.32); background: rgba(251,191,36,0.09); }
-.rarity-mythic { color: #fb7185; border-color: rgba(251,113,133,0.3); background: rgba(251,113,133,0.09); }
-.rarity-exotic { color: #22d7ff; border-color: rgba(34,215,255,0.32); background: rgba(34,215,255,0.09); }
-.rarity-prismatic { color: #fff; border-color: rgba(255,255,255,0.32); background: linear-gradient(135deg, rgba(155,94,255,0.16), rgba(34,215,255,0.12)); }
+.rarity-uncommon { color: #83d7ff; border-color: rgba(96,165,250,0.32); background: rgba(96,165,250,0.13); }
+.rarity-rare { color: #7ee8ff; border-color: rgba(34,215,255,0.30); background: rgba(34,215,255,0.12); }
+.rarity-epic { color: #d4b4ff; border-color: rgba(155,94,255,0.34); background: rgba(155,94,255,0.14); }
+.rarity-legendary { color: #ffd979; border-color: rgba(255,202,106,0.36); background: rgba(255,202,106,0.13); }
+.rarity-mythic { color: #ff90b7; border-color: rgba(255,77,106,0.34); background: rgba(255,77,106,0.13); }
+.rarity-exotic { color: #ff6b6b; border-color: rgba(255,42,72,0.42); background: rgba(255,42,72,0.15); }
+.rarity-prismatic {
+  color: #fff;
+  border-color: rgba(255,255,255,0.32);
+  background: linear-gradient(135deg, rgba(255,77,106,0.28), rgba(255,202,106,0.24), rgba(44,230,161,0.22), rgba(34,215,255,0.22), rgba(155,94,255,0.26));
+  box-shadow: 0 0 18px rgba(155,94,255,0.22);
+}
 
 /* ── Room Info ───────────────────────────────────────── */
 .pub-rules-list {
@@ -2636,6 +2672,12 @@ details.advanced-controls {
   }
 
   .rarity-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .manual-subtabs {
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
