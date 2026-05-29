@@ -406,6 +406,7 @@ async def _probe_current_bot_presence(bot: BaseBot) -> str:
         seconds=300,
         cross_process=True,
     )
+    _guardian_log(mode, username, "presence_soft_uncertain", "reason=self_not_listed", cooldown=300.0)
     return "uncertain"
 
 
@@ -487,13 +488,7 @@ async def start_bot_presence_watchdog(bot: BaseBot) -> None:
                 else:
                     count = _bot_presence_uncertain_counts.get(key, 0) + 1
                     _bot_presence_uncertain_counts[key] = count
-                    _guardian_log(mode, username, "presence_uncertain", f"count={count} reason=self_not_listed", cooldown=30.0)
-                    if count >= 2:
-                        mark_current_bot_presence_uncertain("self_not_listed")
-                        schedule_bot_presence_retry(bot, "presence_uncertain", cooldown=75.0)
-                    if count >= 4:
-                        schedule_bot_presence_retry(bot, "presence_uncertain_strong", cooldown=60.0)
-                        _guardian_log(mode, username, "recovery_escalated", f"reason=presence_uncertain count={count}", cooldown=120.0)
+                    _guardian_log(mode, username, "presence_soft_uncertain", f"count={count} reason=self_not_listed", cooldown=60.0)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

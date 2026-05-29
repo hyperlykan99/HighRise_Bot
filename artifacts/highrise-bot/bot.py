@@ -439,6 +439,8 @@ async def _stream_and_buffer(
         ring.append(decoded)
         if flags is not None and "Multilogin closing connection" in decoded:
             flags["multilogin"] = True
+        if flags is not None and "Bot is already added" in decoded:
+            flags["bot_already_added"] = True
         if "[BOT_RESTART_REQUEST]" in decoded:
             snippet = decoded[:240]
             if flags is not None:
@@ -517,6 +519,7 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
     delay            = _BACKOFF[0]
     _log_ring: collections.deque[str] = collections.deque(maxlen=50)
     _flags: dict = {"multilogin": False}   # mutable state shared with streamer
+    _child_restart_times: collections.deque[float] = collections.deque()
     # Wall-clock time this runner task started — set once, never reset.
     # Used by !botstatus to display true process uptime across reconnects.
     _proc_start_wall: float = time.time()
@@ -567,6 +570,7 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                 _flags["multilogin"] = False   # reset for this run
                 _flags["child_restart_requested"] = False
                 _flags["child_restart_reason"] = ""
+                _flags["bot_already_added"] = False
                 _reader = asyncio.create_task(
                     _stream_and_buffer(proc.stdout, _log_ring, _flags, proc, spec.bot_mode),  # type: ignore[arg-type]
                     name=f"log_reader_{spec.bot_id}",
@@ -600,6 +604,8 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                 _ts2 = _utc_ts()
                 if _flags.get("child_restart_requested"):
                     _last_reason = "child_restart_requested"
+                elif _flags.get("bot_already_added"):
+                    _last_reason = "bot_already_added"
                 else:
                     _last_reason = (
                         "clean exit"       if code == 0   else
@@ -634,6 +640,17 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     _reason_min = _sup.cooldown_for_reason(_last_reason)
                 except Exception:
                     pass
+                if _flags.get("bot_already_added"):
+                    _reason_min = max(_reason_min, 120)
+
+                restart_cap_delay = 0
+                if _flags.get("child_restart_requested"):
+                    now_wall = time.time()
+                    _child_restart_times.append(now_wall)
+                    while _child_restart_times and now_wall - _child_restart_times[0] > 600:
+                        _child_restart_times.popleft()
+                    if len(_child_restart_times) > 3:
+                        restart_cap_delay = 300
 
                 print(
                     f"[RECONNECT] {spec.label} mode={spec.bot_mode}"
@@ -677,6 +694,16 @@ async def _run_bot_forever(spec: _BotSpec, startup_delay: float = 0.0) -> None:
                     print(
                         f"[RUNNER] {spec.label} disconnected ({_last_reason})."
                         f" Reconnecting in {delay}s..."
+                    )
+
+                if _reason_min:
+                    delay = max(delay, _reason_min)
+                if restart_cap_delay:
+                    delay = max(delay, restart_cap_delay)
+                    print(
+                        f"[BOT_WATCHDOG] mode={spec.bot_mode} "
+                        f"state=child_restart_rate_limited count={len(_child_restart_times)} "
+                        f"window=600s delay={delay}s"
                     )
 
                 # Print last 50 subprocess log lines before restarting
