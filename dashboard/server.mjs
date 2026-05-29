@@ -3842,14 +3842,14 @@ function commerceSourceMap(db) {
   const hasEmojiBadges = tableExists(db, "emoji_badges");
   const hasTitleCatalog = tableExists(db, "title_catalog");
   return [
-    { system: "Titles", command: "!shop titles / !buy title / !equip title", module: "modules/shop.py", source: hasTitleCatalog ? "title_catalog + owned_items/user_titles" : "modules/shop.py TITLES + owned_items", dashboard_page: "Economy & Rewards / Titles", status: hasTitleCatalog ? "CONNECTED" : "RUNTIME_CONSTANT", notes: hasTitleCatalog ? "DB catalog exists; classic shop constants may still be fallback." : "Runtime title catalog is a Python constant; grants/equips remain DB-backed." },
-    { system: "Badges", command: "!badgeshop / !buy badge / !equip badge", module: "modules/badge_market.py + modules/shop.py", source: hasEmojiBadges ? "emoji_badges + user_badges" : "modules/shop.py BADGES + user_badges", dashboard_page: "Economy & Rewards / Badge Shop", status: hasEmojiBadges ? "CONNECTED" : "RUNTIME_CONSTANT", notes: hasEmojiBadges ? "Badge market catalog table supports price and availability edits." : "Classic badge catalog is a Python constant; ownership remains DB-backed." },
-    { system: "Badge Market", command: "!badgemarket / !badgelist / !badgebuy / !badgecancel", module: "modules/badge_market.py", source: "badge_market_listings, badge_market_logs, badge_trades, badge_wishlist, bot_settings.badge_market_fee_percent", dashboard_page: "Economy & Rewards / Badge Market", status: tableExists(db, "badge_market_listings") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Listings are cancelled/archived, not deleted." },
-    { system: "Luxe Shop", command: "!luxeshop / !buyluxe / !luxeadmin set price|duration", module: "modules/luxe.py", source: "modules/luxe.py _SHOP_ITEMS + premium_settings price_* and duration_*", dashboard_page: "Economy & Rewards / Luxe Shop", status: tableExists(db, "premium_settings") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Catalog identity is runtime constant; price and duration are DB-backed." },
-    { system: "Luxe Tickets", command: "!luxe / !addtickets / !removetickets / !settickets", module: "modules/luxe.py + modules/luxe_admin.py", source: "premium_balances, premium_transactions, luxe_ticket_logs", dashboard_page: "Economy & Rewards / Luxe Tickets", status: tableExists(db, "premium_balances") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Owner grants write premium_balances and premium_transactions." },
-    { system: "VIP", command: "!vip / Luxe VIP Pass", module: "modules/luxe.py + modules/shop.py", source: "owned_items.item_id='vip'", dashboard_page: "Economy & Rewards / VIP", status: tableExists(db, "owned_items") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Dashboard avoids duplicate VIP ownership rows." },
-    { system: "Owned Items", command: "!myitems / shop ownership", module: "modules/shop.py", source: "owned_items, purchase_history", dashboard_page: "Economy & Rewards / Owned Items", status: tableExists(db, "owned_items") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Catalog edits depend on the relevant catalog source." },
-    { system: "Achievements", command: "achievement / badge claim systems", module: "modules/achievements.py", source: "badge_claims, onboarding_rewards_log, weekly_rewards", dashboard_page: "Economy & Rewards / Achievements", status: tableExists(db, "badge_claims") || tableExists(db, "weekly_rewards") ? "READ_ONLY" : "UNVERIFIED_SCHEMA", notes: "Visible as diagnostics unless grant/revoke schema is verified." },
+    { system: "Titles", command: "!shop titles / !buy title / !equip title", module: "modules/shop.py", source: hasTitleCatalog ? "title_catalog + owned_items/user_titles" : "modules/shop.py TITLES + owned_items", dashboard_page: "Titles & Badges / Titles", status: hasTitleCatalog ? "CONNECTED" : "RUNTIME_CONSTANT", notes: hasTitleCatalog ? "DB catalog exists; classic shop constants may still be fallback." : "Runtime title catalog is a Python constant; grants/equips remain DB-backed." },
+    { system: "Badges", command: "!badgeshop / !buy badge / !equip badge", module: "modules/badge_market.py + modules/shop.py", source: hasEmojiBadges ? "emoji_badges + user_badges" : "modules/shop.py BADGES + user_badges", dashboard_page: "Titles & Badges / Badge Shop", status: hasEmojiBadges ? "CONNECTED" : "RUNTIME_CONSTANT", notes: hasEmojiBadges ? "Badge market catalog table supports price and availability edits." : "Classic badge catalog is a Python constant; ownership remains DB-backed." },
+    { system: "Badge Market", command: "!badgemarket / !badgelist / !badgebuy / !badgecancel", module: "modules/badge_market.py", source: "badge_market_listings, badge_market_logs, badge_trades, badge_wishlist, bot_settings.badge_market_fee_percent", dashboard_page: "Titles & Badges / Badge Market", status: tableExists(db, "badge_market_listings") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Listings are cancelled/archived, not deleted." },
+    { system: "Luxe Shop", command: "!luxeshop / !buyluxe / !luxeadmin set price|duration", module: "modules/luxe.py", source: "modules/luxe.py _SHOP_ITEMS + premium_settings price_* and duration_*", dashboard_page: "VIP & Luxe / Luxe Shop", status: tableExists(db, "premium_settings") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Catalog identity is runtime constant; price and duration are DB-backed." },
+    { system: "Luxe Tickets", command: "!luxe / !addtickets / !removetickets / !settickets", module: "modules/luxe.py + modules/luxe_admin.py", source: "premium_balances, premium_transactions, luxe_ticket_logs", dashboard_page: "VIP & Luxe / Luxe Tickets", status: tableExists(db, "premium_balances") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Owner grants write premium_balances and premium_transactions." },
+    { system: "VIP", command: "!vip / Luxe VIP Pass", module: "modules/luxe.py + modules/shop.py", source: "owned_items.item_id='vip'", dashboard_page: "VIP & Luxe / VIP Members", status: tableExists(db, "owned_items") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Dashboard avoids duplicate VIP ownership rows." },
+    { system: "Owned Items", command: "!myitems / shop ownership", module: "modules/shop.py", source: "owned_items, purchase_history", dashboard_page: "Titles & Badges / Player Ownership", status: tableExists(db, "owned_items") ? "CONNECTED" : "UNVERIFIED_SCHEMA", notes: "Catalog edits depend on the relevant catalog source." },
+    { system: "Achievements", command: "achievement / badge claim systems", module: "modules/achievements.py", source: "badge_claims, onboarding_rewards_log, weekly_rewards", dashboard_page: "Quests & Rewards / Achievements", status: tableExists(db, "badge_claims") || tableExists(db, "weekly_rewards") ? "READ_ONLY" : "UNVERIFIED_SCHEMA", notes: "Visible as diagnostics unless grant/revoke schema is verified." },
   ];
 }
 
@@ -4205,7 +4205,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     module: "rewards_commerce",
     command,
     display_name: displayName,
-    dashboard_page: "Economy & Rewards",
+    dashboard_page: "VIP & Luxe",
     dashboard_section: section,
     db_table: dbTable,
     db_key_or_column: key,
@@ -4222,7 +4222,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     module: "rewards_commerce",
     command,
     display_name: displayName,
-    dashboard_page: "Economy & Rewards",
+    dashboard_page: /Badge|Title/.test(displayName) ? "Titles & Badges" : "VIP & Luxe",
     dashboard_section: "Diagnostics",
     db_table: "runtime_constants",
     db_key_or_column: source,
@@ -4362,7 +4362,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     module: table === "bank_settings" ? "bank" : "economy",
     command,
     display_name: displayName,
-    dashboard_page: "Economy & Rewards",
+    dashboard_page: "Economy",
     dashboard_section: table === "bank_settings" ? "Bank / P2P Settings" : "Economy Settings",
     db_table: table,
     db_key_or_column: key,
@@ -4390,7 +4390,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     module: "mining",
     command,
     display_name: displayName,
-    dashboard_page: "Economy & Rewards",
+    dashboard_page: "Mining",
     dashboard_section: "Mining Settings",
     db_table: table,
     db_key_or_column: key,
@@ -4457,7 +4457,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     module: "fishing",
     command,
     display_name: displayName,
-    dashboard_page: "Economy & Rewards",
+    dashboard_page: "Fishing",
     dashboard_section: "Fishing Settings",
     db_table: "auto_activity_settings",
     db_key_or_column: key,
@@ -4478,7 +4478,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     module: "fishing",
     command,
     display_name: displayName,
-    dashboard_page: "Economy & Rewards",
+    dashboard_page: "Fishing",
     dashboard_section: "Advanced / Unverified Fishing",
     db_table: table,
     db_key_or_column: key,
@@ -4540,7 +4540,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     module: "quests",
     command,
     display_name: displayName,
-    dashboard_page: "Quests & Missions",
+    dashboard_page: "Quests & Rewards",
     dashboard_section: table === "quest_progress" ? "Player Progress" : table === "player_mission_sets" ? "Quest Catalog" : "Rewards",
     db_table: table,
     db_key_or_column: key,
@@ -4739,9 +4739,12 @@ function buildQaAudit() {
     ["Casino", "/api/casino"],
     ["Mining", "/api/mining"],
     ["Fishing", "/api/fishing"],
-    ["Quests & Missions", "/api/quests"],
     ["Automation Center", "/api/automation"],
-    ["Economy & Rewards", "/api/economy/overview"],
+    ["Economy", "/api/economy/overview"],
+    ["VIP & Luxe", "/api/commerce/overview"],
+    ["Titles & Badges", "/api/commerce/overview"],
+    ["Quests & Rewards", "/api/quests"],
+    ["Economy & Rewards", "/api/commerce/overview"],
     ["Room & Content", "/api/room-control"],
     ["Emotes", "/api/emotes/overview"],
     ["Events", "/api/events"],
@@ -4919,10 +4922,13 @@ function buildE2eAudit(db) {
     ["Casino", "/api/casino"],
     ["Mining", "/api/mining"],
     ["Fishing", "/api/fishing"],
-    ["Quests & Missions", "/api/quests"],
     ["Events", "/api/events"],
     ["Players", null],
-    ["Economy & Rewards", "/api/economy/overview"],
+    ["Economy", "/api/economy/overview"],
+    ["VIP & Luxe", "/api/commerce/overview"],
+    ["Titles & Badges", "/api/commerce/overview"],
+    ["Quests & Rewards", "/api/quests"],
+    ["Economy & Rewards", "/api/commerce/overview"],
     ["Leaderboards", "/api/leaderboards"],
     ["Security", "/api/security"],
     ["Staff", "/api/staff"],
@@ -7042,7 +7048,7 @@ app.get("/api/commerce/overview", requireAuth, requireAnyPermission("manage_rewa
   json(res, readCommerceDashboard(req.db));
 }, closeDb);
 
-app.get("/api/commerce/source-map", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "view_logs"), (req, res) => {
+app.get("/api/commerce/source-map", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy", "view_logs"), (req, res) => {
   json(res, { rows: commerceSourceMap(req.db), generated_at: new Date().toISOString() });
 }, closeDb);
 
@@ -7190,7 +7196,7 @@ app.put("/api/luxe/settings", requireAuth, requireAnyPermission("manage_rewards"
   json(res, { ok: true, settings: readLuxeSettings(req.db) });
 }, closeDb);
 
-app.get("/api/vip", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_players"), (req, res) => {
+app.get("/api/vip", requireAuth, requireAnyPermission("manage_rewards", "manage_inventory", "manage_economy", "manage_players"), (req, res) => {
   json(res, { vip_players: vipRows(req.db), source: "owned_items.item_id=vip", table_status: { owned_items: tableExists(req.db, "owned_items") } });
 }, closeDb);
 
@@ -7433,7 +7439,7 @@ app.delete("/api/quests/catalog/:id", requireAuth, requireOwner, (req, res) => {
   json(res, { ok: true, disabled: true });
 }, closeDb);
 
-app.get("/api/rewards/logs", requireAuth, requireAnyPermission("manage_rewards", "view_logs"), (req, res) => {
+app.get("/api/rewards/logs", requireAuth, requireAnyPermission("manage_rewards", "manage_economy", "view_logs"), (req, res) => {
   json(res, readRewardsDashboard(req.db).logs);
 }, closeDb);
 

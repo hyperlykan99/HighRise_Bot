@@ -33,12 +33,14 @@ const OWNER_NAV_GROUPS = [
     { id: "Casino", icon: "🎲", label: "Casino", permission: "manage_casino", keywords: "blackjack poker rbj ace chip" },
     { id: "Mining", icon: "⛏️", label: "Mining", permission: "manage_mining", keywords: "ores pickaxes drops" },
     { id: "Fishing", icon: "🎣", label: "Fishing", permission: "manage_fishing", keywords: "fish rods catches" },
-    { id: "Quests & Missions", icon: "📜", label: "Quests & Missions", permission: "manage_rewards", keywords: "daily weekly challenges" },
     { id: "Events", icon: "🎉", label: "Events", permission: "manage_events", keywords: "event points schedule votes" },
   ]},
   { group: "Players", items: [
     { id: "Players", icon: "👤", label: "Players", permission: "manage_players", keywords: "player search profile inventory moderation" },
-    { id: "Economy & Rewards", icon: "💰", label: "Economy & Rewards", permission: "manage_economy", keywords: "vip titles badges rewards shop coins" },
+    { id: "Economy", icon: "💰", label: "Economy", permission: "manage_economy", keywords: "coins balance bank p2p daily rewards grants transactions" },
+    { id: "VIP & Luxe", icon: "💎", label: "VIP & Luxe", permissionsAny: ["manage_rewards", "manage_economy"], keywords: "vip luxe tickets premium shop balances gold tips" },
+    { id: "Titles & Badges", icon: "🏅", label: "Titles & Badges", permissionsAny: ["manage_rewards", "manage_inventory"], keywords: "titles badges badge shop badge market ownership claims" },
+    { id: "Quests & Rewards", icon: "📜", label: "Quests & Rewards", permission: "manage_rewards", keywords: "quests missions daily weekly rewards achievements pending" },
     { id: "Leaderboards", icon: "🏆", label: "Leaderboards", permission: "view_logs", keywords: "rankings top public diagnostics" },
   ]},
   { group: "Safety", items: [
@@ -151,27 +153,53 @@ const RADIO_TABS = [
 ];
 const ECONOMY_TABS = [
   { id: "Overview", api: "/api/economy/overview" },
-  { id: "Economy", api: "/api/economy/settings" },
-  { id: "Bank", api: "/api/bank/settings" },
-  { id: "Commerce", api: "/api/commerce/overview" },
-  { id: "VIP", api: "/api/vip" },
+  { id: "Coins", api: "/api/economy/settings" },
+  { id: "Bank / P2P", api: "/api/bank/settings" },
+  { id: "Daily Rewards", api: "/api/rewards" },
+  { id: "Player Grants", api: "/api/rewards" },
+  { id: "Transactions", api: "/api/economy/transactions" },
+  { id: "Logs", api: "/api/rewards/logs" },
+  { id: "Advanced", api: "/api/rewards" },
+];
+const VIP_LUXE_TABS = [
+  { id: "Overview", api: "/api/commerce/overview" },
+  { id: "VIP Members", api: "/api/vip" },
+  { id: "Luxe Tickets", api: "/api/luxe" },
+  { id: "Luxe Shop", api: "/api/luxe/shop" },
+  { id: "Premium Balances", api: "/api/luxe/balances" },
+  { id: "Premium Transactions", api: "/api/luxe/transactions" },
+  { id: "Gold Tip Conversion", api: "/api/luxe/transactions" },
+  { id: "Settings", api: "/api/luxe" },
+  { id: "Logs", api: "/api/luxe/transactions" },
+  { id: "Advanced", api: "/api/commerce/overview" },
+];
+const TITLES_BADGES_TABS = [
+  { id: "Overview", api: "/api/commerce/overview" },
   { id: "Titles", api: "/api/titles" },
   { id: "Badges", api: "/api/badges/catalog" },
   { id: "Badge Shop", api: "/api/badge-shop" },
   { id: "Badge Market", api: "/api/badge-market" },
-  { id: "Luxe Shop", api: "/api/luxe/shop" },
-  { id: "Luxe Tickets", api: "/api/luxe" },
-  { id: "Rewards", api: "/api/rewards" },
-  { id: "Shop", api: "/api/shop" },
-  { id: "Owned Items", api: "/api/rewards" },
-  { id: "Quests", api: "/api/quests" },
-  { id: "Player Grants", api: "/api/rewards" },
-  { id: "Purchase History", api: "/api/shop/purchases" },
-  { id: "Transactions", api: "/api/luxe/transactions" },
-  { id: "Achievements", api: "/api/commerce/overview" },
+  { id: "Badge Wishlist", api: "/api/badge-market/logs" },
+  { id: "Badge Trades", api: "/api/badge-market/logs" },
+  { id: "Player Ownership", api: "/api/rewards" },
+  { id: "Claims / Achievements", api: "/api/commerce/overview" },
   { id: "Diagnostics", api: "/api/commerce/source-map" },
-  { id: "Logs", api: "/api/rewards/logs" },
-  { id: "Advanced", api: "/api/rewards" },
+  { id: "Advanced", api: "/api/commerce/overview" },
+];
+const QUESTS_REWARDS_TABS = [
+  { id: "Overview", api: "/api/quests" },
+  { id: "Quest Catalog", api: "/api/quests" },
+  { id: "Daily Quests", api: "/api/quests" },
+  { id: "Weekly Quests", api: "/api/quests" },
+  { id: "Event Quests", api: "/api/quests" },
+  { id: "Player Progress", api: "/api/quests" },
+  { id: "Reward Logs", api: "/api/rewards/logs" },
+  { id: "Pending Rewards", api: "/api/rewards" },
+  { id: "Achievements", api: "/api/commerce/overview" },
+  { id: "Advanced", api: "/api/quests" },
+];
+const LEGACY_ECONOMY_REWARDS_TABS = [
+  { id: "Overview", api: "/api/commerce/overview" },
 ];
 const MINING_TABS = [
   { id: "Overview", api: "/api/mining" },
@@ -294,7 +322,11 @@ const TAB_REGISTRY = {
   "Leaderboards": LEADERBOARD_TABS,
   "Room & Content": ROOM_TABS,
   "Emotes": EMOTE_TABS,
-  "Economy & Rewards": ECONOMY_TABS,
+  "Economy": ECONOMY_TABS,
+  "VIP & Luxe": VIP_LUXE_TABS,
+  "Titles & Badges": TITLES_BADGES_TABS,
+  "Quests & Rewards": QUESTS_REWARDS_TABS,
+  "Economy & Rewards": LEGACY_ECONOMY_REWARDS_TABS,
   "Mining": MINING_TABS,
   "Fishing": FISHING_TABS,
   "Quests & Missions": QUEST_TABS,
@@ -321,7 +353,11 @@ const PAGE_DESC = {
   "Fishing":           "Fishing catalog, settings, catch chances and logs",
   "Quests & Missions": "Daily, weekly, event and player mission progress",
   "Automation Center": "Scheduled announcements, promos, reminders and delivery queues",
-  "Economy & Rewards": "Coins, VIP, shop, titles, badges, quests and grants",
+  "Economy":           "Coins, balances, bank/P2P, daily rewards, grants and transaction logs",
+  "VIP & Luxe":        "VIP members, Luxe Tickets, premium balances, Luxe shop and conversion logs",
+  "Titles & Badges":   "Title catalogs, badge shop, badge market, ownership and claims",
+  "Quests & Rewards":  "Quests, missions, achievements, pending rewards and reward logs",
+  "Economy & Rewards": "Legacy reward hub linking to focused economy, VIP, title, badge and quest pages",
   "Staff":             "Dashboard users, permissions and bot roles",
   "System":            "Health monitoring, logs and emergency controls",
   "System Overview":   "Core dashboard service health and known DB tables",
@@ -728,6 +764,11 @@ function pageApi(page, tab) {
     "Casino":                             "/api/casino",
     "Quests & Missions":                  "/api/quests",
     "Automation Center":                  "/api/automation",
+    "Economy":                            "/api/economy/overview",
+    "VIP & Luxe":                         "/api/commerce/overview",
+    "Titles & Badges":                    "/api/commerce/overview",
+    "Quests & Rewards":                   "/api/quests",
+    "Economy & Rewards":                  "/api/commerce/overview",
     "Staff":                              "/api/staff",
     "Staff Home":                         "/api/overview",
     "Radio Queue":                        "/api/radio",
@@ -746,7 +787,7 @@ const state = {
   csrf: "",
   adminPage: (() => {
     const h = location.hash ? decodeURIComponent(location.hash.slice(1)) : "";
-    const all = [...OWNER_NAV, ...STAFF_NAV].map((n) => n.id);
+    const all = [...OWNER_NAV, ...STAFF_NAV].map((n) => n.id).concat(Object.keys(TAB_REGISTRY));
     return all.includes(h) ? h : "Command Center";
   })(),
   adminTab: {},
@@ -805,6 +846,7 @@ function visibleNavItems(nav) {
     if (item.hidden) return false;
     if (item.ownerOnly && state.user?.role !== "owner") return false;
     if (state.user?.role === "owner") return true;
+    if (Array.isArray(item.permissionsAny)) return item.permissionsAny.some((p) => can(p));
     return !item.permission || can(item.permission);
   });
 }
@@ -983,7 +1025,8 @@ async function loadAdmin() {
   const role = state.user?.role;
   const nav = visibleNavItems(role === "owner" ? OWNER_NAV : STAFF_NAV);
   const pageIds = new Set(nav.map((n) => navTarget(n).page));
-  if (!pageIds.has(state.adminPage)) {
+  const legacyOwnerPages = role === "owner" ? new Set(["Economy & Rewards", "Quests & Missions"]) : new Set();
+  if (!pageIds.has(state.adminPage) && !legacyOwnerPages.has(state.adminPage)) {
     const matchedVirtual = nav.find((n) => n.id === state.adminPage);
     const target = navTarget(matchedVirtual || nav[0] || { id: role === "owner" ? "Command Center" : "Staff Home" });
     state.adminPage = target.page;
@@ -998,7 +1041,8 @@ async function loadAdmin() {
   const tab = state.adminTab[page] || null;
   const url = page === "Logs" || (page === "System" && tab === "Logs")
     ? logsUrl() : pageApi(page, tab);
-  location.hash = encodeURIComponent(activeNavItem()?.id || page);
+  const activeItem = activeNavItem();
+  location.hash = encodeURIComponent(activeItem && navTarget(activeItem).page === page ? activeItem.id : page);
 
   if (!url) { state.data = {}; render(); return; }
   try { state.data = await api(url); state.error = ""; }
@@ -2277,7 +2321,7 @@ function renderAdminPage() {
   const d = state.data;
   const page = state.adminPage;
   const role = state.user?.role;
-  const nullDataOk = ["Players", "Bots", "Casino", "Room & Content", "Emotes", "Economy & Rewards",
+  const nullDataOk = ["Players", "Bots", "Casino", "Room & Content", "Emotes", "Economy", "VIP & Luxe", "Titles & Badges", "Quests & Rewards", "Economy & Rewards",
     "Radio", "Security", "Leaderboards", "Operations Center", "System", "Staff Home", "Players", "Moderation", "Events", "Room Tools", "Logs"];
   if (!d && state.error && !nullDataOk.includes(page)) return `<div class="card"><div class="empty-state"><div class="empty-state-icon">⚠️</div><strong style="color:var(--red);margin-bottom:4px">Failed to load</strong><span>${esc(state.error)}</span></div></div>`;
   if (!d && !nullDataOk.includes(page)) return `<div class="card"><div class="loading-state"><div class="loading-spinner"></div><span class="muted text-sm">Loading…</span></div></div>`;
@@ -2317,6 +2361,10 @@ function renderOwnerPage(page) {
     case "Quests & Missions": return renderQuestsMissionsPage(activeTab("Quests & Missions"));
     case "Automation Center": return renderAutomationCenterPage(activeTab("Automation Center"));
     case "Events":            return renderEventsOwnerPage();
+    case "Economy":           return renderEconomyPage(activeTab("Economy"));
+    case "VIP & Luxe":        return renderVipLuxePage(activeTab("VIP & Luxe"));
+    case "Titles & Badges":   return renderTitlesBadgesPage(activeTab("Titles & Badges"));
+    case "Quests & Rewards":  return renderQuestsRewardsPage(activeTab("Quests & Rewards"));
     case "Economy & Rewards": return renderEconomyRewards(activeTab("Economy & Rewards"));
     case "Staff":             return renderStaffPage_shared();
     case "System":            return renderSystemPage(activeTab("System"));
@@ -5639,35 +5687,98 @@ function renderAutomationAdvanced() {
 }
 
 /* ── Economy & Rewards ───────────────────────────────── */
-function renderEconomyRewards(tab) {
+function ownerPageHero(icon, title, subtitle) {
+  return `<div class="card page-hero-card">
+    <div>
+      <h2>${esc(icon)} ${esc(title)}</h2>
+      <p class="muted">${esc(subtitle)}</p>
+    </div>
+  </div>`;
+}
+
+function renderEconomyPage(tab) {
   return `
-    ${tabNav("Economy & Rewards")}
-    ${tab === "Overview"        ? renderEconomyOverview() : ""}
-    ${tab === "Casino"          ? renderCasinoTab() : ""}
-    ${tab === "Mining"          ? renderMiningTab() : ""}
-    ${tab === "Fishing"         ? renderFishingTab() : ""}
-    ${tab === "Games"           ? renderGamesTab() : ""}
-    ${tab === "Economy"         ? renderCoinsTab() : ""}
-    ${tab === "Bank"            ? renderBankTab() : ""}
-    ${tab === "Commerce"        ? renderCommerceOverviewTab() : ""}
-    ${tab === "VIP"             ? renderVipTab() : ""}
-    ${tab === "Titles"          ? renderTitlesTab() : ""}
-    ${tab === "Badges"          ? renderBadgesTab() : ""}
-    ${tab === "Badge Shop"      ? renderBadgeShopTab() : ""}
-    ${tab === "Badge Market"    ? renderBadgeMarketTab() : ""}
-    ${tab === "Luxe Shop"       ? renderLuxeShopTab() : ""}
-    ${tab === "Luxe Tickets"    ? renderLuxeTicketsTab() : ""}
-    ${tab === "Rewards"         ? renderRewardsTab() : ""}
-    ${tab === "Shop"            ? renderShopTab() : ""}
-    ${tab === "Owned Items"     ? renderOwnedItemsTab() : ""}
-    ${tab === "Quests"          ? renderQuestsTab() : ""}
-    ${tab === "Player Grants"   ? renderPlayerGrantsTab() : ""}
-    ${tab === "Purchase History" ? renderPurchaseHistoryTab() : ""}
-    ${tab === "Transactions"    ? renderPremiumTransactionsTab() : ""}
-    ${tab === "Achievements"    ? renderAchievementsTab() : ""}
-    ${tab === "Diagnostics"     ? renderCommerceDiagnosticsTab() : ""}
-    ${tab === "Logs"            ? renderRewardLogsTab() : ""}
-    ${tab === "Advanced"        ? renderRewardsAdvancedTab() : ""}
+    ${ownerPageHero("💰", "Economy", "Coins, balances, bank/P2P, daily rewards, grants and transaction logs.")}
+    ${tabNav("Economy")}
+    ${tab === "Overview"      ? renderEconomyOverview() : ""}
+    ${tab === "Coins"         ? renderCoinsTab() : ""}
+    ${tab === "Bank / P2P"    ? renderBankTab() : ""}
+    ${tab === "Daily Rewards" ? renderDailyRewardsTab() : ""}
+    ${tab === "Player Grants" ? renderPlayerGrantsTab() : ""}
+    ${tab === "Transactions"  ? renderEconomyTransactionsTab() : ""}
+    ${tab === "Logs"          ? renderRewardLogsTab() : ""}
+    ${tab === "Advanced"      ? renderRewardsAdvancedTab() : ""}
+  `;
+}
+
+function renderVipLuxePage(tab) {
+  return `
+    ${ownerPageHero("💎", "VIP & Luxe", "VIP members, Luxe Tickets, premium balances, premium shop settings and conversion history.")}
+    ${tabNav("VIP & Luxe")}
+    ${tab === "Overview"             ? renderVipLuxeOverview() : ""}
+    ${tab === "VIP Members"          ? renderVipTab() : ""}
+    ${tab === "Luxe Tickets"         ? renderLuxeTicketsTab() : ""}
+    ${tab === "Luxe Shop"            ? renderLuxeShopTab() : ""}
+    ${tab === "Premium Balances"     ? renderPremiumBalancesTab() : ""}
+    ${tab === "Premium Transactions" ? renderPremiumTransactionsTab() : ""}
+    ${tab === "Gold Tip Conversion"  ? renderGoldTipConversionTab() : ""}
+    ${tab === "Settings"             ? renderLuxeSettingsTab() : ""}
+    ${tab === "Logs"                 ? renderPremiumTransactionsTab() : ""}
+    ${tab === "Advanced"             ? renderCommerceDiagnosticsTab() : ""}
+  `;
+}
+
+function renderTitlesBadgesPage(tab) {
+  return `
+    ${ownerPageHero("🏅", "Titles & Badges", "Title catalogs, badge ownership, badge shop, badge market, trades, claims and diagnostics.")}
+    ${tabNav("Titles & Badges")}
+    ${tab === "Overview"              ? renderTitlesBadgesOverview() : ""}
+    ${tab === "Titles"                ? renderTitlesTab() : ""}
+    ${tab === "Badges"                ? renderBadgesTab() : ""}
+    ${tab === "Badge Shop"            ? renderBadgeShopTab() : ""}
+    ${tab === "Badge Market"          ? renderBadgeMarketTab() : ""}
+    ${tab === "Badge Wishlist"        ? renderBadgeWishlistTab() : ""}
+    ${tab === "Badge Trades"          ? renderBadgeTradesTab() : ""}
+    ${tab === "Player Ownership"      ? renderPlayerOwnershipTab() : ""}
+    ${tab === "Claims / Achievements" ? renderAchievementsTab() : ""}
+    ${tab === "Diagnostics"           ? renderCommerceDiagnosticsTab() : ""}
+    ${tab === "Advanced"              ? renderCommerceDiagnosticsTab() : ""}
+  `;
+}
+
+function renderQuestsRewardsPage(tab) {
+  return `
+    ${ownerPageHero("📜", "Quests & Rewards", "Daily, weekly and event quests with player progress, pending rewards and achievement history.")}
+    ${tabNav("Quests & Rewards")}
+    ${tab === "Overview"         ? renderQuestOverviewPage() : ""}
+    ${tab === "Quest Catalog"    ? renderQuestCatalogPage() : ""}
+    ${tab === "Daily Quests"     ? renderQuestListPage("Daily Quests", state.data?.daily_quests || []) : ""}
+    ${tab === "Weekly Quests"    ? renderQuestListPage("Weekly Quests", state.data?.weekly_quests || []) : ""}
+    ${tab === "Event Quests"     ? renderQuestListPage("Event Quests", state.data?.event_quests || []) : ""}
+    ${tab === "Player Progress"  ? renderQuestProgressPage() : ""}
+    ${tab === "Reward Logs"      ? renderRewardLogsTab() : ""}
+    ${tab === "Pending Rewards"  ? renderPendingRewardsTab() : ""}
+    ${tab === "Achievements"     ? renderAchievementsTab() : ""}
+    ${tab === "Advanced"         ? renderQuestAdvancedPage() : ""}
+  `;
+}
+
+function renderEconomyRewards() {
+  const links = [
+    ["Economy", "💰", "Coins, balances, bank/P2P, daily rewards, grants and logs."],
+    ["VIP & Luxe", "💎", "VIP, Luxe Tickets, premium balances and shop settings."],
+    ["Titles & Badges", "🏅", "Titles, badges, badge shop, badge market and ownership."],
+    ["Quests & Rewards", "📜", "Quests, missions, achievements and pending rewards."],
+  ];
+  return `
+    ${ownerPageHero("💰", "Economy & Rewards", "This legacy hub has been split into focused owner pages. Existing APIs and bookmarked route remain available.")}
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+      ${links.map(([page, icon, desc]) => `<div class="card">
+        <div class="card-header"><h2>${esc(icon)} ${esc(page)}</h2></div>
+        <p class="muted">${esc(desc)}</p>
+        <button class="btn primary sm" data-admin-page="${esc(page)}">Open ${esc(page)}</button>
+      </div>`).join("")}
+    </div>
   `;
 }
 
@@ -5700,6 +5811,138 @@ function renderEconomyOverview() {
       </div>
     </div>
   `;
+}
+
+function renderDailyRewardsTab() {
+  const d = state.data || {};
+  const rewards = d.rewards || {};
+  return `<div class="grid">
+    <div class="card"><h2>Daily / Pending Coin Rewards</h2>${table(rewards.pending_coin_rewards || d.pending_coin_rewards || [])}</div>
+    <div class="card"><h2>Weekly Rewards</h2>${table(rewards.weekly_rewards || d.weekly_rewards || [])}</div>
+    <div class="card"><h2>Onboarding Rewards</h2>${table(rewards.onboarding || d.onboarding || [])}</div>
+    <div class="card"><h2>Weekly Snapshots</h2>${table(rewards.weekly_snapshots || d.weekly_snapshots || [])}</div>
+  </div>
+  <div class="notice">Daily reward edits stay hidden unless a runtime-connected source is verified. Use Player Grants for owner-audited manual rewards.</div>`;
+}
+
+function renderEconomyTransactionsTab() {
+  const d = state.data || {};
+  const tx = d.transactions || {};
+  return `<div class="grid">
+    <div class="card"><h2>Ledger</h2>${table(d.ledger || tx.ledger || [])}</div>
+    <div class="card"><h2>Economy Transactions</h2>${table(d.economy_transactions || tx.economy_transactions || [])}</div>
+    <div class="card"><h2>Bank / P2P Transactions</h2>${table(d.bank_transactions || tx.bank_transactions || [])}</div>
+  </div>`;
+}
+
+function renderVipLuxeOverview() {
+  const d = state.data || {};
+  const overview = d.overview || {};
+  const luxe = d.luxe || {};
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+    ${metricCard("VIP Players", overview.vip_players ?? luxe.vip_players ?? "—", "owned_items / subscriber sources", "accent-green", "⭐")}
+    ${metricCard("Luxe Balances", overview.premium_balances ?? (luxe.balances || []).length ?? "—", "premium_balances", "accent-cyan", "🎟️")}
+    ${metricCard("Luxe Transactions", overview.premium_transactions ?? (luxe.transactions || []).length ?? "—", "premium_transactions", "", "📜")}
+    ${metricCard("Shop Items", overview.luxe_shop_items ?? (luxe.shop || []).length ?? "—", "Luxe catalog", "", "🛍️")}
+  </div>
+  <div class="grid">
+    <div class="card"><h2>VIP Source</h2>${table((d.source_map || []).filter((r) => /vip/i.test(`${r.system || ""} ${r.notes || ""}`)))}</div>
+    <div class="card"><h2>Luxe Source</h2>${table((d.source_map || []).filter((r) => /luxe|premium/i.test(`${r.system || ""} ${r.source || ""}`)))}</div>
+  </div>`;
+}
+
+function renderPremiumBalancesTab() {
+  const d = state.data || {};
+  return `<div class="card">
+    <div class="card-header"><h2>Premium Balances</h2>${statusPill("CONNECTED")}</div>
+    ${table(d.rows || d.balances || d.luxe?.balances || [], [
+      { key: "username", label: "Player" },
+      { key: "luxe_tickets", label: "Luxe Tickets", render: (r) => Number(r.luxe_tickets || 0).toLocaleString() },
+      { key: "updated_at", label: "Updated" },
+    ])}
+  </div>`;
+}
+
+function renderGoldTipConversionTab() {
+  const d = state.data || {};
+  const rows = d.conversion_logs || d.luxe?.conversion_logs || [];
+  return `<div class="card">
+    <div class="card-header"><h2>Gold Tip Conversion</h2><span class="pill info">READ ONLY</span></div>
+    ${rows.length ? table(rows) : `<div class="empty-state"><div class="empty-state-icon">💸</div><strong>No conversion logs yet.</strong><span>Gold tip conversion rows will appear here when the runtime records them.</span></div>`}
+  </div>`;
+}
+
+function renderLuxeSettingsTab() {
+  const d = state.data || {};
+  const settings = d.settings || d.luxe?.settings || {};
+  const fields = [
+    ["luxe_rate", "Luxe Ticket Rate"],
+    ["vip_duration_days", "VIP Duration Days"],
+    ["coinpack_small_tickets", "Small Coin Pack Tickets"],
+    ["coinpack_small_coins", "Small Coin Pack Coins"],
+    ["coinpack_medium_tickets", "Medium Coin Pack Tickets"],
+    ["coinpack_medium_coins", "Medium Coin Pack Coins"],
+    ["coinpack_large_tickets", "Large Coin Pack Tickets"],
+    ["coinpack_large_coins", "Large Coin Pack Coins"],
+  ];
+  return `<div class="card">
+    <div class="card-header"><h2>Luxe Settings</h2>${statusPill("CONNECTED")}</div>
+    ${state.user?.role === "owner" ? `<form id="luxeSettingsForm" class="settings-form">
+      ${fields.map(([key, label]) => `<div class="field"><label class="field-label">${esc(label)}</label><input name="${esc(key)}" value="${esc(settings[key] ?? "")}" /></div>`).join("")}
+      <div class="field"><label class="field-label">Reason</label><input name="reason" required /></div>
+      <button class="btn primary">Save Luxe Settings</button>
+    </form>` : `<div class="notice">Owner role required for Luxe settings writes.</div>`}
+  </div>`;
+}
+
+function renderTitlesBadgesOverview() {
+  const d = state.data || {};
+  const overview = d.overview || {};
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+    ${metricCard("Owned Items", overview.owned_items ?? "—", "owned_items", "", "🎒")}
+    ${metricCard("Title Rows", overview.titles ?? overview.user_titles ?? "—", "title sources", "", "👑")}
+    ${metricCard("Badge Rows", overview.badges ?? overview.user_badges ?? "—", "badge sources", "accent-cyan", "🏅")}
+    ${metricCard("Market Listings", overview.badge_market_listings ?? "—", "badge_market_listings", "", "🏷️")}
+  </div>
+  <div class="card"><h2>Commerce Source Map</h2>${table((d.source_map || []).filter((r) => /title|badge|market|achievement/i.test(`${r.system || ""} ${r.source || ""} ${r.notes || ""}`)), [
+    { key: "system", label: "System" },
+    { key: "command", label: "Commands" },
+    { key: "source", label: "Source" },
+    { key: "status", label: "Status", render: (r) => statusPill(r.status) },
+    { key: "notes", label: "Notes" },
+  ])}</div>`;
+}
+
+function renderBadgeWishlistTab() {
+  const d = state.data || {};
+  return `<div class="card"><h2>Badge Wishlist</h2>${table(d.wishlist || d.badge_market?.wishlist || [])}</div>`;
+}
+
+function renderBadgeTradesTab() {
+  const d = state.data || {};
+  return `<div class="grid">
+    <div class="card"><h2>Badge Trades</h2>${table(d.trades || d.badge_market?.trades || [])}</div>
+    <div class="card"><h2>Market Logs</h2>${table(d.logs || d.badge_market?.logs || [])}</div>
+  </div>`;
+}
+
+function renderPlayerOwnershipTab() {
+  const d = state.data || {};
+  return `<div class="grid">
+    <div class="card"><h2>Owned Items</h2>${table(d.owned_items || [])}</div>
+    <div class="card"><h2>Assigned Titles</h2>${table([...(d.titles?.assigned || []), ...(d.user_titles || [])])}</div>
+    <div class="card"><h2>Owned Badges</h2>${table(d.badges?.owned || d.owned || [])}</div>
+  </div>
+  <div class="notice">Use the Player Grants tab on Economy for audited ownership changes.</div>`;
+}
+
+function renderPendingRewardsTab() {
+  const d = state.data || {};
+  const rewards = d.rewards || {};
+  return `<div class="grid">
+    <div class="card"><h2>Pending Coin Rewards</h2>${table(rewards.pending_coin_rewards || d.pending_coin_rewards || [])}</div>
+    <div class="card"><h2>Weekly Rewards</h2>${table(rewards.weekly_rewards || d.weekly_rewards || [])}</div>
+  </div>`;
 }
 
 function renderCasinoTab() {
@@ -6604,7 +6847,7 @@ function renderQuestsTab() {
         <h2>Quests & Missions Summary</h2>
         <p class="muted">Full quest catalog, player progress, rewards and logs live in the dedicated owner page.</p>
       </div>
-      <button class="btn primary sm" data-admin-page="Quests & Missions">Open Quests & Missions</button>
+      <button class="btn primary sm" data-admin-page="Quests & Rewards">Open Quests & Rewards</button>
     </div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
       ${metricCard("Active Quests", o.active_quests ?? 0, "catalog rows", "", "📜")}
@@ -7999,6 +8242,14 @@ function bindAdminPageEvents() {
     const key = String(data.item_key || "").trim();
     confirmAction("Save Luxe Item", `Save Luxe item ${key}?`, async () => {
       await action("Luxe item saved.", () => api(`/api/luxe/shop/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(data) }));
+      await loadAdmin();
+    });
+  });
+  document.getElementById("luxeSettingsForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Save Luxe Settings", "Save connected Luxe ticket and premium shop settings?", async () => {
+      await action("Luxe settings saved.", () => api("/api/luxe/settings", { method: "PUT", body: JSON.stringify(data) }));
       await loadAdmin();
     });
   });
