@@ -1491,6 +1491,183 @@ pre.mono-block {
   gap: 16px;
 }
 
+.manual-game-hero {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.manual-game-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(155,94,255,0.22), rgba(34,215,255,0.12));
+  border: 1px solid rgba(155,94,255,0.24);
+  font-size: 28px;
+}
+
+.manual-game-hero h3 {
+  margin-bottom: 4px;
+  font-size: 22px;
+}
+
+.manual-game-hero p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.manual-feature-card {
+  display: grid;
+  gap: 12px;
+}
+
+.rarity-guide,
+.rarity-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rarity-tabs {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(6,8,20,0.46);
+}
+
+.rarity-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 999px;
+  padding: 3px;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.rarity-tab:hover,
+.rarity-tab:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(34,215,255,0.28);
+}
+
+.rarity-tab.active {
+  background: rgba(155,94,255,0.14);
+  border-color: rgba(155,94,255,0.34);
+}
+
+.rarity-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(140,150,170,0.12);
+  color: #d7dbea;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rarity-common { color: #d6dae6; background: rgba(180,190,210,0.10); border-color: rgba(180,190,210,0.20); }
+.rarity-uncommon { color: #7dffb1; background: rgba(44,230,161,0.11); border-color: rgba(44,230,161,0.26); }
+.rarity-rare { color: #7ee8ff; background: rgba(34,215,255,0.12); border-color: rgba(34,215,255,0.30); }
+.rarity-epic { color: #d4b4ff; background: rgba(155,94,255,0.14); border-color: rgba(155,94,255,0.34); }
+.rarity-legendary { color: #ffd979; background: rgba(255,202,106,0.13); border-color: rgba(255,202,106,0.36); }
+.rarity-mythic { color: #ff90b7; background: rgba(255,77,106,0.13); border-color: rgba(255,77,106,0.34); }
+.rarity-exotic { color: #ffab7a; background: rgba(255,112,67,0.14); border-color: rgba(255,112,67,0.36); }
+.rarity-prismatic {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(155,94,255,0.25), rgba(34,215,255,0.22), rgba(44,230,161,0.18));
+  border-color: rgba(255,255,255,0.26);
+  box-shadow: 0 0 18px rgba(155,94,255,0.20);
+}
+
+.manual-catalog-grid,
+.manual-preview-list {
+  display: grid;
+  gap: 10px;
+}
+
+.manual-catalog-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.manual-catalog-card,
+.manual-preview-row {
+  border: 1px solid rgba(120,100,220,0.16);
+  border-radius: 14px;
+  background: rgba(6,8,20,0.42);
+}
+
+.manual-catalog-card {
+  padding: 13px;
+  display: grid;
+  gap: 11px;
+}
+
+.manual-catalog-head,
+.manual-preview-row > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.manual-catalog-head strong,
+.manual-preview-row strong {
+  min-width: 0;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manual-catalog-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.manual-catalog-meta span {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.manual-catalog-meta b {
+  color: #dfe6ff;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.manual-preview-row {
+  padding: 12px 13px;
+  display: grid;
+  gap: 8px;
+}
+
+.manual-preview-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.manual-preview-meta span {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.045);
+}
+
 .manual-hero {
   display: grid;
   gap: 12px;
@@ -2448,6 +2625,20 @@ details.advanced-controls {
 
   .topbar-left h1 {
     align-items: flex-start;
+  }
+
+  .manual-game-hero {
+    align-items: flex-start;
+  }
+
+  .manual-catalog-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .rarity-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 

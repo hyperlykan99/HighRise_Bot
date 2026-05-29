@@ -2787,6 +2787,73 @@ const MINING_RARITY_PROBS = {
   exotic: 0.0002,
 };
 
+const MINING_RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic", "exotic", "prismatic"];
+const FISHING_RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic", "exotic"];
+const RARITY_LABELS = {
+  common: "Common",
+  uncommon: "Uncommon",
+  rare: "Rare",
+  epic: "Epic",
+  legendary: "Legendary",
+  mythic: "Mythic",
+  ultra_rare: "Mythic",
+  exotic: "Exotic",
+  prismatic: "Prismatic",
+};
+
+function normalizeRarity(value) {
+  const raw = String(value || "common").trim().toLowerCase();
+  return raw === "ultra_rare" ? "mythic" : raw;
+}
+
+function rarityRank(value, order = MINING_RARITY_ORDER) {
+  const idx = order.indexOf(normalizeRarity(value));
+  return idx === -1 ? -1 : idx;
+}
+
+function chanceTextFromPercent(value, zeroText = "Not currently dropping") {
+  if (value === null || value === undefined || value === "") return "Unknown";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "Unknown";
+  if (n <= 0) return zeroText;
+  const pct = n < 0.0001 ? "<0.0001%" : `${Number(n.toFixed(4)).toString()}%`;
+  const oneIn = n > 0 ? Math.max(1, Math.round(100 / n)) : null;
+  return oneIn ? `${pct} · about 1 in ${oneIn.toLocaleString("en-US")}` : pct;
+}
+
+function groupByRarity(rows, order) {
+  const grouped = Object.fromEntries(order.map((rarity) => [rarity, []]));
+  for (const row of rows) {
+    const rarity = normalizeRarity(row.rarity);
+    if (!grouped[rarity]) grouped[rarity] = [];
+    grouped[rarity].push(row);
+  }
+  return grouped;
+}
+
+function commandExists(command) {
+  const names = [command, command.replace(/^!/, "")].map((x) => String(x || "").replace(/^!/, "").toLowerCase());
+  const files = [
+    path.join(BOT_ROOT, "modules", "command_registry.py"),
+    path.join(BOT_ROOT, "modules", "help_cmds.py"),
+    path.join(BOT_ROOT, "modules", "multi_bot.py"),
+    path.join(BOT_ROOT, "modules", "cmd_audit.py"),
+    path.join(BOT_ROOT, "modules", "mining.py"),
+    path.join(BOT_ROOT, "modules", "fishing.py"),
+  ];
+  const source = files.map((filePath) => fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8").toLowerCase() : "").join("\n");
+  return names.some((name) => new RegExp(`["'!]${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(source));
+}
+
+function verifiedCommands(specs) {
+  return specs
+    .filter((spec) => commandExists(spec.command))
+    .map((spec) => ({
+      command: spec.display || `!${spec.command}`,
+      description: spec.description,
+    }));
+}
+
 const PICKAXE_CATALOG = [
   ["pickaxe_lv1", "Worn Pickaxe", 1, 30],
   ["pickaxe_lv2", "Copper Pickaxe", 2, 55],
@@ -4784,40 +4851,97 @@ function publicHowToPlayPayload(db) {
   const poker = readActivePokerSettings(db);
   const miningSettings = readActiveMiningSettings(db);
   const fishingSettings = readActiveFishingSettings(db);
-  const miningOdds = calculateMiningDropRows(db)
-    .sort((a, b) => Number(a.chance_percent || 0) - Number(b.chance_percent || 0));
+  const miningOdds = calculateMiningDropRows(db);
   if (!tableExists(db, "mining_items")) missingTable("mining_items");
   for (const col of ["item_id", "name", "rarity", "sell_value", "drop_enabled"]) missingColumn("mining_items", col);
   const ores = miningItemRows(db, true).map((row) => {
     const odd = miningOdds.find((o) => o.item_id === row.item_id || o.ore === row.name);
+    const chance = odd?.chance_percent ?? null;
     return {
       item_id: row.item_id,
       name: row.name,
       emoji: row.emoji,
-      rarity: row.rarity,
+      rarity: normalizeRarity(row.rarity),
+      rarity_label: RARITY_LABELS[normalizeRarity(row.rarity)] || row.rarity || "Common",
       value: row.sell_value,
       enabled: row.drop_enabled,
-      chance_percent: odd?.chance_percent ?? null,
+      chance_percent: chance,
+      chance_label: chanceTextFromPercent(chance, "Not currently dropping"),
       event_only: odd?.event_only ?? 0,
     };
-  }).slice(0, 100);
+  }).sort((a, b) => rarityRank(a.rarity, MINING_RARITY_ORDER) - rarityRank(b.rarity, MINING_RARITY_ORDER)
+    || Number(b.chance_percent ?? -1) - Number(a.chance_percent ?? -1)
+    || Number(b.value || 0) - Number(a.value || 0)
+    || String(a.name || "").localeCompare(String(b.name || ""))).slice(0, 200);
   const fishCode = readFishingCodeCatalog();
-  const fishingOdds = calculateFishDropRows()
-    .sort((a, b) => Number(a.chance_percent || 0) - Number(b.chance_percent || 0));
+  const fishingOdds = calculateFishDropRows();
   const fish = fishCode.fish.map((row) => {
     const odd = fishingOdds.find((o) => o.fish_id === row.fish_id || o.fish === row.name);
+    const chance = odd?.chance_percent ?? null;
     return {
       fish_id: row.fish_id,
       name: row.name,
-      rarity: row.rarity,
+      rarity: normalizeRarity(row.rarity),
+      rarity_label: RARITY_LABELS[normalizeRarity(row.rarity)] || row.rarity || "Common",
       base_value: row.base_value,
       min_weight: row.min_weight,
       max_weight: row.max_weight,
       catch_weight: row.drop_weight,
-      chance_percent: odd?.chance_percent ?? null,
+      chance_percent: chance,
+      chance_label: chanceTextFromPercent(chance, "Not currently catching"),
       event_only: 0,
     };
-  }).slice(0, 100);
+  }).sort((a, b) => rarityRank(a.rarity, FISHING_RARITY_ORDER) - rarityRank(b.rarity, FISHING_RARITY_ORDER)
+    || Number(b.chance_percent ?? -1) - Number(a.chance_percent ?? -1)
+    || Number(b.base_value || 0) - Number(a.base_value || 0)
+    || Number(b.max_weight || 0) - Number(a.max_weight || 0)
+    || String(a.name || "").localeCompare(String(b.name || ""))).slice(0, 200);
+  const miningCommands = verifiedCommands([
+    { command: "mine", display: "!mine", description: "Mine for ores, coins, and mining XP." },
+    { command: "topminers", display: "!topminers", description: "Open the mining leaderboard." },
+    { command: "orebook", display: "!orebook", description: "View your ore discovery book." },
+    { command: "ores", display: "!ores / !mineinv", description: "View your mining inventory." },
+    { command: "sellores", display: "!sellores", description: "Sell ores from your mining inventory." },
+    { command: "tool", display: "!tool / !pickaxe", description: "Check your pickaxe/tool status." },
+    { command: "upgradetool", display: "!upgradetool", description: "Upgrade your mining tool when eligible." },
+    { command: "mineprofile", display: "!mineprofile", description: "View mining profile and rank." },
+    { command: "minelb", display: "!minelb", description: "Show mining leaderboard details." },
+    { command: "mineshop", display: "!mineshop", description: "View mining shop/tool options." },
+    { command: "minedaily", display: "!minedaily", description: "Claim mining daily reward if active." },
+    { command: "orelist", display: "!orelist [rarity]", description: "Browse ores by rarity." },
+    { command: "rarelog", display: "!rarelog", description: "View recent rare ore discoveries." },
+    { command: "mineluck", display: "!mineluck", description: "Check mining luck stack/boosts." },
+    { command: "contracts", display: "!contracts", description: "View mining jobs/contracts when active." },
+  ]);
+  const fishingCommands = verifiedCommands([
+    { command: "fish", display: "!fish", description: "Cast your line and catch fish." },
+    { command: "topfishers", display: "!topfishers", description: "Open the fishing leaderboard." },
+    { command: "fishbook", display: "!fishbook", description: "View your fish discovery book." },
+    { command: "myfish", display: "!myfish / !fishinv / !fishbag", description: "View your fish inventory." },
+    { command: "sellfish", display: "!sellfish", description: "Sell fish from your inventory." },
+    { command: "sellallfish", display: "!sellallfish", description: "Sell all eligible fish." },
+    { command: "fishlist", display: "!fishlist", description: "Browse fish by rarity." },
+    { command: "fishprices", display: "!fishprices", description: "View fish values." },
+    { command: "fishinfo", display: "!fishinfo [fish]", description: "View details for one fish." },
+    { command: "fishautosell", display: "!fishautosell", description: "Manage fish auto-sell if enabled." },
+    { command: "fishautosellrare", display: "!fishautosellrare", description: "Protect rare fish from auto-sell." },
+    { command: "fishluck", display: "!fishluck", description: "Check fishing luck stack/boosts." },
+    { command: "fishhelp", display: "!fishhelp / !fishinghelp", description: "Show fishing help." },
+    { command: "topfish", display: "!topfish / !fishlb", description: "Show fishing leaderboard details." },
+    { command: "topweightfish", display: "!topweightfish", description: "Show heaviest fish rankings." },
+  ]);
+  const rareMiningPreview = ores
+    .filter((row) => Number(row.chance_percent || 0) > 0 && ["prismatic", "exotic", "legendary", "mythic", "epic", "rare"].includes(row.rarity))
+    .sort((a, b) => rarityRank(b.rarity, MINING_RARITY_ORDER) - rarityRank(a.rarity, MINING_RARITY_ORDER)
+      || Number(a.chance_percent || 0) - Number(b.chance_percent || 0)
+      || Number(b.value || 0) - Number(a.value || 0))
+    .slice(0, 6);
+  const rareFishingPreview = fish
+    .filter((row) => Number(row.chance_percent || 0) > 0 && ["mythic", "legendary", "exotic", "epic", "rare"].includes(row.rarity))
+    .sort((a, b) => rarityRank(b.rarity, FISHING_RARITY_ORDER) - rarityRank(a.rarity, FISHING_RARITY_ORDER)
+      || Number(a.chance_percent || 0) - Number(b.chance_percent || 0)
+      || Number(b.base_value || 0) - Number(a.base_value || 0))
+    .slice(0, 6);
   const rankings = buildLeaderboards(db);
   const eventCurrent = safeRows(db, "event_settings", ["key", "value"], { where: "key IN ('event_active','event_name','event_expires_at')", limit: "20" });
   const scheduled = safeRows(db, "scheduled_events", ["id", "name", "description", "starts_at", "ends_at", "points", "reward"], { orderBy: "starts_at ASC", limit: "10" });
@@ -4855,10 +4979,30 @@ function publicHowToPlayPayload(db) {
       },
     },
     mining: {
-      settings: miningSettings,
+      basics: [
+        "Use !mine to search for ores.",
+        "Mining can reward coins, mining XP, rare ores, and leaderboard progress.",
+        "Rare ores can trigger announcements and bonus rewards.",
+        "Better tools or pickaxes may improve progression when that system is active.",
+      ],
+      player_settings: {
+        cooldown: miningSettings.base_cooldown_seconds ? `Mining has a short cooldown between attempts.` : "",
+        announcements: miningSettings.mining_announce_enabled === "1" ? "Rare finds may be announced in-room." : "",
+        tools: "Pickaxes are represented by mining tool levels when active.",
+      },
+      commands: miningCommands,
+      rarity_order: MINING_RARITY_ORDER,
+      rarity_chips: MINING_RARITY_ORDER.map((rarity) => ({ rarity, label: RARITY_LABELS[rarity] || rarity })),
       ores,
-      odds: miningOdds.slice(0, 100),
-      rarest: miningOdds.filter((row) => Number(row.chance_percent || 0) > 0).slice(0, 3),
+      ores_by_rarity: groupByRarity(ores, MINING_RARITY_ORDER),
+      odds: miningOdds.map((row) => ({ ...row, rarity: normalizeRarity(row.rarity), chance_label: chanceTextFromPercent(row.chance_percent, "Not currently dropping") })).slice(0, 100),
+      rare_preview: rareMiningPreview,
+      rarest: rareMiningPreview,
+      odds_notes: [
+        "Drop chances are calculated from active rarity weights and enabled catalog rows when available.",
+        "Very tiny active chances are shown as <0.0001% instead of rounded to zero.",
+        "Events, boosts, and tools may affect live results when the bot enables them.",
+      ],
       tools: PICKAXE_CATALOG,
       leaderboards: {
         top_miners: rankings.leaderboards?.mining_top || [],
@@ -4868,10 +5012,30 @@ function publicHowToPlayPayload(db) {
       },
     },
     fishing: {
-      settings: fishingSettings,
+      basics: [
+        "Use !fish to cast your line.",
+        "Fishing can reward coins, fishing XP, big catches, rare fish, and leaderboard progress.",
+        "Rare and heavy catches can appear on leaderboards.",
+        "Rods or tools may improve catches when that system is active.",
+      ],
+      player_settings: {
+        cooldown: fishingSettings.fish_base_interval ? "Fishing has a short cooldown between casts." : "",
+        auto: fishingSettings.autofish_enabled === "1" ? "AutoFish may be available from in-room commands when enabled." : "",
+        tools: "Rods and boosts are shown when the active fishing module exposes public data.",
+      },
+      commands: fishingCommands,
+      rarity_order: FISHING_RARITY_ORDER,
+      rarity_chips: FISHING_RARITY_ORDER.map((rarity) => ({ rarity, label: RARITY_LABELS[rarity] || rarity })),
       fish,
-      odds: fishingOdds.slice(0, 100),
-      rarest: fishingOdds.filter((row) => Number(row.chance_percent || 0) > 0).slice(0, 3),
+      fish_by_rarity: groupByRarity(fish, FISHING_RARITY_ORDER),
+      odds: fishingOdds.map((row) => ({ ...row, rarity: normalizeRarity(row.rarity), chance_label: chanceTextFromPercent(row.chance_percent, "Not currently catching") })).slice(0, 100),
+      rare_preview: rareFishingPreview,
+      rarest: rareFishingPreview,
+      odds_notes: [
+        "Catch chances are calculated from active fish weights when available.",
+        "Very tiny active chances are shown as <0.0001% instead of rounded to zero.",
+        "Rods, boosts, events, and VIP bonuses may affect live catches when enabled.",
+      ],
       rods: fishCode.rods,
       leaderboards: {
         top_fishers: rankings.leaderboards?.fishing_top || [],
@@ -4909,12 +5073,8 @@ function publicHowToPlayPayload(db) {
       { category: "Poker", command: "!poker / !poker table", description: "Show poker table/status.", availability: "if available" },
       { category: "Poker", command: "!leave", description: "Leave the poker table when allowed." },
       { category: "Poker", command: "!check / !call / !raise [amount] / !fold / !allin", description: "Poker actions on your turn." },
-      { category: "Mining", command: "!mine", description: "Mine for ores, coins, and XP." },
-      { category: "Mining", command: "!inventory / !sell", description: "View or sell mining inventory.", availability: "if available" },
-      { category: "Mining", command: "!topminers", description: "Mining leaderboard." },
-      { category: "Fishing", command: "!fish", description: "Catch fish for coins and XP." },
-      { category: "Fishing", command: "!fish inventory / !autosell", description: "View catches or manage auto-sell.", availability: "if available" },
-      { category: "Fishing", command: "!topfishers", description: "Fishing leaderboard." },
+      ...miningCommands.map((cmd) => ({ category: "Mining", ...cmd })),
+      ...fishingCommands.map((cmd) => ({ category: "Fishing", ...cmd })),
       { category: "Emotes", command: "!emote [name]", description: "Trigger a known emote.", availability: "if available" },
       { category: "Emotes", command: "!sync / !syncstop / !syncstatus", description: "Join, stop, or check sync.", availability: "if available" },
       { category: "Events", command: "!events / !event", description: "Check current events.", availability: "if available" },
