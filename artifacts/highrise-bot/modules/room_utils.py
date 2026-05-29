@@ -54,6 +54,10 @@ _emote_loops: dict[str, asyncio.Task] = {}
 _bot_spawn_restore_tasks: dict[str, asyncio.Task] = {}
 _bot_presence_watchdog_task: asyncio.Task | None = None
 _bot_presence_retry_last: dict[str, float] = {}
+_bot_presence_uncertain_counts: dict[str, int] = {}
+_bot_presence_restore_failures: dict[str, int] = {}
+_bot_presence_safe: bool = True
+_bad_spawn_cleanup_done: bool = False
 
 # Fallback keys used when upgraded-room startup cannot resolve the live bot
 # username before spawn restore runs. Exact username rows still win first.
@@ -265,6 +269,67 @@ def _current_canonical_bot_identity() -> tuple[str, str]:
     return mode, username
 
 
+def _guardian_log(mode: str, username: str, event: str, extra: str = "", *, cooldown: float = 60.0) -> None:
+    suffix = f" {extra}" if extra else ""
+    log_cooldown(
+        f"bot_guardian:{mode}:{username}:{event}:{extra[:80]}",
+        f"[BOT_GUARDIAN] mode={mode} username={username} event={event}{suffix}",
+        seconds=cooldown,
+        cross_process=True,
+    )
+
+
+def mark_current_bot_presence_ok() -> None:
+    """Mark this process' bot account as safe for persistent bot self-emotes."""
+    global _bot_presence_safe
+    mode, username = _current_canonical_bot_identity()
+    _bot_presence_safe = True
+    _bot_presence_uncertain_counts[f"{mode}:{username}"] = 0
+    _guardian_log(mode, username, "presence_ok", cooldown=120.0)
+
+
+def mark_current_bot_presence_uncertain(reason: str = "") -> None:
+    """Mark this process' bot account as unsafe for persistent bot self-emotes."""
+    global _bot_presence_safe
+    mode, username = _current_canonical_bot_identity()
+    _bot_presence_safe = False
+    _guardian_log(mode, username, "presence_uncertain", f"reason={reason or 'unknown'}", cooldown=60.0)
+
+
+def is_current_bot_presence_safe() -> bool:
+    return _bot_presence_safe
+
+
+def _cleanup_bad_safe_test_spawn_once() -> int:
+    """Remove only the known bad ChillTopiaMC zero-position test spawn row."""
+    global _bad_spawn_cleanup_done
+    if _bad_spawn_cleanup_done:
+        return 0
+    _bad_spawn_cleanup_done = True
+    removed = 0
+    try:
+        conn = db.get_connection()
+        cur = conn.execute(
+            """DELETE FROM bot_spawns
+               WHERE bot_username='ChillTopiaMC'
+                 AND ABS(COALESCE(x,0)) < 0.000001
+                 AND ABS(COALESCE(y,0)) < 0.000001
+                 AND ABS(COALESCE(z,0)) < 0.000001
+                 AND COALESCE(facing,'')='FrontRight'
+                 AND COALESCE(set_by,'')='safe_test_spawn'"""
+        )
+        conn.commit()
+        removed = int(cur.rowcount or 0)
+        conn.close()
+    except Exception as exc:
+        mode, username = _current_canonical_bot_identity()
+        _guardian_log(mode, username, "bad_spawn_cleanup_failed", f"error={exc!r}", cooldown=300.0)
+        return 0
+    mode, username = _current_canonical_bot_identity()
+    print(f"[BOT_GUARDIAN] mode={mode} username={username} event=bad_spawn_cleanup removed={removed}")
+    return removed
+
+
 async def _probe_current_bot_presence(bot: BaseBot) -> str:
     """Return present|uncertain.
 
@@ -298,6 +363,7 @@ async def _probe_current_bot_presence(bot: BaseBot) -> str:
                 seconds=300,
                 cross_process=True,
             )
+            mark_current_bot_presence_ok()
             return "present"
         if username and getattr(room_user, "username", "").strip().lower() == username.lower():
             if pos is not None and bot_uid:
@@ -308,6 +374,7 @@ async def _probe_current_bot_presence(bot: BaseBot) -> str:
                 seconds=300,
                 cross_process=True,
             )
+            mark_current_bot_presence_ok()
             return "present"
     log_cooldown(
         f"bot_presence:uncertain:{mode}",
@@ -318,7 +385,7 @@ async def _probe_current_bot_presence(bot: BaseBot) -> str:
     return "uncertain"
 
 
-def schedule_bot_presence_retry(bot: BaseBot, reason: str = "not_in_room", cooldown: float = 180.0) -> None:
+def schedule_bot_presence_retry(bot: BaseBot, reason: str = "not_in_room", cooldown: float = 75.0) -> None:
     """Throttle a safe spawn-restore retry for the current bot."""
     mode, username = _current_canonical_bot_identity()
     now = time.time()
@@ -326,21 +393,42 @@ def schedule_bot_presence_retry(bot: BaseBot, reason: str = "not_in_room", coold
     if now - _bot_presence_retry_last.get(key, 0.0) < cooldown:
         return
     _bot_presence_retry_last[key] = now
+    _guardian_log(mode, username, "spawn_restore_scheduled", f"reason={reason}", cooldown=30.0)
     log_cooldown(
         f"bot_watchdog:retry:{mode}:{reason}",
         f"[BOT_WATCHDOG] mode={mode!r} username={username!r} action=spawn_restore reason={reason}",
         seconds=60,
         cross_process=True,
     )
+
+    async def _run_restore() -> None:
+        try:
+            ok = await apply_bot_spawn(bot, username)
+            if ok is False:
+                fails = _bot_presence_restore_failures.get(key, 0) + 1
+                _bot_presence_restore_failures[key] = fails
+                mark_current_bot_presence_uncertain(f"spawn_restore_failed:{reason}")
+                _guardian_log(mode, username, "spawn_restore_failed", f"reason={reason} count={fails}", cooldown=60.0)
+                if fails >= 3:
+                    _guardian_log(mode, username, "recovery_escalated", f"reason={reason} failures={fails}", cooldown=120.0)
+                return
+            _bot_presence_restore_failures[key] = 0
+            mark_current_bot_presence_ok()
+            _guardian_log(mode, username, "spawn_restore_success", f"reason={reason}", cooldown=30.0)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            fails = _bot_presence_restore_failures.get(key, 0) + 1
+            _bot_presence_restore_failures[key] = fails
+            mark_current_bot_presence_uncertain(f"spawn_restore_exception:{reason}")
+            _guardian_log(mode, username, "spawn_restore_failed", f"reason={reason} error={exc!r} count={fails}", cooldown=60.0)
+            if fails >= 3:
+                _guardian_log(mode, username, "recovery_escalated", f"reason={reason} failures={fails}", cooldown=120.0)
+
     try:
-        asyncio.create_task(apply_bot_spawn(bot, username), name=f"bot_presence_retry:{mode}")
+        asyncio.create_task(_run_restore(), name=f"bot_presence_retry:{mode}")
     except Exception as exc:
-        log_cooldown(
-            f"bot_watchdog:retry_failed:{mode}:{type(exc).__name__}",
-            f"[BOT_WATCHDOG] mode={mode!r} action=spawn_restore_schedule_failed error={exc!r}",
-            seconds=120,
-            cross_process=True,
-        )
+        _guardian_log(mode, username, "spawn_restore_failed", f"reason={reason} schedule_error={exc!r}", cooldown=120.0)
 
 
 async def start_bot_presence_watchdog(bot: BaseBot) -> None:
@@ -350,18 +438,26 @@ async def start_bot_presence_watchdog(bot: BaseBot) -> None:
         return
 
     async def _loop() -> None:
-        uncertain_count = 0
-        await asyncio.sleep(45)
+        _cleanup_bad_safe_test_spawn_once()
+        await asyncio.sleep(15)
         while True:
             try:
                 state = await _probe_current_bot_presence(bot)
+                mode, username = _current_canonical_bot_identity()
+                key = f"{mode}:{username}"
                 if state == "present":
-                    uncertain_count = 0
+                    _bot_presence_uncertain_counts[key] = 0
+                    mark_current_bot_presence_ok()
                 else:
-                    uncertain_count += 1
-                    if uncertain_count >= 3:
-                        schedule_bot_presence_retry(bot, "presence_uncertain", cooldown=300.0)
-                        uncertain_count = 0
+                    count = _bot_presence_uncertain_counts.get(key, 0) + 1
+                    _bot_presence_uncertain_counts[key] = count
+                    _guardian_log(mode, username, "presence_uncertain", f"count={count} reason=self_not_listed", cooldown=30.0)
+                    if count >= 2:
+                        mark_current_bot_presence_uncertain("self_not_listed")
+                        schedule_bot_presence_retry(bot, "presence_uncertain", cooldown=75.0)
+                    if count >= 4:
+                        schedule_bot_presence_retry(bot, "presence_uncertain_strong", cooldown=60.0)
+                        _guardian_log(mode, username, "recovery_escalated", f"reason=presence_uncertain count={count}", cooldown=120.0)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -371,7 +467,7 @@ async def start_bot_presence_watchdog(bot: BaseBot) -> None:
                     seconds=120,
                     cross_process=True,
                 )
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)
 
     _bot_presence_watchdog_task = asyncio.create_task(_loop(), name="bot_presence_watchdog")
 
@@ -2778,7 +2874,7 @@ async def teleport_bot_to_saved_spawn(
     return (False, pos, row, "teleport_failed", saved_key) if return_details else False
 
 
-async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
+async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> bool:
     """Teleport the bot to its saved spawn on startup with bounded verification retries."""
     from modules.gold import get_bot_user_id
     import config as _cfg
@@ -2787,7 +2883,7 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
     current = _bot_spawn_restore_tasks.get(key)
     if current and not current.done() and current is not asyncio.current_task():
         print(f"[SPAWN_RESTORE] bot={key} duplicate_skipped=true")
-        return
+        return True
     _bot_spawn_restore_tasks[key] = asyncio.current_task()  # type: ignore[assignment]
 
     is_host = _is_chilltopia_host(bot_username, getattr(_cfg, "BOT_MODE", "main"))
@@ -2836,14 +2932,15 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
                 f"success={success} reason={reason}"
             )
             if success:
+                mark_current_bot_presence_ok()
                 if is_host:
                     print(
                         f"[SPAWN_RESTORE] host_spawn_restore_success "
                         f"bot={key} attempt={attempt} reason={reason}"
                     )
-                return
+                return True
             if expected is None:
-                return
+                return False
             if is_host:
                 print(
                     f"[SPAWN_RESTORE] host_spawn_restore_retry "
@@ -2859,6 +2956,8 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
                 f"[SPAWN_RESTORE] host_spawn_restore_gave_up "
                 f"bot={key} expected={_format_pos(expected)} actual={_format_pos(actual)}"
             )
+        mark_current_bot_presence_uncertain("spawn_restore_gave_up")
+        return False
     finally:
         if _bot_spawn_restore_tasks.get(key) is asyncio.current_task():
             _bot_spawn_restore_tasks.pop(key, None)
