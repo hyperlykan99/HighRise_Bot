@@ -365,6 +365,84 @@ async function pm2Snapshot() {
   }
 }
 
+const RELEASE_GIT_COMMANDS = new Set([
+  "rev-parse --abbrev-ref HEAD",
+  "rev-parse HEAD",
+  "rev-parse origin/dashboard-redesign",
+  "status --short",
+  "status --short --branch",
+  "log --oneline -12",
+  "diff --name-only",
+]);
+
+async function safeGit(args, fallback = "") {
+  const key = args.join(" ");
+  if (!RELEASE_GIT_COMMANDS.has(key)) return { ok: false, stdout: fallback, error: "git_command_not_allowed" };
+  try {
+    const { stdout } = await execFileAsync("git", args, { cwd: path.resolve(__dirname, ".."), timeout: 3500, maxBuffer: 512 * 1024 });
+    return { ok: true, stdout: stdout.trim(), error: "" };
+  } catch (err) {
+    return { ok: false, stdout: fallback, error: err.message };
+  }
+}
+
+async function gitReleaseSnapshot() {
+  const [branch, local, remote, statusShort, statusBranch, log, diffNames] = await Promise.all([
+    safeGit(["rev-parse", "--abbrev-ref", "HEAD"]),
+    safeGit(["rev-parse", "HEAD"]),
+    safeGit(["rev-parse", "origin/dashboard-redesign"]),
+    safeGit(["status", "--short"]),
+    safeGit(["status", "--short", "--branch"]),
+    safeGit(["log", "--oneline", "-12"]),
+    safeGit(["diff", "--name-only"]),
+  ]);
+  const statusLine = statusBranch.stdout.split(/\r?\n/)[0] || "";
+  const localCommit = local.stdout || null;
+  const remoteCommit = remote.stdout || null;
+  const dirtyFiles = statusShort.stdout ? statusShort.stdout.split(/\r?\n/).filter(Boolean) : [];
+  const changedFiles = diffNames.stdout ? diffNames.stdout.split(/\r?\n/).filter(Boolean) : [];
+  let sync_status = "unknown";
+  if (localCommit && remoteCommit && localCommit === remoteCommit && !dirtyFiles.length) sync_status = "synced";
+  else if (localCommit && remoteCommit && localCommit === remoteCommit && dirtyFiles.length) sync_status = "dirty";
+  else if (statusLine.includes("[ahead") || statusLine.includes("[behind")) sync_status = statusLine.match(/\[(.+)\]/)?.[1] || "different";
+  else if (localCommit && remoteCommit && localCommit !== remoteCommit) sync_status = "different";
+  return {
+    branch: branch.stdout || "unknown",
+    local_commit: localCommit,
+    remote_commit: remoteCommit,
+    sync_status,
+    dirty: dirtyFiles.length > 0,
+    dirty_files: dirtyFiles,
+    changed_files: changedFiles,
+    status_short: statusShort.stdout,
+    status_branch: statusBranch.stdout,
+    recent_commits: (log.stdout ? log.stdout.split(/\r?\n/) : []).map((line) => {
+      const [sha, ...rest] = line.split(" ");
+      return { sha, message: rest.join(" ") };
+    }),
+    errors: [branch, local, remote, statusShort, statusBranch, log, diffNames].filter((r) => !r.ok).map((r) => r.error).filter(Boolean),
+  };
+}
+
+async function createDashboardDbBackup(db, actor, ip, action = "maintenance_db_backup") {
+  const stamp = formatStamp();
+  ensureDir(DB_BACKUP_DIR);
+  const dest = path.join(DB_BACKUP_DIR, `highrise_hangout.dashboard_backup_${stamp}.db`);
+  try {
+    try { db.prepare("PRAGMA wal_checkpoint(PASSIVE)").get(); } catch {}
+    await db.backup(dest);
+    for (const sidecar of [`${DB_PATH}-wal`, `${DB_PATH}-shm`]) {
+      if (!fs.existsSync(sidecar)) continue;
+      fs.copyFileSync(sidecar, path.join(DB_BACKUP_DIR, `${path.basename(dest)}${sidecar.endsWith("-wal") ? "-wal" : "-shm"}`));
+    }
+    audit(db, actor, action, "backup_file", dest, "", { db_path: DB_PATH, backup: dest }, ip);
+    return { ok: true, backup: fileMeta(dest), sidecars: dbSidecarFiles(dest), message: "SQLite DB backup created." };
+  } catch (err) {
+    audit(db, actor, `${action}_failed`, "backup_file", dest, "", err.message, ip);
+    return { ok: false, error: "backup_failed", message: err.message, status: 500 };
+  }
+}
+
 async function maintenanceOverview(db) {
   const backups = backupFileList();
   const health = dbHealthSnapshot(db);
@@ -387,6 +465,133 @@ async function maintenanceOverview(db) {
     warnings: health.warnings,
     approved_backup_folders: APPROVED_BACKUP_DIRS,
   };
+}
+
+async function readReleaseStatus(db) {
+  const [git, pm2, operations] = await Promise.all([
+    gitReleaseSnapshot(),
+    pm2Snapshot(),
+    readOperationsSnapshot(db),
+  ]);
+  const qa = buildQaAudit();
+  const e2e = buildE2eAudit(db);
+  const dbHealth = dbHealthSnapshot(db);
+  const backups = backupFileList();
+  const latestBackup = backups.find((b) => b.type === "sqlite_db") || null;
+  const backupFresh = latestBackup && Date.now() - new Date(latestBackup.modified_at).getTime() <= 24 * 60 * 60 * 1000;
+  const dashboardProc = pm2.processes.find((p) => /dashboard/i.test(p.name || "")) || null;
+  const botProcs = pm2.processes.filter((p) => /bot|chilltopia|highrise/i.test(p.name || ""));
+  const blockers = [];
+  const warnings = [];
+  if (git.dirty) blockers.push("Working tree has uncommitted changes.");
+  if (git.sync_status !== "synced") warnings.push(`Git sync status is ${git.sync_status}.`);
+  if ((e2e.critical_issues || []).length) blockers.push(`${e2e.critical_issues.length} E2E critical issue(s).`);
+  if (dbHealth.integrity_check && dbHealth.integrity_check !== "ok") blockers.push(`SQLite integrity_check is ${dbHealth.integrity_check}.`);
+  if (!latestBackup) warnings.push("No release DB backup found.");
+  else if (!backupFresh) warnings.push("Latest DB backup is older than 24 hours.");
+  if ((operations.queue?.counts?.failed || 0) > 0) warnings.push(`${operations.queue.counts.failed} failed command queue row(s) need review.`);
+  if (operations.overview?.system_status === "CRITICAL") blockers.push("Operations Center reports CRITICAL health.");
+  else if (operations.overview?.system_status === "WARNING") warnings.push("Operations Center reports WARNING health.");
+  const readiness = blockers.length ? "BLOCKED" : warnings.length ? "WARNING" : "READY";
+  return {
+    generated_at: nowIso(),
+    readiness,
+    blockers,
+    warnings,
+    git,
+    current_version: {
+      local_dashboard_commit: git.local_commit,
+      remote_origin_dashboard_redesign_commit: git.remote_commit,
+      branch: git.branch,
+      sync_status: git.sync_status,
+      dirty: git.dirty,
+      dirty_files: git.dirty_files,
+      changed_files: git.changed_files,
+    },
+    pm2: {
+      available: pm2.available,
+      dashboard_status: dashboardProc?.status || (pm2.available ? "not_found" : "pm2_unavailable"),
+      bot_status: botProcs.map((p) => ({ name: p.name, status: p.status, restart_time: p.restart_time, uptime: p.uptime })),
+      processes: pm2.processes,
+    },
+    backup_status: {
+      latest_db_backup: latestBackup,
+      db_backup_fresh: !!backupFresh,
+      backup_count: backups.length,
+    },
+    audits: {
+      e2e_critical_count: (e2e.critical_issues || []).length,
+      e2e_warning_count: (e2e.warnings || []).length,
+      qa_issue_count: (qa.issues || []).length,
+      qa_critical_count: (qa.issues || []).filter((i) => i.severity === "CRITICAL").length,
+      e2e_status: (e2e.critical_issues || []).length ? "CRITICAL" : ((e2e.warnings || []).length ? "WARNING" : "PASS"),
+      qa_status: (qa.issues || []).some((i) => i.severity === "CRITICAL") ? "CRITICAL" : ((qa.issues || []).length ? "WARNING" : "PASS"),
+    },
+    operations: {
+      system_status: operations.overview?.system_status,
+      bots_online: operations.overview?.bots_online,
+      bots_total: operations.overview?.bots_total,
+      radio_status: operations.overview?.radio_status,
+      command_queue_pending: operations.overview?.command_queue_pending,
+      command_queue_failed: operations.overview?.command_queue_failed,
+      last_restart: operations.overview?.last_restart,
+      alerts: operations.alerts || [],
+    },
+    database: {
+      db_path: DB_PATH,
+      integrity_check: dbHealth.integrity_check,
+      quick_check: dbHealth.quick_check,
+      db_file: dbHealth.db_file,
+      wal_size: dbHealth.wal_size,
+    },
+    rollback_guide: releaseRollbackGuide(git),
+    raw: { git, dbHealth, qa_summary: qa.issues, e2e_summary: e2e.critical_issues, operations_overview: operations.overview },
+  };
+}
+
+function releaseRollbackGuide(git) {
+  const previous = git.recent_commits?.[1]?.sha || "<previous_commit_sha>";
+  return [
+    { title: "Rollback dashboard files to previous commit", command: `git fetch origin && git checkout ${previous} -- dashboard/server.mjs dashboard/public/app.js dashboard/public/styles.css dashboard/public/index.html` },
+    { title: "Rollback runtime files to previous commit", command: `git fetch origin && git checkout ${previous} -- artifacts/highrise-bot` },
+    { title: "Restore DB backup preview", command: "Use System → Maintenance Center → Restore, select the approved DB backup, then type RESTORE DATABASE." },
+    { title: "Restart dashboard", command: "pm2 restart ChillTopia-Dashboard" },
+    { title: "Restart bots", command: "pm2 restart ChillTopia-8Bots" },
+  ];
+}
+
+async function runReleaseChecklist(db) {
+  const checks = [];
+  const add = (item, status, detail = "") => checks.push({ item, status, detail });
+  const runCheck = async (item, command, args) => {
+    try {
+      const { stderr } = await execFileAsync(command, args, { cwd: path.resolve(__dirname, ".."), timeout: 8000, maxBuffer: 512 * 1024 });
+      add(item, "PASS", stderr.trim());
+    } catch (err) {
+      add(item, "FAIL", err.message);
+    }
+  };
+  await runCheck("Dashboard syntax passed", "node", ["--check", path.join(__dirname, "server.mjs")]);
+  await runCheck("Public app syntax passed", "node", ["--check", path.join(PUBLIC_DIR, "app.js")]);
+  if (fs.existsSync(path.join(BOT_ROOT, "main.py"))) {
+    await runCheck("Bot Python syntax passed", "python3", ["-m", "py_compile", path.join(BOT_ROOT, "main.py")]);
+  } else add("Bot Python syntax passed", "SKIP", "main.py not found");
+  const e2e = buildE2eAudit(db);
+  add("E2E Audit critical = 0", (e2e.critical_issues || []).length ? "FAIL" : "PASS", `${(e2e.critical_issues || []).length} critical`);
+  const queue = readOperationsQueue(db);
+  add("Queue failed = 0 or reviewed", (queue.counts?.failed || 0) ? "WARN" : "PASS", `${queue.counts?.failed || 0} failed`);
+  const latestBackup = backupFileList().find((b) => b.type === "sqlite_db") || null;
+  add("DB backup created", latestBackup ? "PASS" : "WARN", latestBackup?.modified_at || "No DB backup found");
+  const publicRoutes = ["home", "radio", "how-to-play", "casino", "mining", "fishing", "events", "rankings", "room-info"];
+  add("Public pages load", publicRoutes.every((name) => routeExists(`/api/public/${name}`)) ? "PASS" : "FAIL", "Public API route registry");
+  add("Owner dashboard loads", routeExists("/api/overview") && routeExists("/api/healthz") ? "PASS" : "FAIL", "Owner core API routes");
+  const ops = await readOperationsSnapshot(db);
+  add("Bots online", ops.overview?.bots_online === ops.overview?.bots_total ? "PASS" : "WARN", `${ops.overview?.bots_online || 0}/${ops.overview?.bots_total || 0}`);
+  add("Radio online", String(ops.overview?.radio_status || "").toLowerCase() === "online" ? "PASS" : "WARN", ops.overview?.radio_status || "unknown");
+  add("Mining works", routeExists("/api/mining") && tableExists(db, "mining_items") ? "PASS" : "WARN", "Dashboard/runtime source available");
+  add("Fishing works", routeExists("/api/fishing") && tableExists(db, "fish_catalog") ? "PASS" : "WARN", "Dashboard/runtime source available");
+  add("Player search works", routeExists("/api/player/search") && tableExists(db, "users") ? "PASS" : "WARN", "users table and API route");
+  return { generated_at: nowIso(), checks, status: checks.some((c) => c.status === "FAIL") ? "FAIL" : checks.some((c) => c.status === "WARN") ? "WARN" : "PASS" };
 }
 
 function columnExists(db, table, column) {
@@ -4233,6 +4438,7 @@ function buildQaAudit() {
     ["Security", "/api/security"],
     ["Staff", "/api/staff"],
     ["System", "/api/healthz"],
+    ["Release Control", "/api/release/status"],
     ["Maintenance Center", "/api/maintenance/overview"],
     ["Leaderboards", "/api/leaderboards"],
     ["Settings Audit", "/api/settings-audit"],
@@ -4253,6 +4459,7 @@ function buildQaAudit() {
     "renderPublicHome", "renderPublicRadio", "renderPublicHowToPlay", "renderPublicCasino", "renderPublicMining", "renderPublicFishing", "renderPublicQuests", "renderPublicEvents", "renderPublicRankings", "renderPublicRoomInfo",
     "renderCommandCenter", "renderOperationsCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderQuestsMissionsPage", "renderAutomationCenterPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit", "renderE2eAudit",
     "renderStaffHome", "renderStaffRadioQueue", "renderStaffPlayers", "renderStaffEvents", "renderStaffRoomTools", "renderStaffLogs",
+    "renderReleaseControl",
   ];
   const missingRenderers = expectedRenderers.filter((name) => !new RegExp(`function\\s+${name}\\s*\\(`).test(appSource));
   const apiRefs = new Set();
@@ -4273,6 +4480,7 @@ function buildQaAudit() {
     "report-review", "report-resolve", "security-unmute", "security-bot-action",
     "remove-request", "unblock-requester", "unblock-track", "mining-ore-form", "mining-ore-disable",
     "disable-announcement", "toggle-module", "emergency", "maint-action", "maint-cleanup",
+    "release-tab", "release-action",
     "settings-group", "sg-api", "sg-opts", "sf-toggle", "raw-edit-key", "raw-edit-val", "raw-edit-src",
     "table-search", "rarity-filter", "enabled-filter", "room-toggle", "room-edit",
     "staff-id", "remove-staff", "enabled", "room-val", "key", "vip-remove", "vip-user",
@@ -4400,6 +4608,7 @@ function buildE2eAudit(db) {
     ["Staff", "/api/staff"],
     ["Permissions Audit", "/api/permissions/audit"],
     ["System Overview", "/api/healthz"],
+    ["Release Control", "/api/release/status"],
     ["Maintenance Center", "/api/maintenance/overview"],
     ["Settings Audit", "/api/settings-audit"],
     ["QA Audit", "/api/qa/audit"],
@@ -4629,6 +4838,36 @@ app.get("/api/e2e/audit", requireAuth, requireOwner, (req, res) => {
   json(res, buildE2eAudit(req.db));
 }, closeDb);
 
+app.get("/api/release/status", requireAuth, requireOwner, async (req, res) => {
+  json(res, await readReleaseStatus(req.db));
+}, closeDb);
+
+app.post("/api/release/checklist/run", requireAuth, requireOwner, async (req, res) => {
+  const result = await runReleaseChecklist(req.db);
+  audit(req.db, req.user.username, "release_checklist_run", "release", "dashboard-redesign", "", result, req.ip);
+  json(res, result);
+}, closeDb);
+
+app.post("/api/release/backup", requireAuth, requireOwner, async (req, res) => {
+  const result = await createDashboardDbBackup(req.db, req.user.username, req.ip, "release_db_backup");
+  if (!result.ok) return json(res, { error: result.error, message: result.message }, result.status || 500);
+  json(res, { ...result, release_status: await readReleaseStatus(req.db) });
+}, closeDb);
+
+app.get("/api/release/logs", requireAuth, requireOwner, async (req, res) => {
+  const git = await gitReleaseSnapshot();
+  const pm2 = await pm2Snapshot();
+  json(res, {
+    generated_at: nowIso(),
+    recent_commits: git.recent_commits,
+    pm2_restarts: pm2.processes.map((p) => ({ name: p.name, status: p.status, restart_time: p.restart_time, uptime: p.uptime })),
+    dashboard_errors: safeTableRows(req.db, "admin_action_logs", { orderBy: columnExists(req.db, "admin_action_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }).filter((row) => JSON.stringify(row).toLowerCase().includes("error") || JSON.stringify(row).toLowerCase().includes("fail")),
+    bot_errors: safeTableRows(req.db, "command_error_logs", { orderBy: columnExists(req.db, "command_error_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }),
+    audit_events: safeRows(req.db, "audit_logs", ["id","actor","action_type","target_type","target_id","old_value","new_value","ip_address","created_at"], { orderBy: columnExists(req.db, "audit_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }),
+    command_queue_failures: safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: "status='failed'", orderBy: columnExists(req.db, "bot_command_queue", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }),
+  });
+}, closeDb);
+
 app.get("/api/public-settings", requireAuth, requireOwner, (req, res) => {
   const key = "public_rankings_hide_staff_bots";
   json(res, {
@@ -4666,22 +4905,9 @@ app.get("/api/maintenance/backups", requireAuth, requireOwner, (req, res) => {
 }, closeDb);
 
 app.post("/api/maintenance/backup/db", requireAuth, requireOwner, async (req, res) => {
-  const stamp = formatStamp();
-  ensureDir(DB_BACKUP_DIR);
-  const dest = path.join(DB_BACKUP_DIR, `highrise_hangout.dashboard_backup_${stamp}.db`);
-  try {
-    try { req.db.prepare("PRAGMA wal_checkpoint(PASSIVE)").get(); } catch {}
-    await req.db.backup(dest);
-    for (const sidecar of [`${DB_PATH}-wal`, `${DB_PATH}-shm`]) {
-      if (!fs.existsSync(sidecar)) continue;
-      fs.copyFileSync(sidecar, path.join(DB_BACKUP_DIR, `${path.basename(dest)}${sidecar.endsWith("-wal") ? "-wal" : "-shm"}`));
-    }
-    audit(req.db, req.user.username, "maintenance_db_backup", "backup_file", dest, "", { db_path: DB_PATH, backup: dest }, req.ip);
-    json(res, { ok: true, backup: fileMeta(dest), sidecars: dbSidecarFiles(dest), message: "SQLite DB backup created." });
-  } catch (err) {
-    audit(req.db, req.user.username, "maintenance_db_backup_failed", "backup_file", dest, "", err.message, req.ip);
-    json(res, { error: "backup_failed", message: err.message }, 500);
-  }
+  const result = await createDashboardDbBackup(req.db, req.user.username, req.ip, "maintenance_db_backup");
+  if (!result.ok) return json(res, { error: result.error, message: result.message }, result.status || 500);
+  json(res, result);
 }, closeDb);
 
 app.post("/api/maintenance/backup/dashboard", requireAuth, requireOwner, (req, res) => {

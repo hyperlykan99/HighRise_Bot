@@ -48,6 +48,7 @@ const OWNER_NAV_GROUPS = [
   ]},
   { group: "System", items: [
     { id: "System Overview", page: "System", tab: "Health", icon: "⚙️", label: "System Overview", ownerOnly: true, keywords: "health system overview" },
+    { id: "Release Control", page: "System", tab: "Release Control", icon: "🚀", label: "Release Control", ownerOnly: true, keywords: "release deployment stable rollback version" },
     { id: "Maintenance Center", page: "System", tab: "Maintenance Center", icon: "🧰", label: "Maintenance Center", ownerOnly: true, keywords: "backup restore database cleanup" },
     { id: "Settings Audit", page: "System", tab: "Settings Audit", icon: "🧭", label: "Settings Audit", ownerOnly: true, keywords: "settings command audit mapping" },
     { id: "QA Audit", page: "System", tab: "QA Audit", icon: "✅", label: "QA Audit", ownerOnly: true, keywords: "qa broken routes buttons" },
@@ -230,6 +231,7 @@ const SYSTEM_TABS = [
   { id: "Health", api: "/api/healthz" },
   { id: "Logs", api: null },
   { id: "Public Settings", api: "/api/public-settings" },
+  { id: "Release Control", api: "/api/release/status" },
   { id: "Settings Audit", api: "/api/settings-audit" },
   { id: "Permissions Audit", api: "/api/permissions/audit" },
   { id: "QA Audit", api: "/api/qa/audit" },
@@ -247,6 +249,15 @@ const MAINTENANCE_TABS = [
   "Cleanup Preview",
   "Runtime Health",
   "Logs",
+  "Advanced",
+];
+const RELEASE_TABS = [
+  "Overview",
+  "Current Version",
+  "Release Checklist",
+  "Backups",
+  "Rollback Guide",
+  "Deployment Logs",
   "Advanced",
 ];
 const MAINTENANCE_API = {
@@ -300,6 +311,7 @@ const PAGE_DESC = {
   "Staff":             "Dashboard users, permissions and bot roles",
   "System":            "Health monitoring, logs and emergency controls",
   "System Overview":   "Core dashboard service health and known DB tables",
+  "Release Control":   "Stable deployment readiness, version checks and rollback guidance",
   "Maintenance Center":"Backups, restore previews, DB health and cleanup previews",
   "Settings Audit":    "Verified command-to-dashboard settings source mapping",
   "Permissions Audit": "Route protection, owner-only checks and permission coverage",
@@ -731,6 +743,8 @@ const state = {
   logs: { action_type: "", user: "", module: "", status: "", date: "", target: "", offset: 0 },
   settingsAudit: { status: "all", module: "", page: "" },
   maintenanceTab: "Overview",
+  releaseTab: "Overview",
+  releaseChecklist: null,
   navSearch: "",
   howToPlayTab: "Quick Start",
   manualGameSection: { Mining: "Basics", Fishing: "Basics" },
@@ -936,6 +950,7 @@ async function loadAdmin() {
 async function switchTab(page, tab) {
   state.adminTab[page] = tab;
   if (page === "System" && tab === "Maintenance Center") state.maintenanceTab = "Overview";
+  if (page === "System" && tab === "Release Control") state.releaseTab = "Overview";
   const url = (page === "System" && tab === "Logs") || page === "Logs"
     ? logsUrl() : pageApi(page, tab);
   if (!url) { state.data = {}; render(); return; }
@@ -947,6 +962,14 @@ async function switchTab(page, tab) {
 async function loadMaintenanceTab(tab = state.maintenanceTab || "Overview") {
   state.maintenanceTab = tab;
   const url = MAINTENANCE_API[tab] || MAINTENANCE_API.Overview;
+  try { state.data = await api(url); state.error = ""; }
+  catch (err) { state.data = null; state.error = err.message; }
+  render();
+}
+
+async function loadReleaseTab(tab = state.releaseTab || "Overview") {
+  state.releaseTab = tab;
+  const url = tab === "Deployment Logs" ? "/api/release/logs" : "/api/release/status";
   try { state.data = await api(url); state.error = ""; }
   catch (err) { state.data = null; state.error = err.message; }
   render();
@@ -6215,6 +6238,7 @@ function renderSystemPage(tab) {
     ${tab === "Health" ? renderSystemHealth() : ""}
     ${tab === "Logs" ? renderSystemLogs() : ""}
     ${tab === "Public Settings" ? renderPublicSettings() : ""}
+    ${tab === "Release Control" ? renderReleaseControl() : ""}
     ${tab === "Settings Audit" ? renderSettingsAudit() : ""}
     ${tab === "Permissions Audit" ? renderPermissionsAudit() : ""}
     ${tab === "QA Audit" ? renderQaAudit() : ""}
@@ -6532,6 +6556,184 @@ function renderPermissionsAudit() {
         { key: "required_permission", label: "Permission", render: (r) => `<code>${esc(r.required_permission || (r.public ? "PUBLIC" : "AUTH"))}</code>` },
       ])}
     </div>
+  `;
+}
+
+function releaseStatusPill(value) {
+  const s = String(value || "unknown").toUpperCase();
+  const cls = s === "READY" || s === "PASS" || s === "SYNCED" || s === "ONLINE" || s === "OK" ? "ok" : s === "BLOCKED" || s === "FAIL" || s === "CRITICAL" ? "bad" : "warn";
+  return `<span class="pill ${cls}">${esc(s)}</span>`;
+}
+
+function renderReleaseControl() {
+  const tab = state.releaseTab || "Overview";
+  return `
+    <div class="tabs sub-tabs" style="margin-bottom:14px">
+      ${RELEASE_TABS.map((t) => `<button class="${tab === t ? "active" : ""}" data-release-tab="${esc(t)}">${esc(t)}</button>`).join("")}
+    </div>
+    ${tab === "Overview" ? renderReleaseOverview() : ""}
+    ${tab === "Current Version" ? renderReleaseCurrentVersion() : ""}
+    ${tab === "Release Checklist" ? renderReleaseChecklist() : ""}
+    ${tab === "Backups" ? renderReleaseBackups() : ""}
+    ${tab === "Rollback Guide" ? renderReleaseRollbackGuide() : ""}
+    ${tab === "Deployment Logs" ? renderReleaseLogs() : ""}
+    ${tab === "Advanced" ? renderReleaseAdvanced() : ""}
+  `;
+}
+
+function renderReleaseOverview() {
+  const d = state.data || {};
+  const ops = d.operations || {};
+  const audits = d.audits || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("Release Readiness", d.readiness || "unknown", (d.blockers || [])[0] || (d.warnings || [])[0] || "deployment gate", d.readiness === "READY" ? "accent-green" : d.readiness === "BLOCKED" ? "accent-red" : "", "🚀")}
+      ${metricCard("Branch", d.git?.branch || "—", d.git?.sync_status || "git", d.git?.sync_status === "synced" ? "accent-green" : "", "⑂")}
+      ${metricCard("Dashboard PM2", d.pm2?.dashboard_status || "—", "process status", d.pm2?.dashboard_status === "online" ? "accent-green" : "accent-red", "PM2")}
+      ${metricCard("Bots", `${ops.bots_online ?? 0}/${ops.bots_total ?? 0}`, "online", ops.bots_online === ops.bots_total ? "accent-green" : "accent-red", "🤖")}
+      ${metricCard("DB Backup", d.backup_status?.latest_db_backup?.modified_at || "None", d.backup_status?.db_backup_fresh ? "fresh" : "missing/old", d.backup_status?.db_backup_fresh ? "accent-green" : "accent-red", "BK")}
+      ${metricCard("E2E Audit", audits.e2e_status || "—", `${audits.e2e_critical_count ?? 0} critical`, audits.e2e_status === "PASS" ? "accent-green" : "accent-red", "E2E")}
+      ${metricCard("QA Audit", audits.qa_status || "—", `${audits.qa_issue_count ?? 0} issues`, audits.qa_status === "PASS" ? "accent-green" : "", "QA")}
+      ${metricCard("Operations", ops.system_status || "—", `${ops.command_queue_failed ?? 0} queue failed`, ops.system_status === "HEALTHY" ? "accent-green" : "accent-red", "OPS")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="card-header"><h2>Release Gate</h2>${releaseStatusPill(d.readiness)}</div>
+        ${(d.blockers || []).length ? (d.blockers || []).map((b) => `<div class="notice error" style="margin-bottom:8px">${esc(b)}</div>`).join("") : `<div class="notice success">No blocking release issues detected.</div>`}
+        ${(d.warnings || []).length ? `<h3 style="margin-top:14px">Warnings</h3>${(d.warnings || []).map((w) => `<div class="notice warn" style="margin-bottom:8px">${esc(w)}</div>`).join("")}` : ""}
+      </div>
+      <div class="card">
+        <h2>Quick Actions</h2>
+        <div class="toolbar" style="flex-wrap:wrap">
+          <button class="btn primary" data-release-action="run-checklist">Run Checklist</button>
+          <button class="btn" data-release-action="backup">Create Release DB Backup</button>
+          <button class="btn ghost" data-release-action="refresh">Refresh Status</button>
+          <button class="btn ghost" data-admin-page="System" data-admin-tab="Maintenance Center">Maintenance Center</button>
+        </div>
+        <div class="notice" style="margin-top:12px">Rollback commands are shown as text only. This dashboard does not execute destructive rollback actions.</div>
+      </div>
+    </div>
+  `;
+}
+
+function shortSha(sha) {
+  return sha ? String(sha).slice(0, 12) : "—";
+}
+
+function renderReleaseCurrentVersion() {
+  const d = state.data || {};
+  const v = d.current_version || {};
+  return `
+    <div class="grid">
+      <div class="card">
+        <div class="card-header"><h2>Current Version</h2>${releaseStatusPill(v.sync_status)}</div>
+        <div style="display:grid;gap:8px">
+          <div class="inline-actions"><span>Current Branch</span><code>${esc(v.branch || "—")}</code></div>
+          <div class="inline-actions"><span>Local Dashboard Commit</span><code>${esc(v.local_dashboard_commit || "—")}</code></div>
+          <div class="inline-actions"><span>Remote origin/dashboard-redesign</span><code>${esc(v.remote_origin_dashboard_redesign_commit || "—")}</code></div>
+          <div class="inline-actions"><span>Short Version</span><span>${esc(shortSha(v.local_dashboard_commit))}</span></div>
+          <div class="inline-actions"><span>Working Tree</span>${releaseStatusPill(v.dirty ? "dirty" : "clean")}</div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>PM2 Process Versions</h2>
+        ${table(d.pm2?.bot_status || [], [
+          { key: "name", label: "Process" },
+          { key: "status", label: "Status", render: (r) => maintenanceStatusPill(r.status) },
+          { key: "restart_time", label: "Restarts" },
+          { key: "uptime", label: "Uptime", render: (r) => r.uptime ? new Date(r.uptime).toLocaleString() : "—" },
+        ])}
+      </div>
+    </div>
+    <div class="card">
+      <h2>Changed / Dirty Files</h2>
+      ${(v.dirty_files || []).length ? table((v.dirty_files || []).map((file) => ({ file }))) : `<div class="notice success">Working tree is clean.</div>`}
+    </div>
+  `;
+}
+
+function renderReleaseChecklist() {
+  const d = state.data || {};
+  const checklist = d.checklist || state.releaseChecklist;
+  return `
+    <div class="card">
+      <div class="card-header"><h2>Release Checklist</h2>${checklist ? releaseStatusPill(checklist.status) : `<span class="pill def">Not run</span>`}</div>
+      <div class="toolbar" style="margin-bottom:14px"><button class="btn primary" data-release-action="run-checklist">Run Checklist Now</button></div>
+      ${checklist ? table(checklist.checks || [], [
+        { key: "item", label: "Check" },
+        { key: "status", label: "Status", render: (r) => releaseStatusPill(r.status) },
+        { key: "detail", label: "Detail" },
+      ]) : `<div class="notice">Run the checklist to verify syntax, audits, queue health, backups, public routes, bots, radio, mining, fishing, and player search.</div>`}
+    </div>
+  `;
+}
+
+function renderReleaseBackups() {
+  const d = state.data || {};
+  return `
+    <div class="grid">
+      <div class="card">
+        <div class="card-header"><h2>Release DB Backup</h2>${releaseStatusPill(d.backup_status?.db_backup_fresh ? "READY" : "WARNING")}</div>
+        <div class="inline-actions"><span>Latest DB Backup</span><span>${esc(d.backup_status?.latest_db_backup?.modified_at || "None")}</span></div>
+        <div class="inline-actions"><span>Backup Count</span><span>${esc(d.backup_status?.backup_count ?? 0)}</span></div>
+        <button class="btn primary" style="margin-top:12px" data-release-action="backup">Create Release DB Backup</button>
+      </div>
+      <div class="card">
+        <h2>Maintenance Center</h2>
+        <div class="notice">Use Maintenance Center for restore previews, DB health, cleanup previews, dashboard file backups, and environment metadata.</div>
+        <button class="btn" data-admin-page="System" data-admin-tab="Maintenance Center">Open Maintenance Center</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderReleaseRollbackGuide() {
+  const rows = state.data?.rollback_guide || [];
+  return `
+    <div class="notice warn">Rollback is guidance only here. The dashboard will not execute git checkout, DB restore, or PM2 restart commands from this page.</div>
+    <div class="card">
+      <h2>Copy-Paste Rollback Guide</h2>
+      ${table(rows, [
+        { key: "title", label: "Step" },
+        { key: "command", label: "Command / Instruction", render: (r) => `<code>${esc(r.command)}</code>` },
+      ])}
+    </div>
+  `;
+}
+
+function renderReleaseLogs() {
+  const d = state.data || {};
+  return `
+    <div class="grid">
+      <div class="card"><h2>Recent Git Commits</h2>${table(d.recent_commits || [], [
+        { key: "sha", label: "SHA" },
+        { key: "message", label: "Message" },
+      ])}</div>
+      <div class="card"><h2>PM2 Restarts</h2>${table(d.pm2_restarts || [], [
+        { key: "name", label: "Process" },
+        { key: "status", label: "Status", render: (r) => maintenanceStatusPill(r.status) },
+        { key: "restart_time", label: "Restarts" },
+        { key: "uptime", label: "Uptime", render: (r) => r.uptime ? new Date(r.uptime).toLocaleString() : "—" },
+      ])}</div>
+    </div>
+    <div class="card"><h2>Dashboard Errors</h2>${table(d.dashboard_errors || [])}</div>
+    <div class="card"><h2>Bot Errors</h2>${table(d.bot_errors || [])}</div>
+    <div class="card"><h2>Recent Audit Events</h2>${table(d.audit_events || [])}</div>
+    <div class="card"><h2>Command Queue Failures</h2>${table(d.command_queue_failures || [])}</div>
+  `;
+}
+
+function renderReleaseAdvanced() {
+  const d = state.data || {};
+  return `
+    <div class="grid">
+      <div class="card"><h2>Git Raw Status</h2><pre style="white-space:pre-wrap;overflow:auto">${esc(d.git?.status_branch || d.git?.status_short || "—")}</pre></div>
+      <div class="card"><h2>Dirty File List</h2>${table((d.git?.dirty_files || []).map((file) => ({ file })))}</div>
+    </div>
+    <details class="advanced-collapse" open>
+      <summary class="advanced-summary"><span class="pill warn">RAW</span> Raw Release JSON</summary>
+      <div class="advanced-content"><pre style="white-space:pre-wrap;overflow:auto">${esc(JSON.stringify(d.raw || d, null, 2))}</pre></div>
+    </details>
   `;
 }
 
@@ -7177,6 +7379,30 @@ function bindAdminPageEvents() {
       const key = id.replace("settingsAudit", "").toLowerCase();
       state.settingsAudit[key] = e.target.value;
       render();
+    });
+  });
+
+  document.querySelectorAll("[data-release-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => loadReleaseTab(btn.dataset.releaseTab));
+  });
+  document.querySelectorAll("[data-release-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const actionName = btn.dataset.releaseAction;
+      if (actionName === "refresh") return loadReleaseTab(state.releaseTab || "Overview");
+      if (actionName === "run-checklist") {
+        await action("Release checklist completed.", async () => {
+          state.releaseChecklist = await api("/api/release/checklist/run", { method: "POST", body: JSON.stringify({}) });
+        });
+        state.releaseTab = "Release Checklist";
+        render();
+        return;
+      }
+      if (actionName === "backup") {
+        confirmAction("Create Release DB Backup", "Create a timestamped SQLite backup before release?", async () => {
+          await action("Release DB backup created.", () => api("/api/release/backup", { method: "POST", body: JSON.stringify({}) }));
+          await loadReleaseTab("Backups");
+        });
+      }
     });
   });
 
