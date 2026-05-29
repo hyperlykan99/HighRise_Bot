@@ -118,6 +118,7 @@ const IMPORTANT_TABLES = [
   "bot_spawns",
   "bot_command_queue",
   "dashboard_scheduled_announcements",
+  "game_rarity_settings",
   "jail_sentences",
   "first_find_announce_pending",
   "host_dm_queue",
@@ -625,6 +626,17 @@ function ensureDashboardSchema(db) {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS game_rarity_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      system TEXT NOT NULL,
+      rarity TEXT NOT NULL,
+      base_weight REAL,
+      base_chance REAL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(system, rarity)
+    );
     `,
   );
   const afterTables = tableNames(db);
@@ -708,6 +720,13 @@ function ensureDashboardSchema(db) {
   addColumnIfMissing(db, "dashboard_scheduled_announcements", "created_by", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "dashboard_scheduled_announcements", "created_at", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "dashboard_scheduled_announcements", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
+
+  addColumnIfMissing(db, "game_rarity_settings", "system", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "game_rarity_settings", "rarity", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "game_rarity_settings", "base_weight", "REAL", migration);
+  addColumnIfMissing(db, "game_rarity_settings", "base_chance", "REAL", migration);
+  addColumnIfMissing(db, "game_rarity_settings", "enabled", "INTEGER NOT NULL DEFAULT 1", migration);
+  addColumnIfMissing(db, "game_rarity_settings", "updated_at", "TEXT NOT NULL DEFAULT ''", migration);
 
   addColumnIfMissing(db, "schema_version", "component", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "schema_version", "version", "INTEGER NOT NULL DEFAULT 1", migration);
@@ -2817,8 +2836,9 @@ function chanceTextFromPercent(value, zeroText = "Not currently dropping") {
   const n = Number(value);
   if (!Number.isFinite(n)) return "Unknown";
   if (n <= 0) return zeroText;
-  const pct = n < 0.0001 ? "<0.0001%" : `${Number(n.toFixed(4)).toString()}%`;
   const oneIn = n > 0 ? Math.max(1, Math.round(100 / n)) : null;
+  if (n < 0.0001) return oneIn ? `Very Rare · about 1 in ${oneIn.toLocaleString("en-US")}` : "Very Rare";
+  const pct = `${Number(n.toFixed(4)).toString()}%`;
   return oneIn ? `${pct} · about 1 in ${oneIn.toLocaleString("en-US")}` : pct;
 }
 
@@ -2919,12 +2939,28 @@ function readFishingCodeCatalog() {
 }
 
 function miningItemRows(db, includeDisabled = true) {
-  const cols = ["item_id", "name", "emoji", "rarity", "item_type", "sell_value", "drop_enabled", "created_at"];
+  const cols = ["item_id", "name", "emoji", "icon", "description", "rarity", "item_type", "sell_value", "drop_weight", "chance_percent", "event_only", "drop_enabled", "enabled", "archived", "created_at", "updated_at"]
+    .filter((col) => columnExists(db, "mining_items", col));
   return safeRows(db, "mining_items", cols, {
-    where: includeDisabled ? "" : "drop_enabled=1",
+    where: includeDisabled ? "" : (columnExists(db, "mining_items", "drop_enabled") ? "drop_enabled=1" : ""),
     orderBy: "rarity, sell_value, name",
     limit: "1000",
   });
+}
+
+function readRaritySettings(db, system) {
+  if (!tableExists(db, "game_rarity_settings")) return {};
+  try {
+    const rows = db.prepare("SELECT * FROM game_rarity_settings WHERE system=?").all(system);
+    return Object.fromEntries(rows.map((row) => [normalizeRarity(row.rarity), row]));
+  } catch {
+    return {};
+  }
+}
+
+function defaultRarityWeight(system, rarity) {
+  if (system === "mining") return Number(MINING_RARITY_PROBS[rarity] || 0);
+  return null;
 }
 
 function calculateMiningDropRows(db) {
@@ -2939,13 +2975,19 @@ function calculateMiningDropRows(db) {
     const rarity = normalizeRarity(item.rarity);
     const rarityChance = Number(MINING_RARITY_PROBS[rarity] || 0);
     const peers = Math.max(1, byRarity[rarity]?.length || 1);
-    const chance = rarityChance / peers;
+    const explicitChance = item.chance_percent !== undefined && item.chance_percent !== null && item.chance_percent !== "" ? Number(item.chance_percent) : null;
+    const customWeight = item.drop_weight !== undefined && item.drop_weight !== null && item.drop_weight !== "" ? Number(item.drop_weight) : null;
+    const peerWeightTotal = byRarity[rarity]?.reduce((sum, row) => sum + (row.drop_weight !== undefined && row.drop_weight !== null && row.drop_weight !== "" ? Number(row.drop_weight || 0) : 1), 0) || peers;
+    const chance = explicitChance !== null && Number.isFinite(explicitChance)
+      ? explicitChance
+      : (customWeight !== null && peerWeightTotal > 0 ? rarityChance * (customWeight / peerWeightTotal) : rarityChance / peers);
     return {
       item_id: item.item_id,
       ore: item.name,
       rarity,
-      weight: chance,
+      weight: customWeight,
       chance_percent: chance,
+      drop_weight: customWeight,
       rarity_chance_percent: rarityChance,
       enabled: item.drop_enabled,
       event_only: 0,
@@ -2981,9 +3023,11 @@ function enrichedMiningOreRows(db, includeDisabled = true) {
       rarity: normalizeRarity(row.rarity),
       rarity_label: RARITY_LABELS[normalizeRarity(row.rarity)] || row.rarity || "Common",
       weight: odd?.weight ?? null,
+      drop_weight: row.drop_weight ?? odd?.drop_weight ?? null,
       chance_percent: chance,
       chance_label: chanceTextFromPercent(chance, "Not currently dropping"),
-      event_only: odd?.event_only ?? 0,
+      event_only: row.event_only ?? odd?.event_only ?? 0,
+      enabled: row.drop_enabled ?? row.enabled ?? 1,
       source: "mining_items + modules/mining.py RARITIES",
     };
   }).sort((a, b) => rarityRank(a.rarity, MINING_RARITY_ORDER) - rarityRank(b.rarity, MINING_RARITY_ORDER)
@@ -3018,14 +3062,17 @@ function enrichedFishingRows() {
   return { rows, source, error };
 }
 
-function raritySummaryRows(items, order, { valueKey = "value", weightKey = "weight", zeroText = "Not currently dropping", source = "runtime_code", itemLabel = "items" } = {}) {
+function raritySummaryRows(items, order, { valueKey = "value", weightKey = "weight", zeroText = "Not currently dropping", source = "runtime_code", itemLabel = "items", system = "" } = {}, db = null) {
   const enabled = items.filter((row) => row.enabled !== 0 && row.enabled !== false && row.drop_enabled !== 0 && row.catch_enabled !== 0);
   const totalWeight = enabled.reduce((sum, row) => sum + Number(row[weightKey] ?? row.chance_percent ?? 0), 0);
+  const settings = db && system ? readRaritySettings(db, system) : {};
   return order.map((rarity) => {
+    const setting = settings[rarity] || {};
     const rows = items.filter((row) => normalizeRarity(row.rarity) === rarity);
     const enabledRows = rows.filter((row) => row.enabled !== 0 && row.enabled !== false && row.drop_enabled !== 0 && row.catch_enabled !== 0);
     const rarityWeight = enabledRows.reduce((sum, row) => sum + Number(row[weightKey] ?? row.chance_percent ?? 0), 0);
     const chance = totalWeight ? (rarityWeight / totalWeight) * 100 : 0;
+    const defaultWeight = defaultRarityWeight(system, rarity);
     const maxValue = rows.reduce((max, row) => Math.max(max, Number(row[valueKey] || row.sell_value || row.base_value || 0)), 0);
     return {
       rarity,
@@ -3033,13 +3080,17 @@ function raritySummaryRows(items, order, { valueKey = "value", weightKey = "weig
       total_items: rows.length,
       enabled_items: enabledRows.length,
       total_weight: rarityWeight,
+      base_weight: setting.base_weight ?? defaultWeight,
+      base_chance: setting.base_chance ?? defaultWeight,
+      planning_enabled: setting.enabled ?? 1,
       chance_percent: chance,
       chance_label: chanceTextFromPercent(chance, zeroText),
       max_value: maxValue,
-      writable: false,
-      schema_verified: false,
+      writable: !!db && tableExists(db, "game_rarity_settings"),
+      schema_verified: !!db && tableExists(db, "game_rarity_settings"),
+      runtime_connected: false,
       source,
-      notes: `Rarity odds are calculated from ${itemLabel}; edit verified individual item weights/values where available.`,
+      notes: `Base rarity values are stored for dashboard planning only; active runtime still uses ${source}. Item odds are calculated from ${itemLabel}.`,
     };
   });
 }
@@ -3652,7 +3703,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     command: "!minechances / !orechances",
     display_name: "Ore Drop Chances",
     dashboard_page: "Mining",
-    dashboard_section: "Rarities & Odds",
+    dashboard_section: "Rarity Chances",
     db_table: "modules/mining.py",
     db_key_or_column: "RARITIES",
     readSource: "modules/mining.py RARITIES split across enabled mining_items",
@@ -3737,7 +3788,7 @@ const SETTINGS_AUDIT_DEFINITIONS = [
     command: "!fishchances",
     display_name: "Fish Catch Chances",
     dashboard_page: "Fishing",
-    dashboard_section: "Rarities & Odds",
+    dashboard_section: "Rarity Chances",
     db_table: "modules/fishing.py",
     db_key_or_column: "FISH_CATALOG.drop_weight",
     readSource: "modules/fishing.py FISH_CATALOG drop_weight",
@@ -4003,7 +4054,7 @@ function buildQaAudit() {
     .map((pathValue) => ({ endpoint: pathValue, reason: "No matching server route pattern found" }));
   const dataAttrs = [...new Set([...appSource.matchAll(/data-([a-z0-9-]+)=/gi)].map((m) => m[1]))];
   const handledAttrs = new Set([
-    "pub-page", "manual-tab", "manual-rarity", "manual-section", "manual-game-section", "manual-game-tab", "public-rarity", "owner-rarity", "rarity-section", "ranking-tab", "admin-page", "admin-tab", "nav-id", "page-tab", "maint-tab", "action",
+    "pub-page", "manual-tab", "manual-rarity", "manual-section", "manual-game-section", "manual-game-tab", "public-game-section", "public-game-tab", "public-rarity", "owner-rarity", "rarity-section", "rarity", "rarity-chance-form", "ranking-tab", "admin-page", "admin-tab", "nav-id", "page-tab", "maint-tab", "action",
     "bot-command", "target-bot", "dancefloor-command", "sync-command", "sync-persist",
     "command-id",
     "player-jump", "remove-item", "quick-item", "quick-type", "remove-title", "remove-badge",
@@ -5757,24 +5808,42 @@ app.get("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (re
 app.get("/api/mining/rarities", requireAuth, requirePermission("manage_mining"), (req, res) => {
   const rows = raritySummaryRows(enrichedMiningOreRows(req.db, true), MINING_RARITY_ORDER, {
     valueKey: "sell_value",
-    weightKey: "weight",
+    weightKey: "drop_weight",
     zeroText: "Not currently dropping",
     source: "mining_items + modules/mining.py RARITIES",
+    system: "mining",
     itemLabel: "enabled mining_items rows and runtime rarity probabilities",
-  });
+  }, req.db);
   json(res, {
     rows,
-    writable: false,
-    schema_verified: false,
+    writable: true,
+    schema_verified: tableExists(req.db, "game_rarity_settings"),
     rarity_order: MINING_RARITY_ORDER,
-    source: "calculated",
-    message: "Mining rarity odds are calculated from enabled ores and runtime rarity probabilities. Edit DB-backed ore values/enabled state in the Ores tab.",
+    source: "game_rarity_settings planning + runtime constants",
+    runtime_connected: false,
+    message: "Base rarity chances are dashboard planning values. Active mining runtime still uses modules/mining.py rarity constants; edit DB-backed ore values/enabled state in the Ores tab.",
   });
 }, closeDb);
 
-app.put("/api/mining/rarities/:rarity", requireAuth, requirePermission("manage_mining"), (_req, res) => {
-  unverifiedSchema(res, "Mining rarity odds are runtime-derived, not a verified DB rarity table. Edit individual DB-backed ores where supported.");
-});
+app.put("/api/mining/rarities/:rarity", requireAuth, requirePermission("manage_mining"), (req, res) => {
+  const rarity = normalizeRarity(req.params.rarity);
+  if (!MINING_RARITY_ORDER.includes(rarity)) return json(res, { error: "invalid_rarity" }, 400);
+  if (!tableExists(req.db, "game_rarity_settings")) return unverifiedSchema(res, "game_rarity_settings table is missing.");
+  const before = req.db.prepare("SELECT * FROM game_rarity_settings WHERE system='mining' AND rarity=?").get(rarity) || null;
+  const baseWeight = req.body?.base_weight === "" || req.body?.base_weight === undefined ? null : Number(req.body.base_weight);
+  const baseChance = req.body?.base_chance === "" || req.body?.base_chance === undefined ? baseWeight : Number(req.body.base_chance);
+  if (baseWeight !== null && !Number.isFinite(baseWeight)) return json(res, { error: "base_weight_must_be_number" }, 400);
+  if (baseChance !== null && !Number.isFinite(baseChance)) return json(res, { error: "base_chance_must_be_number" }, 400);
+  const enabled = req.body?.enabled === false || req.body?.enabled === "0" ? 0 : 1;
+  req.db.prepare(`
+    INSERT INTO game_rarity_settings (system, rarity, base_weight, base_chance, enabled, updated_at)
+    VALUES ('mining', ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(system, rarity) DO UPDATE SET base_weight=excluded.base_weight, base_chance=excluded.base_chance, enabled=excluded.enabled, updated_at=datetime('now')
+  `).run(rarity, baseWeight, baseChance, enabled);
+  const after = req.db.prepare("SELECT * FROM game_rarity_settings WHERE system='mining' AND rarity=?").get(rarity);
+  audit(req.db, req.user.username, "mining_rarity_planning_update", "game_rarity_settings", `mining:${rarity}`, before, after, req.ip);
+  json(res, { ok: true, row: after, runtime_connected: false, message: "Saved as dashboard planning only. Active mining runtime does not consume game_rarity_settings yet." });
+}, closeDb);
 
 app.post("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (req, res) => {
   if (!tableExists(req.db, "mining_items")) return unverifiedSchema(res, "mining_items table is missing.");
@@ -5786,12 +5855,20 @@ app.post("/api/mining/ores", requireAuth, requirePermission("manage_mining"), (r
     item_id: itemId,
     name: String(req.body?.name || itemId).trim(),
     emoji: String(req.body?.emoji || "").trim(),
+    icon: String(req.body?.icon || req.body?.emoji || "").trim(),
+    description: String(req.body?.description || "").trim(),
     rarity: String(req.body?.rarity || "common").trim().toLowerCase(),
     item_type: "ore",
     sell_value: Math.max(0, Math.trunc(Number(req.body?.sell_value || 0))),
+    drop_weight: req.body?.drop_weight === undefined || req.body?.drop_weight === "" ? undefined : Math.max(0, Number(req.body.drop_weight)),
+    chance_percent: req.body?.chance_percent === undefined || req.body?.chance_percent === "" ? undefined : Math.max(0, Number(req.body.chance_percent)),
+    event_only: req.body?.event_only === true || req.body?.event_only === "1" || req.body?.event_only === "on" ? 1 : 0,
     drop_enabled: req.body?.drop_enabled === false || req.body?.drop_enabled === "0" ? 0 : 1,
     created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
+  if (row.drop_weight !== undefined && !Number.isFinite(row.drop_weight)) return json(res, { error: "drop_weight_must_be_number" }, 400);
+  if (row.chance_percent !== undefined && !Number.isFinite(row.chance_percent)) return json(res, { error: "chance_percent_must_be_number" }, 400);
   const insertCols = Object.keys(row).filter((c) => cols.includes(c));
   try {
     req.db.prepare(`INSERT INTO mining_items (${insertCols.map(sqlIdent).join(", ")}) VALUES (${insertCols.map(() => "?").join(", ")})`).run(...insertCols.map((c) => row[c]));
@@ -5812,10 +5889,18 @@ app.put("/api/mining/ores/:id", requireAuth, requirePermission("manage_mining"),
   const allowed = {
     name: req.body?.name,
     emoji: req.body?.emoji,
+    icon: req.body?.icon,
+    description: req.body?.description,
     rarity: req.body?.rarity,
     sell_value: req.body?.sell_value === undefined ? undefined : Math.max(0, Math.trunc(Number(req.body.sell_value || 0))),
+    drop_weight: req.body?.drop_weight === undefined || req.body?.drop_weight === "" ? undefined : Math.max(0, Number(req.body.drop_weight)),
+    chance_percent: req.body?.chance_percent === undefined || req.body?.chance_percent === "" ? undefined : Math.max(0, Number(req.body.chance_percent)),
+    event_only: req.body?.event_only === undefined ? undefined : (req.body.event_only === true || req.body.event_only === "1" || req.body.event_only === 1 ? 1 : 0),
     drop_enabled: req.body?.drop_enabled === undefined ? undefined : (req.body.drop_enabled === true || req.body.drop_enabled === "1" || req.body.drop_enabled === 1 ? 1 : 0),
+    updated_at: new Date().toISOString(),
   };
+  if (allowed.drop_weight !== undefined && !Number.isFinite(allowed.drop_weight)) return json(res, { error: "drop_weight_must_be_number" }, 400);
+  if (allowed.chance_percent !== undefined && !Number.isFinite(allowed.chance_percent)) return json(res, { error: "chance_percent_must_be_number" }, 400);
   const updates = Object.entries(allowed).filter(([key, value]) => value !== undefined && cols.includes(key));
   if (!updates.length) return json(res, { error: "no_verified_columns" }, 400);
   req.db.prepare(`UPDATE mining_items SET ${updates.map(([key]) => `${sqlIdent(key)}=?`).join(", ")} WHERE item_id=?`).run(...updates.map(([, value]) => String(value).trim()), id);
@@ -5901,21 +5986,39 @@ app.get("/api/fishing/rarities", requireAuth, requirePermission("manage_fishing"
     weightKey: "weight",
     zeroText: "Not currently catching",
     source: "modules/fishing.py FISH_CATALOG",
+    system: "fishing",
     itemLabel: "runtime fish catalog catch weights",
-  });
+  }, _req.db);
   json(res, {
     rows,
-    writable: false,
-    schema_verified: false,
+    writable: true,
+    schema_verified: tableExists(_req.db, "game_rarity_settings"),
     rarity_order: FISHING_RARITY_ORDER,
-    source: "runtime_code",
-    message: "Fishing rarity odds are calculated from modules/fishing.py FISH_CATALOG drop_weight values. Fish catalog writes remain read-only until the runtime moves to a verified DB table.",
+    source: "game_rarity_settings planning + runtime constants",
+    runtime_connected: false,
+    message: "Base rarity chances are dashboard planning values. Active fishing runtime still uses modules/fishing.py FISH_CATALOG drop_weight values.",
   });
-});
+}, closeDb);
 
-app.put("/api/fishing/rarities/:rarity", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
-  unverifiedSchema(res, "Fishing rarity odds are runtime code constants, not a verified DB rarity table.");
-});
+app.put("/api/fishing/rarities/:rarity", requireAuth, requirePermission("manage_fishing"), (req, res) => {
+  const rarity = normalizeRarity(req.params.rarity);
+  if (!FISHING_RARITY_ORDER.includes(rarity)) return json(res, { error: "invalid_rarity" }, 400);
+  if (!tableExists(req.db, "game_rarity_settings")) return unverifiedSchema(res, "game_rarity_settings table is missing.");
+  const before = req.db.prepare("SELECT * FROM game_rarity_settings WHERE system='fishing' AND rarity=?").get(rarity) || null;
+  const baseWeight = req.body?.base_weight === "" || req.body?.base_weight === undefined ? null : Number(req.body.base_weight);
+  const baseChance = req.body?.base_chance === "" || req.body?.base_chance === undefined ? baseWeight : Number(req.body.base_chance);
+  if (baseWeight !== null && !Number.isFinite(baseWeight)) return json(res, { error: "base_weight_must_be_number" }, 400);
+  if (baseChance !== null && !Number.isFinite(baseChance)) return json(res, { error: "base_chance_must_be_number" }, 400);
+  const enabled = req.body?.enabled === false || req.body?.enabled === "0" ? 0 : 1;
+  req.db.prepare(`
+    INSERT INTO game_rarity_settings (system, rarity, base_weight, base_chance, enabled, updated_at)
+    VALUES ('fishing', ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(system, rarity) DO UPDATE SET base_weight=excluded.base_weight, base_chance=excluded.base_chance, enabled=excluded.enabled, updated_at=datetime('now')
+  `).run(rarity, baseWeight, baseChance, enabled);
+  const after = req.db.prepare("SELECT * FROM game_rarity_settings WHERE system='fishing' AND rarity=?").get(rarity);
+  audit(req.db, req.user.username, "fishing_rarity_planning_update", "game_rarity_settings", `fishing:${rarity}`, before, after, req.ip);
+  json(res, { ok: true, row: after, runtime_connected: false, message: "Saved as dashboard planning only. Active fishing runtime does not consume game_rarity_settings yet." });
+}, closeDb);
 
 app.get("/api/fishing/rods", requireAuth, requirePermission("manage_fishing"), (_req, res) => {
   const { rods, source, error } = readFishingCodeCatalog();

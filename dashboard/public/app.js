@@ -162,7 +162,7 @@ const ECONOMY_TABS = [
 const MINING_TABS = [
   { id: "Overview", api: "/api/mining" },
   { id: "Settings", api: "/api/mining-settings" },
-  { id: "Rarities & Odds", api: "/api/mining/rarities" },
+  { id: "Rarity Chances", api: "/api/mining/rarities" },
   { id: "Ores", api: "/api/mining/ores" },
   { id: "Pickaxes", api: "/api/mining/pickaxes" },
   { id: "Player Mining", api: "/api/mining/players" },
@@ -173,7 +173,7 @@ const MINING_TABS = [
 const FISHING_TABS = [
   { id: "Overview", api: "/api/fishing" },
   { id: "Settings", api: "/api/fishing-settings" },
-  { id: "Rarities & Odds", api: "/api/fishing/rarities" },
+  { id: "Rarity Chances", api: "/api/fishing/rarities" },
   { id: "Fish Catalog", api: "/api/fishing/fish" },
   { id: "Rods", api: "/api/fishing/rods" },
   { id: "Player Fishing", api: "/api/fishing/players" },
@@ -735,6 +735,7 @@ const state = {
   howToPlayTab: "Quick Start",
   manualGameSection: { Mining: "Basics", Fishing: "Basics" },
   manualRarity: { Mining: "common", Fishing: "common" },
+  publicGameSection: { Mining: "Basics", Fishing: "Basics" },
   publicRarity: { Mining: "common", Fishing: "common" },
   ownerRarity: { Mining: "common", Fishing: "common" },
   publicRankingTab: "Overview",
@@ -1095,6 +1096,11 @@ function rarityChipHtml(rarity, label = gameRarityLabel(rarity)) {
 function rarityTabButtons({ section, current, attr = "public-rarity", order = GAME_RARITY_ORDER }) {
   return `<div class="rarity-tabs">${order.map((rarity) => `<button class="rarity-tab ${rarity === current ? "active" : ""}" data-${attr}="${esc(rarity)}" data-rarity-section="${esc(section)}">${rarityChipHtml(rarity)}</button>`).join("")}</div>`;
 }
+function publicGameTabs(section, labels) {
+  if (!labels.includes(state.publicGameSection?.[section])) state.publicGameSection[section] = labels[0];
+  const current = state.publicGameSection[section];
+  return `<div class="manual-subtabs">${labels.map((label) => `<button class="manual-subtab ${label === current ? "active" : ""}" data-public-game-section="${esc(section)}" data-public-game-tab="${esc(label)}">${esc(label)}</button>`).join("")}</div>`;
+}
 function publicCatalogCards(rows, kind) {
   const list = Array.isArray(rows) ? rows : [];
   if (!list.length) return `<div class="pub-empty compact">No items found for this rarity yet.</div>`;
@@ -1103,7 +1109,7 @@ function publicCatalogCards(rows, kind) {
     <div class="manual-catalog-meta">
       <span><b>Value</b>${esc(publicCoins(row.value ?? row.sell_value ?? row.base_value))}</span>
       ${kind === "fish" ? `<span><b>Weight</b>${esc(`${publicLbs(row.min_weight)}–${publicLbs(row.max_weight)}`)}</span>` : ""}
-      ${kind === "ore" && (row.weight !== null && row.weight !== undefined) ? `<span><b>Weight</b>${esc(publicLbs(row.weight))}</span>` : ""}
+      ${kind === "ore" && Number(row.weight || 0) > 0 ? `<span><b>Weight</b>${esc(publicLbs(row.weight))}</span>` : ""}
       <span><b>Chance</b>${esc(row.chance_label || publicPercent(row.chance_percent))}</span>
       <span><b>Event Only</b>${row.event_only ? "Yes" : "No"}</span>
     </div>
@@ -1531,57 +1537,61 @@ function renderPublicMining(d) {
   const current = state.publicRarity.Mining;
   const rows = mining.ores_by_rarity?.[current] || (mining.ores || []).filter((row) => normalizeGameRarity(row.rarity) === current);
   const commands = (mining.commands || []).map((cmd) => cmd.command || cmd.display || cmd).filter(Boolean);
+  const tabs = ["Basics", "Commands", "Ore Rarities", "Leaderboards"];
+  if (!tabs.includes(state.publicGameSection.Mining)) state.publicGameSection.Mining = "Basics";
+  const tab = state.publicGameSection.Mining;
+  const panel = {
+    "Basics": `
+      <div class="pub-grid2">
+        <div class="card">
+          <h3>How Mining Works</h3>
+          <p class="manual-copy">Use <code>!mine</code> in-room to search for ores. Mining is about collecting valuable finds, earning coins and mining XP, and building your profile over time.</p>
+          <ul class="manual-list">
+            <li>Each mine attempt can find an ore, reward coins, and add progression.</li>
+            <li>Rare ores can trigger room announcements and show up in Rankings.</li>
+            <li>Leaderboards track top miners, valuable finds, heavy ores, and rare discoveries when data exists.</li>
+            <li>Pickaxes/tools are shown when the active system exposes public-safe data.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Rarity Ladder</h3>
+          <div class="rarity-guide">${order.map((rarity) => rarityChipHtml(rarity)).join("")}</div>
+          <p class="manual-note">Exotic is the highest tier. Prismatic sits just below Exotic.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Pickaxes / Tools</h3>
+        <p class="manual-copy">Tool upgrades appear here when the active catalog exposes public-safe data.</p>
+        ${publicSmallTable(mining.tools || [], [
+          { key: "name", label: "Pickaxe" },
+          { key: "required_level", label: "Required Level" },
+          { key: "luck_bonus", label: "Luck" },
+          { key: "speed_bonus", label: "Speed" },
+        ])}
+      </div>`,
+    "Commands": `<div class="card"><h3>Mining Commands</h3>${publicCommandChips(commands.length ? commands : ["!mine", "!topminers", "!profile"])}<p class="manual-note">Only verified public player commands are shown. Owner/admin mining commands stay hidden.</p></div>`,
+    "Ore Rarities": `
+      <div class="card">
+        <div class="card-header">
+          <div><h3>Ore Rarity Browser</h3><div class="muted text-sm">Choose a rarity to browse matching ores only.</div></div>
+          <span class="pill info">Read only</span>
+        </div>
+        ${rarityTabButtons({ section: "Mining", current, attr: "public-rarity", order })}
+        ${publicCatalogCards(rows, "ore")}
+      </div>`,
+    "Leaderboards": `
+      <div class="pub-rankings-grid">
+        <div class="card"><h3>Top Miners</h3>${publicMiniLeaders(boards.top_miners || [], { value: (r) => r.total_mined ? `${publicFmt(r.total_mined)} mined` : `${publicFmt(r.xp)} XP`, detail: (r) => r.level ? `Level ${r.level}` : "" })}</div>
+        <div class="card"><h3>Heaviest Ores</h3>${publicMiniLeaders(boards.heaviest_ores || [], { name: (r) => r.ore || "Ore", value: (r) => publicLbs(r.weight), detail: (r) => `Found by ${r.username || "Unknown Player"}` })}</div>
+        <div class="card"><h3>Most Valuable Ores</h3>${publicMiniLeaders(boards.most_valuable_ores || [], { name: (r) => r.ore || "Ore", value: (r) => publicCoins(r.value), detail: (r) => `${r.username || "Unknown Player"} · ${r.rarity || "ore"}` })}</div>
+        <div class="card"><h3>Best Rare Finds</h3>${publicMiniLeaders(boards.rarest_finds || [], { name: (r) => r.ore || "Ore", value: (r) => r.rarity || "rare", detail: (r) => [r.weight ? publicLbs(r.weight) : "", r.value ? publicCoins(r.value) : "", `found by ${r.username || "Unknown Player"}`].filter(Boolean).join(" · ") })}</div>
+      </div>`,
+  }[tab] || "";
   return `
     <div class="pub-section-title"><h2>⛏️ Mining</h2>
       <p>Mine ores, chase rare drops, earn coins and XP, and climb the mining boards.</p></div>
-    <div class="pub-grid2">
-      <div class="card">
-        <h3>Mining Overview</h3>
-        <p class="manual-copy">Use <code>!mine</code> in-room to search for ores. Mining rewards coins, mining XP, discovery progress, and rare finds.</p>
-        <ul class="manual-list">
-          <li>Mine ores to earn coins, mining XP, and discovery progress.</li>
-          <li>Rare ores can appear in announcements and leaderboards.</li>
-          <li>Tools and events may improve progression when active.</li>
-        </ul>
-      </div>
-      <div class="card">
-        <h3>Commands</h3>
-        ${publicCommandChips(commands.length ? commands : ["!mine", "!topminers", "!profile"])}
-        <p class="manual-note">Only public player commands are shown here. Owner/admin mining commands stay hidden.</p>
-      </div>
-      <div class="card">
-        <h3>Rarity Guide</h3>
-        <div class="rarity-guide">${order.map((rarity) => rarityChipHtml(rarity)).join("")}</div>
-        <p class="manual-note">Exotic is the highest tier. Prismatic sits just below Exotic in the current ChillTopia rarity ladder.</p>
-      </div>
-      <div class="card">
-        <h3>Top Miners / Rare Finds</h3>
-        ${publicMiniLeaders(boards.top_miners || [], { value: (r) => r.total_mined ? `${publicFmt(r.total_mined)} mined` : `${publicFmt(r.xp)} XP`, detail: (r) => r.level ? `Level ${r.level}` : "" })}
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header">
-        <div><h3>Ore Rarity Browser</h3><div class="muted text-sm">Choose a rarity to browse matching ores only.</div></div>
-        <span class="pill info">Read only</span>
-      </div>
-      ${rarityTabButtons({ section: "Mining", current, attr: "public-rarity", order })}
-      ${publicCatalogCards(rows, "ore")}
-    </div>
-    <div class="pub-rankings-grid">
-      <div class="card"><h3>Heaviest Ores</h3>${publicMiniLeaders(boards.heaviest_ores || [], { name: (r) => r.ore || "Ore", value: (r) => publicLbs(r.weight), detail: (r) => `Found by ${r.username || "Unknown Player"}` })}</div>
-      <div class="card"><h3>Most Valuable Ores</h3>${publicMiniLeaders(boards.most_valuable_ores || [], { name: (r) => r.ore || "Ore", value: (r) => publicCoins(r.value), detail: (r) => `${r.username || "Unknown Player"} · ${r.rarity || "ore"}` })}</div>
-      <div class="card"><h3>Best Rare Finds</h3>${publicMiniLeaders(boards.rarest_finds || [], { name: (r) => r.ore || "Ore", value: (r) => r.rarity || "rare", detail: (r) => [r.weight ? publicLbs(r.weight) : "", r.value ? publicCoins(r.value) : "", `found by ${r.username || "Unknown Player"}`].filter(Boolean).join(" · ") })}</div>
-    </div>
-    <div class="card">
-      <h3>Pickaxes / Tools</h3>
-      <p class="manual-copy">Tool upgrades appear here when the active catalog exposes public-safe data.</p>
-      ${publicSmallTable(mining.tools || [], [
-        { key: "name", label: "Pickaxe" },
-        { key: "required_level", label: "Required Level" },
-        { key: "luck_bonus", label: "Luck" },
-        { key: "speed_bonus", label: "Speed" },
-      ])}
-    </div>
+    ${publicGameTabs("Mining", tabs)}
+    ${panel}
   `;
 }
 
@@ -1593,57 +1603,61 @@ function renderPublicFishing(d) {
   const current = state.publicRarity.Fishing;
   const rows = fishing.fish_by_rarity?.[current] || (fishing.fish || []).filter((row) => normalizeGameRarity(row.rarity) === current);
   const commands = (fishing.commands || []).map((cmd) => cmd.command || cmd.display || cmd).filter(Boolean);
+  const tabs = ["Basics", "Commands", "Fish Rarities", "Leaderboards"];
+  if (!tabs.includes(state.publicGameSection.Fishing)) state.publicGameSection.Fishing = "Basics";
+  const tab = state.publicGameSection.Fishing;
+  const panel = {
+    "Basics": `
+      <div class="pub-grid2">
+        <div class="card">
+          <h3>How Fishing Works</h3>
+          <p class="manual-copy">Use <code>!fish</code> in-room to cast. Fishing is about catching species, earning coins and fishing XP, and chasing rare or heavy catches.</p>
+          <ul class="manual-list">
+            <li>Each cast can catch fish, reward coins, and add progression.</li>
+            <li>Rare fish and heavy catches can appear on leaderboards.</li>
+            <li>Rods, boosts, VIP perks, and events may improve catches when active.</li>
+            <li>Rankings track top fishers, heaviest fish, valuable catches, and rare catches when data exists.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Rarity Ladder</h3>
+          <div class="rarity-guide">${order.map((rarity) => rarityChipHtml(rarity)).join("")}</div>
+          <p class="manual-note">Exotic is the highest tier. Prismatic sits just below Exotic.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Rods / Tools</h3>
+        <p class="manual-copy">Rod upgrades appear here when the active catalog exposes public-safe data.</p>
+        ${publicSmallTable(fishing.rods || [], [
+          { key: "name", label: "Rod" },
+          { key: "required_level", label: "Required Level" },
+          { key: "luck_bonus", label: "Luck" },
+          { key: "speed_bonus", label: "Speed" },
+        ])}
+      </div>`,
+    "Commands": `<div class="card"><h3>Fishing Commands</h3>${publicCommandChips(commands.length ? commands : ["!fish", "!topfishers", "!profile"])}<p class="manual-note">Only verified public player commands are shown. Owner/admin fishing commands stay hidden.</p></div>`,
+    "Fish Rarities": `
+      <div class="card">
+        <div class="card-header">
+          <div><h3>Fish Rarity Browser</h3><div class="muted text-sm">Choose a rarity to browse matching fish only.</div></div>
+          <span class="pill info">Read only</span>
+        </div>
+        ${rarityTabButtons({ section: "Fishing", current, attr: "public-rarity", order })}
+        ${publicCatalogCards(rows, "fish")}
+      </div>`,
+    "Leaderboards": `
+      <div class="pub-rankings-grid">
+        <div class="card"><h3>Top Fishers</h3>${publicMiniLeaders(boards.top_fishers || [], { value: (r) => `${publicFmt(r.total_catches)} catches`, detail: (r) => r.level ? `Level ${r.level}` : "" })}</div>
+        <div class="card"><h3>Heaviest Fish</h3>${publicMiniLeaders(boards.heaviest_fish || [], { name: (r) => r.fish || "Fish", value: (r) => publicLbs(r.weight), detail: (r) => `Caught by ${r.username || "Unknown Player"}` })}</div>
+        <div class="card"><h3>Most Valuable Fish</h3>${publicMiniLeaders(boards.most_valuable_fish || [], { name: (r) => r.fish || "Fish", value: (r) => publicCoins(r.value), detail: (r) => `${r.username || "Unknown Player"} · ${r.rarity || "fish"}` })}</div>
+        <div class="card"><h3>Best Rare Catches</h3>${publicMiniLeaders(boards.rarest_catches || [], { name: (r) => r.fish || "Fish", value: (r) => r.rarity || "rare", detail: (r) => [r.weight ? publicLbs(r.weight) : "", r.value ? publicCoins(r.value) : "", `caught by ${r.username || "Unknown Player"}`].filter(Boolean).join(" · ") })}</div>
+      </div>`,
+  }[tab] || "";
   return `
     <div class="pub-section-title"><h2>🎣 Fishing</h2>
       <p>Catch fish, chase rare weights, earn coins and XP, and climb the fishing boards.</p></div>
-    <div class="pub-grid2">
-      <div class="card">
-        <h3>Fishing Overview</h3>
-        <p class="manual-copy">Use <code>!fish</code> in-room to cast. Fishing rewards coins, fishing XP, rare species, big catches, and collection progress.</p>
-        <ul class="manual-list">
-          <li>Catch fish to earn coins, fishing XP, and collection progress.</li>
-          <li>Rare species and heavy catches can appear on leaderboards.</li>
-          <li>Rods, boosts, and events may improve catches when active.</li>
-        </ul>
-      </div>
-      <div class="card">
-        <h3>Commands</h3>
-        ${publicCommandChips(commands.length ? commands : ["!fish", "!topfishers", "!profile"])}
-        <p class="manual-note">Only public player commands are shown here. Owner/admin fishing commands stay hidden.</p>
-      </div>
-      <div class="card">
-        <h3>Rarity Guide</h3>
-        <div class="rarity-guide">${order.map((rarity) => rarityChipHtml(rarity)).join("")}</div>
-        <p class="manual-note">Exotic is the highest tier. Prismatic sits just below Exotic in the current ChillTopia rarity ladder.</p>
-      </div>
-      <div class="card">
-        <h3>Top Fishers / Rare Catches</h3>
-        ${publicMiniLeaders(boards.top_fishers || [], { value: (r) => `${publicFmt(r.total_catches)} catches`, detail: (r) => r.level ? `Level ${r.level}` : "" })}
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header">
-        <div><h3>Fish Rarity Browser</h3><div class="muted text-sm">Choose a rarity to browse matching fish only.</div></div>
-        <span class="pill info">Read only</span>
-      </div>
-      ${rarityTabButtons({ section: "Fishing", current, attr: "public-rarity", order })}
-      ${publicCatalogCards(rows, "fish")}
-    </div>
-    <div class="pub-rankings-grid">
-      <div class="card"><h3>Heaviest Fish</h3>${publicMiniLeaders(boards.heaviest_fish || [], { name: (r) => r.fish || "Fish", value: (r) => publicLbs(r.weight), detail: (r) => `Caught by ${r.username || "Unknown Player"}` })}</div>
-      <div class="card"><h3>Most Valuable Fish</h3>${publicMiniLeaders(boards.most_valuable_fish || [], { name: (r) => r.fish || "Fish", value: (r) => publicCoins(r.value), detail: (r) => `${r.username || "Unknown Player"} · ${r.rarity || "fish"}` })}</div>
-      <div class="card"><h3>Best Rare Catches</h3>${publicMiniLeaders(boards.rarest_catches || [], { name: (r) => r.fish || "Fish", value: (r) => r.rarity || "rare", detail: (r) => [r.weight ? publicLbs(r.weight) : "", r.value ? publicCoins(r.value) : "", `caught by ${r.username || "Unknown Player"}`].filter(Boolean).join(" · ") })}</div>
-    </div>
-    <div class="card">
-      <h3>Rods / Tools</h3>
-      <p class="manual-copy">Rod upgrades appear here when the active catalog exposes public-safe data.</p>
-      ${publicSmallTable(fishing.rods || [], [
-        { key: "name", label: "Rod" },
-        { key: "required_level", label: "Required Level" },
-        { key: "luck_bonus", label: "Luck" },
-        { key: "speed_bonus", label: "Speed" },
-      ])}
-    </div>
+    ${publicGameTabs("Fishing", tabs)}
+    ${panel}
   `;
 }
 
@@ -2016,6 +2030,12 @@ function bindPublicEvents() {
   document.querySelectorAll("[data-public-rarity]").forEach((btn) => btn.addEventListener("click", () => {
     const section = btn.dataset.raritySection;
     if (section) state.publicRarity[section] = btn.dataset.publicRarity;
+    state.error = "";
+    render();
+  }));
+  document.querySelectorAll("[data-public-game-tab]").forEach((btn) => btn.addEventListener("click", () => {
+    const section = btn.dataset.publicGameSection;
+    if (section) state.publicGameSection[section] = btn.dataset.publicGameTab;
     state.error = "";
     render();
   }));
@@ -4276,7 +4296,7 @@ function renderMiningOwnerPage(tab) {
     ${tabNav("Mining")}
     ${tab === "Overview" ? renderMiningOverviewPage() : ""}
     ${tab === "Settings" ? renderMiningTab() : ""}
-    ${tab === "Rarities & Odds" ? renderMiningRaritiesPage() : ""}
+    ${tab === "Rarity Chances" ? renderMiningRaritiesPage() : ""}
     ${tab === "Ores" ? renderMiningOresPage() : ""}
     ${tab === "Pickaxes" ? renderMiningPickaxesPage() : ""}
     ${tab === "Player Mining" ? renderMiningPlayersPage() : ""}
@@ -4296,13 +4316,19 @@ function renderRaritySummaryCards(rows, section) {
   return `<div class="owner-rarity-grid">${GAME_RARITY_ORDER.map((rarity) => {
     const row = byRarity.get(rarity) || { rarity, label: gameRarityLabel(rarity), total_items: 0, total_weight: 0, chance_label: "Not currently dropping" };
     return `<div class="card owner-rarity-card">
-      <div class="owner-rarity-head">${rarityChipHtml(rarity, row.label || gameRarityLabel(rarity))}<span class="pill warn">Calculated</span></div>
+      <div class="owner-rarity-head">${rarityChipHtml(rarity, row.label || gameRarityLabel(rarity))}<span class="pill warn">${row.runtime_connected ? "Runtime" : "Planning"}</span></div>
       <div class="manual-info-grid compact">
         <div><span>${section === "Fishing" ? "Fish" : "Ores"}</span><strong>${esc(row.total_items ?? 0)}</strong></div>
         <div><span>Enabled</span><strong>${esc(row.enabled_items ?? 0)}</strong></div>
-        <div><span>Total Weight</span><strong>${esc(Number(row.total_weight || 0).toLocaleString())}</strong></div>
+        <div><span>Base Weight</span><strong>${esc(row.base_weight ?? row.base_chance ?? "—")}</strong></div>
         <div><span>Total Chance</span><strong>${esc(row.chance_label || publicPercent(row.chance_percent))}</strong></div>
       </div>
+      <form class="settings-fields compact rarityChanceForm" data-rarity-chance-form="${esc(section)}" data-rarity="${esc(rarity)}">
+        <label class="field-label">Base Weight / Chance</label>
+        <input type="number" step="0.0001" min="0" name="base_weight" value="${esc(row.base_weight ?? row.base_chance ?? "")}" />
+        <label class="switch compact"><input type="checkbox" name="enabled" ${Number(row.planning_enabled ?? 1) ? "checked" : ""}><span></span><em>Planning enabled</em></label>
+        <button class="btn primary sm" type="submit">Save</button>
+      </form>
       <p class="manual-note">${esc(row.notes || "Edit verified individual catalog rows where supported.")}</p>
     </div>`;
   }).join("")}</div>`;
@@ -4312,12 +4338,12 @@ function renderMiningRaritiesPage() {
   const d = state.data || {};
   return `<div class="card">
     <div class="card-header">
-      <div><h2>Rarities & Odds</h2><div class="muted text-sm">${esc(d.message || "Calculated from DB-backed ores and active runtime rarity odds.")}</div></div>
-      <span class="pill warn">Calculated</span>
+      <div><h2>Rarity Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from DB-backed ores and active runtime rarity odds.")}</div></div>
+      <span class="pill warn">Dashboard planning</span>
     </div>
     ${renderRaritySummaryCards(d.rows || [], "Mining")}
     ${futureControls([
-      { endpoint: "PUT /api/mining/rarities/:rarity", purpose: "Direct rarity chance editing", status: "Runtime constant — not editable yet" },
+      { endpoint: "PUT /api/mining/rarities/:rarity", purpose: "Dashboard planning base rarity chances", status: "Stored, runtime not connected" },
       { endpoint: "PUT /api/mining/drop-weights", purpose: "Direct percentage editing", status: "Unverified schema" },
     ], "Advanced / Rarity Writes")}
   </div>`;
@@ -4381,6 +4407,9 @@ function renderMiningOresPage() {
   if (!order.includes(state.ownerRarity.Mining)) state.ownerRarity.Mining = order[0] || "common";
   const current = state.ownerRarity.Mining;
   const rows = (d.rows || []).filter((row) => normalizeGameRarity(row.rarity) === current);
+  const cols = d.columns || [];
+  const hasCol = (name) => cols.includes(name);
+  const chanceField = hasCol("drop_weight") ? "drop_weight" : (hasCol("chance_percent") ? "chance_percent" : "");
   return `
     <div class="card">
       <div class="card-header">
@@ -4396,6 +4425,10 @@ function renderMiningOresPage() {
             ${["item_id","name","emoji"].map((key) => renderSettingsField({ key, label: key.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase()), type: "text" }, "")).join("")}
             ${renderSettingsField({ key: "rarity", label: "Rarity", type: "select", options: GAME_RARITY_ORDER.map((rarity) => [rarity, gameRarityLabel(rarity)]) }, current)}
             ${renderSettingsField({ key: "sell_value", label: "Sell Value", type: "number" }, "")}
+            ${hasCol("drop_weight") ? renderSettingsField({ key: "drop_weight", label: "Drop Weight", type: "number", hint: "Distribution weight inside this rarity when supported by the DB schema." }, "") : ""}
+            ${hasCol("chance_percent") ? renderSettingsField({ key: "chance_percent", label: "Drop Chance %", type: "number", hint: "Direct percentage only when the live table stores chance_percent." }, "") : ""}
+            ${hasCol("description") ? renderSettingsField({ key: "description", label: "Description", type: "textarea" }, "") : ""}
+            ${hasCol("event_only") ? renderSettingsField({ key: "event_only", label: "Event Only", type: "toggle" }, false) : ""}
             ${renderSettingsField({ key: "drop_enabled", label: "Drops Enabled", type: "toggle" }, true)}
             <button class="btn primary sm" type="submit">Save Ore</button>
           </form>
@@ -4407,7 +4440,11 @@ function renderMiningOresPage() {
         { key: "emoji", label: "Icon", render: (r) => `<input name="emoji" value="${esc(r.emoji || "")}" form="ore_${esc(r.item_id)}" />` },
         { key: "rarity", label: "Rarity", render: (r) => `<select name="rarity" form="ore_${esc(r.item_id)}">${GAME_RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${normalizeGameRarity(r.rarity) === rarity ? "selected" : ""}>${esc(gameRarityLabel(rarity))}</option>`).join("")}</select>` },
         { key: "sell_value", label: "Base Value", render: (r) => `<input type="number" name="sell_value" value="${esc(r.sell_value || 0)}" form="ore_${esc(r.item_id)}" />` },
+        ...(hasCol("drop_weight") ? [{ key: "drop_weight", label: "Drop Weight", render: (r) => `<input type="number" step="0.0001" name="drop_weight" value="${esc(r.drop_weight ?? "")}" form="ore_${esc(r.item_id)}" />` }] : []),
+        ...(hasCol("chance_percent") ? [{ key: "chance_percent", label: "Drop Chance %", render: (r) => `<input type="number" step="0.0001" name="chance_percent" value="${esc(r.chance_percent ?? "")}" form="ore_${esc(r.item_id)}" />` }] : []),
         { key: "chance_percent", label: "Calculated Chance", render: (r) => `<span class="muted">${esc(r.chance_label || publicPercent(r.chance_percent))}</span>` },
+        ...(hasCol("event_only") ? [{ key: "event_only", label: "Event", render: (r) => `<label class="switch compact"><input type="checkbox" name="event_only" form="ore_${esc(r.item_id)}" ${Number(r.event_only) ? "checked" : ""}><span></span></label>` }] : []),
+        ...(hasCol("description") ? [{ key: "description", label: "Description", render: (r) => `<input name="description" value="${esc(r.description || "")}" form="ore_${esc(r.item_id)}" />` }] : []),
         { key: "drop_enabled", label: "Enabled", render: (r) => `<label class="switch compact"><input type="checkbox" name="drop_enabled" form="ore_${esc(r.item_id)}" ${Number(r.drop_enabled) ? "checked" : ""}><span></span></label>` },
       ], (r) => `<form id="ore_${esc(r.item_id)}" data-mining-ore-form="${esc(r.item_id)}" class="inline-actions">
         <button class="btn primary sm" type="submit">Save</button>
@@ -4421,7 +4458,7 @@ function renderMiningOresPage() {
       </details>
       ${futureControls([
         { endpoint: "POST /api/mining/ores duplicate", purpose: "Duplicate ore helper", status: "Future control" },
-        { endpoint: "PUT /api/mining/drop-weights", purpose: "Direct drop weight editing", status: "Runtime constant — not editable yet" },
+        { endpoint: "PUT /api/mining/drop-weights", purpose: "Direct global drop weight editing", status: chanceField ? "Use per-ore DB field above" : "Runtime constant — not editable yet" },
       ], "Advanced / Ore Tools")}
     </div>
   `;
@@ -4484,7 +4521,7 @@ function renderFishingOwnerPage(tab) {
     ${tabNav("Fishing")}
     ${tab === "Overview" ? renderFishingOverviewPage() : ""}
     ${tab === "Settings" ? renderFishingTab() : ""}
-    ${tab === "Rarities & Odds" ? renderFishingRaritiesPage() : ""}
+    ${tab === "Rarity Chances" ? renderFishingRaritiesPage() : ""}
     ${tab === "Fish Catalog" ? renderFishingCatalogPage() : ""}
     ${tab === "Rods" ? renderFishingRodsPage() : ""}
     ${tab === "Player Fishing" ? renderFishingPlayersPage() : ""}
@@ -4498,12 +4535,12 @@ function renderFishingRaritiesPage() {
   const d = state.data || {};
   return `<div class="card">
     <div class="card-header">
-      <div><h2>Rarities & Odds</h2><div class="muted text-sm">${esc(d.message || "Calculated from runtime fish catalog catch weights.")}</div></div>
-      <span class="pill warn">Runtime constant</span>
+      <div><h2>Rarity Chances</h2><div class="muted text-sm">${esc(d.message || "Calculated from runtime fish catalog catch weights.")}</div></div>
+      <span class="pill warn">Dashboard planning</span>
     </div>
     ${renderRaritySummaryCards(d.rows || [], "Fishing")}
     ${futureControls([
-      { endpoint: "PUT /api/fishing/rarities/:rarity", purpose: "Direct rarity chance editing", status: "Runtime constant — not editable yet" },
+      { endpoint: "PUT /api/fishing/rarities/:rarity", purpose: "Dashboard planning base rarity chances", status: "Stored, runtime not connected" },
       { endpoint: "PUT /api/fishing/drop-weights", purpose: "Direct catch weight editing", status: "Unverified schema" },
     ], "Advanced / Rarity Writes")}
   </div>`;
@@ -7304,6 +7341,18 @@ function bindAdminPageEvents() {
       if (section) state.ownerRarity[section] = btn.dataset.ownerRarity;
       state.error = "";
       render();
+    });
+  });
+
+  document.querySelectorAll("[data-rarity-chance-form]").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const section = form.dataset.rarityChanceForm;
+      const rarity = form.dataset.rarity;
+      const body = Object.fromEntries(new FormData(form));
+      body.enabled = form.querySelector("[name='enabled']")?.checked ?? true;
+      const apiPath = section === "Fishing" ? `/api/fishing/rarities/${encodeURIComponent(rarity)}` : `/api/mining/rarities/${encodeURIComponent(rarity)}`;
+      await action("Rarity planning value saved. Runtime still uses active bot constants until migrated.", () => api(apiPath, { method: "PUT", body: JSON.stringify(body) }));
     });
   });
 
