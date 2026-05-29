@@ -4693,7 +4693,7 @@ function renderAddFishInventoryForm(data) {
   return `<form id="addPlayerFishForm" class="settings-form">
     <div class="field"><label class="field-label">Fish</label><select name="fish_id">
       <option value="">Custom fish name</option>
-      ${catalog.map((fish) => `<option value="${esc(fish.fish_id)}" data-name="${esc(fish.name)}" data-rarity="${esc(normalizeGameRarity(fish.rarity))}" data-value="${esc(fish.base_value ?? "")}" data-min="${esc(fish.min_weight ?? "")}" data-max="${esc(fish.max_weight ?? "")}">${esc(fish.name || fish.fish_id)} · ${esc(gameRarityLabel(fish.rarity))}</option>`).join("")}
+      ${catalog.map((fish) => `<option value="${esc(fish.fish_id)}">${esc(fish.name || fish.fish_id)} · ${esc(gameRarityLabel(fish.rarity))}</option>`).join("")}
     </select></div>
     <div class="field"><label class="field-label">Fish Name</label><input name="fish_name" placeholder="Optional override" /></div>
     <div class="field"><label class="field-label">Rarity</label><select name="rarity">${GAME_RARITY_ORDER.map((r) => `<option value="${r}">${esc(gameRarityLabel(r))}</option>`).join("")}</select></div>
@@ -7919,7 +7919,10 @@ function bindAdminPageEvents() {
       if (!el.name) return;
       body[el.name] = el.type === "checkbox" ? el.checked : el.value;
     });
-    await action("Ore saved.", () => api("/api/mining/ores", { method: "POST", body: JSON.stringify(body) }));
+    await action("Ore saved.", async () => {
+      await api("/api/mining/ores", { method: "POST", body: JSON.stringify(body) });
+      await loadAdmin();
+    });
   });
 
   document.querySelectorAll("[data-mining-ore-form]").forEach((form) => {
@@ -7931,7 +7934,10 @@ function bindAdminPageEvents() {
         if (!el.name) return;
         body[el.name] = el.type === "checkbox" ? el.checked : el.value;
       });
-      await action("Ore updated.", () => api(`/api/mining/ores/${encodeURIComponent(itemId)}`, { method: "PUT", body: JSON.stringify(body) }));
+      await action("Ore updated.", async () => {
+        await api(`/api/mining/ores/${encodeURIComponent(itemId)}`, { method: "PUT", body: JSON.stringify(body) });
+        await loadAdmin();
+      });
     });
   });
 
@@ -7939,7 +7945,10 @@ function bindAdminPageEvents() {
     btn.addEventListener("click", () => {
       const itemId = btn.dataset.miningOreDisable;
       confirmAction("Disable Ore", `Soft-disable ${itemId}? Existing player inventories are preserved.`, async () => {
-        await action("Ore disabled.", () => api(`/api/mining/ores/${encodeURIComponent(itemId)}`, { method: "DELETE", body: JSON.stringify({}) }));
+        await action("Ore disabled.", async () => {
+          await api(`/api/mining/ores/${encodeURIComponent(itemId)}`, { method: "DELETE", body: JSON.stringify({}) });
+          await loadAdmin();
+        });
       });
     });
   });
@@ -7952,7 +7961,10 @@ function bindAdminPageEvents() {
       if (!el.name) return;
       body[el.name] = el.type === "checkbox" ? el.checked : el.value;
     });
-    await action("Fish saved.", () => api("/api/fishing/fish", { method: "POST", body: JSON.stringify(body) }));
+    await action("Fish saved.", async () => {
+      await api("/api/fishing/fish", { method: "POST", body: JSON.stringify(body) });
+      await loadAdmin();
+    });
   });
 
   document.querySelectorAll("[data-fishing-fish-form]").forEach((form) => {
@@ -7964,7 +7976,10 @@ function bindAdminPageEvents() {
         if (!el.name) return;
         body[el.name] = el.type === "checkbox" ? el.checked : el.value;
       });
-      await action("Fish updated.", () => api(`/api/fishing/fish/${encodeURIComponent(fishId)}`, { method: "PUT", body: JSON.stringify(body) }));
+      await action("Fish updated.", async () => {
+        await api(`/api/fishing/fish/${encodeURIComponent(fishId)}`, { method: "PUT", body: JSON.stringify(body) });
+        await loadAdmin();
+      });
     });
   });
 
@@ -7972,7 +7987,10 @@ function bindAdminPageEvents() {
     btn.addEventListener("click", () => {
       const fishId = btn.dataset.fishingFishDisable;
       confirmAction("Disable Fish", `Soft-disable ${fishId}? Existing player inventories are preserved.`, async () => {
-        await action("Fish disabled.", () => api(`/api/fishing/fish/${encodeURIComponent(fishId)}`, { method: "DELETE", body: JSON.stringify({}) }));
+        await action("Fish disabled.", async () => {
+          await api(`/api/fishing/fish/${encodeURIComponent(fishId)}`, { method: "DELETE", body: JSON.stringify({}) });
+          await loadAdmin();
+        });
       });
     });
   });
@@ -8402,14 +8420,16 @@ function bindAdminPageEvents() {
     });
   });
   document.querySelector("#addPlayerFishForm select[name='fish_id']")?.addEventListener("change", (e) => {
-    const option = e.currentTarget.selectedOptions?.[0];
+    const fishId = e.currentTarget.value;
     const form = e.currentTarget.closest("form");
-    if (!option || !form || !option.value) return;
-    if (option.dataset.name) form.querySelector("[name='fish_name']").value = option.dataset.name;
-    if (option.dataset.rarity) form.querySelector("[name='rarity']").value = option.dataset.rarity;
-    if (option.dataset.value) form.querySelector("[name='value']").value = option.dataset.value;
-    const min = Number(option.dataset.min);
-    const max = Number(option.dataset.max);
+    if (!fishId || !form) return;
+    const fish = (state.playerInventory.Fishing?.catalog || []).find((row) => String(row.fish_id || "") === String(fishId));
+    if (!fish) return;
+    form.querySelector("[name='fish_name']").value = fish.name || "";
+    form.querySelector("[name='rarity']").value = normalizeGameRarity(fish.rarity);
+    form.querySelector("[name='value']").value = fish.base_value ?? "";
+    const min = Number(fish.min_weight);
+    const max = Number(fish.max_weight);
     if (Number.isFinite(min) && Number.isFinite(max) && max >= min) {
       form.querySelector("[name='weight']").value = ((min + max) / 2).toFixed(1);
     }
