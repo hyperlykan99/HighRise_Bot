@@ -280,15 +280,27 @@ def _guardian_log(mode: str, username: str, event: str, extra: str = "", *, cool
     )
 
 
-def _request_child_restart(reason: str, *, cooldown: float = 60.0) -> None:
+def _request_child_restart(reason: str, *, cooldown: float = 60.0) -> bool:
     mode, username = _current_canonical_bot_identity()
     key = f"{mode}:{username}"
     now = time.time()
     if now - _bot_restart_request_last.get(key, 0.0) < cooldown:
-        return
+        return False
     _bot_restart_request_last[key] = now
     safe_reason = str(reason or "presence_unrecoverable").replace("\n", " ")[:160]
     print(f"[BOT_RESTART_REQUEST] mode={mode} username={username} reason={safe_reason}", flush=True)
+    return True
+
+
+def _request_restart_after_spawn_failure(reason: str) -> None:
+    mode, username = _current_canonical_bot_identity()
+    safe_reason = str(reason or "spawn_restore_failed").replace("\n", " ")[:160]
+    if _request_child_restart(safe_reason):
+        print(
+            f"[BOT_GUARDIAN] mode={mode} username={username} "
+            f"event=restart_requested_after_spawn_failure reason={safe_reason}",
+            flush=True,
+        )
 
 
 def mark_current_bot_presence_ok() -> None:
@@ -423,7 +435,12 @@ def schedule_bot_presence_retry(bot: BaseBot, reason: str = "not_in_room", coold
                 _guardian_log(mode, username, "spawn_restore_failed", f"reason={reason} count={fails}", cooldown=60.0)
                 if fails >= 3:
                     _guardian_log(mode, username, "recovery_escalated", f"reason={reason} failures={fails}", cooldown=120.0)
-                    _request_child_restart(f"spawn_restore_failed:{reason}")
+                    restart_reason = (
+                        "presence_recovery_escalated"
+                        if "presence_uncertain" in str(reason)
+                        else f"spawn_restore_failed:{reason}"
+                    )
+                    _request_restart_after_spawn_failure(restart_reason)
                 return
             _bot_presence_restore_failures[key] = 0
             mark_current_bot_presence_ok()
@@ -437,7 +454,12 @@ def schedule_bot_presence_retry(bot: BaseBot, reason: str = "not_in_room", coold
             _guardian_log(mode, username, "spawn_restore_failed", f"reason={reason} error={exc!r} count={fails}", cooldown=60.0)
             if fails >= 3:
                 _guardian_log(mode, username, "recovery_escalated", f"reason={reason} failures={fails}", cooldown=120.0)
-                _request_child_restart(f"spawn_restore_exception:{reason}")
+                restart_reason = (
+                    "presence_recovery_escalated"
+                    if "presence_uncertain" in str(reason)
+                    else f"spawn_restore_exception:{reason}"
+                )
+                _request_restart_after_spawn_failure(restart_reason)
 
     try:
         asyncio.create_task(_run_restore(), name=f"bot_presence_retry:{mode}")
@@ -2939,8 +2961,8 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> bool:
     key = (bot_username or getattr(_cfg, "BOT_MODE", "main") or "main").strip().lower()
     current = _bot_spawn_restore_tasks.get(key)
     if current and not current.done() and current is not asyncio.current_task():
-        print(f"[SPAWN_RESTORE] bot={key} duplicate_skipped=true")
-        return True
+        print(f"[SPAWN_RESTORE] bot={key} duplicate_skipped=true success=false")
+        return False
     _bot_spawn_restore_tasks[key] = asyncio.current_task()  # type: ignore[assignment]
 
     is_host = _is_chilltopia_host(bot_username, getattr(_cfg, "BOT_MODE", "main"))
@@ -2997,16 +3019,23 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> bool:
                 return True
             if expected is None:
                 return False
+            reason_text = str(reason)
             hard_restore_failure = (
-                "not_in_room" in str(reason)
-                or "server_error" in str(reason)
+                "not_in_room" in reason_text
+                or "server_error" in reason_text
+                or "teleport_failed" in reason_text
+                or "max_attempts" in reason_text
                 or actual is None
             )
             if hard_restore_failure:
                 hard_failure_count += 1
                 mark_current_bot_presence_uncertain(f"restore_hard_failure:{reason}")
-                if hard_failure_count >= 2:
-                    _request_child_restart(f"restore_hard_failure:{reason}:actual={_format_pos(actual)}")
+                if "server_error" in reason_text and "not_in_room" in reason_text:
+                    _request_restart_after_spawn_failure("spawn_restore_not_in_room")
+                elif actual is None:
+                    _request_restart_after_spawn_failure(f"spawn_restore_actual_none:{reason}")
+                else:
+                    _request_restart_after_spawn_failure(f"restore_hard_failure:{reason}")
             if is_host:
                 print(
                     f"[SPAWN_RESTORE] host_spawn_restore_retry "
@@ -3023,8 +3052,10 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> bool:
                 f"bot={key} expected={_format_pos(expected)} actual={_format_pos(actual)}"
             )
         mark_current_bot_presence_uncertain("spawn_restore_gave_up")
-        if actual is None or hard_failure_count:
-            _request_child_restart(
+        if actual is None:
+            _request_restart_after_spawn_failure("spawn_restore_actual_none")
+        elif hard_failure_count:
+            _request_restart_after_spawn_failure(
                 f"spawn_restore_gave_up:hard_failures={hard_failure_count}:actual={_format_pos(actual)}"
             )
         return False

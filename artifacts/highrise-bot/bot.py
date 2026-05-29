@@ -446,7 +446,7 @@ async def _stream_and_buffer(
                 flags["child_restart_reason"] = snippet
             print(
                 f"[BOT_WATCHDOG] mode={mode} state=child_restart_requested "
-                f"reason={snippet}",
+                f"terminating=true reason={snippet}",
                 flush=True,
             )
             if proc is not None and proc.returncode is None:
