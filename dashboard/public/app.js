@@ -741,6 +741,12 @@ const state = {
   publicRankingTab: "Overview",
   questSearch: "",
   securityPlayer: null,
+  inventoryMode: { Mining: "Global Inventory", Fishing: "Global Inventory" },
+  playerInventory: { Mining: null, Fishing: null },
+  playerInventoryFilter: {
+    Mining: { q: "", rarity: "", sold: "all" },
+    Fishing: { q: "", rarity: "", sold: "0" },
+  },
   modal: null,
   sidebarOpen: false,
   showLoginOverlay: false,
@@ -3208,13 +3214,55 @@ function renderPlayerInventoryTab() {
 function renderPlayerMiningTab() {
   const p = state.playerResult;
   if (!p) return selectedPlayerNotice();
-  return `<div class="card"><h2>Mining Inventory</h2>${table(p.mining_inventory || [])}</div>`;
+  return `<div class="grid">
+    <div class="card">
+      <div class="card-header"><h2>Mining Inventory</h2><button class="btn sm" data-open-player-game-inventory="Mining">Open Player Inventory Tools</button></div>
+      ${table(p.mining_inventory || [], [
+        { key: "item_id", label: "Ore ID" },
+        { key: "quantity", label: "Quantity" },
+        { key: "username", label: "Player" },
+      ])}
+    </div>
+    <div class="card">
+      <h2>Mining Logs</h2>
+      ${table(p.game_logs?.mining || [], [
+        { key: "created_at", label: "Time" },
+        { key: "mined_at", label: "Mined At" },
+        { key: "ore_name", label: "Ore" },
+        { key: "ore", label: "Ore Key" },
+        { key: "rarity", label: "Rarity", render: (r) => rarityChipHtml(r.rarity, gameRarityLabel(r.rarity)) },
+        { key: "value", label: "Value" },
+      ])}
+    </div>
+  </div>`;
 }
 
 function renderPlayerFishingTab() {
   const p = state.playerResult;
   if (!p) return selectedPlayerNotice();
-  return `<div class="card"><h2>Fishing Inventory</h2>${table(p.fishing_inventory || [])}</div>`;
+  return `<div class="grid">
+    <div class="card">
+      <div class="card-header"><h2>Fishing Inventory</h2><button class="btn sm" data-open-player-game-inventory="Fishing">Open Player Inventory Tools</button></div>
+      ${table(p.fishing_inventory || [], [
+        { key: "fish_name", label: "Fish" },
+        { key: "rarity", label: "Rarity", render: (r) => rarityChipHtml(r.rarity, gameRarityLabel(r.rarity)) },
+        { key: "weight", label: "Weight", render: (r) => publicLbs(r.weight) },
+        { key: "value", label: "Value" },
+        { key: "sold", label: "Sold", render: (r) => pill(Number(r.sold || 0) ? "sold" : "unsold", ["unsold"]) },
+        { key: "caught_at", label: "Caught" },
+      ])}
+    </div>
+    <div class="card">
+      <h2>Fishing Logs</h2>
+      ${table(p.game_logs?.fishing || [], [
+        { key: "caught_at", label: "Caught" },
+        { key: "fish_name", label: "Fish" },
+        { key: "rarity", label: "Rarity", render: (r) => rarityChipHtml(r.rarity, gameRarityLabel(r.rarity)) },
+        { key: "weight", label: "Weight", render: (r) => publicLbs(r.weight) },
+        { key: "value", label: "Value" },
+      ])}
+    </div>
+  </div>`;
 }
 
 function renderPlayerTitlesBadgesTab() {
@@ -4497,8 +4545,201 @@ function renderMiningPlayersPage() {
   return `<div class="card"><h2>Player Mining</h2>${renderResourceToolbar({ search: "Search miners", rarity: false, enabled: false })}${table(state.data?.rows || [])}</div>`;
 }
 
+function renderInventoryModeSwitch(system) {
+  const mode = state.inventoryMode[system] || "Global Inventory";
+  return `<div class="tab-nav compact-tabs">
+    ${["Global Inventory", "Player Inventory"].map((item) => `<button class="tab-btn ${mode === item ? "active" : ""}" data-inventory-mode="${esc(system)}:${esc(item)}">${esc(item)}</button>`).join("")}
+  </div>`;
+}
+
+function inventoryPlayerSearchCard(system) {
+  const current = state.playerInventory[system]?.player;
+  return `<div class="card">
+    <div class="card-header">
+      <div><h2>${esc(system)} Player Inventory</h2><div class="muted text-sm">Search one player to view and manage their ${system.toLowerCase()} inventory.</div></div>
+      ${current ? `<span class="pill ok">@${esc(current.username)}</span>` : `<span class="pill def">No player selected</span>`}
+    </div>
+    <form class="toolbar player-game-inventory-search" data-game-inventory-search="${esc(system)}" style="flex-wrap:wrap">
+      <input name="query" placeholder="Username or User ID" value="${esc(current?.username || "")}" required style="flex:1;min-width:200px" />
+      <button class="btn primary">Search Player</button>
+    </form>
+  </div>`;
+}
+
+function inventoryFilterCard(system, rarity = true, sold = false) {
+  const filter = state.playerInventoryFilter[system] || {};
+  return `<div class="card compact-card">
+    <form class="toolbar player-game-inventory-filter" data-game-inventory-filter="${esc(system)}" style="flex-wrap:wrap">
+      <input name="q" placeholder="Filter by item name" value="${esc(filter.q || "")}" />
+      ${rarity ? `<select name="rarity">
+        <option value="">All rarities</option>
+        ${GAME_RARITY_ORDER.map((r) => `<option value="${r}" ${filter.rarity === r ? "selected" : ""}>${esc(gameRarityLabel(r))}</option>`).join("")}
+      </select>` : ""}
+      ${sold ? `<select name="sold">
+        <option value="all" ${filter.sold === "all" ? "selected" : ""}>All</option>
+        <option value="0" ${filter.sold === "0" ? "selected" : ""}>Unsold only</option>
+        <option value="1" ${filter.sold === "1" ? "selected" : ""}>Sold history</option>
+      </select>` : ""}
+      <button class="btn">Apply Filters</button>
+    </form>
+  </div>`;
+}
+
+function playerGameSummaryCards(system, data) {
+  const s = data?.summary || {};
+  if (system === "Fishing") {
+    return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+      ${metricCard("Total Fish", s.total_fish ?? 0, "inventory rows", "", "🐟")}
+      ${metricCard("Unsold Fish", s.unsold_fish ?? 0, "sold=0", "accent-green", "🧺")}
+      ${metricCard("Sold Fish", s.sold_fish ?? 0, "history", "", "💰")}
+      ${metricCard("Unsold Value", Number(s.total_unsold_value || 0).toLocaleString(), "coins", "accent-green", "🪙")}
+      ${metricCard("Best Fish", s.best_fish || "—", s.best_fish_value != null ? `${Number(s.best_fish_value).toLocaleString()} coins` : "", "", "🏆")}
+      ${metricCard("Biggest Fish", s.biggest_fish_weight != null ? publicLbs(s.biggest_fish_weight) : "—", s.biggest_fish || "", "", "⚖️")}
+    </div>`;
+  }
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+    ${metricCard("Total Ores", s.total_ores ?? 0, "quantity", "", "⛏️")}
+    ${metricCard("Unsold Ores", s.unsold_ores ?? 0, "aggregate inventory", "accent-green", "🧺")}
+    ${metricCard("Sold Ores", s.sold_ores ?? "—", s.sold_tracking_available ? "sold tracking" : "not tracked", "", "💰")}
+    ${metricCard("Unsold Value", Number(s.total_unsold_value || 0).toLocaleString(), "coins", "accent-green", "🪙")}
+    ${metricCard("Best Ore", s.best_ore || "—", s.best_ore_value != null ? `${Number(s.best_ore_value).toLocaleString()} coins` : "", "", "🏆")}
+  </div>`;
+}
+
+function renderFishingPlayerInventoryTool() {
+  const data = state.playerInventory.Fishing;
+  const canWrite = state.user?.role === "owner" || can("manage_inventory");
+  return `
+    ${inventoryPlayerSearchCard("Fishing")}
+    ${data ? `
+      ${playerGameSummaryCards("Fishing", data)}
+      ${inventoryFilterCard("Fishing", true, true)}
+      <div class="grid">
+        <div class="card">
+          <div class="card-header"><h2>Inventory Rows</h2><span class="pill ${data.table_status?.sold_tracking ? "ok" : "warn"}">${data.table_status?.sold_tracking ? "Sold tracking" : "No sold column"}</span></div>
+          ${table(data.rows || [], [
+            { key: "id", label: "ID" },
+            { key: "fish_name", label: "Fish", render: (r) => canWrite ? `<input name="fish_name" value="${esc(r.fish_name || "")}" form="fish_inv_${esc(r.id)}" />` : esc(r.fish_name || "") },
+            { key: "rarity", label: "Rarity", render: (r) => canWrite ? `<select name="rarity" form="fish_inv_${esc(r.id)}">${GAME_RARITY_ORDER.map((rarity) => `<option value="${rarity}" ${normalizeGameRarity(r.rarity) === rarity ? "selected" : ""}>${esc(gameRarityLabel(rarity))}</option>`).join("")}</select>` : rarityChipHtml(r.rarity, gameRarityLabel(r.rarity)) },
+            { key: "weight", label: "Weight", render: (r) => canWrite ? `<input type="number" step="0.1" name="weight" value="${esc(r.weight ?? "")}" form="fish_inv_${esc(r.id)}" />` : publicLbs(r.weight) },
+            { key: "value", label: "Value", render: (r) => canWrite ? `<input type="number" name="value" value="${esc(r.value ?? 0)}" form="fish_inv_${esc(r.id)}" />` : Number(r.value || 0).toLocaleString() },
+            { key: "sold", label: "Sold", render: (r) => pill(Number(r.sold || 0) ? "sold" : "unsold", ["unsold"]) },
+            { key: "caught_at", label: "Caught" },
+          ], (r) => canWrite ? `<form id="fish_inv_${esc(r.id)}" data-fish-inventory-edit="${esc(r.id)}" class="inline-actions">
+              <input name="reason" placeholder="reason" required style="min-width:110px" />
+              <button class="btn primary sm" type="submit">Save</button>
+              <button class="btn sm" type="button" data-fish-inventory-sold="${esc(r.id)}" data-sold="${Number(r.sold || 0) ? "0" : "1"}">${Number(r.sold || 0) ? "Mark Unsold" : "Mark Sold"}</button>
+              <button class="btn danger sm" type="button" data-fish-inventory-remove="${esc(r.id)}">Remove</button>
+            </form>` : "")}
+        </div>
+        <div class="card">
+          <h2>Add Fish</h2>
+          ${canWrite ? renderAddFishInventoryForm(data) : `<div class="notice">Read-only. Owner or manage_inventory permission required for changes.</div>`}
+        </div>
+      </div>
+      <div class="card"><h2>Catch Logs</h2>${table(data.catch_records || [], [
+        { key: "caught_at", label: "Caught" },
+        { key: "fish_name", label: "Fish" },
+        { key: "rarity", label: "Rarity", render: (r) => rarityChipHtml(r.rarity, gameRarityLabel(r.rarity)) },
+        { key: "weight", label: "Weight", render: (r) => publicLbs(r.weight) },
+        { key: "value", label: "Value" },
+      ])}</div>
+    ` : `<div class="card"><div class="empty-state"><div class="empty-state-icon">🔎</div><span>Search a player to load their fishing inventory.</span></div></div>`}
+  `;
+}
+
+function renderAddFishInventoryForm(data) {
+  const catalog = data.catalog || [];
+  return `<form id="addPlayerFishForm" class="settings-form">
+    <div class="field"><label class="field-label">Fish</label><select name="fish_id">
+      <option value="">Custom fish name</option>
+      ${catalog.map((fish) => `<option value="${esc(fish.fish_id)}" data-name="${esc(fish.name)}" data-rarity="${esc(normalizeGameRarity(fish.rarity))}" data-value="${esc(fish.base_value ?? "")}" data-min="${esc(fish.min_weight ?? "")}" data-max="${esc(fish.max_weight ?? "")}">${esc(fish.name || fish.fish_id)} · ${esc(gameRarityLabel(fish.rarity))}</option>`).join("")}
+    </select></div>
+    <div class="field"><label class="field-label">Fish Name</label><input name="fish_name" placeholder="Optional override" /></div>
+    <div class="field"><label class="field-label">Rarity</label><select name="rarity">${GAME_RARITY_ORDER.map((r) => `<option value="${r}">${esc(gameRarityLabel(r))}</option>`).join("")}</select></div>
+    <div class="field"><label class="field-label">Weight</label><input type="number" step="0.1" name="weight" placeholder="lbs" /></div>
+    <div class="field"><label class="field-label">Value</label><input type="number" name="value" placeholder="coins" /></div>
+    <label class="switch"><input type="checkbox" name="sold" value="1" /><span>Already sold</span></label>
+    <div class="field"><label class="field-label">Reason</label><input name="reason" required placeholder="Required audit reason" /></div>
+    <button class="btn primary">Add Fish</button>
+  </form>`;
+}
+
+function renderMiningPlayerInventoryTool() {
+  const data = state.playerInventory.Mining;
+  const canWrite = state.user?.role === "owner" || can("manage_inventory");
+  return `
+    ${inventoryPlayerSearchCard("Mining")}
+    ${data ? `
+      ${playerGameSummaryCards("Mining", data)}
+      ${inventoryFilterCard("Mining", true, false)}
+      ${data.table_status?.sold_tracking ? "" : `<div class="notice">Sold tracking is not available for mining inventory. The dashboard shows aggregate ore quantity by player.</div>`}
+      <div class="grid">
+        <div class="card">
+          <h2>Ore Inventory</h2>
+          ${table(data.rows || [], [
+            { key: "id", label: "ID" },
+            { key: "ore_name", label: "Ore" },
+            { key: "item_id", label: "Ore ID" },
+            { key: "rarity", label: "Rarity", render: (r) => rarityChipHtml(r.rarity, gameRarityLabel(r.rarity)) },
+            { key: "quantity", label: "Quantity", render: (r) => canWrite ? `<input type="number" name="quantity" min="0" value="${esc(r.quantity ?? 0)}" form="ore_inv_${esc(r.id)}" />` : esc(r.quantity ?? 0) },
+            { key: "value", label: "Each", render: (r) => Number(r.value || 0).toLocaleString() },
+            { key: "total_value", label: "Total Value", render: (r) => Number(r.total_value || 0).toLocaleString() },
+          ], (r) => canWrite ? `<form id="ore_inv_${esc(r.id)}" data-mining-inventory-edit="${esc(r.id)}" class="inline-actions">
+              <input name="reason" placeholder="reason" required style="min-width:110px" />
+              <button class="btn primary sm" type="submit">Save</button>
+              <button class="btn danger sm" type="button" data-mining-inventory-remove="${esc(r.id)}">Set Zero</button>
+            </form>` : "")}
+        </div>
+        <div class="card">
+          <h2>Add Ore</h2>
+          ${canWrite ? renderAddMiningInventoryForm(data) : `<div class="notice">Read-only. Owner or manage_inventory permission required for changes.</div>`}
+        </div>
+      </div>
+      <div class="card"><h2>Mining Logs</h2>${table(data.logs || [], [
+        { key: "created_at", label: "Time" },
+        { key: "mined_at", label: "Mined At" },
+        { key: "ore_name", label: "Ore" },
+        { key: "ore", label: "Ore Key" },
+        { key: "rarity", label: "Rarity", render: (r) => rarityChipHtml(r.rarity, gameRarityLabel(r.rarity)) },
+        { key: "weight", label: "Weight", render: (r) => r.weight == null ? "—" : publicLbs(r.weight) },
+        { key: "value", label: "Value" },
+      ])}</div>
+    ` : `<div class="card"><div class="empty-state"><div class="empty-state-icon">🔎</div><span>Search a player to load their mining inventory.</span></div></div>`}
+  `;
+}
+
+function renderAddMiningInventoryForm(data) {
+  const catalog = data.catalog || [];
+  return `<form id="addPlayerOreForm" class="settings-form">
+    <div class="field"><label class="field-label">Ore</label><select name="item_id" required>
+      ${catalog.map((ore) => `<option value="${esc(ore.item_id)}">${esc(ore.name || ore.item_id)} · ${esc(gameRarityLabel(ore.rarity))}</option>`).join("")}
+    </select></div>
+    <div class="field"><label class="field-label">Quantity</label><input type="number" min="1" name="quantity" value="1" required /></div>
+    <div class="field"><label class="field-label">Reason</label><input name="reason" required placeholder="Required audit reason" /></div>
+    <button class="btn primary">Add Ore</button>
+  </form>`;
+}
+
 function renderMiningInventoryPage() {
-  return `<div class="card"><h2>Mining Inventory</h2>${renderResourceToolbar({ search: "Search inventory", rarity: true, enabled: false })}${table(state.data?.rows || [])}</div>`;
+  const mode = state.inventoryMode.Mining || "Global Inventory";
+  return `
+    ${renderInventoryModeSwitch("Mining")}
+    ${mode === "Player Inventory" ? renderMiningPlayerInventoryTool() : `
+      <div class="card">
+        <div class="card-header"><h2>Global Mining Inventory</h2><span class="pill info">All players</span></div>
+        ${renderResourceToolbar({ search: "Search inventory", rarity: true, enabled: false })}
+        ${table(state.data?.rows || [], [
+          { key: "username", label: "Player" },
+          { key: "ore_name", label: "Ore" },
+          { key: "item_id", label: "Ore ID" },
+          { key: "rarity", label: "Rarity", render: (r) => rarityChipHtml(r.rarity, gameRarityLabel(r.rarity)) },
+          { key: "quantity", label: "Quantity" },
+          { key: "value", label: "Each" },
+          { key: "total_value", label: "Total Value", render: (r) => Number(r.total_value || 0).toLocaleString() },
+        ])}
+      </div>`}
+  `;
 }
 
 function renderMiningLogsPage() {
@@ -4662,7 +4903,25 @@ function renderFishingPlayersPage() {
 }
 
 function renderFishingInventoryPage() {
-  return `<div class="card"><h2>Fishing Inventory</h2>${renderResourceToolbar({ search: "Search inventory", enabled: false })}${table(state.data?.rows || [])}</div>`;
+  const mode = state.inventoryMode.Fishing || "Global Inventory";
+  return `
+    ${renderInventoryModeSwitch("Fishing")}
+    ${mode === "Player Inventory" ? renderFishingPlayerInventoryTool() : `
+      <div class="card">
+        <div class="card-header"><h2>Global Fishing Inventory</h2><span class="pill info">All players</span></div>
+        ${renderResourceToolbar({ search: "Search inventory", enabled: false })}
+        ${table(state.data?.rows || [], [
+          { key: "id", label: "ID" },
+          { key: "username", label: "Player" },
+          { key: "fish_name", label: "Fish" },
+          { key: "rarity", label: "Rarity", render: (r) => rarityChipHtml(r.rarity, gameRarityLabel(r.rarity)) },
+          { key: "weight", label: "Weight", render: (r) => publicLbs(r.weight) },
+          { key: "value", label: "Value", render: (r) => Number(r.value || 0).toLocaleString() },
+          { key: "sold", label: "Sold", render: (r) => pill(Number(r.sold || 0) ? "sold" : "unsold", ["unsold"]) },
+          { key: "caught_at", label: "Caught" },
+        ])}
+      </div>`}
+  `;
 }
 
 function renderFishingLogsPage() {
@@ -7770,6 +8029,18 @@ function bindAdminPageEvents() {
   document.querySelectorAll("[data-player-jump]").forEach((btn) => {
     btn.addEventListener("click", () => switchTab("Players", btn.dataset.playerJump));
   });
+  document.querySelectorAll("[data-open-player-game-inventory]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const system = btn.dataset.openPlayerGameInventory;
+      const p = state.playerResult;
+      if (!p) return;
+      state.inventoryMode[system] = "Player Inventory";
+      state.playerInventory[system] = null;
+      state.adminPage = system;
+      state.adminTab[system] = "Inventory";
+      await loadPlayerGameInventory(system, p.username || p.user_id);
+    });
+  });
   document.getElementById("playerSearchForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const query = e.currentTarget.querySelector("[name='query']").value.trim();
@@ -7792,6 +8063,53 @@ function bindAdminPageEvents() {
     }
   });
 
+  async function loadPlayerGameInventory(system, query) {
+    const current = state.playerInventory[system]?.player;
+    const id = query || current?.user_id || current?.username || state.playerResult?.user_id || "";
+    if (!id) return;
+    const filter = state.playerInventoryFilter[system] || {};
+    const params = new URLSearchParams();
+    if (filter.q) params.set("q", filter.q);
+    if (filter.rarity) params.set("rarity", filter.rarity);
+    if (system === "Fishing" && filter.sold && filter.sold !== "all") params.set("sold", filter.sold);
+    const slug = system === "Fishing" ? "fishing-inventory" : "mining-inventory";
+    const data = await api(`/api/player/${encodeURIComponent(id)}/${slug}${params.toString() ? `?${params.toString()}` : ""}`);
+    state.playerInventory[system] = data;
+    state.notice = `Loaded ${system.toLowerCase()} inventory for ${data.player?.username || id}.`;
+    state.error = "";
+    state.adminPage = system;
+    state.adminTab[system] = "Inventory";
+    render();
+  }
+
+  document.querySelectorAll("[data-inventory-mode]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const [system, mode] = btn.dataset.inventoryMode.split(":");
+      state.inventoryMode[system] = mode;
+      if (mode === "Global Inventory") await loadAdmin();
+      else render();
+    });
+  });
+  document.querySelectorAll("[data-game-inventory-search]").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const system = form.dataset.gameInventorySearch;
+      const query = new FormData(form).get("query");
+      try { await loadPlayerGameInventory(system, query); }
+      catch (err) { state.error = err.message; state.notice = ""; render(); }
+    });
+  });
+  document.querySelectorAll("[data-game-inventory-filter]").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const system = form.dataset.gameInventoryFilter;
+      const data = Object.fromEntries(new FormData(form));
+      state.playerInventoryFilter[system] = { ...(state.playerInventoryFilter[system] || {}), ...data };
+      try { await loadPlayerGameInventory(system); }
+      catch (err) { state.error = err.message; state.notice = ""; render(); }
+    });
+  });
+
   async function applyPlayerWrite(label, fn) {
     try {
       const data = await fn();
@@ -7802,6 +8120,105 @@ function bindAdminPageEvents() {
       state.error = err.message; state.notice = ""; render();
     }
   }
+  async function applyPlayerInventoryWrite(system, label, fn) {
+    try {
+      await fn();
+      await loadPlayerGameInventory(system);
+      state.notice = label;
+      state.error = "";
+      render();
+    } catch (err) {
+      state.error = err.message; state.notice = ""; render();
+    }
+  }
+  document.getElementById("addPlayerFishForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerInventory.Fishing?.player;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    data.sold = data.sold === "1";
+    confirmAction("Add Fish", `Add fish to @${p?.username}?`, async () => {
+      await applyPlayerInventoryWrite("Fishing", "Fish added.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/fishing-inventory`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+  document.querySelector("#addPlayerFishForm select[name='fish_id']")?.addEventListener("change", (e) => {
+    const option = e.currentTarget.selectedOptions?.[0];
+    const form = e.currentTarget.closest("form");
+    if (!option || !form || !option.value) return;
+    if (option.dataset.name) form.querySelector("[name='fish_name']").value = option.dataset.name;
+    if (option.dataset.rarity) form.querySelector("[name='rarity']").value = option.dataset.rarity;
+    if (option.dataset.value) form.querySelector("[name='value']").value = option.dataset.value;
+    const min = Number(option.dataset.min);
+    const max = Number(option.dataset.max);
+    if (Number.isFinite(min) && Number.isFinite(max) && max >= min) {
+      form.querySelector("[name='weight']").value = ((min + max) / 2).toFixed(1);
+    }
+  });
+  document.querySelectorAll("[data-fish-inventory-edit]").forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const p = state.playerInventory.Fishing?.player;
+      const id = form.dataset.fishInventoryEdit;
+      const data = Object.fromEntries(new FormData(form));
+      confirmAction("Save Fish Row", `Save fish inventory row ${id} for @${p?.username}?`, async () => {
+        await applyPlayerInventoryWrite("Fishing", "Fish row updated.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/fishing-inventory/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }));
+      });
+    });
+  });
+  document.querySelectorAll("[data-fish-inventory-sold]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const p = state.playerInventory.Fishing?.player;
+      const id = btn.dataset.fishInventorySold;
+      const sold = btn.dataset.sold;
+      const reason = prompt(`Reason for marking fish ${sold === "1" ? "sold" : "unsold"}?`);
+      if (!reason) return;
+      confirmAction("Update Sold Status", `Mark row ${id} ${sold === "1" ? "sold" : "unsold"}?`, async () => {
+        await applyPlayerInventoryWrite("Fishing", "Sold status updated.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/fishing-inventory/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ sold, reason }) }));
+      });
+    });
+  });
+  document.querySelectorAll("[data-fish-inventory-remove]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const p = state.playerInventory.Fishing?.player;
+      const id = btn.dataset.fishInventoryRemove;
+      const reason = prompt("Reason for removing this fish row?");
+      if (!reason) return;
+      const confirmation = prompt("Type REMOVE FISH to remove this row.");
+      if (confirmation !== "REMOVE FISH") return;
+      confirmAction("Remove Fish", `Remove fish row ${id} from @${p?.username}?`, async () => {
+        await applyPlayerInventoryWrite("Fishing", "Fish removed.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/fishing-inventory/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ reason, confirmation }) }));
+      });
+    });
+  });
+  document.getElementById("addPlayerOreForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = state.playerInventory.Mining?.player;
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    confirmAction("Add Ore", `Add ${data.quantity || 1} ore item(s) to @${p?.username}?`, async () => {
+      await applyPlayerInventoryWrite("Mining", "Ore added.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/mining-inventory`, { method: "POST", body: JSON.stringify(data) }));
+    });
+  });
+  document.querySelectorAll("[data-mining-inventory-edit]").forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const p = state.playerInventory.Mining?.player;
+      const id = form.dataset.miningInventoryEdit;
+      const data = Object.fromEntries(new FormData(form));
+      confirmAction("Save Ore Quantity", `Set ore quantity for @${p?.username}?`, async () => {
+        await applyPlayerInventoryWrite("Mining", "Ore quantity updated.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/mining-inventory/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }));
+      });
+    });
+  });
+  document.querySelectorAll("[data-mining-inventory-remove]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const p = state.playerInventory.Mining?.player;
+      const id = btn.dataset.miningInventoryRemove;
+      const reason = prompt("Reason for setting this ore quantity to zero?");
+      if (!reason) return;
+      confirmAction("Set Ore Quantity To Zero", `Set ore row ${id} to zero for @${p?.username}?`, async () => {
+        await applyPlayerInventoryWrite("Mining", "Ore quantity set to zero.", () => api(`/api/player/${encodeURIComponent(p.user_id)}/mining-inventory/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ reason }) }));
+      });
+    });
+  });
   document.getElementById("playerEconomyForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const p = state.playerResult;

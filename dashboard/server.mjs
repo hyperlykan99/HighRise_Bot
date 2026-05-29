@@ -6194,8 +6194,39 @@ app.get("/api/mining/players", requireAuth, requirePermission("manage_mining"), 
   json(res, { rows: safeTableRows(req.db, "mining_players", { orderBy: "total_mines DESC", limit: "250" }), table: "mining_players" });
 }, closeDb);
 app.get("/api/mining/inventory", requireAuth, requirePermission("manage_mining"), (req, res) => {
-  const rows = rowsOrEmpty(req.db, "mining_inventory", `SELECT mi.username, mi.item_id, mi.quantity, it.name, it.rarity, it.sell_value, (mi.quantity * it.sell_value) AS total_value FROM mining_inventory mi LEFT JOIN mining_items it ON mi.item_id=it.item_id ORDER BY mi.username, it.sell_value DESC LIMIT 500`);
-  json(res, { rows, table: "mining_inventory" });
+  const clauses = [];
+  const params = [];
+  if (req.query.username) {
+    clauses.push("lower(mi.username)=lower(?)");
+    params.push(String(req.query.username).slice(0, 80));
+  }
+  if (req.query.rarity) {
+    clauses.push("lower(it.rarity)=lower(?)");
+    params.push(String(req.query.rarity).slice(0, 40));
+  }
+  if (req.query.q) {
+    clauses.push("(lower(mi.item_id) LIKE lower(?) OR lower(COALESCE(it.name,'')) LIKE lower(?))");
+    const q = `%${String(req.query.q).slice(0, 80)}%`;
+    params.push(q, q);
+  }
+  const soldTracking = columnExists(req.db, "mining_inventory", "sold");
+  if ((req.query.sold === "0" || req.query.sold === "1") && soldTracking) {
+    clauses.push("COALESCE(mi.sold,0)=?");
+    params.push(Number(req.query.sold));
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const rows = rowsOrEmpty(req.db, "mining_inventory", `
+    SELECT mi.id, ${columnExists(req.db, "mining_inventory", "user_id") ? "mi.user_id," : "NULL AS user_id,"}
+      mi.username, mi.item_id, mi.quantity, it.name AS ore_name, it.rarity, it.sell_value AS value,
+      (COALESCE(mi.quantity,0) * COALESCE(it.sell_value,0)) AS total_value
+      ${soldTracking ? ", mi.sold" : ""}
+    FROM mining_inventory mi
+    LEFT JOIN mining_items it ON mi.item_id=it.item_id
+    ${where}
+    ORDER BY mi.username, total_value DESC
+    LIMIT 500
+  `, ...params);
+  json(res, { rows, table: "mining_inventory", sold_tracking: soldTracking });
 }, closeDb);
 app.get("/api/mining/logs", requireAuth, requireAnyPermission("manage_mining", "view_logs"), (req, res) => {
   json(res, {
@@ -6363,7 +6394,32 @@ app.get("/api/fishing/players", requireAuth, requirePermission("manage_fishing")
   json(res, { rows, table: "fish_profiles" });
 }, closeDb);
 app.get("/api/fishing/inventory", requireAuth, requirePermission("manage_fishing"), (req, res) => {
-  json(res, { rows: safeTableRows(req.db, "fish_inventory", { orderBy: "id DESC", limit: "500" }), table: "fish_inventory" });
+  if (!tableExists(req.db, "fish_inventory")) return json(res, { rows: [], table: "fish_inventory", missing_table: true });
+  const clauses = [];
+  const params = [];
+  if (req.query.username && columnExists(req.db, "fish_inventory", "username")) {
+    clauses.push("lower(username)=lower(?)");
+    params.push(String(req.query.username).slice(0, 80));
+  }
+  if ((req.query.sold === "0" || req.query.sold === "1") && columnExists(req.db, "fish_inventory", "sold")) {
+    clauses.push("COALESCE(sold,0)=?");
+    params.push(Number(req.query.sold));
+  }
+  if (req.query.rarity && columnExists(req.db, "fish_inventory", "rarity")) {
+    clauses.push("lower(rarity)=lower(?)");
+    params.push(String(req.query.rarity).slice(0, 40));
+  }
+  if (req.query.q && columnExists(req.db, "fish_inventory", "fish_name")) {
+    clauses.push("lower(fish_name) LIKE lower(?)");
+    params.push(`%${String(req.query.q).slice(0, 80)}%`);
+  }
+  const rows = safeRows(req.db, "fish_inventory", ["id","user_id","username","fish_id","fish_name","rarity","weight","value","sold","sold_at","caught_at","created_at"], {
+    where: clauses.join(" AND "),
+    params,
+    orderBy: columnExists(req.db, "fish_inventory", "id") ? "id DESC" : "",
+    limit: "500",
+  });
+  json(res, { rows, table: "fish_inventory", sold_tracking: columnExists(req.db, "fish_inventory", "sold") });
 }, closeDb);
 app.get("/api/fishing/logs", requireAuth, requireAnyPermission("manage_fishing", "view_logs"), (req, res) => {
   json(res, {
@@ -7504,6 +7560,18 @@ function readPlayerProfile(db, idOrQuery) {
     orderBy: columnExists(db, "bank_transactions", "timestamp") ? "timestamp DESC" : "",
     limit: "50",
   });
+  const miningLogs = safeRows(db, "mining_logs", ["id","user_id","username","ore","ore_name","item_id","rarity","weight","value","created_at","mined_at","timestamp"], {
+    where: columnExists(db, "mining_logs", "user_id") ? "user_id=? OR lower(username)=lower(?)" : "lower(username)=lower(?)",
+    params: columnExists(db, "mining_logs", "user_id") ? [userId, username] : [username],
+    orderBy: columnExists(db, "mining_logs", "created_at") ? "created_at DESC" : (columnExists(db, "mining_logs", "id") ? "id DESC" : ""),
+    limit: "50",
+  });
+  const fishingLogs = safeRows(db, "fish_catch_records", ["id","user_id","username","fish_name","rarity","weight","value","caught_at","created_at"], {
+    where: columnExists(db, "fish_catch_records", "user_id") ? "user_id=? OR lower(username)=lower(?)" : "lower(username)=lower(?)",
+    params: columnExists(db, "fish_catch_records", "user_id") ? [userId, username] : [username],
+    orderBy: columnExists(db, "fish_catch_records", "caught_at") ? "caught_at DESC" : (columnExists(db, "fish_catch_records", "id") ? "id DESC" : ""),
+    limit: "50",
+  });
   return {
     ...player,
     owned_items_count: ownedCount,
@@ -7514,6 +7582,7 @@ function readPlayerProfile(db, idOrQuery) {
     titles,
     badges,
     moderation,
+    game_logs: { mining: miningLogs, fishing: fishingLogs },
     recent_activity: { ledger: ledgerRows, economy_transactions: economyRows, bank_transactions: bankRows },
     summaries: {
       mining_inventory_count: miningInventory.length,
@@ -7526,6 +7595,186 @@ function readPlayerProfile(db, idOrQuery) {
   };
 }
 
+function playerInventoryWriteAllowed(req) {
+  return req.user?.role === "owner" || !!req.permissions?.manage_inventory;
+}
+
+function playerInventoryReason(req) {
+  return String(req.body?.reason || "").trim().slice(0, 300);
+}
+
+function fishInventoryWhere(db, player, filters = {}) {
+  const clauses = [];
+  const params = [];
+  if (columnExists(db, "fish_inventory", "user_id")) {
+    clauses.push("(user_id=? OR lower(username)=lower(?))");
+    params.push(player.user_id, player.username);
+  } else {
+    clauses.push("lower(username)=lower(?)");
+    params.push(player.username);
+  }
+  if (filters.sold === "0" || filters.sold === "1") {
+    if (columnExists(db, "fish_inventory", "sold")) {
+      clauses.push("COALESCE(sold,0)=?");
+      params.push(Number(filters.sold));
+    }
+  }
+  if (filters.rarity && columnExists(db, "fish_inventory", "rarity")) {
+    clauses.push("lower(rarity)=lower(?)");
+    params.push(String(filters.rarity));
+  }
+  if (filters.q && columnExists(db, "fish_inventory", "fish_name")) {
+    clauses.push("lower(fish_name) LIKE lower(?)");
+    params.push(`%${String(filters.q).slice(0, 80)}%`);
+  }
+  return { where: clauses.join(" AND "), params };
+}
+
+function readPlayerFishingInventory(db, idOrQuery, filters = {}) {
+  const player = readPlayerProfile(db, idOrQuery);
+  if (!player) return null;
+  const inventoryCols = ["id","user_id","username","fish_id","fish_name","rarity","weight","value","sold","sold_at","caught_at","created_at"];
+  const { where, params } = fishInventoryWhere(db, player, filters);
+  const order = columnExists(db, "fish_inventory", "caught_at") ? "caught_at DESC" : (columnExists(db, "fish_inventory", "id") ? "id DESC" : "");
+  const rows = safeRows(db, "fish_inventory", inventoryCols, { where, params, orderBy: order, limit: "500" })
+    .map((row) => ({ ...row, source_table: "fish_inventory" }));
+  const allRows = safeRows(db, "fish_inventory", inventoryCols, fishInventoryWhere(db, player, {}));
+  const profile = safeOne(db, "fish_profiles", ["user_id","username","fishing_level","fishing_xp","total_catches","equipped_rod","best_fish_name","best_fish_weight","best_fish_value","last_fish_at","created_at","updated_at"], {
+    where: columnExists(db, "fish_profiles", "user_id") ? "user_id=? OR lower(username)=lower(?)" : "lower(username)=lower(?)",
+    params: columnExists(db, "fish_profiles", "user_id") ? [player.user_id, player.username] : [player.username],
+  });
+  const catchRecords = safeRows(db, "fish_catch_records", ["id","user_id","username","fish_name","rarity","weight","value","caught_at","created_at"], {
+    where: columnExists(db, "fish_catch_records", "user_id") ? "user_id=? OR lower(username)=lower(?)" : "lower(username)=lower(?)",
+    params: columnExists(db, "fish_catch_records", "user_id") ? [player.user_id, player.username] : [player.username],
+    orderBy: columnExists(db, "fish_catch_records", "caught_at") ? "caught_at DESC" : (columnExists(db, "fish_catch_records", "id") ? "id DESC" : ""),
+    limit: "150",
+  }).map((row) => ({ ...row, source_table: "fish_catch_records" }));
+  const catalog = safeRows(db, "fish_catalog", ["fish_id","name","rarity","base_value","min_weight","max_weight","catch_enabled","event_only","emoji"], {
+    orderBy: columnExists(db, "fish_catalog", "rarity") ? "rarity, name" : "",
+    limit: "500",
+  });
+  const unsoldRows = allRows.filter((row) => Number(row.sold || 0) === 0);
+  const soldRows = allRows.filter((row) => Number(row.sold || 0) === 1);
+  const biggest = [...allRows].sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0))[0] || null;
+  const best = [...allRows].sort((a, b) => Number(b.value || 0) - Number(a.value || 0))[0] || null;
+  return {
+    player,
+    profile,
+    rows,
+    catch_records: catchRecords,
+    catalog,
+    filters,
+    table_status: {
+      fish_inventory: tableExists(db, "fish_inventory"),
+      fish_catch_records: tableExists(db, "fish_catch_records"),
+      fish_profiles: tableExists(db, "fish_profiles"),
+      fish_catalog: tableExists(db, "fish_catalog"),
+      sold_tracking: columnExists(db, "fish_inventory", "sold"),
+    },
+    summary: {
+      username: player.username,
+      total_fish: allRows.length,
+      unsold_fish: unsoldRows.length,
+      sold_fish: soldRows.length,
+      total_unsold_value: unsoldRows.reduce((sum, row) => sum + Number(row.value || 0), 0),
+      best_fish: profile?.best_fish_name || best?.fish_name || null,
+      best_fish_value: profile?.best_fish_value ?? best?.value ?? null,
+      biggest_fish: profile?.best_fish_name || biggest?.fish_name || null,
+      biggest_fish_weight: profile?.best_fish_weight ?? biggest?.weight ?? null,
+    },
+  };
+}
+
+function miningInventoryWhere(db, player, filters = {}) {
+  const clauses = [];
+  const params = [];
+  if (columnExists(db, "mining_inventory", "user_id")) {
+    clauses.push("(mi.user_id=? OR lower(mi.username)=lower(?))");
+    params.push(player.user_id, player.username);
+  } else {
+    clauses.push("lower(mi.username)=lower(?)");
+    params.push(player.username);
+  }
+  if (filters.rarity && tableExists(db, "mining_items") && columnExists(db, "mining_items", "rarity")) {
+    clauses.push("lower(it.rarity)=lower(?)");
+    params.push(String(filters.rarity));
+  }
+  if (filters.q) {
+    clauses.push("(lower(mi.item_id) LIKE lower(?) OR lower(COALESCE(it.name,'')) LIKE lower(?))");
+    const q = `%${String(filters.q).slice(0, 80)}%`;
+    params.push(q, q);
+  }
+  return { where: clauses.join(" AND "), params };
+}
+
+function readPlayerMiningInventory(db, idOrQuery, filters = {}) {
+  const player = readPlayerProfile(db, idOrQuery);
+  if (!player) return null;
+  const profile = safeOne(db, "mining_players", ["user_id","username","mining_level","mining_xp","level","xp","total_mines","total_mined","current_pickaxe","equipped_pickaxe","best_ore","best_ore_name","created_at","updated_at"], {
+    where: columnExists(db, "mining_players", "user_id") ? "user_id=? OR lower(username)=lower(?)" : "lower(username)=lower(?)",
+    params: columnExists(db, "mining_players", "user_id") ? [player.user_id, player.username] : [player.username],
+  });
+  const { where, params } = miningInventoryWhere(db, player, filters);
+  const rows = rowsOrEmpty(db, "mining_inventory", `
+    SELECT mi.id, ${columnExists(db, "mining_inventory", "user_id") ? "mi.user_id," : "NULL AS user_id,"}
+      mi.username, mi.item_id, mi.quantity,
+      it.name AS ore_name, it.emoji, it.rarity, it.sell_value AS value,
+      (COALESCE(mi.quantity,0) * COALESCE(it.sell_value,0)) AS total_value,
+      'mining_inventory' AS source_table
+    FROM mining_inventory mi
+    LEFT JOIN mining_items it ON mi.item_id=it.item_id
+    WHERE ${where}
+    ORDER BY total_value DESC, mi.item_id
+    LIMIT 500
+  `, ...params);
+  const allParams = miningInventoryWhere(db, player, {});
+  const allRows = rowsOrEmpty(db, "mining_inventory", `
+    SELECT mi.id, mi.username, mi.item_id, mi.quantity, it.name AS ore_name, it.rarity, it.sell_value AS value,
+      (COALESCE(mi.quantity,0) * COALESCE(it.sell_value,0)) AS total_value
+    FROM mining_inventory mi
+    LEFT JOIN mining_items it ON mi.item_id=it.item_id
+    WHERE ${allParams.where}
+    LIMIT 1000
+  `, ...allParams.params);
+  const logs = safeRows(db, "mining_logs", ["id","user_id","username","ore","ore_name","item_id","rarity","weight","value","created_at","mined_at","timestamp"], {
+    where: columnExists(db, "mining_logs", "user_id") ? "user_id=? OR lower(username)=lower(?)" : "lower(username)=lower(?)",
+    params: columnExists(db, "mining_logs", "user_id") ? [player.user_id, player.username] : [player.username],
+    orderBy: columnExists(db, "mining_logs", "created_at") ? "created_at DESC" : (columnExists(db, "mining_logs", "id") ? "id DESC" : ""),
+    limit: "150",
+  }).map((row) => ({ ...row, source_table: "mining_logs" }));
+  const catalog = safeRows(db, "mining_items", ["item_id","name","emoji","rarity","item_type","sell_value","drop_enabled"], {
+    where: columnExists(db, "mining_items", "item_type") ? "item_type='ore'" : "",
+    orderBy: columnExists(db, "mining_items", "rarity") ? "rarity, name" : "",
+    limit: "500",
+  });
+  const best = [...allRows].sort((a, b) => Number(b.total_value || 0) - Number(a.total_value || 0))[0] || null;
+  return {
+    player,
+    profile,
+    rows,
+    logs,
+    catalog,
+    filters,
+    table_status: {
+      mining_inventory: tableExists(db, "mining_inventory"),
+      mining_logs: tableExists(db, "mining_logs"),
+      mining_players: tableExists(db, "mining_players"),
+      mining_items: tableExists(db, "mining_items"),
+      sold_tracking: columnExists(db, "mining_inventory", "sold"),
+    },
+    summary: {
+      username: player.username,
+      total_ores: allRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+      unsold_ores: allRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+      sold_ores: null,
+      total_unsold_value: allRows.reduce((sum, row) => sum + Number(row.total_value || 0), 0),
+      best_ore: profile?.best_ore_name || profile?.best_ore || best?.ore_name || best?.item_id || null,
+      best_ore_value: best?.total_value ?? null,
+      sold_tracking_available: columnExists(db, "mining_inventory", "sold"),
+    },
+  };
+}
+
 app.get("/api/player/search", requireAuth, (req, res) => {
   const q = String(req.query.q || "").trim().slice(0, 80);
   if (!q) return json(res, { player: null, error: "query_required" }, 400);
@@ -7533,6 +7782,170 @@ app.get("/api/player/search", requireAuth, (req, res) => {
   const player = readPlayerProfile(req.db, q);
   if (!player) return json(res, { player: null });
   json(res, { player });
+}, closeDb);
+
+app.get("/api/player/:id/fishing-inventory", requireAuth, (req, res) => {
+  const data = readPlayerFishingInventory(req.db, req.params.id, {
+    sold: req.query.sold,
+    rarity: req.query.rarity,
+    q: req.query.q,
+  });
+  if (!data) return json(res, { error: "player_not_found" }, 404);
+  json(res, data);
+}, closeDb);
+
+app.post("/api/player/:id/fishing-inventory", requireAuth, requireAnyPermission("manage_inventory"), (req, res) => {
+  if (!playerInventoryWriteAllowed(req)) return json(res, { error: "forbidden", permission: "manage_inventory" }, 403);
+  if (!tableExists(req.db, "fish_inventory")) return json(res, { error: "fish_inventory_missing" }, 404);
+  const cols = tableColumns(req.db, "fish_inventory");
+  if (!["fish_name", "username"].every((col) => cols.includes(col))) return unverifiedSchema(res, "fish_inventory requires username and fish_name for player inventory writes.");
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  const reason = playerInventoryReason(req);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const fishId = String(req.body?.fish_id || "").trim();
+  const catalog = fishId && tableExists(req.db, "fish_catalog") ? req.db.prepare("SELECT * FROM fish_catalog WHERE fish_id=?").get(fishId) : null;
+  const payload = {
+    user_id: player.user_id,
+    username: player.username,
+    fish_id: fishId || null,
+    fish_name: String(req.body?.fish_name || catalog?.name || fishId || "").trim(),
+    rarity: normalizeRarity(req.body?.rarity || catalog?.rarity || "common"),
+    weight: req.body?.weight === "" || req.body?.weight == null ? null : Number(req.body.weight),
+    value: req.body?.value === "" || req.body?.value == null ? Number(catalog?.base_value || 0) : Math.max(0, Math.trunc(Number(req.body.value))),
+    sold: req.body?.sold === true || req.body?.sold === "1" ? 1 : 0,
+    caught_at: new Date().toISOString(),
+  };
+  if (!payload.fish_name) return json(res, { error: "fish_name_required" }, 400);
+  if ((payload.weight !== null && !Number.isFinite(payload.weight)) || !Number.isFinite(payload.value)) return json(res, { error: "invalid_number" }, 400);
+  const insertCols = ["user_id","username","fish_id","fish_name","rarity","weight","value","sold","caught_at","created_at"].filter((col) => cols.includes(col));
+  const values = insertCols.map((col) => col === "created_at" ? payload.caught_at : payload[col]);
+  const info = req.db.prepare(`INSERT INTO fish_inventory (${insertCols.map(sqlIdent).join(", ")}) VALUES (${insertCols.map(() => "?").join(", ")})`).run(...values);
+  const after = readPlayerFishingInventory(req.db, player.user_id, {});
+  audit(req.db, req.user.username, "player_fishing_inventory_add", "fish_inventory", `${player.user_id}:${info.lastInsertRowid}`, null, { ...payload, reason }, req.ip);
+  json(res, { ok: true, row_id: info.lastInsertRowid, ...after });
+}, closeDb);
+
+app.put("/api/player/:id/fishing-inventory/:row_id", requireAuth, requireAnyPermission("manage_inventory"), (req, res) => {
+  if (!playerInventoryWriteAllowed(req)) return json(res, { error: "forbidden", permission: "manage_inventory" }, 403);
+  if (!tableExists(req.db, "fish_inventory") || !columnExists(req.db, "fish_inventory", "id")) return unverifiedSchema(res, "fish_inventory.id is required for row edits.");
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  const reason = playerInventoryReason(req);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const id = String(req.params.row_id || "");
+  const before = req.db.prepare("SELECT * FROM fish_inventory WHERE id=?").get(id);
+  if (!before) return json(res, { error: "fish_row_not_found" }, 404);
+  const owns = String(before.user_id || "") === String(player.user_id || "") || String(before.username || "").toLowerCase() === String(player.username || "").toLowerCase();
+  if (!owns) return json(res, { error: "row_not_for_player" }, 403);
+  const cols = tableColumns(req.db, "fish_inventory");
+  const allowed = {
+    fish_name: req.body?.fish_name,
+    rarity: req.body?.rarity === undefined ? undefined : normalizeRarity(req.body.rarity),
+    weight: req.body?.weight === undefined || req.body?.weight === "" ? undefined : Number(req.body.weight),
+    value: req.body?.value === undefined || req.body?.value === "" ? undefined : Math.max(0, Math.trunc(Number(req.body.value))),
+    sold: req.body?.sold === undefined ? undefined : (req.body.sold === true || req.body.sold === "1" || req.body.sold === 1 ? 1 : 0),
+    sold_at: req.body?.sold === undefined || !cols.includes("sold_at") ? undefined : ((req.body.sold === true || req.body.sold === "1" || req.body.sold === 1) ? new Date().toISOString() : null),
+  };
+  if ([allowed.weight, allowed.value].some((v) => v !== undefined && !Number.isFinite(v))) return json(res, { error: "invalid_number" }, 400);
+  const updates = Object.entries(allowed).filter(([key, value]) => cols.includes(key) && value !== undefined);
+  if (!updates.length) return json(res, { error: "no_verified_columns" }, 400);
+  req.db.prepare(`UPDATE fish_inventory SET ${updates.map(([key]) => `${sqlIdent(key)}=?`).join(", ")} WHERE id=?`).run(...updates.map(([, value]) => value), id);
+  const afterRow = req.db.prepare("SELECT * FROM fish_inventory WHERE id=?").get(id);
+  audit(req.db, req.user.username, "player_fishing_inventory_update", "fish_inventory", `${player.user_id}:${id}`, before, { ...afterRow, reason }, req.ip);
+  json(res, { ok: true, ...readPlayerFishingInventory(req.db, player.user_id, {}) });
+}, closeDb);
+
+app.delete("/api/player/:id/fishing-inventory/:row_id", requireAuth, requireAnyPermission("manage_inventory"), (req, res) => {
+  if (!playerInventoryWriteAllowed(req)) return json(res, { error: "forbidden", permission: "manage_inventory" }, 403);
+  if (!tableExists(req.db, "fish_inventory") || !columnExists(req.db, "fish_inventory", "id")) return unverifiedSchema(res, "fish_inventory.id is required for row removal.");
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  const reason = playerInventoryReason(req);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  if (String(req.body?.confirmation || "") !== "REMOVE FISH") return json(res, { error: "typed_confirmation_required", confirmation: "REMOVE FISH" }, 400);
+  const id = String(req.params.row_id || "");
+  const before = req.db.prepare("SELECT * FROM fish_inventory WHERE id=?").get(id);
+  if (!before) return json(res, { error: "fish_row_not_found" }, 404);
+  const owns = String(before.user_id || "") === String(player.user_id || "") || String(before.username || "").toLowerCase() === String(player.username || "").toLowerCase();
+  if (!owns) return json(res, { error: "row_not_for_player" }, 403);
+  const info = req.db.prepare("DELETE FROM fish_inventory WHERE id=?").run(id);
+  audit(req.db, req.user.username, "player_fishing_inventory_remove", "fish_inventory", `${player.user_id}:${id}`, before, { removed: info.changes, reason }, req.ip);
+  json(res, { ok: true, removed: info.changes, ...readPlayerFishingInventory(req.db, player.user_id, {}) });
+}, closeDb);
+
+app.get("/api/player/:id/mining-inventory", requireAuth, (req, res) => {
+  const data = readPlayerMiningInventory(req.db, req.params.id, {
+    rarity: req.query.rarity,
+    q: req.query.q,
+  });
+  if (!data) return json(res, { error: "player_not_found" }, 404);
+  json(res, data);
+}, closeDb);
+
+app.post("/api/player/:id/mining-inventory", requireAuth, requireAnyPermission("manage_inventory"), (req, res) => {
+  if (!playerInventoryWriteAllowed(req)) return json(res, { error: "forbidden", permission: "manage_inventory" }, 403);
+  if (!tableExists(req.db, "mining_inventory")) return json(res, { error: "mining_inventory_missing" }, 404);
+  const cols = tableColumns(req.db, "mining_inventory");
+  if (!["username","item_id","quantity"].every((col) => cols.includes(col))) return unverifiedSchema(res, "mining_inventory requires username, item_id, and quantity for player inventory writes.");
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  const reason = playerInventoryReason(req);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const itemId = String(req.body?.item_id || req.body?.ore_id || "").trim();
+  const quantity = Math.max(1, Math.trunc(Number(req.body?.quantity || 1)));
+  if (!itemId) return json(res, { error: "item_id_required" }, 400);
+  if (!Number.isFinite(quantity)) return json(res, { error: "quantity_required" }, 400);
+  const before = req.db.prepare("SELECT * FROM mining_inventory WHERE lower(username)=lower(?) AND item_id=?").get(player.username, itemId) || null;
+  if (before) {
+    req.db.prepare("UPDATE mining_inventory SET quantity=COALESCE(quantity,0)+? WHERE id=?").run(quantity, before.id);
+  } else {
+    const insertCols = ["user_id","username","item_id","quantity"].filter((col) => cols.includes(col));
+    const values = insertCols.map((col) => col === "user_id" ? player.user_id : col === "username" ? player.username : col === "item_id" ? itemId : quantity);
+    req.db.prepare(`INSERT INTO mining_inventory (${insertCols.map(sqlIdent).join(", ")}) VALUES (${insertCols.map(() => "?").join(", ")})`).run(...values);
+  }
+  const after = req.db.prepare("SELECT * FROM mining_inventory WHERE lower(username)=lower(?) AND item_id=?").get(player.username, itemId) || null;
+  audit(req.db, req.user.username, "player_mining_inventory_add", "mining_inventory", `${player.username}:${itemId}`, before, { ...after, added_quantity: quantity, reason }, req.ip);
+  json(res, { ok: true, ...readPlayerMiningInventory(req.db, player.user_id, {}) });
+}, closeDb);
+
+app.put("/api/player/:id/mining-inventory/:row_id", requireAuth, requireAnyPermission("manage_inventory"), (req, res) => {
+  if (!playerInventoryWriteAllowed(req)) return json(res, { error: "forbidden", permission: "manage_inventory" }, 403);
+  if (!tableExists(req.db, "mining_inventory") || !columnExists(req.db, "mining_inventory", "id")) return unverifiedSchema(res, "mining_inventory.id is required for row edits.");
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  const reason = playerInventoryReason(req);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const id = String(req.params.row_id || "");
+  const before = req.db.prepare("SELECT * FROM mining_inventory WHERE id=?").get(id);
+  if (!before) return json(res, { error: "ore_row_not_found" }, 404);
+  if (String(before.username || "").toLowerCase() !== String(player.username || "").toLowerCase()) return json(res, { error: "row_not_for_player" }, 403);
+  const quantity = Math.max(0, Math.trunc(Number(req.body?.quantity)));
+  if (!Number.isFinite(quantity)) return json(res, { error: "quantity_required" }, 400);
+  req.db.prepare("UPDATE mining_inventory SET quantity=? WHERE id=?").run(quantity, id);
+  const after = req.db.prepare("SELECT * FROM mining_inventory WHERE id=?").get(id);
+  audit(req.db, req.user.username, "player_mining_inventory_update", "mining_inventory", `${player.username}:${id}`, before, { ...after, reason }, req.ip);
+  json(res, { ok: true, ...readPlayerMiningInventory(req.db, player.user_id, {}) });
+}, closeDb);
+
+app.delete("/api/player/:id/mining-inventory/:row_id", requireAuth, requireAnyPermission("manage_inventory"), (req, res) => {
+  if (!playerInventoryWriteAllowed(req)) return json(res, { error: "forbidden", permission: "manage_inventory" }, 403);
+  if (!tableExists(req.db, "mining_inventory") || !columnExists(req.db, "mining_inventory", "id")) return unverifiedSchema(res, "mining_inventory.id is required for row removal.");
+  const player = readPlayerProfile(req.db, req.params.id);
+  if (!player) return json(res, { error: "player_not_found" }, 404);
+  const reason = playerInventoryReason(req);
+  if (!reason) return json(res, { error: "reason_required" }, 400);
+  const id = String(req.params.row_id || "");
+  const before = req.db.prepare("SELECT * FROM mining_inventory WHERE id=?").get(id);
+  if (!before) return json(res, { error: "ore_row_not_found" }, 404);
+  if (String(before.username || "").toLowerCase() !== String(player.username || "").toLowerCase()) return json(res, { error: "row_not_for_player" }, 403);
+  const removeQty = req.body?.quantity === undefined || req.body?.quantity === "" ? Number(before.quantity || 0) : Math.max(0, Math.trunc(Number(req.body.quantity)));
+  if (!Number.isFinite(removeQty)) return json(res, { error: "quantity_required" }, 400);
+  const nextQty = Math.max(0, Number(before.quantity || 0) - removeQty);
+  req.db.prepare("UPDATE mining_inventory SET quantity=? WHERE id=?").run(nextQty, id);
+  const after = req.db.prepare("SELECT * FROM mining_inventory WHERE id=?").get(id);
+  audit(req.db, req.user.username, "player_mining_inventory_remove", "mining_inventory", `${player.username}:${id}`, before, { ...after, removed_quantity: removeQty, reason }, req.ip);
+  json(res, { ok: true, ...readPlayerMiningInventory(req.db, player.user_id, {}) });
 }, closeDb);
 
 app.get("/api/player/:id/history", requireAuth, requireAnyPermission("manage_players", "manage_moderation", "view_logs"), (req, res) => {
