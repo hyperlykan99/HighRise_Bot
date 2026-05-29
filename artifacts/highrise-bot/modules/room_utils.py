@@ -206,6 +206,32 @@ async def _get_bot_position(bot: BaseBot, bot_uid: str) -> Position | None:
     return None
 
 
+def _is_chilltopia_host(bot_username: str | None = None, bot_mode: str | None = None) -> bool:
+    username = (bot_username or "").strip().lower()
+    mode = (bot_mode or "").strip().lower()
+    return username == "chilltopiamc" or mode == "host"
+
+
+def _exc_contains(exc: Exception, needle: str) -> bool:
+    return needle.lower() in repr(exc).lower() or needle.lower() in str(exc).lower()
+
+
+async def _is_bot_currently_in_room(bot: BaseBot, bot_uid: str) -> bool:
+    if not bot_uid:
+        return False
+    try:
+        resp = await bot.highrise.get_room_users()
+        pairs = list(resp.content) if hasattr(resp, "content") else []
+        for room_user, pos in pairs:
+            if getattr(room_user, "id", "") == bot_uid:
+                if pos is not None:
+                    update_user_position(bot_uid, pos)
+                return True
+    except Exception as exc:
+        print(f"[SPAWN_RESTORE] get_room_users_failed error={exc!r}")
+    return False
+
+
 def _get_room_users_cached() -> dict[str, tuple[str, Position]]:
     """Returns {user_id: (username, position)} from module cache."""
     return {}  # positions stored from on_user_move events
@@ -2535,6 +2561,7 @@ async def teleport_bot_to_saved_spawn(
     _username = bot_username or _get_uname() or getattr(_cfg, "BOT_USERNAME", "")
     _mode     = bot_mode     or getattr(_cfg, "BOT_MODE", "main")
     bot_uid   = get_bot_user_id()
+    is_host   = _is_chilltopia_host(_username, _mode)
 
     # Priority lookup: exact username → mode name → known mode alias → "default"
     row: dict | None = None
@@ -2563,6 +2590,15 @@ async def teleport_bot_to_saved_spawn(
         f"[BOT SPAWN] bot={_username!r} spawn={spawn_name!r} "
         f"x={x} y={y} z={z} facing={facing}"
     )
+
+    if is_host:
+        if not bot_uid or not await _is_bot_currently_in_room(bot, bot_uid):
+            print(
+                f"[SPAWN_RESTORE] host_not_in_room_skip_spawn "
+                f"bot={_username!r} uid={bot_uid or 'none'}"
+            )
+            return (False, pos, row, "host_not_in_room", saved_key) if return_details else False
+
     print("[BOT SPAWN] teleport_attempt=true")
 
     if bot_uid:
@@ -2572,6 +2608,12 @@ async def teleport_bot_to_saved_spawn(
             return (True, pos, row, "teleport", saved_key) if return_details else True
         except Exception as exc:
             print(f"[BOT SPAWN] teleport_success=false error={exc!r}")
+            if is_host and _exc_contains(exc, "server error"):
+                print(
+                    f"[SPAWN_RESTORE] host_spawn_restore_retry "
+                    f"bot={_username!r} reason=teleport_server_error"
+                )
+                return (False, pos, row, "teleport_server_error", saved_key) if return_details else False
     else:
         print("[BOT SPAWN] teleport_skipped=true reason=no_bot_uid_yet")
 
@@ -2583,6 +2625,12 @@ async def teleport_bot_to_saved_spawn(
             return (True, pos, row, "walk", saved_key) if return_details else True
         except Exception as exc:
             print(f"[BOT SPAWN] walk_success=false error={exc!r}")
+            if is_host and _exc_contains(exc, "not in room"):
+                print(
+                    f"[SPAWN_RESTORE] host_not_in_room_skip_spawn "
+                    f"bot={_username!r} reason=walk_not_in_room"
+                )
+                return (False, pos, row, "host_not_in_room", saved_key) if return_details else False
     else:
         print("[BOT SPAWN] fallback_walk=false")
 
@@ -2601,18 +2649,26 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
         return
     _bot_spawn_restore_tasks[key] = asyncio.current_task()  # type: ignore[assignment]
 
-    delays = (8.0, 18.0, 35.0, 60.0)
+    is_host = _is_chilltopia_host(bot_username, getattr(_cfg, "BOT_MODE", "main"))
+    delays = (20.0, 30.0, 60.0, 120.0) if is_host else (8.0, 18.0, 35.0, 60.0)
     expected: Position | None = None
+    actual: Position | None = None
     try:
         for attempt, delay in enumerate(delays, 1):
             if delay:
                 await asyncio.sleep(delay)
-            details = await teleport_bot_to_saved_spawn(
-                bot,
-                bot_username=bot_username,
-                fallback_walk=True,
-                return_details=True,
-            )
+            try:
+                details = await teleport_bot_to_saved_spawn(
+                    bot,
+                    bot_username=bot_username,
+                    fallback_walk=True,
+                    return_details=True,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                details = (False, expected, None, "spawn_restore_exception", "")
+                print(f"[SPAWN_RESTORE] bot={key} exception_safe=true error={exc!r}")
             if isinstance(details, tuple) and len(details) >= 5:
                 ok, expected, _row, reason, saved_key = details[:5]
             else:
@@ -2633,11 +2689,21 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
             )
             if success or expected is None:
                 return
+            if is_host:
+                print(
+                    f"[SPAWN_RESTORE] host_spawn_restore_retry "
+                    f"bot={key} attempt={attempt} reason={reason}"
+                )
         print(
             f"[SPAWN_RESTORE] bot={key} attempt=max "
-            f"expected={_format_pos(expected)} actual=unknown "
+            f"expected={_format_pos(expected)} actual={_format_pos(actual)} "
             "success=false reason=max_attempts"
         )
+        if is_host:
+            print(
+                f"[SPAWN_RESTORE] host_spawn_restore_failed_safe "
+                f"bot={key} expected={_format_pos(expected)} actual={_format_pos(actual)}"
+            )
     finally:
         if _bot_spawn_restore_tasks.get(key) is asyncio.current_task():
             _bot_spawn_restore_tasks.pop(key, None)

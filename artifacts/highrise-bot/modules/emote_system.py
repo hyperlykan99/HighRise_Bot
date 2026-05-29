@@ -263,6 +263,7 @@ def _log(stage: str, **kw: object) -> None:
 _player_loops:  dict[str, asyncio.Task] = {}
 _player_emotes: dict[str, str]          = {}
 _bot_loops:     dict[str, asyncio.Task] = {}
+_host_not_in_room_log_at: dict[str, float] = {}
 # Shared registry lives in modules.live_bot_registry — re-exported here for callers.
 from modules.live_bot_registry import LIVE_BOTS, get_live_bot, live_bot_keys
 
@@ -392,6 +393,44 @@ async def _start_player_loop(
 # Bot self-emote loop (NO user_id)
 # ---------------------------------------------------------------------------
 
+def _is_host_bot_mode(bot_mode: str) -> bool:
+    return (bot_mode or "").strip().lower() == "host"
+
+
+def _emote_exc_contains(exc: Exception, needle: str) -> bool:
+    return needle.lower() in repr(exc).lower() or needle.lower() in str(exc).lower()
+
+
+def _log_host_emote_skip_once(bot_mode: str, eid: str, reason: str, cooldown: float = 60.0) -> None:
+    key = f"{bot_mode}:{eid}:{reason}"
+    now = time.time()
+    if now - _host_not_in_room_log_at.get(key, 0.0) < cooldown:
+        return
+    _host_not_in_room_log_at[key] = now
+    print(
+        f"[EMOTE BOT] host_emote_skipped_not_in_room "
+        f"mode={bot_mode!r} eid={eid!r} reason={reason}"
+    )
+
+
+async def _host_bot_is_in_room(bot: "BaseBot", bot_uid: str = "") -> bool:
+    uid = bot_uid
+    if not uid:
+        try:
+            from modules.gold import get_bot_user_id
+            uid = get_bot_user_id()
+        except Exception:
+            uid = ""
+    if not uid:
+        return False
+    try:
+        resp = await bot.highrise.get_room_users()
+        pairs = list(resp.content) if hasattr(resp, "content") else []
+        return any(getattr(room_user, "id", "") == uid for room_user, _pos in pairs)
+    except Exception:
+        return False
+
+
 def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
                     bot_uid: str = "") -> float:
     """Start (or restart) a bot self-emote loop — send_emote(eid) only."""
@@ -411,10 +450,18 @@ def _start_bot_loop(bot: "BaseBot", bot_mode: str, eid: str,
                 print(f"[EMOTE BOT] mode={bot_mode!r} eid={eid!r}"
                       f" iter={_iter} sleep={sleep_time}s")
             try:
+                if _is_host_bot_mode(bot_mode) and not await _host_bot_is_in_room(bot, bot_uid):
+                    _log_host_emote_skip_once(bot_mode, eid, "preflight")
+                    await asyncio.sleep(sleep_time)
+                    continue
                 await bot.highrise.send_emote(eid)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                if _is_host_bot_mode(bot_mode) and _emote_exc_contains(exc, "not in room"):
+                    _log_host_emote_skip_once(bot_mode, eid, "send_emote_not_in_room")
+                    await asyncio.sleep(sleep_time)
+                    continue
                 print(f"[EMOTE BOT FAIL] mode={bot_mode!r} eid={eid!r}"
                       f" iter={_iter} error={exc!r}")
             await asyncio.sleep(sleep_time)
@@ -777,10 +824,18 @@ async def handle_botemote(bot: "BaseBot", user: "User", args: list) -> None:
         async def _imm_loop() -> None:
             while True:
                 try:
+                    if _is_host_bot_mode(BOT_MODE) and not await _host_bot_is_in_room(bot):
+                        _log_host_emote_skip_once(BOT_MODE, _emote_id, "preflight")
+                        await asyncio.sleep(get_emote_time(_emote_id))
+                        continue
                     await bot.highrise.send_emote(_emote_id)
                 except asyncio.CancelledError:
                     raise
                 except Exception as _exc:
+                    if _is_host_bot_mode(BOT_MODE) and _emote_exc_contains(_exc, "not in room"):
+                        _log_host_emote_skip_once(BOT_MODE, _emote_id, "send_emote_not_in_room")
+                        await asyncio.sleep(get_emote_time(_emote_id))
+                        continue
                     print(f"[EMOTE BOT] loop err mode={BOT_MODE!r} eid={_emote_id!r}: {_exc!r}")
                 await asyncio.sleep(get_emote_time(_emote_id))
         _bot_loops[BOT_MODE] = asyncio.create_task(_imm_loop())
@@ -849,10 +904,18 @@ async def _direct_emote_fallback(bot, uid, raw_target: str,
         async def _direct_loop() -> None:
             while True:
                 try:
+                    if _is_host_bot_mode(raw_target) and not await _host_bot_is_in_room(target_bot):
+                        _log_host_emote_skip_once(raw_target, _eid2, "preflight")
+                        await asyncio.sleep(get_emote_time(_eid2))
+                        continue
                     await target_bot.highrise.send_emote(_eid2)
                 except asyncio.CancelledError:
                     raise
                 except Exception as _exc:
+                    if _is_host_bot_mode(raw_target) and _emote_exc_contains(_exc, "not in room"):
+                        _log_host_emote_skip_once(raw_target, _eid2, "send_emote_not_in_room")
+                        await asyncio.sleep(get_emote_time(_eid2))
+                        continue
                     print(f"[EMOTE BOT] direct loop err target={raw_target!r}: {_exc!r}")
                 await asyncio.sleep(get_emote_time(_eid2))
         _bot_loops[raw_target] = asyncio.create_task(_direct_loop())
@@ -1079,10 +1142,18 @@ async def handle_bot_emote_channel_event(bot: "BaseBot", payload: dict) -> None:
         async def _ch_loop() -> None:
             while True:
                 try:
+                    if _is_host_bot_mode(BOT_MODE) and not await _host_bot_is_in_room(bot):
+                        _log_host_emote_skip_once(BOT_MODE, _eid, "preflight")
+                        await asyncio.sleep(get_emote_time(_eid))
+                        continue
                     await bot.highrise.send_emote(_eid)
                 except asyncio.CancelledError:
                     raise
                 except Exception as _exc:
+                    if _is_host_bot_mode(BOT_MODE) and _emote_exc_contains(_exc, "not in room"):
+                        _log_host_emote_skip_once(BOT_MODE, _eid, "send_emote_not_in_room")
+                        await asyncio.sleep(get_emote_time(_eid))
+                        continue
                     print(f"[EMOTE BOT] ch-loop err mode={BOT_MODE!r} eid={_eid!r}: {_exc!r}")
                 await asyncio.sleep(get_emote_time(_eid))
         _bot_loops[BOT_MODE] = asyncio.create_task(_ch_loop())
