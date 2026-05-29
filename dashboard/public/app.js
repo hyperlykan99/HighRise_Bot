@@ -88,6 +88,7 @@ const BOT_TABS = [
 ];
 const PLAYER_TABS = [
   { id: "Search", api: null },
+  { id: "User ID Lookup", api: null },
   { id: "Economy", api: null },
   { id: "Inventory", api: null },
   { id: "Mining", api: null },
@@ -779,6 +780,7 @@ const state = {
   sidebarOpen: false,
   showLoginOverlay: false,
   playerResult: null,
+  userIdLookup: null,
 };
 
 const app = document.getElementById("app");
@@ -841,9 +843,48 @@ function pill(value, good = ["online","enabled","ready","queued","submitted","se
   return `<span class="pill ${cls}">${esc(text || "unknown")}</span>`;
 }
 
-function table(rows, columns, actions) {
+const USER_ID_COLUMNS = new Set([
+  "user_id", "userid", "userId", "uid", "owner_id", "buyer_id", "seller_id",
+  "target_user_id", "requester_id", "highrise_user_id", "staff_id", "sender_id", "receiver_id",
+]);
+
+function looksLikeUserId(value) {
+  const s = String(value || "").trim();
+  return s.length >= 18 && /^[a-z0-9_-]+$/i.test(s) && !/^\d{1,10}$/.test(s);
+}
+
+function isUserIdColumn(key) {
+  return USER_ID_COLUMNS.has(String(key || "")) || /(^|_)(user|owner|buyer|seller|target|requester|sender|receiver)_?id$/i.test(String(key || ""));
+}
+
+function shortUserId(userId) {
+  const s = String(userId || "").trim();
+  if (!s) return "";
+  if (s.length <= 12) return s;
+  return `${s.slice(0, 6)}…${s.slice(-4)}`;
+}
+
+function displayUser(row = {}) {
+  const name = row.username || row.display_name || row.player_name || row.target_username || row.target_name || row.seller_username || row.buyer_username || row.requester_username || row.name;
+  if (name && !looksLikeUserId(name)) return String(name);
+  return "Unknown Player";
+}
+
+function filterTechnicalColumns(rows, cols, { showTechnical = false } = {}) {
+  if (showTechnical) return cols;
+  const filtered = cols.filter((c) => !isUserIdColumn(c.key));
+  const hasHiddenUserId = cols.some((c) => isUserIdColumn(c.key));
+  const hasUserLabel = filtered.some((c) => ["username", "display_name", "player", "player_name", "seller_username", "buyer_username", "requester_username"].includes(String(c.key)));
+  if (hasHiddenUserId && !hasUserLabel) {
+    return [{ key: "__player", label: "Player", render: (r) => displayUser(r) }, ...filtered];
+  }
+  return filtered;
+}
+
+function table(rows, columns, actions, options = {}) {
   if (!rows || rows.length === 0) return `<div class="empty-state"><div class="empty-state-icon">📭</div><span>No records found.</span></div>`;
-  const cols = columns || Object.keys(rows[0]).slice(0, 8).map((k) => ({ key: k, label: k }));
+  const sourceCols = columns || Object.keys(rows[0]).slice(0, 10).map((k) => ({ key: k, label: k }));
+  const cols = filterTechnicalColumns(rows, sourceCols, options);
   return `<div class="table-wrap"><table>
     <thead><tr>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}${actions ? "<th></th>" : ""}</tr></thead>
     <tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}${actions ? `<td class="inline-actions">${actions(r)}</td>` : ""}</tr>`).join("")}</tbody>
@@ -3162,6 +3203,7 @@ function renderOwnerPlayersPage(tab) {
   return `
     ${tabNav("Players")}
     ${tab === "Search" ? renderPlayerSearch() : ""}
+    ${tab === "User ID Lookup" ? renderUserIdLookupTab() : ""}
     ${tab === "Economy" ? renderPlayerEconomyTab() : ""}
     ${tab === "Inventory" ? renderPlayerInventoryTab() : ""}
     ${tab === "Mining" ? renderPlayerMiningTab() : ""}
@@ -3197,7 +3239,7 @@ function renderPlayerCard(p) {
   return `<div class="card" style="margin-top:0">
     <div class="card-header">
       <h3>🔍 ${esc(p.username || "Unknown")}</h3>
-      <span class="muted text-sm">ID: ${esc(p.user_id || "—")}</span>
+      <span class="muted text-sm">User ID hidden · use User ID Lookup</span>
     </div>
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:12px 0">
       ${metricCard("Balance", p.balance != null ? Number(p.balance).toLocaleString() : "—", "", "accent-green", "💰")}
@@ -3232,6 +3274,61 @@ function renderPlayerCard(p) {
       <button class="btn sm" data-player-jump="Titles & Badges">Edit Badge / Title</button>
     </div>
   </div>`;
+}
+
+function renderUserIdLookupTab() {
+  const d = state.userIdLookup || {};
+  const matches = d.matches || [];
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2>User ID Lookup</h2>
+          <p class="muted">Owner diagnostics for resolving usernames, short IDs, source tables, and where a player appears. Normal dashboard pages hide full IDs.</p>
+        </div>
+        <span class="pill warn">Advanced</span>
+      </div>
+      <form id="userIdLookupForm" class="toolbar" style="flex-wrap:wrap">
+        <input name="q" placeholder="Username or full user_id" required style="flex:1;min-width:220px" />
+        <button class="btn primary">Lookup</button>
+      </form>
+    </div>
+    ${matches.length ? matches.map((m, idx) => `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2>${esc(m.username || "Unknown Player")}</h2>
+            <div class="muted text-sm">Short ID: ${esc(m.short_user_id || shortUserId(m.user_id))}</div>
+          </div>
+          <div class="inline-actions">
+            <button class="btn sm" data-copy-text="${esc(m.username || "")}">Copy Username</button>
+            <button class="btn sm" data-copy-text="${esc(m.user_id || "")}">Copy User ID</button>
+          </div>
+        </div>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px">
+          ${metricCard("Balance", m.stats?.balance != null ? Number(m.stats.balance).toLocaleString() : "—", "users", "accent-green", "💰")}
+          ${metricCard("Level", m.stats?.level ?? "—", "users", "", "⭐")}
+          ${metricCard("VIP", m.stats?.vip ? "Yes" : "No", "owned_items", m.stats?.vip ? "accent-green" : "", "👑")}
+          ${metricCard("Last Seen", m.stats?.last_seen || "—", "if available", "", "👁")}
+        </div>
+        <div class="grid">
+          <div class="card"><h3>Identity</h3>${table([m], [
+            { key: "username", label: "Username" },
+            { key: "user_id", label: "Full User ID" },
+            { key: "short_user_id", label: "Short ID" },
+            { key: "aliases", label: "Aliases", render: (r) => (r.aliases || []).map(esc).join(", ") || "—" },
+          ], null, { showTechnical: true })}</div>
+          <div class="card"><h3>Source Tables</h3>${table(m.sources || [], [
+            { key: "table", label: "Table" },
+            { key: "matches", label: "Rows" },
+            { key: "identity", label: "Identity Column" },
+            { key: "notes", label: "Notes" },
+          ])}</div>
+        </div>
+        ${m.warnings?.length ? `<div class="notice warn">${m.warnings.map(esc).join("<br>")}</div>` : ""}
+      </div>
+    `).join("") : (d.query ? `<div class="notice">No identity records found for <strong>${esc(d.query)}</strong>.</div>` : "")}
+  `;
 }
 
 function renderPlayerEconomyTab() {
@@ -3551,7 +3648,7 @@ function renderSecurityPlayerLookup() {
       </form>
     </div>
     ${p ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
-      ${metricCard("Player", p.username || p.user_id, p.user_id, "accent-cyan", "P")}
+      ${metricCard("Player", p.username || "Unknown Player", "ID hidden", "accent-cyan", "P")}
       ${metricCard("Warnings", p.moderation?.warnings_count ?? p.moderation?.warnings?.length ?? 0, "warnings", "", "W")}
       ${metricCard("Mutes", p.moderation?.mutes_count ?? p.moderation?.mutes?.length ?? 0, "mutes", "", "M")}
       ${metricCard("Reports", p.moderation?.reports_count ?? p.moderation?.reports?.length ?? 0, "reports", "", "R")}
@@ -6649,7 +6746,7 @@ function renderStaffPage_shared() {
         ${Object.entries(d.bot_roles || {}).map(([role, rows]) => `
           <div>
             <div class="field-label" style="margin-bottom:6px;text-transform:capitalize">${esc(role)}</div>
-            ${rows.length ? rows.map((r) => `<div class="muted text-sm">@${esc(r.username || r.user_id || "?")}</div>`).join("") : `<div class="muted text-sm">None</div>`}
+            ${rows.length ? rows.map((r) => `<div class="muted text-sm">@${esc(r.username || "Unknown Player")}</div>`).join("") : `<div class="muted text-sm">None</div>`}
           </div>`).join("")}
       </div>
     </div>
@@ -7739,6 +7836,25 @@ function bindAdminPageEvents() {
     const data = await api(`/api/player/search?q=${encodeURIComponent(query)}`);
     state.playerResult = data.player || null;
     render();
+  });
+  document.getElementById("userIdLookupForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = new FormData(e.currentTarget).get("q");
+    state.userIdLookup = await api(`/api/users/lookup?q=${encodeURIComponent(q)}`);
+    render();
+  });
+  document.querySelectorAll("[data-copy-text]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const text = btn.dataset.copyText || "";
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = "Copied";
+        setTimeout(() => { btn.textContent = text === state.userIdLookup?.matches?.[0]?.user_id ? "Copy User ID" : "Copy"; }, 900);
+      } catch {
+        prompt("Copy value", text);
+      }
+    });
   });
   document.getElementById("grantCoinsForm")?.addEventListener("submit", (e) => {
     e.preventDefault();

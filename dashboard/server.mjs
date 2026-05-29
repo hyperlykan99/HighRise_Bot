@@ -4762,7 +4762,7 @@ function buildQaAudit() {
     "settings-group", "sg-api", "sg-opts", "sf-toggle", "raw-edit-key", "raw-edit-val", "raw-edit-src",
     "table-search", "rarity-filter", "enabled-filter", "room-toggle", "room-edit",
     "staff-id", "remove-staff", "enabled", "room-val", "key", "vip-remove", "vip-user",
-    "badge-shop-edit", "badge-market-cancel", "luxe-shop-edit",
+    "badge-shop-edit", "badge-market-cancel", "luxe-shop-edit", "copy-text",
     "quest-disable",
     "automation-send", "automation-archive", "automation-rotating-send", "automation-rotating-disable",
     "automation-promo", "automation-source",
@@ -4776,6 +4776,12 @@ function buildQaAudit() {
   const publicSection = appSource.slice(appSource.indexOf("PUBLIC PORTAL"), appSource.indexOf("ADMIN SHELL"));
   if (/bot[_-]?token|AZURA_API_KEY|\.env|db_path|resolved_db_path/i.test(publicSection)) {
     publicSafetyWarnings.push({ warning: "public_sensitive_text_match", message: "Public render section contains sensitive-looking implementation text." });
+  }
+  const publicRawUserIdMatches = [...publicSection.matchAll(/\b(?:[a-z0-9_-]{24,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/gi)]
+    .slice(0, 5)
+    .map((m) => `${m[0].slice(0, 6)}…${m[0].slice(-4)}`);
+  if (publicRawUserIdMatches.length) {
+    publicSafetyWarnings.push({ warning: "public_raw_user_id_exposure", message: "Public renderer contains long raw ID-like literals.", matches: publicRawUserIdMatches });
   }
   const permissionWarnings = buildPermissionsAudit().warnings;
   const issues = [];
@@ -4930,6 +4936,12 @@ function buildE2eAudit(db) {
   const publicSafetyIssues = [...qa.public_safety_warnings];
   if (sensitiveMatches.length) {
     publicSafetyIssues.push({ warning: "public_sensitive_literal", message: "Public renderer contains sensitive-looking literal or path.", matches: sensitiveMatches });
+  }
+  const rawIdMatches = [...publicSection.matchAll(/\b(?:[a-z0-9_-]{24,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/gi)]
+    .slice(0, 5)
+    .map((m) => `${m[0].slice(0, 6)}…${m[0].slice(-4)}`);
+  if (rawIdMatches.length) {
+    publicSafetyIssues.push({ warning: "public_raw_user_id_exposure", message: "Public renderer contains long raw ID-like literals.", matches: rawIdMatches });
   }
   const commandConsumerGaps = visibleQueueActions
     .filter((action) => !relaySupported.has(action))
@@ -8576,6 +8588,110 @@ function readPlayerMiningInventory(db, idOrQuery, filters = {}) {
   };
 }
 
+function shortUserIdValue(value) {
+  const s = String(value || "").trim();
+  if (!s) return "";
+  return s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-4)}` : s;
+}
+
+function userIdentityLookup(db, query) {
+  const q = String(query || "").trim().slice(0, 120);
+  if (!q) return { query: q, matches: [] };
+  const identities = new Map();
+  const addIdentity = (row = {}, table = "", identity = "", notes = "") => {
+    const username = row.username || row.seller_username || row.buyer_username || row.target_username || row.target_name || row.name || "";
+    const userId = row.user_id || row.uid || row.highrise_user_id || row.target_user_id || row.requester_id || "";
+    const key = userId ? `id:${userId}` : `name:${String(username).toLowerCase()}`;
+    if (!userId && !username) return;
+    const existing = identities.get(key) || {
+      username: username || "Unknown Player",
+      user_id: userId || "",
+      short_user_id: shortUserIdValue(userId),
+      aliases: new Set(),
+      sources: [],
+      stats: {},
+      warnings: [],
+    };
+    if (username && existing.username === "Unknown Player") existing.username = username;
+    if (userId && !existing.user_id) {
+      existing.user_id = userId;
+      existing.short_user_id = shortUserIdValue(userId);
+    }
+    if (username) existing.aliases.add(username);
+    const found = existing.sources.find((source) => source.table === table && source.identity === identity);
+    if (found) found.matches += 1;
+    else existing.sources.push({ table, matches: 1, identity, notes });
+    identities.set(key, existing);
+  };
+
+  const tableSpecs = [
+    ["users", ["user_id", "username", "balance", "level", "xp", "last_seen_at", "last_seen"]],
+    ["fish_profiles", ["user_id", "username", "fishing_level", "total_catches", "last_fish_at"]],
+    ["mining_players", ["user_id", "username", "mining_level", "total_ores", "last_mine_at"]],
+    ["fish_inventory", ["user_id", "username", "fish_name", "caught_at"]],
+    ["mining_inventory", ["user_id", "username", "item_id"]],
+    ["premium_balances", ["user_id", "username", "luxe_tickets", "updated_at"]],
+    ["owned_items", ["user_id", "item_id", "item_type"]],
+    ["user_titles", ["user_id", "username", "title_id"]],
+    ["user_badges", ["username", "badge_id"]],
+    ["badge_market_listings", ["seller_username", "buyer_username", "badge_id", "status"]],
+    ["premium_transactions", ["user_id", "username", "type", "amount", "created_at"]],
+    ["bot_command_queue", ["requester_id", "action", "status", "created_at"]],
+  ];
+
+  for (const [table, desired] of tableSpecs) {
+    if (!tableExists(db, table)) continue;
+    const cols = tableColumns(db, table);
+    const clauses = [];
+    const params = [];
+    for (const col of ["user_id", "uid", "highrise_user_id", "requester_id", "target_user_id"]) {
+      if (cols.includes(col)) {
+        clauses.push(`${sqlIdent(col)}=?`);
+        params.push(q);
+      }
+    }
+    for (const col of ["username", "seller_username", "buyer_username", "target_username", "target_name"]) {
+      if (cols.includes(col)) {
+        clauses.push(`lower(${sqlIdent(col)})=lower(?)`);
+        params.push(q);
+      }
+    }
+    if (!clauses.length) continue;
+    for (const row of safeRows(db, table, desired, { where: clauses.join(" OR "), params, limit: "100" })) {
+      const identity = row.user_id || row.requester_id || row.seller_username || row.buyer_username || row.username || "";
+      addIdentity(row, table, identity, cols.includes("user_id") ? "user_id/username match" : "username-only source");
+    }
+  }
+
+  const usersById = new Map();
+  if (tableExists(db, "users") && columnExists(db, "users", "user_id")) {
+    for (const row of safeRows(db, "users", ["user_id", "username", "balance", "level", "xp", "last_seen_at", "last_seen"], { limit: "10000" })) {
+      if (row.user_id) usersById.set(String(row.user_id), row);
+    }
+  }
+  const matches = [...identities.values()].map((item) => {
+    const userRow = item.user_id ? usersById.get(String(item.user_id)) : null;
+    const profile = userRow || (item.username ? readPlayerProfile(db, item.username) : null);
+    if (profile?.username && item.username === "Unknown Player") item.username = profile.username;
+    const vip = item.user_id
+      ? !!safeOne(db, "owned_items", ["user_id", "item_id"], { where: "user_id=? AND lower(item_id)='vip'", params: [item.user_id] })
+      : false;
+    return {
+      ...item,
+      aliases: [...item.aliases].filter(Boolean),
+      stats: {
+        balance: profile?.balance ?? userRow?.balance ?? null,
+        level: profile?.level ?? userRow?.level ?? null,
+        xp: profile?.xp ?? userRow?.xp ?? null,
+        vip,
+        last_seen: profile?.last_seen_at || profile?.last_seen || userRow?.last_seen_at || userRow?.last_seen || "",
+      },
+      warnings: item.user_id ? [] : ["No full user_id was found in the matched source tables."],
+    };
+  });
+  return { query: q, matches };
+}
+
 app.get("/api/player/search", requireAuth, (req, res) => {
   const q = String(req.query.q || "").trim().slice(0, 80);
   if (!q) return json(res, { player: null, error: "query_required" }, 400);
@@ -8583,6 +8699,15 @@ app.get("/api/player/search", requireAuth, (req, res) => {
   const player = readPlayerProfile(req.db, q);
   if (!player) return json(res, { player: null });
   json(res, { player });
+}, closeDb);
+
+app.get("/api/users/lookup", requireAuth, requireAnyPermission("manage_players", "db_admin"), (req, res) => {
+  if (req.user?.role !== "owner" && !req.permissions?.db_admin && !req.permissions?.manage_players) {
+    return json(res, { error: "forbidden", permission: "manage_players" }, 403);
+  }
+  const q = String(req.query.q || "").trim().slice(0, 120);
+  if (!q) return json(res, { query: "", matches: [], error: "query_required" }, 400);
+  json(res, userIdentityLookup(req.db, q));
 }, closeDb);
 
 app.get("/api/player/:id/fishing-inventory", requireAuth, (req, res) => {
