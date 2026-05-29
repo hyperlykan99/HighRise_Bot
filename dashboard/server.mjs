@@ -715,6 +715,8 @@ function ensureDashboardSchema(db) {
 
   addColumnIfMissing(db, "bot_command_queue", "result_text", "TEXT NOT NULL DEFAULT ''", migration);
   addColumnIfMissing(db, "bot_command_queue", "error_text", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "bot_command_queue", "reviewed_at", "TEXT NOT NULL DEFAULT ''", migration);
+  addColumnIfMissing(db, "bot_command_queue", "reviewed_by", "TEXT NOT NULL DEFAULT ''", migration);
 
   for (const moduleName of ["radio", "casino", "games", "titles", "staff", "settings"]) {
     const existingFlag = db.prepare("SELECT module FROM module_flags WHERE module=? LIMIT 1").get(moduleName);
@@ -1520,6 +1522,8 @@ const BOT_COMMAND_QUEUE_COLUMNS = [
   "completed_at",
   "result_text",
   "error_text",
+  "reviewed_at",
+  "reviewed_by",
 ];
 
 function moderationTableInfo(db, table, limit = "100") {
@@ -3860,6 +3864,7 @@ function buildQaAudit() {
   const handledAttrs = new Set([
     "pub-page", "manual-tab", "ranking-tab", "admin-page", "admin-tab", "nav-id", "page-tab", "maint-tab", "action",
     "bot-command", "target-bot", "dancefloor-command", "sync-command", "sync-persist",
+    "command-id",
     "player-jump", "remove-item", "quick-item", "quick-type", "remove-title", "remove-badge",
     "report-review", "report-resolve", "security-unmute", "security-bot-action",
     "remove-request", "unblock-requester", "unblock-track", "mining-ore-form", "mining-ore-disable",
@@ -3925,6 +3930,28 @@ function routeToRegex(routePath) {
 function routeExists(apiPath, method = "GET") {
   const cleanPath = String(apiPath || "").split("?")[0].replace(/\/$/, "") || "/";
   return ROUTE_SECURITY.some((route) => route.method === method && routeToRegex(route.path).test(cleanPath));
+}
+
+function findPublicSensitiveMatches(source) {
+  const matches = [];
+  const patterns = [
+    { kind: "assigned_secret", regex: /\b(?:token|api[_ -]?key|secret|azura_api_key|highrise[_ -]?[a-z0-9_ -]*key)\b\s*[:=]\s*["'`][^"'`\n]{6,}["'`]/ig },
+    { kind: "env_path", regex: /(?:\/[A-Za-z0-9._-]+)+\/\.env\b|\.env\s*[:=]\s*["'`][^"'`\n]+["'`]/ig },
+    { kind: "internal_db_path", regex: /(?:\/[A-Za-z0-9._-]+)+\/[^"'`\s]+\.db\b/ig },
+  ];
+  for (const { kind, regex } of patterns) {
+    let match;
+    while ((match = regex.exec(source))) {
+      const start = Math.max(0, match.index - 60);
+      const end = Math.min(source.length, match.index + match[0].length + 60);
+      matches.push({
+        kind,
+        match: match[0].replace(/(["'`])[^"'`]{8,}\1/g, "$1[redacted]$1"),
+        snippet: source.slice(start, end).replace(/\s+/g, " ").trim(),
+      });
+    }
+  }
+  return matches;
 }
 
 function buildE2eAudit(db) {
@@ -4000,16 +4027,17 @@ function buildE2eAudit(db) {
     endpoint_status: routeExists(row.endpoint, row.method) ? "PASS" : "MISSING_ENDPOINT",
     consumer_status: relaySupported.has(row.consumer_action) ? "PASS" : "QUEUED_ONLY",
   }));
-  const secretPattern = /(?:TOKEN|SECRET|PASSWORD|AZURA_API_KEY|HIGHRISE.*KEY|\.env\s*[:=])/i;
   const publicSection = appSource.slice(appSource.indexOf("PUBLIC PORTAL"), appSource.indexOf("ADMIN SHELL"));
+  const sensitiveMatches = findPublicSensitiveMatches(publicSection);
   const tokenExposureCheck = {
-    public_render_sensitive_match: secretPattern.test(publicSection),
-    public_api_route_sensitive_names: ROUTE_SECURITY.filter((route) => route.public && secretPattern.test(route.path)),
-    status: !secretPattern.test(publicSection) ? "PASS" : "REVIEW",
+    public_render_sensitive_match: sensitiveMatches.length > 0,
+    public_render_matches: sensitiveMatches,
+    public_api_route_sensitive_names: ROUTE_SECURITY.filter((route) => route.public && /(?:token|secret|api[_-]?key|\.env|db_path)/i.test(route.path)),
+    status: sensitiveMatches.length ? "REVIEW" : "PASS",
   };
   const publicSafetyIssues = [...qa.public_safety_warnings];
-  if (tokenExposureCheck.public_render_sensitive_match) {
-    publicSafetyIssues.push({ warning: "public_token_pattern", message: "Public renderer contains sensitive-looking text." });
+  if (sensitiveMatches.length) {
+    publicSafetyIssues.push({ warning: "public_sensitive_literal", message: "Public renderer contains sensitive-looking literal or path.", matches: sensitiveMatches });
   }
   const commandConsumerGaps = visibleQueueActions
     .filter((action) => !relaySupported.has(action))
@@ -5277,7 +5305,10 @@ app.delete("/api/radio/blocklist/track/:id", requireAuth, requirePermission("man
   json(res, { ok: true, removed: info.changes });
 }, closeDb);
 
-app.post("/api/radio/maintenance/cleanup", requireAuth, requirePermission("manage_radio"), (req, res) => {
+app.post("/api/radio/maintenance/cleanup", requireAuth, requireOwner, (req, res) => {
+  if (req.body?.confirmation !== "CLEANUP RADIO") {
+    return json(res, { error: "confirmation_required", message: "Type CLEANUP RADIO to queue radio cleanup." }, 400);
+  }
   try {
     const queued = enqueueBotCommand(req.db, { targetBot: "dj", actionName: "radio_cleanup", payload: {}, requesterId: req.user.username });
     audit(req.db, req.user.username, "radio_cleanup_enqueue", "bot_command_queue", queued.id, "", { target_bot: "dj", action: "radio_cleanup" }, req.ip);
@@ -6270,6 +6301,29 @@ function readOperationsQueue(db) {
   const quoted = (items) => items.map(() => "?").join(",");
   const hasQueue = tableExists(db, "bot_command_queue");
   const hasStatus = hasQueue && columnExists(db, "bot_command_queue", "status");
+  const summarizePayload = (row) => {
+    if (!row || !row.payload) return "";
+    try {
+      const parsed = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload;
+      if (parsed?.message) return `message: ${String(parsed.message).slice(0, 80)}`;
+      if (parsed?.emote) return `emote: ${parsed.emote}${parsed.target ? ` → ${parsed.target}` : ""}`;
+      if (parsed?.username) return `user: ${parsed.username}`;
+      return Object.entries(parsed || {})
+        .slice(0, 4)
+        .map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value).slice(0, 40) : String(value).slice(0, 40)}`)
+        .join(", ");
+    } catch {
+      return String(row.payload).slice(0, 100);
+    }
+  };
+  const formatRows = (rows) => rows.map((row) => ({
+    ...row,
+    payload_summary: summarizePayload(row),
+    failure: row.error_text || row.result_text || "",
+  }));
+  const pending = hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted([...pendingStatuses, ...claimedStatuses])})`, params: [...pendingStatuses, ...claimedStatuses], orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "75" }) : [];
+  const failed = hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted(failedStatuses)})`, params: failedStatuses, orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "75" }) : [];
+  const recent = hasQueue ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "100" }) : [];
   return {
     counts: {
       pending: hasStatus ? countWhereSafe(db, "bot_command_queue", `status IN (${quoted(pendingStatuses)})`, pendingStatuses) : 0,
@@ -6279,9 +6333,9 @@ function readOperationsQueue(db) {
       paused: hasStatus ? countWhereSafe(db, "bot_command_queue", "status='paused'") : 0,
     },
     by_status: statusCounts(db, "bot_command_queue"),
-    pending: hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted([...pendingStatuses, ...claimedStatuses])})`, params: [...pendingStatuses, ...claimedStatuses], orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "75" }) : [],
-    failed: hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted(failedStatuses)})`, params: failedStatuses, orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "75" }) : [],
-    recent: hasQueue ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "100" }) : [],
+    pending: formatRows(pending),
+    failed: formatRows(failed),
+    recent: formatRows(recent),
   };
 }
 
@@ -7078,6 +7132,21 @@ app.get("/api/bot-command-queue", requireAuth, requireAnyPermission("manage_bots
     limit: "50",
   });
   json(res, { pending, recent });
+}, closeDb);
+
+app.post("/api/bot-command-queue/:id/review", requireAuth, requireOwner, (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) return json(res, { error: "invalid_command_id" }, 400);
+  if (!tableExists(req.db, "bot_command_queue")) return json(res, { error: "bot_command_queue_missing" }, 404);
+  const existing = req.db.prepare("SELECT * FROM bot_command_queue WHERE id=?").get(id);
+  if (!existing) return json(res, { error: "command_not_found" }, 404);
+  if (!["failed", "error", "unknown_action"].includes(String(existing.status || "").toLowerCase())) {
+    return json(res, { error: "not_failed_command", message: "Only failed command rows can be marked reviewed." }, 400);
+  }
+  req.db.prepare("UPDATE bot_command_queue SET reviewed_at=CURRENT_TIMESTAMP, reviewed_by=? WHERE id=?").run(req.user.username, id);
+  const updated = req.db.prepare("SELECT * FROM bot_command_queue WHERE id=?").get(id);
+  audit(req.db, req.user.username, "bot_command_reviewed", "bot_command_queue", id, existing, updated, req.ip);
+  json(res, { ok: true, command: updated });
 }, closeDb);
 
 app.get("/api/automation", requireAuth, requireAnyPermission("manage_automation", "manage_room", "manage_events", "view_logs"), (req, res) => {

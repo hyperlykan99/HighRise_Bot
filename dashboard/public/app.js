@@ -2210,6 +2210,18 @@ function renderOperationsRadio(d) {
 
 function renderOperationsQueue(d) {
   const c = d.counts || {};
+  const failedColumns = [
+    { key: "id", label: "ID" },
+    { key: "target_bot", label: "Target" },
+    { key: "action", label: "Action" },
+    { key: "payload_summary", label: "Payload" },
+    { key: "failure", label: "Error / Result" },
+    { key: "created_at", label: "Created" },
+    { key: "reviewed_at", label: "Reviewed" },
+    { key: "actions", label: "", render: (row) => row.reviewed_at
+      ? `<span class="pill ok">reviewed</span>`
+      : `<button class="btn small ghost" data-action="queue-review" data-command-id="${esc(row.id)}">Mark Reviewed</button>` },
+  ];
   return `
     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
       ${metricCard("Pending", c.pending ?? 0, "queued", "", "P")}
@@ -2220,7 +2232,11 @@ function renderOperationsQueue(d) {
     </div>
     <div class="card"><h2>Queue Counts</h2>${table(d.by_status || [])}</div>
     <div class="card"><h2>Pending / Claimed</h2>${table(d.pending || [])}</div>
-    <div class="card"><h2>Failed Commands</h2>${table(d.failed || [])}</div>
+    <div class="card">
+      <h2>Failed Commands</h2>
+      <p class="muted text-sm">Failed rows stay in the queue for audit. Review marks the row as seen without deleting it.</p>
+      ${table(d.failed || [], failedColumns)}
+    </div>
     <div class="card"><h2>Recent Commands</h2>${table(d.recent || [])}</div>
   `;
 }
@@ -6781,7 +6797,9 @@ function bindAdminPageEvents() {
   }));
   document.querySelectorAll('[data-action="radio-cleanup"]').forEach((btn) => btn.addEventListener("click", () => {
     confirmAction("Cleanup Radio", "Queue DJ_DUDU to reconcile the Requests playlist and cleanup stale request files?", async () => {
-      await action("Radio cleanup queued for DJ_DUDU.", () => api("/api/radio/maintenance/cleanup", { method: "POST", body: JSON.stringify({}) }));
+      const confirmation = prompt('Type "CLEANUP RADIO" to queue radio maintenance cleanup.');
+      if (confirmation !== "CLEANUP RADIO") return;
+      await action("Radio cleanup queued for DJ_DUDU.", () => api("/api/radio/maintenance/cleanup", { method: "POST", body: JSON.stringify({ confirmation }) }));
     });
   }));
   document.querySelectorAll('[data-action="radio-reload"]').forEach((btn) => btn.addEventListener("click", () => {
@@ -6793,6 +6811,12 @@ function bindAdminPageEvents() {
     await action(e.target.checked ? "Requests enabled." : "Requests disabled.", () =>
       api("/api/radio/requests-enabled", { method: "PUT", body: JSON.stringify({ enabled: e.target.checked }) }));
   });
+  document.querySelectorAll('[data-action="queue-review"]').forEach((btn) => btn.addEventListener("click", () => {
+    const id = btn.dataset.commandId;
+    confirmAction("Mark Failed Command Reviewed", `Mark failed command #${id} as reviewed without deleting it?`, async () => {
+      await action("Failed command marked reviewed.", () => api(`/api/bot-command-queue/${encodeURIComponent(id)}/review`, { method: "POST", body: JSON.stringify({}) }));
+    });
+  }));
   document.getElementById("radioSettingsForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.currentTarget;
