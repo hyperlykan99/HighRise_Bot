@@ -3809,6 +3809,7 @@ function buildQaAudit() {
   ].map(([page, api]) => ({ page, api, status: hasEndpoint(api) ? "ok" : "missing" }));
   const ownerPages = [
     ["Command Center", "/api/overview"],
+    ["Operations Center", "/api/operations"],
     ["Bots", "/api/bot-control"],
     ["Players", null],
     ["Radio", "/api/radio"],
@@ -3841,7 +3842,7 @@ function buildQaAudit() {
   ].map(([page, api]) => ({ page, api, status: !api || hasEndpoint(api) ? "ok" : "missing" }));
   const expectedRenderers = [
     "renderPublicHome", "renderPublicRadio", "renderPublicHowToPlay", "renderPublicCasino", "renderPublicMining", "renderPublicFishing", "renderPublicQuests", "renderPublicEvents", "renderPublicRankings", "renderPublicRoomInfo",
-    "renderCommandCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderQuestsMissionsPage", "renderAutomationCenterPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit",
+    "renderCommandCenter", "renderOperationsCenter", "renderBotsPage", "renderOwnerPlayersPage", "renderRadioOwnerPage", "renderCasinoOwnerPage", "renderMiningOwnerPage", "renderFishingOwnerPage", "renderQuestsMissionsPage", "renderAutomationCenterPage", "renderEconomyRewards", "renderRoomContent", "renderEmotesOwnerPage", "renderEventsOwnerPage", "renderSecurityPage", "renderStaffPage_shared", "renderSystemPage", "renderMaintenanceCenter", "renderLeaderboardsPage", "renderSettingsAudit", "renderPermissionsAudit", "renderQaAudit",
     "renderStaffHome", "renderStaffRadioQueue", "renderStaffPlayers", "renderStaffEvents", "renderStaffRoomTools", "renderStaffLogs",
   ];
   const missingRenderers = expectedRenderers.filter((name) => !new RegExp(`function\\s+${name}\\s*\\(`).test(appSource));
@@ -6077,6 +6078,176 @@ function readCanonicalBotAudit(db) {
   };
 }
 
+function countWhereSafe(db, table, where = "", params = []) {
+  try {
+    if (!tableExists(db, table)) return 0;
+    const sql = `SELECT COUNT(*) AS n FROM ${sqlIdent(table)}${where ? ` WHERE ${where}` : ""}`;
+    return db.prepare(sql).get(...params)?.n ?? 0;
+  } catch (err) {
+    console.error(`[DASHBOARD_DB] countWhereSafe table=${table} error=${err.message}`);
+    return 0;
+  }
+}
+
+function statusCounts(db, table, statusColumn = "status") {
+  if (!tableExists(db, table) || !columnExists(db, table, statusColumn)) return [];
+  return rowsOrEmpty(db, table, `SELECT ${sqlIdent(statusColumn)} AS status, COUNT(*) AS count FROM ${sqlIdent(table)} GROUP BY ${sqlIdent(statusColumn)} ORDER BY count DESC`);
+}
+
+function newestTimestamp(values) {
+  return values.filter(Boolean).sort((a, b) => String(b).localeCompare(String(a)))[0] || null;
+}
+
+function readLiveStatusMap(db) {
+  if (!tableExists(db, "live_status") || !columnExists(db, "live_status", "key") || !columnExists(db, "live_status", "value")) return {};
+  return readKeyValueMap(db, "live_status");
+}
+
+function readOperationsQueue(db) {
+  const pendingStatuses = ["pending", "queued"];
+  const claimedStatuses = ["claimed", "running"];
+  const completedStatuses = ["completed"];
+  const failedStatuses = ["failed", "error", "unknown_action"];
+  const quoted = (items) => items.map(() => "?").join(",");
+  const hasQueue = tableExists(db, "bot_command_queue");
+  const hasStatus = hasQueue && columnExists(db, "bot_command_queue", "status");
+  return {
+    counts: {
+      pending: hasStatus ? countWhereSafe(db, "bot_command_queue", `status IN (${quoted(pendingStatuses)})`, pendingStatuses) : 0,
+      claimed: hasStatus ? countWhereSafe(db, "bot_command_queue", `status IN (${quoted(claimedStatuses)})`, claimedStatuses) : 0,
+      completed: hasStatus ? countWhereSafe(db, "bot_command_queue", `status IN (${quoted(completedStatuses)})`, completedStatuses) : 0,
+      failed: hasStatus ? countWhereSafe(db, "bot_command_queue", `status IN (${quoted(failedStatuses)})`, failedStatuses) : 0,
+      paused: hasStatus ? countWhereSafe(db, "bot_command_queue", "status='paused'") : 0,
+    },
+    by_status: statusCounts(db, "bot_command_queue"),
+    pending: hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted([...pendingStatuses, ...claimedStatuses])})`, params: [...pendingStatuses, ...claimedStatuses], orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "75" }) : [],
+    failed: hasStatus ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: `status IN (${quoted(failedStatuses)})`, params: failedStatuses, orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "75" }) : [],
+    recent: hasQueue ? safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "100" }) : [],
+  };
+}
+
+function readOperationsRoom(db, bots) {
+  const live = readLiveStatusMap(db);
+  const settings = readKeyValueMap(db, "room_settings");
+  const roomId = live.room_id || live.current_room_id || settings.room_id || settings.highrise_room_id || null;
+  const roomUsers = Number(live.room_user_count || live.current_room_users || live.users || 0) || 0;
+  const presentBots = bots.filter((b) => String(b.status || "").toLowerCase() === "online" || b.current_room_id).map((b) => b.bot_username);
+  const missingBots = bots.filter((b) => !presentBots.includes(b.bot_username)).map((b) => b.bot_username);
+  const spawnRows = safeRows(db, "bot_spawns", ["bot_username", "spawn_name", "x", "y", "z", "facing", "set_by", "set_at"], { orderBy: columnExists(db, "bot_spawns", "bot_username") ? "bot_username, spawn_name" : "", limit: "250" });
+  const spawnStatus = bots.map((bot) => {
+    const spawn = spawnRows.find((row) => botKey(row.bot_username) === botKey(bot.bot_username) || botKey(row.bot_username) === botKey(bot.bot_mode));
+    return { bot_username: bot.bot_username, mode: bot.bot_mode, spawn_saved: !!spawn, spawn_name: spawn?.spawn_name || null, last_heartbeat_at: bot.last_heartbeat_at || null, current_room_id: bot.current_room_id || null };
+  });
+  const notInRoomErrors = [
+    ...safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: "COALESCE(error_text,'') LIKE '%Not in room%' OR COALESCE(result_text,'') LIKE '%Not in room%'", orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "50" }),
+    ...safeTableRows(db, "command_error_logs", { orderBy: columnExists(db, "command_error_logs", "created_at") ? "created_at DESC" : "", limit: "50" }).filter((row) => JSON.stringify(row).toLowerCase().includes("not in room")),
+  ].slice(0, 50);
+  return { room_id: roomId, room_users_count: roomUsers, live_status: live, bots_present: presentBots, missing_bots: missingBots, spawn_status: spawnStatus, spawn_rows: spawnRows, recent_not_in_room_errors: notInRoomErrors };
+}
+
+function readOperationsRadio(db, bots) {
+  const radio = readLocalRadioStatus(db);
+  const dj = bots.find((bot) => bot.bot_mode === "dj" || bot.bot_username === "DJ_DUDU") || null;
+  const failedJobs = tableExists(db, "yt_request_jobs") && columnExists(db, "yt_request_jobs", "status")
+    ? safeRows(db, "yt_request_jobs", ["id", "title", "artist", "username", "status", "error", "created_at", "finished_at"], { where: "status IN ('failed','failed_download','error','cancelled')", orderBy: columnExists(db, "yt_request_jobs", "created_at") ? "created_at DESC" : "", limit: "50" })
+    : [];
+  return {
+    now_playing: radio.now_playing || null,
+    queue_size: radio.queue?.length || 0,
+    queue: radio.queue || [],
+    request_gate_open: radio.queue_open ?? null,
+    failed_jobs: failedJobs,
+    failed_jobs_count: failedJobs.length,
+    azuracast: radio.health?.azuracast || radio.stream || {},
+    dj_heartbeat: dj,
+    last_radio_error: failedJobs[0]?.error || dj?.last_error || null,
+    health: radio.health || {},
+  };
+}
+
+function readOperationsErrors(db) {
+  const commandErrors = safeTableRows(db, "command_error_logs", { orderBy: columnExists(db, "command_error_logs", "created_at") ? "created_at DESC" : columnExists(db, "command_error_logs", "id") ? "id DESC" : "", limit: "100" });
+  const failedCommands = safeRows(db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, { where: "status IN ('failed','error','unknown_action')", orderBy: columnExists(db, "bot_command_queue", "created_at") ? "created_at DESC" : "", limit: "100" });
+  const failedAdmin = safeTableRows(db, "admin_action_logs", { orderBy: columnExists(db, "admin_action_logs", "created_at") ? "created_at DESC" : columnExists(db, "admin_action_logs", "id") ? "id DESC" : "", limit: "100" }).filter((row) => JSON.stringify(row).toLowerCase().includes("fail") || JSON.stringify(row).toLowerCase().includes("error"));
+  const failedRadio = tableExists(db, "yt_request_jobs") && columnExists(db, "yt_request_jobs", "status")
+    ? safeRows(db, "yt_request_jobs", ["id", "title", "username", "status", "error", "created_at", "finished_at"], { where: "status IN ('failed','failed_download','error','cancelled')", orderBy: columnExists(db, "yt_request_jobs", "created_at") ? "created_at DESC" : "", limit: "100" })
+    : [];
+  return { command_error_logs: commandErrors, failed_commands: failedCommands, failed_admin_actions: failedAdmin, radio_failures: failedRadio, recent_errors_count: commandErrors.length + failedCommands.length + failedAdmin.length + failedRadio.length };
+}
+
+function buildOperationsAlerts({ bots, room, radio, queue, database }) {
+  const alerts = [];
+  const add = (severity, key, message, detail = "") => alerts.push({ severity, key, message, detail });
+  const offline = bots.filter((b) => String(b.status || "").toLowerCase() !== "online");
+  if (offline.length) add("CRITICAL", "bot_offline", `${offline.length} canonical bot${offline.length === 1 ? "" : "s"} offline or missing.`, offline.map((b) => b.bot_username).join(", "));
+  const stale = bots.filter((b) => !b.last_heartbeat_at || Date.now() - new Date(b.last_heartbeat_at).getTime() > 10 * 60 * 1000);
+  if (stale.length) add("WARNING", "bot_heartbeat_stale", `${stale.length} bot heartbeat${stale.length === 1 ? "" : "s"} stale.`, stale.map((b) => b.bot_username).join(", "));
+  if (database.integrity_check && database.integrity_check !== "ok") add("CRITICAL", "db_integrity_failed", `SQLite integrity_check: ${database.integrity_check}`);
+  if ((queue.counts?.failed || 0) > 0) add("WARNING", "command_queue_failed", `${queue.counts.failed} failed command queue row${queue.counts.failed === 1 ? "" : "s"}.`);
+  if ((radio.failed_jobs_count || 0) > 0) add("WARNING", "radio_failed_jobs", `${radio.failed_jobs_count} failed radio job${radio.failed_jobs_count === 1 ? "" : "s"}.`);
+  const lastBackup = backupFileList().find((b) => b.type === "sqlite_db");
+  if (!lastBackup) add("WARNING", "backup_missing", "No DB backup found in approved backup folders.");
+  else if (Date.now() - new Date(lastBackup.modified_at).getTime() > 24 * 60 * 60 * 1000) add("WARNING", "backup_old", "Latest DB backup is older than 24 hours.", lastBackup.modified_at);
+  if ((room.missing_bots || []).length) add("WARNING", "room_bot_missing", `${room.missing_bots.length} bot${room.missing_bots.length === 1 ? "" : "s"} not confirmed present.`, room.missing_bots.join(", "));
+  if ((room.recent_not_in_room_errors || []).length) add("WARNING", "not_in_room_errors", `${room.recent_not_in_room_errors.length} recent Not in room error row${room.recent_not_in_room_errors.length === 1 ? "" : "s"}.`);
+  return alerts;
+}
+
+async function readOperationsSnapshot(db) {
+  const audit = readCanonicalBotAudit(db);
+  const bots = audit.bots;
+  const pm2 = await pm2Snapshot();
+  const queue = readOperationsQueue(db);
+  const database = dbHealthSnapshot(db);
+  database.last_backup = backupFileList().find((b) => b.type === "sqlite_db") || null;
+  const room = readOperationsRoom(db, bots);
+  const radio = readOperationsRadio(db, bots);
+  const errors = readOperationsErrors(db);
+  const alerts = buildOperationsAlerts({ bots, room, radio, queue, database });
+  const onlineBots = bots.filter((b) => String(b.status || "").toLowerCase() === "online").length;
+  const dashboardProc = pm2.processes.find((p) => /dashboard/i.test(p.name || "")) || null;
+  const systemStatus = alerts.some((a) => a.severity === "CRITICAL") ? "CRITICAL" : alerts.some((a) => a.severity === "WARNING") ? "WARNING" : "HEALTHY";
+  const lastRestart = newestTimestamp([dashboardProc?.uptime, ...pm2.processes.map((p) => p.uptime)].filter(Boolean).map((t) => new Date(t).toISOString()));
+  const logs = {
+    audit_logs: safeRows(db, "audit_logs", ["id", "actor", "action_type", "target_type", "target_id", "old_value", "new_value", "ip_address", "created_at"], { orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "id DESC", limit: "100" }),
+    admin_action_logs: safeTableRows(db, "admin_action_logs", { orderBy: columnExists(db, "admin_action_logs", "created_at") ? "created_at DESC" : columnExists(db, "admin_action_logs", "id") ? "id DESC" : "", limit: "100" }),
+    command_queue_failures: errors.failed_commands,
+    radio_failures: errors.radio_failures,
+  };
+  return {
+    updated_at: nowIso(),
+    system_status: systemStatus,
+    overview: {
+      system_status: systemStatus,
+      bots_online: onlineBots,
+      bots_total: bots.length,
+      dashboard_status: dashboardProc?.status || (pm2.available ? "not_found" : "pm2_unavailable"),
+      radio_status: radio.health?.radio_online ? "Online" : (radio.dj_heartbeat && String(radio.dj_heartbeat.status).toLowerCase() === "online" ? "Online" : "Offline"),
+      db_status: database.integrity_check === "ok" ? "OK" : "Warning",
+      command_queue_pending: queue.counts.pending,
+      command_queue_failed: queue.counts.failed,
+      room_users: room.room_users_count,
+      last_restart: lastRestart,
+      active_alerts: alerts.length,
+    },
+    bots,
+    raw_bot_instances: audit.raw_rows,
+    room,
+    radio,
+    queue,
+    database,
+    errors,
+    alerts,
+    logs,
+    pm2,
+    advanced: {
+      raw_health: { pm2, database, bot_audit: audit.summary, generated_at: nowIso() },
+      cleanup_links: ["/api/maintenance/cleanup-preview", "/api/maintenance/backups"],
+      maintenance_links: ["/api/maintenance/overview", "/api/maintenance/db-health", "/api/maintenance/runtime-health"],
+    },
+  };
+}
+
 app.get("/api/bot-control", requireAuth, requireAnyPermission("manage_bots", "view_logs"), (req, res) => {
   const auditResult = readCanonicalBotAudit(req.db);
   const pendingCommands = safeRows(req.db, "bot_command_queue", BOT_COMMAND_QUEUE_COLUMNS, {
@@ -6121,6 +6292,41 @@ app.get("/api/bot-audit", requireAuth, requireAnyPermission("manage_bots", "view
     note: "Read-only cleanup preview. No dashboard endpoint deletes bot_instances rows.",
   });
 }, closeDb);
+
+async function sendOperationsSection(req, res, section = "all") {
+  const data = await readOperationsSnapshot(req.db);
+  const sections = {
+    all: data,
+    bots: { updated_at: data.updated_at, bots: data.bots, raw_bot_instances: data.raw_bot_instances, alerts: data.alerts.filter((a) => /bot|heartbeat|room/.test(a.key)) },
+    room: { updated_at: data.updated_at, ...data.room, alerts: data.alerts.filter((a) => /room|spawn|bot_missing|not_in_room/.test(a.key)) },
+    radio: { updated_at: data.updated_at, ...data.radio, alerts: data.alerts.filter((a) => /radio|dj/.test(a.key)) },
+    queue: { updated_at: data.updated_at, ...data.queue, alerts: data.alerts.filter((a) => /queue|command/.test(a.key)) },
+    database: { updated_at: data.updated_at, ...data.database, alerts: data.alerts.filter((a) => /db|backup/.test(a.key)) },
+    errors: { updated_at: data.updated_at, ...data.errors },
+    alerts: { updated_at: data.updated_at, alerts: data.alerts, system_status: data.system_status },
+    logs: { updated_at: data.updated_at, ...data.logs },
+  };
+  json(res, sections[section] || data);
+}
+
+app.get("/api/operations", requireAuth, requireAnyPermission("view_logs", "manage_bots", "emergency_controls"), async (req, res) => {
+  await sendOperationsSection(req, res, "all");
+}, closeDb);
+
+for (const [pathName, section] of [
+  ["bots", "bots"],
+  ["room", "room"],
+  ["radio", "radio"],
+  ["queue", "queue"],
+  ["database", "database"],
+  ["errors", "errors"],
+  ["alerts", "alerts"],
+  ["logs", "logs"],
+]) {
+  app.get(`/api/operations/${pathName}`, requireAuth, requireAnyPermission("view_logs", "manage_bots", "emergency_controls"), async (req, res) => {
+    await sendOperationsSection(req, res, section);
+  }, closeDb);
+}
 
 /* ── Economy Overview (read-only) ───────────────────── */
 app.get("/api/economy/overview", requireAuth, requireAnyPermission("manage_economy","manage_casino","manage_games","emergency_controls"), (req, res) => {

@@ -20,6 +20,7 @@ const PUBLIC_NAV = [
 /* ── Owner Nav ───────────────────────────────────────── */
 const OWNER_NAV = [
   { id: "Command Center",    icon: "⚡", label: "Command Center",    group: "Monitor" },
+  { id: "Operations Center", icon: "🩺", label: "Operations Center", group: "Monitor" },
   { id: "Bots",              icon: "🤖", label: "Bots",              group: "Control" },
   { id: "Radio",             icon: "📻", label: "Radio",             group: "Control" },
   { id: "Players",           icon: "👤", label: "Players",           group: "Control" },
@@ -178,6 +179,18 @@ const AUTOMATION_TABS = [
   { id: "Logs", api: "/api/automation" },
   { id: "Advanced", api: "/api/automation" },
 ];
+const OPERATIONS_TABS = [
+  { id: "Overview", api: "/api/operations" },
+  { id: "Bots", api: "/api/operations/bots" },
+  { id: "Room", api: "/api/operations/room" },
+  { id: "Radio", api: "/api/operations/radio" },
+  { id: "Command Queue", api: "/api/operations/queue" },
+  { id: "Database", api: "/api/operations/database" },
+  { id: "Errors", api: "/api/operations/errors" },
+  { id: "Alerts", api: "/api/operations/alerts" },
+  { id: "Logs", api: "/api/operations/logs" },
+  { id: "Advanced", api: "/api/operations" },
+];
 const EMOTE_TABS = [
   { id: "Overview", api: "/api/emotes/overview" },
   { id: "Emote Registry", api: "/api/emotes/registry" },
@@ -222,6 +235,7 @@ const MAINTENANCE_API = {
   "Advanced": "/api/maintenance/advanced",
 };
 const TAB_REGISTRY = {
+  "Operations Center": OPERATIONS_TABS,
   "Bots": BOT_TABS,
   "Radio": RADIO_TABS,
   "Players": PLAYER_TABS,
@@ -244,6 +258,7 @@ const PAGE_TABS = Object.fromEntries(
 /* ── Page Descriptions ───────────────────────────────── */
 const PAGE_DESC = {
   "Command Center":    "All systems at a glance — quick actions and health overview",
+  "Operations Center": "Live bot, room, radio, database, queue and alert health",
   "Radio":             "DJ DUDU queue, request gate, stream status and radio maintenance",
   "Bots":              "Bot status, configuration and control",
   "Players":           "Player search, titles, moderation",
@@ -651,6 +666,7 @@ function pageApi(page, tab) {
   }
   return ({
     "Command Center":                     "/api/overview",
+    "Operations Center":                  "/api/operations",
     "Casino":                             "/api/casino",
     "Quests & Missions":                  "/api/quests",
     "Automation Center":                  "/api/automation",
@@ -882,7 +898,7 @@ async function init() {
   } catch { await loadPublic(); }
   setInterval(() => {
     if (state.user) {
-      const auto = state.user.role === "owner" ? ["Command Center"] : ["Staff Home", "Radio Queue"];
+      const auto = state.user.role === "owner" ? ["Command Center", "Operations Center"] : ["Staff Home", "Radio Queue"];
       if (auto.includes(state.adminPage)) loadAdmin();
     } else if (["home", "radio"].includes(state.publicPage)) loadPublic();
   }, 12000);
@@ -1919,7 +1935,7 @@ function renderAdminPage() {
   const page = state.adminPage;
   const role = state.user?.role;
   const nullDataOk = ["Players", "Bots", "Casino", "Room & Content", "Emotes", "Economy & Rewards",
-    "Radio", "Security", "Leaderboards", "System", "Staff Home", "Players", "Moderation", "Events", "Room Tools", "Logs"];
+    "Radio", "Security", "Leaderboards", "Operations Center", "System", "Staff Home", "Players", "Moderation", "Events", "Room Tools", "Logs"];
   if (!d && state.error && !nullDataOk.includes(page)) return `<div class="card"><div class="empty-state"><div class="empty-state-icon">⚠️</div><strong style="color:var(--red);margin-bottom:4px">Failed to load</strong><span>${esc(state.error)}</span></div></div>`;
   if (!d && !nullDataOk.includes(page)) return `<div class="card"><div class="loading-state"><div class="loading-spinner"></div><span class="muted text-sm">Loading…</span></div></div>`;
   return role === "owner" ? renderOwnerPage(page) : renderStaffPage(page);
@@ -1944,6 +1960,7 @@ function renderModal() {
 function renderOwnerPage(page) {
   switch (page) {
     case "Command Center":    return renderCommandCenter();
+    case "Operations Center": return renderOperationsCenter(activeTab("Operations Center"));
     case "Bots":              return renderBotsPage(activeTab("Bots"));
     case "Radio":             return renderRadioOwnerPage(activeTab("Radio"));
     case "Players":           return renderOwnerPlayersPage(activeTab("Players"));
@@ -1962,6 +1979,227 @@ function renderOwnerPage(page) {
     case "System":            return renderSystemPage(activeTab("System"));
     default:                  return renderCommandCenter();
   }
+}
+
+/* ── Operations Center ───────────────────────────────── */
+function operationsStatusChip(value) {
+  const s = String(value || "unknown").toUpperCase();
+  const cls = /HEALTHY|OK|ONLINE|COMPLETED|READY/.test(s) ? "ok"
+    : /CRITICAL|FAILED|OFFLINE|ERROR/.test(s) ? "bad"
+    : /WARNING|WARN|PENDING|STALE|MISSING/.test(s) ? "warn"
+    : "def";
+  return `<span class="pill ${cls}">${esc(s)}</span>`;
+}
+
+function operationsUpdatedAt(d) {
+  return `<div class="muted text-sm" style="margin-bottom:12px">Updated: ${esc(d.updated_at || "—")} · auto-refreshes while this page is open</div>`;
+}
+
+function renderOperationsCenter(tab) {
+  const d = state.data || {};
+  return `
+    ${tabNav("Operations Center")}
+    ${operationsUpdatedAt(d)}
+    ${tab === "Overview" ? renderOperationsOverview(d) : ""}
+    ${tab === "Bots" ? renderOperationsBots(d) : ""}
+    ${tab === "Room" ? renderOperationsRoom(d) : ""}
+    ${tab === "Radio" ? renderOperationsRadio(d) : ""}
+    ${tab === "Command Queue" ? renderOperationsQueue(d) : ""}
+    ${tab === "Database" ? renderOperationsDatabase(d) : ""}
+    ${tab === "Errors" ? renderOperationsErrors(d) : ""}
+    ${tab === "Alerts" ? renderOperationsAlerts(d) : ""}
+    ${tab === "Logs" ? renderOperationsLogs(d) : ""}
+    ${tab === "Advanced" ? renderOperationsAdvanced(d) : ""}
+  `;
+}
+
+function renderOperationsOverview(d) {
+  const o = d.overview || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:14px">
+      ${metricCard("System Status", o.system_status || d.system_status || "unknown", "overall health", /CRITICAL/i.test(o.system_status) ? "accent-red" : /WARNING/i.test(o.system_status) ? "" : "accent-green", "SYS")}
+      ${metricCard("Bots Online", `${o.bots_online ?? 0}/${o.bots_total ?? 8}`, "canonical accounts", Number(o.bots_online) === Number(o.bots_total) ? "accent-green" : "accent-red", "🤖")}
+      ${metricCard("Dashboard", o.dashboard_status || "unknown", "PM2/dashboard process", /online/i.test(o.dashboard_status) ? "accent-green" : "", "WEB")}
+      ${metricCard("Radio", o.radio_status || "unknown", "DJ/radio health", /online/i.test(o.radio_status) ? "accent-green" : "accent-red", "📻")}
+      ${metricCard("DB", o.db_status || "unknown", "SQLite integrity", /ok/i.test(o.db_status) ? "accent-green" : "accent-red", "DB")}
+      ${metricCard("Queue", `${o.command_queue_pending ?? 0}/${o.command_queue_failed ?? 0}`, "pending / failed", Number(o.command_queue_failed) ? "accent-red" : "", "Q")}
+      ${metricCard("Room Users", o.room_users ?? 0, "live_status", "accent-cyan", "👥")}
+      ${metricCard("Alerts", o.active_alerts ?? 0, "active warnings", Number(o.active_alerts) ? "accent-red" : "accent-green", "!")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="card-header"><h2>Active Alerts</h2>${operationsStatusChip(d.system_status)}</div>
+        ${(d.alerts || []).length ? table(d.alerts, [
+          { key: "severity", label: "Severity", render: (r) => operationsStatusChip(r.severity) },
+          { key: "message", label: "Alert" },
+          { key: "detail", label: "Detail" },
+        ]) : `<div class="notice success">No active operational alerts.</div>`}
+      </div>
+      <div class="card">
+        <h2>Quick Snapshot</h2>
+        <div style="display:grid;gap:8px">
+          <div class="inline-actions"><span>Last Restart</span><span class="muted">${esc(o.last_restart || "—")}</span></div>
+          <div class="inline-actions"><span>Room ID</span><code>${esc(d.room?.room_id || "—")}</code></div>
+          <div class="inline-actions"><span>Radio Queue</span><span>${esc(d.radio?.queue_size ?? 0)}</span></div>
+          <div class="inline-actions"><span>Failed Commands</span>${operationsStatusChip(d.queue?.counts?.failed ? `${d.queue.counts.failed} failed` : "ok")}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderOperationsBots(d) {
+  const bots = d.bots || [];
+  return `
+    <div class="card">
+      <div class="card-header"><h2>Canonical Bots</h2><span class="pill info">${bots.length}/8</span></div>
+      ${table(bots, [
+        { key: "status", label: "Status", render: (r) => operationsStatusChip(r.status) },
+        { key: "bot_username", label: "Username", render: (r) => `<strong>@${esc(r.bot_username)}</strong>` },
+        { key: "bot_mode", label: "Mode" },
+        { key: "last_heartbeat_at", label: "Heartbeat" },
+        { key: "current_room_id", label: "Room" },
+        { key: "last_error", label: "Recent Error", render: (r) => `<span class="muted">${esc(r.last_error || "—")}</span>` },
+      ], (r) => `
+        <button class="btn sm" data-bot-command="return_home" data-target-bot="${esc(r.bot_mode)}">Queue Home</button>
+        <button class="btn sm" data-bot-command="stop_emote" data-target-bot="${esc(r.bot_mode)}">Queue Stop Emote</button>
+        <button class="btn danger sm" data-bot-command="restart_requested" data-target-bot="${esc(r.bot_mode)}">Queue Restart</button>
+      `)}
+      ${queueHelp()}
+    </div>
+    <div class="card"><h2>Raw Heartbeat Rows</h2>${table(d.raw_bot_instances || [])}</div>
+  `;
+}
+
+function renderOperationsRoom(d) {
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px">
+      ${metricCard("Room Users", d.room_users_count ?? 0, "live_status", "accent-cyan", "👥")}
+      ${metricCard("Bots Present", (d.bots_present || []).length, "online/current room", "accent-green", "🤖")}
+      ${metricCard("Missing Bots", (d.missing_bots || []).length, "not confirmed", (d.missing_bots || []).length ? "accent-red" : "accent-green", "!")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Room Presence</h2>
+        <div class="inline-actions"><span>Room ID</span><code>${esc(d.room_id || "—")}</code></div>
+        <div class="inline-actions"><span>Bots Present</span><span>${esc((d.bots_present || []).join(", ") || "—")}</span></div>
+        <div class="inline-actions"><span>Missing Bots</span><span>${esc((d.missing_bots || []).join(", ") || "None")}</span></div>
+      </div>
+      <div class="card"><h2>Spawn Restore Status</h2>${table(d.spawn_status || [])}</div>
+    </div>
+    <div class="card"><h2>Recent Not In Room Errors</h2>${table(d.recent_not_in_room_errors || [])}</div>
+  `;
+}
+
+function renderOperationsRadio(d) {
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px">
+      ${metricCard("Queue Size", d.queue_size ?? 0, "active/upcoming", "", "🎵")}
+      ${metricCard("Request Gate", d.request_gate_open ? "Open" : "Closed", "public requests", d.request_gate_open ? "accent-green" : "", "REQ")}
+      ${metricCard("Failed Jobs", d.failed_jobs_count ?? 0, "radio pipeline", Number(d.failed_jobs_count) ? "accent-red" : "accent-green", "!")}
+      ${metricCard("DJ Heartbeat", d.dj_heartbeat?.status || "missing", "DJ_DUDU", /online/i.test(d.dj_heartbeat?.status || "") ? "accent-green" : "accent-red", "DJ")}
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Now Playing</h2>
+        <div style="font-size:18px;font-weight:800">${esc(d.now_playing?.title || "Auto DJ / Unknown")}</div>
+        <div class="muted text-sm">${esc(d.now_playing?.artist || d.now_playing?.requester || "—")}</div>
+      </div>
+      <div class="card"><h2>AzuraCast / Stream</h2>${table([d.azuracast || {}])}</div>
+    </div>
+    <div class="card"><h2>Queue</h2>${table(d.queue || [])}</div>
+    <div class="card"><h2>Failed Radio Jobs</h2>${table(d.failed_jobs || [])}</div>
+  `;
+}
+
+function renderOperationsQueue(d) {
+  const c = d.counts || {};
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
+      ${metricCard("Pending", c.pending ?? 0, "queued", "", "P")}
+      ${metricCard("Claimed", c.claimed ?? 0, "in progress", "", "C")}
+      ${metricCard("Completed", c.completed ?? 0, "historical", "accent-green", "✓")}
+      ${metricCard("Failed", c.failed ?? 0, "needs review", Number(c.failed) ? "accent-red" : "accent-green", "!")}
+      ${metricCard("Paused", c.paused ?? 0, "paused", "", "Ⅱ")}
+    </div>
+    <div class="card"><h2>Queue Counts</h2>${table(d.by_status || [])}</div>
+    <div class="card"><h2>Pending / Claimed</h2>${table(d.pending || [])}</div>
+    <div class="card"><h2>Failed Commands</h2>${table(d.failed || [])}</div>
+    <div class="card"><h2>Recent Commands</h2>${table(d.recent || [])}</div>
+  `;
+}
+
+function renderOperationsDatabase(d) {
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("Integrity", d.integrity_check || "unknown", "PRAGMA integrity_check", d.integrity_check === "ok" ? "accent-green" : "accent-red", "DB")}
+      ${metricCard("DB Size", bytes(d.db_file?.size), d.db_path || "SQLite", "accent-cyan", "SZ")}
+      ${metricCard("WAL Size", bytes(d.wal_size), "sidecar", Number(d.wal_size) > 50 * 1024 * 1024 ? "accent-red" : "", "WAL")}
+      ${metricCard("Tables", d.table_count ?? 0, "SQLite", "", "T")}
+      ${metricCard("Last Backup", d.last_backup?.modified_at || "See Maintenance", "approved backup folder", d.last_backup ? "accent-green" : "", "BK")}
+    </div>
+    <div class="card"><h2>Database Files</h2>${table([d.db_file || {}].concat(d.sidecars || []))}</div>
+    <div class="card"><h2>Largest Tables</h2>${table(d.largest_tables || [])}</div>
+    <div class="card"><h2>Warnings</h2>${(d.warnings || []).length ? table(d.warnings) : `<div class="notice success">Database health checks are clean.</div>`}</div>
+  `;
+}
+
+function renderOperationsErrors(d) {
+  return `
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      ${metricCard("Recent Errors", d.recent_errors_count ?? 0, "aggregated rows", Number(d.recent_errors_count) ? "accent-red" : "accent-green", "!")}
+      ${metricCard("Command Errors", (d.command_error_logs || []).length, "command_error_logs", "", "CMD")}
+      ${metricCard("Failed Queue", (d.failed_commands || []).length, "bot_command_queue", "", "Q")}
+      ${metricCard("Radio Failures", (d.radio_failures || []).length, "yt_request_jobs", "", "RAD")}
+    </div>
+    <div class="card"><h2>Command Error Logs</h2>${table(d.command_error_logs || [])}</div>
+    <div class="card"><h2>Failed Commands</h2>${table(d.failed_commands || [])}</div>
+    <div class="card"><h2>Failed Admin Actions</h2>${table(d.failed_admin_actions || [])}</div>
+    <div class="card"><h2>Radio Failures</h2>${table(d.radio_failures || [])}</div>
+  `;
+}
+
+function renderOperationsAlerts(d) {
+  const alerts = d.alerts || [];
+  return `
+    <div class="card">
+      <div class="card-header"><h2>Operational Alerts</h2>${operationsStatusChip(d.system_status)}</div>
+      ${alerts.length ? table(alerts, [
+        { key: "severity", label: "Severity", render: (r) => operationsStatusChip(r.severity) },
+        { key: "key", label: "Alert Key" },
+        { key: "message", label: "Message" },
+        { key: "detail", label: "Detail" },
+      ]) : `<div class="notice success">No active alerts.</div>`}
+    </div>
+  `;
+}
+
+function renderOperationsLogs(d) {
+  return `
+    <div class="card"><h2>Audit Logs</h2>${table(d.audit_logs || [])}</div>
+    <div class="card"><h2>Admin Action Logs</h2>${table(d.admin_action_logs || [])}</div>
+    <div class="card"><h2>Command Queue Failures</h2>${table(d.command_queue_failures || [])}</div>
+    <div class="card"><h2>Radio Failures</h2>${table(d.radio_failures || [])}</div>
+  `;
+}
+
+function renderOperationsAdvanced(d) {
+  return `
+    <div class="grid">
+      <div class="card">
+        <h2>PM2 Raw Status</h2>
+        ${d.pm2?.available ? table(d.pm2.processes || []) : `<div class="notice warn">${esc(d.pm2?.error || "PM2 unavailable")}</div>`}
+      </div>
+      <div class="card">
+        <h2>Maintenance Links</h2>
+        ${(d.advanced?.maintenance_links || []).map((link) => `<div class="inline-actions"><span>Endpoint</span><code>${esc(link)}</code></div>`).join("")}
+      </div>
+    </div>
+    <details class="advanced-collapse">
+      <summary class="advanced-summary"><span class="pill warn">RAW</span> Raw Health JSON</summary>
+      <div class="advanced-content"><pre style="white-space:pre-wrap;overflow:auto">${esc(JSON.stringify(d.advanced?.raw_health || d, null, 2))}</pre></div>
+    </details>
+  `;
 }
 
 /* ── Command Center ──────────────────────────────────── */
