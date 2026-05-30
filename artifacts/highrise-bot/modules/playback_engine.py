@@ -129,6 +129,22 @@ def _db_find_oldest_ready() -> "dict | None":
         return None
 
 
+def _db_find_outstanding_submitted() -> "dict | None":
+    """Return the oldest request already handed to AzuraCast but not consumed."""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                f"SELECT {_SEL} FROM yt_request_jobs "
+                "WHERE status IN ('queued','submitted','playing') "
+                "  AND played_at IS NULL AND cleaned_at IS NULL "
+                "ORDER BY id ASC LIMIT 1",
+            ).fetchone()
+            return _jrow(row) if row else None
+    except Exception as exc:
+        print(f"{_LOG} _db_find_outstanding_submitted: {exc}")
+        return None
+
+
 def _db_find_new_ready() -> list:
     """
     Jobs uploaded + registered with AzuraCast (status='ready', azura_file_id
@@ -326,7 +342,7 @@ def _db_match_request(
     Strategy 4: video_id substring in media path or song hash.
     Strategy 5: title substring match (last fallback — only without reliable path info).
     """
-    active = ("ready", "queued", "submitted", "done", "playing")
+    active = ("ready", "queued", "submitted", "playing")
     ph     = ",".join("?" * len(active))
 
     # Strategy 0: match by numeric azura_file_id (= media.id from NP API)
@@ -1111,6 +1127,9 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
     if job:
         fid  = (job.get("azura_file_id") or "").strip()
         fn   = (job.get("filename")      or "").strip()
+        last_request = _db_count_active() <= 0
+        if last_request:
+            _harden_log("last_request_cleanup_start", request_id=db_id, filename=fn)
         # Re-attempt deletion — idempotent: if _on_new_track already deleted
         # the file, the API returns 404 and sftp returns file-not-found.
         # Both are treated as success so cleaned_at is set.
@@ -1146,6 +1165,8 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
                         azura_song_id=sid,
                         reason="finished_request_still_current",
                     )
+            if cleanup_ok and last_request:
+                _harden_log("last_request_cleanup_done", request_id=db_id)
 
     remaining = _db_count_active()
     print(
@@ -1715,7 +1736,17 @@ async def _poll_loop(bot: "BaseBot") -> None:
             # Queues the song so AzuraCast plays it after the current track.
             # NEVER skips — only staff !skip may interrupt the current song.
             if all_ready and not skip_task_busy:
-                next_job = _db_find_oldest_ready()
+                outstanding = _db_find_outstanding_submitted()
+                if outstanding:
+                    _harden_log(
+                        "queue_order_mismatch_prevented",
+                        reason="azura_request_already_outstanding",
+                        request_id=outstanding.get("id"),
+                        status=outstanding.get("status"),
+                    )
+                    next_job = None
+                else:
+                    next_job = all_ready[0]
                 if next_job and next_job["id"] not in _submitted_jids:
                     if rq.is_terminal_status(next_job.get("status", "")):
                         print(
@@ -1727,6 +1758,13 @@ async def _poll_loop(bot: "BaseBot") -> None:
                     uid = (next_job.get("azura_song_id") or "").strip()
                     if uid:
                         _submitted_jids.add(next_job["id"])
+                        _harden_log(
+                            "queue_pick",
+                            request_id=next_job.get("id"),
+                            queue_rank=1,
+                            created_at=next_job.get("started_at") or "",
+                            title=next_job.get("title", ""),
+                        )
                         print(
                             f"{_LOG} Queuing request for playback (no skip): "
                             f"{next_job.get('title','?')!r} uid={uid!r}"
@@ -1759,6 +1797,7 @@ async def _poll_loop(bot: "BaseBot") -> None:
             np_mpath = (media.get("path") or "").strip()
             np_mbase = np_mpath.rsplit("/", 1)[-1] if np_mpath else ""
             np_is_lr = _is_local_temp_basename(np_mbase)
+            np_from_requests = bool(np_mpath and np_mpath.lstrip("/").lower().startswith("requests/"))
 
             if not song_id:
                 continue
@@ -1775,6 +1814,21 @@ async def _poll_loop(bot: "BaseBot") -> None:
                     _cur_replay_temp = np_mbase
                 elif song_id != prev_song_id:
                     _cur_replay_temp = ""   # clear when song changes to non-replay
+
+            if np_from_requests and not prev_req_id and _db_count_active() <= 0:
+                _harden_log(
+                    "repeat_prevented",
+                    reason="last_request_already_done",
+                    request_id=0,
+                )
+                await _handle_stale_requests_media(
+                    bot,
+                    str(media.get("id") or "").strip(),
+                    (song.get("unique_id") or song_id),
+                    np_mpath,
+                    (song.get("title") or "").strip(),
+                )
+                continue
 
             # ── Local-replay playing detection (path-based, runs every poll) ──
             # Independent of _db_match_request — fires as soon as media.path

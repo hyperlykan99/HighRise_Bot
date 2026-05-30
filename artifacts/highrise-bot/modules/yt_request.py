@@ -1608,7 +1608,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         if rq.is_terminal_status(status_after_upload):
             print(
                 f"[RADIO_HARDEN] event=failed_row_not_revived"
-                f" request_id={jid} status={status_after_upload!r} attempted_status='ready'"
+                f" request_id={jid} old_status={status_after_upload!r} attempted_status='ready'"
             )
             return
         with sqlite3.connect(_DB_PATH) as conn:
@@ -1769,7 +1769,7 @@ async def process_existing_request_file(
         if rq.is_terminal_status(status):
             print(
                 f"[RADIO_HARDEN] event=failed_row_not_revived"
-                f" request_id={db_id} status={status!r} attempted_status='ready'"
+                f" request_id={db_id} old_status={status!r} attempted_status='ready'"
             )
             return False
 
@@ -1846,7 +1846,7 @@ async def process_staged_existing_mp3(
         if rq.is_terminal_status(status):
             print(
                 f"[RADIO_HARDEN] event=failed_row_not_revived"
-                f" request_id={db_id} status={status!r} attempted_status='ready'"
+                f" request_id={db_id} old_status={status!r} attempted_status='ready'"
             )
             return False
 

@@ -80,7 +80,10 @@ def render_now_playing(track: dict, *, station: str = "") -> str:
     elapsed  = int(track.get("elapsed",  0) or 0)
     duration = int(track.get("duration", 0) or 0)
 
-    bar_line = f"⏱️  {_progress_bar(elapsed, duration)}"
+    if duration > 0:
+        bar_line = f"⏱️ {_fmt_secs(elapsed)} {_progress_bar(elapsed, duration)} {_fmt_secs(duration)}"
+    else:
+        bar_line = f"⏱️ {_fmt_secs(elapsed)} {_progress_bar(elapsed, duration)}"
 
     def _build(title_len: int, artist_len: int, requester_len: int) -> str:
         title = raw_title[:title_len]

@@ -151,7 +151,7 @@ def _log_terminal_revival_block(job_id: int, attempted_status: str, job: "dict |
     print(
         f"[RADIO_HARDEN] event=failed_row_not_revived"
         f" request_id={job_id}"
-        f" status={status!r}"
+        f" old_status={status!r}"
         f" attempted_status={attempted_status!r}"
     )
     diag.log_radio_event(
@@ -627,7 +627,7 @@ def display_jobs() -> list:
             rows = conn.execute(
                 f"SELECT {_SEL} FROM yt_request_jobs "
                 f"WHERE status IN ({_DSP_PH}) AND played_at IS NULL "
-                "ORDER BY priority DESC, id ASC",
+                "ORDER BY id ASC",
                 _DISPLAY_STATUSES,
             ).fetchall()
             return [_jrow(r) for r in rows]

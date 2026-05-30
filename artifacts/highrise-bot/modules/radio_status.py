@@ -17,11 +17,11 @@ ACTIVE_QUEUE_STATUSES = (
     "ready",
     "queued",
     "submitted",
-    "done",
     "playing",
 )
 
 TERMINAL_QUEUE_STATUSES = (
+    "done",
     "played",
     "skipped",
     "failed",
