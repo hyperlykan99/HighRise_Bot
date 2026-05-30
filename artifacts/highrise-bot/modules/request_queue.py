@@ -630,6 +630,7 @@ def display_jobs() -> list:
             rows = conn.execute(
                 f"SELECT {_SEL} FROM yt_request_jobs "
                 f"WHERE status IN ({_DSP_PH}) AND played_at IS NULL "
+                "AND TRIM(COALESCE(title, '')) != '' "
                 "ORDER BY id ASC",
                 _DISPLAY_STATUSES,
             ).fetchall()

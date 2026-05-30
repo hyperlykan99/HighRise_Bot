@@ -555,6 +555,47 @@ def _db_update_azura_ids(db_id: int, file_id: str, song_id: str) -> None:
     rq.update_azura_ids(db_id, file_id, song_id)
 
 
+def _db_job_identity(db_id: int) -> dict:
+    if not db_id:
+        return {}
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT id, user_id, username, url, title, status, filename, "
+                "azura_file_id, video_id, source_type "
+                "FROM yt_request_jobs WHERE id=?",
+                (db_id,),
+            ).fetchone()
+        if not row:
+            return {}
+        return {
+            "id": row[0],
+            "user_id": row[1] or "",
+            "username": row[2] or "",
+            "url": row[3] or "",
+            "title": row[4] or "",
+            "status": row[5] or "",
+            "filename": row[6] or "",
+            "azura_file_id": row[7] or "",
+            "video_id": row[8] or "",
+            "source_type": row[9] or "",
+        }
+    except Exception:
+        return {}
+
+
+def _identity_matches(row: dict, *, filename: str = "", video_id: str = "", url: str = "") -> bool:
+    if not row:
+        return False
+    if filename and (row.get("filename") or "") == filename:
+        return True
+    if video_id and (row.get("video_id") or "").strip().lower() == video_id.strip().lower():
+        return True
+    if url and (row.get("url") or "") == url:
+        return True
+    return False
+
+
 def _supersede_duplicate_active_requests(
     keep_id: int,
     *,
@@ -564,6 +605,13 @@ def _supersede_duplicate_active_requests(
 ) -> None:
     """Mark unregistered duplicate active rows for the same request identity as terminal."""
     if not keep_id:
+        return
+    keep_row = _db_job_identity(keep_id)
+    if not _identity_matches(keep_row, filename=filename, video_id=video_id, url=url):
+        print(
+            f"[RADIO_HARDEN] event=duplicate_guard_invalid_kept_id"
+            f" old_request_id=0 kept_request_id={keep_id}"
+        )
         return
     clauses: list[str] = []
     params: list[object] = []
@@ -591,6 +639,9 @@ def _supersede_duplicate_active_requests(
                 (keep_id, *duplicate_statuses, *params),
             ).fetchall()
             for old_id, old_fid, old_status in rows:
+                if int(old_id or 0) == int(keep_id):
+                    print(f"[RADIO_HARDEN] event=duplicate_guard_skip_current request_id={keep_id}")
+                    continue
                 conn.execute(
                     "UPDATE yt_request_jobs "
                     "SET status='duplicate_superseded', error='duplicate_superseded', "
@@ -658,6 +709,45 @@ def _active_duplicate_for_request(
     except Exception as exc:
         print(f"[RADIO_HARDEN] duplicate_lookup_error error={exc!r}")
         return None
+
+
+def _safe_uploaded_request_filename(filename: str) -> bool:
+    name = os.path.basename((filename or "").strip())
+    if not name or name != (filename or "").strip() or not name.lower().endswith(".mp3"):
+        return False
+    if name.startswith(("tmp_replay_", "local_request_", "request_")):
+        return True
+    stem = name[:-4]
+    return 6 <= len(stem) <= 32 and all(c.isalnum() or c in "_-" for c in stem)
+
+
+def _cleanup_failed_uploaded_request(db_id: int, reason: str = "request_failed_after_upload") -> None:
+    job = _db_job_identity(db_id)
+    filename = (job.get("filename") or "").strip()
+    azura_file_id = (job.get("azura_file_id") or "").strip()
+    if not db_id or not filename or not azura_file_id:
+        return
+    if not _safe_uploaded_request_filename(filename):
+        print(
+            f"[RADIO_HARDEN] event=cleanup_safety_skip"
+            f" request_id={db_id} filename={filename!r} reason=unsafe_request_filename"
+        )
+        return
+    print(
+        f"[RADIO_HARDEN] event=failed_request_cleanup_start"
+        f" request_id={db_id} filename={filename!r} reason={reason!r}"
+    )
+    try:
+        ok = _azura_full_cleanup(job)
+        print(
+            f"[RADIO_HARDEN] event=failed_request_cleanup_done"
+            f" request_id={db_id} filename={filename!r} ok={bool(ok)}"
+        )
+    except Exception as exc:
+        print(
+            f"[RADIO_HARDEN] event=failed_request_cleanup_error"
+            f" request_id={db_id} filename={filename!r} error={exc!r}"
+        )
 
 
 def _db_get_oldest_staged() -> "dict | None":
@@ -1655,6 +1745,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
     """
     jid    = job["id"]
     uid    = job["user_id"]
+    db_id  = int(job.get("db_id") or 0)
     tmpdir = tempfile.mkdtemp(prefix="ytr_")
     loop   = asyncio.get_running_loop()
     _stage      = "unknown"   # tracks which pipeline stage raised
@@ -1741,7 +1832,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
             def _upload_thread() -> None:
                 try:
                     _sftp_step(mp3_path, lambda: None)
-                    _azura_post_upload(os.path.basename(mp3_path), jid, bot=bot, loop=loop)
+                    _azura_post_upload(os.path.basename(mp3_path), db_id, bot=bot, loop=loop)
                 except Exception as exc:
                     upload_exc[0] = exc
                 finally:
@@ -1787,6 +1878,20 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         _update_job(jid, status="ready", finished_at=time.time())
         _staged_mp3 = ""  # clear so finally won't delete (file is now on AzuraCast)
         print(f"[YT_REQUEST] Job #{jid} — ready in {upload_secs:.1f}s: {title[:80]}")
+        try:
+            await _w(
+                bot,
+                uid,
+                rq.render_added_to_queue_message(
+                    title=title,
+                    artist=yt_artist,
+                    position=rq.future_count(),
+                    priority=int(job.get("priority") or 0),
+                    staff_free=(job.get("payment_type") == "admin"),
+                ),
+            )
+        except Exception:
+            pass
 
     except _YtBlockedError as exc:
         raw_err = str(exc)
@@ -1845,6 +1950,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
     except Exception as exc:
         import traceback as _tb
         err = str(exc)
+        _cleanup_failed_uploaded_request(int(job.get("db_id") or 0), err[:80])
         _update_job(jid, status="error", error=err[:200], finished_at=time.time())
         print(
             f"[REQUEST_FAIL] stage={_stage}"
@@ -2486,7 +2592,6 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
 
     # ── Create job + track presence ───────────────────────────────────────────
     _cooldowns[user.id] = time.time()
-    pos = _queue_position()
     job = _new_job(
         user.id, user.username, url,
         coins_charged=coins_to_charge,
@@ -2504,11 +2609,10 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
         }
 
     # ── User-friendly confirmation ─────────────────────────────────────────────
-    pos_str = f"⏳ Position: #{pos + 1} in queue" if pos > 0 else "⏳ You're next!"
     pay_str = ""
     if coins_to_charge > 0:
         pay_str = f"\n💰 {coins_to_charge} coins charged."
-    await _w(bot, user.id, f"🎵 Request received!\n{pos_str}{pay_str}"[:249])
+    await _w(bot, user.id, f"⏳ Preparing your song…{pay_str}"[:249])
 
     asyncio.create_task(_run_job(bot, job))
 
