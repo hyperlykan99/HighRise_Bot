@@ -63,6 +63,7 @@ _cur_replay_temp: str   = ""        # basename of tmp_replay_* currently playing
 _replay_marked:   set   = set()     # basenames already marked status='playing' in local_replay_jobs
 _finished_jids:    set   = set()     # request IDs already consumed this process
 _LOCAL_TEMP_PREFIXES = ("tmp_replay_", "local_request_")
+_SAFE_REQUEST_TEMP_PREFIXES = ("tmp_replay_", "local_request_", "request_")
 
 _ACT = ACTIVE_QUEUE_STATUSES
 _ACT_PH = ",".join("?" * len(_ACT))   # SQL placeholders for IN clause
@@ -85,6 +86,20 @@ def _jrow(row) -> dict:
 
 def _is_local_temp_basename(name: str) -> bool:
     return bool(name and name == name.rsplit("/", 1)[-1] and name.startswith(_LOCAL_TEMP_PREFIXES))
+
+
+def _is_safe_request_temp_basename(name: str) -> bool:
+    return bool(
+        name
+        and name == name.rsplit("/", 1)[-1]
+        and name.endswith(".mp3")
+        and name.startswith(_SAFE_REQUEST_TEMP_PREFIXES)
+    )
+
+
+def _harden_log(event: str, **fields: object) -> None:
+    extras = "".join(f" {k}={v!r}" for k, v in fields.items())
+    print(f"[RADIO_HARDEN] event={event}{extras}")
 
 
 # ─── Persistent state ─────────────────────────────────────────────────────────
@@ -311,10 +326,7 @@ def _db_match_request(
     Strategy 4: video_id substring in media path or song hash.
     Strategy 5: title substring match (last fallback — only without reliable path info).
     """
-    active = (
-        "pending", "downloading", "downloaded", "uploading",
-        "staged", "ready", "queued", "submitted", "done", "playing",
-    )
+    active = ("ready", "queued", "submitted", "done", "playing")
     ph     = ",".join("?" * len(active))
 
     # Strategy 0: match by numeric azura_file_id (= media.id from NP API)
@@ -616,7 +628,7 @@ def _delete_request_file(
         )
         return False
 
-    if log_source_type in ("local", "local_copy", "local_replay") and not is_local_temp:
+    if log_source_type in ("local", "local_copy", "local_replay", "local_favorite") and not is_local_temp:
         _log("cleanup_safety_skip", "fail", reason="local_source_not_protected_temp")
         diag.log_radio_event(
             "cleanup_safety_skip",
@@ -761,6 +773,8 @@ def _delete_request_file(
     if ok or removed_from_azura:
         _db_set_cleaned(db_id)
         _log("cleanup_complete", "success", title=repr(title_s))
+        if _is_safe_request_temp_basename(fn):
+            _harden_log("temp_removed", request_id=db_id, filename=fn)
         if is_local_temp:
             diag.log_radio_event(
                 "removed_from_azura",
@@ -953,6 +967,7 @@ async def _force_skip_if_stale_request_current(
         reason=reason,
         skipped=bool(skipped),
     )
+    _harden_log("repeat_prevented", request_id=db_id, reason=reason)
     print(
         f"{_LOG} stage=stale_request_force_skip"
         f" request_id={db_id}"
@@ -1043,6 +1058,7 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
             f"{_LOG} stage=request_finished_guard request_id={db_id}"
             f" already_handled=true cleanup_retry=true"
         )
+        _harden_log("repeat_prevented", request_id=db_id, reason="request_already_finished")
     with _lock:
         _cur_req_id = 0
         _live_req   = None
@@ -1060,11 +1076,18 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
             f"[QUEUE_GUARD] _on_request_finished: job={db_id} status={job_status!r}"
             f" — not playing, refusing to mark as played. Queue preserved."
         )
+        _harden_log(
+            "repeat_prevented",
+            request_id=db_id,
+            status=job_status,
+            reason="finish_without_playing_status",
+        )
         return
 
     if not already_finished:
         _finished_jids.add(db_id)
         rq.mark_played(db_id, reason="playback_engine_finished")
+        _harden_log("request_done", request_id=db_id, title=(job.get("title") if job else ""))
         if job:
             _db_backfill_playfav_source_after_play(job)
 
@@ -1320,6 +1343,7 @@ async def _on_new_track(
                 f" username={req_uname!r}"
                 f" match_method={match_method!r}"
             )
+            _harden_log("request_start", request_id=db_id, title=req_title)
             await ann.announce_request_live(bot, req_title, artist, req_uname)
             with _lock:
                 _live_req = {
@@ -1584,6 +1608,7 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                     f" nowplaying_title={np_title!r}"
                     f" media_id={np_fid!r}"
                 )
+                _harden_log("request_start", request_id=job_id, title=req_title)
 
                 # Pre-set dedup vars so _on_new_track won't duplicate-announce.
                 # Also update _cur_song_id so the poller's next cycle sees

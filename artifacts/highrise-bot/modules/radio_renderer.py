@@ -68,24 +68,7 @@ def render_now_playing(track: dict, *, station: str = "") -> str:
 
     Source-aware compact format — no blank lines, ≤249 chars.
 
-    AutoDJ/vibe:
-      🎵 NOW PLAYING
-      Title: <title>
-      🎤 Artist: <artist or 'Unknown Artist'>
-      Source: Auto DJ
-      0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
-      👍 12 | 👎 2
-
-    Live request:
-      🎵 NOW PLAYING
-      Title: <title>
-      🎤 Artist: <artist or 'Unknown Artist'>
-      Requested by: @user
-      Source: Request
-      0:31 ▰▰▱▱▱▱▱▱▱▱ 3:04
-      👍 12 | 👎 2
-
-    Falls back to "0:00 ▱▱▱▱▱▱▱▱▱▱ ?:??" when duration is unknown.
+    Falls back to "⏱️  ▱▱▱▱▱▱▱▱▱▱" when duration is unknown.
     Returns a UTF-8 string ≤249 chars.
     """
     raw_title = track.get("title") or "Unknown"
@@ -97,39 +80,33 @@ def render_now_playing(track: dict, *, station: str = "") -> str:
     elapsed  = int(track.get("elapsed",  0) or 0)
     duration = int(track.get("duration", 0) or 0)
 
-    if duration > 0:
-        bar_line = (
-            f"{_fmt_secs(elapsed)} {_progress_bar(elapsed, duration)}"
-            f" {_fmt_secs(duration)}"
-        )
-    else:
-        bar_line = f"0:00 {'▱' * 10} ?:??"
+    bar_line = f"⏱️  {_progress_bar(elapsed, duration)}"
 
     def _build(title_len: int, artist_len: int, requester_len: int) -> str:
         title = raw_title[:title_len]
         artist = raw_artist[:artist_len]
         requester = raw_requester[:requester_len]
-        artist_line = f"Artist: {artist}" if artist else "Artist: Unknown Artist"
+        artist_line = f"🎤 Artist: {artist}" if artist else "🎤 Artist: Unknown Artist"
         if source == "request":
             lines = [
-                "🎵 NOW PLAYING",
-                f"Title: {title}",
+                "🎧 NOW PLAYING",
+                f"🎵 Title: {title}",
                 artist_line,
-                f"Requested by: @{requester}" if requester else "Requested by: @unknown",
-                "Source: Request",
+                f"🙋 Requested by: @{requester}" if requester else "🙋 Requested by: @unknown",
+                "📡 Source: Request",
                 bar_line,
                 f"👍 {likes} | 👎 {dislikes}",
-                _NOW_PLAYING_CTA,
+                f"🎶 {_NOW_PLAYING_CTA}",
             ]
         else:
             lines = [
-                "🎵 NOW PLAYING",
-                f"Title: {title}",
+                "🎧 NOW PLAYING",
+                f"🎵 Title: {title}",
                 artist_line,
-                "Source: Auto DJ",
+                "🤖 Source: Auto DJ",
                 bar_line,
                 f"👍 {likes} | 👎 {dislikes}",
-                _NOW_PLAYING_CTA,
+                f"🎶 {_NOW_PLAYING_CTA}",
             ]
         return "\n".join(lines)
 
@@ -147,9 +124,10 @@ def render_now_playing(track: dict, *, station: str = "") -> str:
     msg = _build(12, 10, 10)
     if len(msg) <= 249:
         return msg
-    head_budget = max(0, 249 - len("\n" + _NOW_PLAYING_CTA))
+    cta = f"🎶 {_NOW_PLAYING_CTA}"
+    head_budget = max(0, 249 - len("\n" + cta))
     head = msg.rsplit("\n", 1)[0][:head_budget]
-    return f"{head}\n{_NOW_PLAYING_CTA}"
+    return f"{head}\n{cta}"
 
 
 # ─── History page renderer ────────────────────────────────────────────────────

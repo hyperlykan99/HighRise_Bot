@@ -797,10 +797,10 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
             pass
 
     if not all_jobs:
-        await _send_queue_page("🎶 QUEUE\nempty\n!play to request a song")
+        await _send_queue_page("🎶 UP NEXT\nempty\n!play to request a song")
         return
 
-    lines: list[str] = ["🎶 QUEUE"]
+    lines: list[str] = ["🎶 UP NEXT"]
     for n, j in enumerate(all_jobs, 1):
         icon   = _qicon(j.get("status", ""))
         uname  = (j.get("username") or "?").strip()[:12]

@@ -41,10 +41,7 @@ _TERMINAL = TERMINAL_QUEUE_STATUSES
 _TERM_PH = ",".join("?" * len(_TERMINAL))
 
 # Statuses shown by !queue — upcoming/waiting stages only.
-# "pending"  = job created, pipeline not yet started
-# "staged"   = download done, waiting for AzuraCast /Requests slot (📦)
-# "ready"    = uploaded to AzuraCast Requests playlist, awaiting playback (✅)
-# "playing"  = currently streaming — shown as ▶️ NOW PLAYING at top of !queue
+# The current playing request is intentionally excluded from user-visible !q.
 _DISPLAY_STATUSES = tuple(s for s in ACTIVE_QUEUE_STATUSES if s != "playing")
 _DSP_PH = ",".join("?" * len(_DISPLAY_STATUSES))
 
@@ -151,6 +148,12 @@ def is_terminal_job(job_id: int) -> bool:
 def _log_terminal_revival_block(job_id: int, attempted_status: str, job: "dict | None" = None) -> None:
     data = job or get_job_identity(job_id)
     status = (data.get("status") or "").strip().lower()
+    print(
+        f"[RADIO_HARDEN] event=failed_row_not_revived"
+        f" request_id={job_id}"
+        f" status={status!r}"
+        f" attempted_status={attempted_status!r}"
+    )
     diag.log_radio_event(
         "terminal_guard_blocked_sync",
         request_id=job_id,
@@ -660,7 +663,7 @@ def sync_indexed_active_statuses() -> int:
                     continue
                 fn = (job.get("filename") or "").strip()
                 source = (job.get("source_type") or "").strip()
-                if source not in ("youtube", "local_replay", "local_copy", "local"):
+                if source not in ("youtube", "local_replay", "local_copy", "local", "local_favorite"):
                     continue
                 if source != "youtube" and not (
                     fn.startswith("tmp_replay_") or fn.startswith("local_request_")

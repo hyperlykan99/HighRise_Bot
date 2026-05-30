@@ -1604,6 +1604,23 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         if upload_exc[0] is not None:
             raise upload_exc[0]
 
+        status_after_upload = rq.get_job_status(jid)
+        if rq.is_terminal_status(status_after_upload):
+            print(
+                f"[RADIO_HARDEN] event=failed_row_not_revived"
+                f" request_id={jid} status={status_after_upload!r} attempted_status='ready'"
+            )
+            return
+        with sqlite3.connect(_DB_PATH) as conn:
+            _az_row = conn.execute(
+                "SELECT azura_file_id, azura_song_id FROM yt_request_jobs WHERE id=?",
+                (jid,),
+            ).fetchone()
+        _az_fid = (_az_row[0] or "") if _az_row else ""
+        _az_sid = (_az_row[1] or "") if _az_row else ""
+        if not _az_fid or not _az_sid:
+            raise RuntimeError("azura_registration_missing")
+
         # ── Ready: uploaded + registered in AzuraCast Requests playlist ───────
         _update_job(jid, status="ready", finished_at=time.time())
         _staged_mp3 = ""  # clear so finally won't delete (file is now on AzuraCast)
@@ -1750,6 +1767,10 @@ async def process_existing_request_file(
 
         status = rq.get_job_status(db_id)
         if rq.is_terminal_status(status):
+            print(
+                f"[RADIO_HARDEN] event=failed_row_not_revived"
+                f" request_id={db_id} status={status!r} attempted_status='ready'"
+            )
             return False
 
         with sqlite3.connect(_DB_PATH) as conn:
@@ -1823,6 +1844,10 @@ async def process_staged_existing_mp3(
 
         status = rq.get_job_status(db_id)
         if rq.is_terminal_status(status):
+            print(
+                f"[RADIO_HARDEN] event=failed_row_not_revived"
+                f" request_id={db_id} status={status!r} attempted_status='ready'"
+            )
             return False
 
         with sqlite3.connect(_DB_PATH) as conn:
