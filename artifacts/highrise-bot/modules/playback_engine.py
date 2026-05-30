@@ -715,6 +715,13 @@ def _delete_request_file(
         ok_pl = azura.clear_file_playlists(cur_fid)
         removed_from_azura = bool(removed_from_azura or ok_pl)
         if ok_pl:
+            _harden_log(
+                "autodj_temp_request_removed",
+                request_id=db_id,
+                filename=fn,
+                media_id=cur_fid,
+                method="clear_playlists",
+            )
             diag.log_radio_event(
                 "removed_from_azura_playlist",
                 request_id=db_id,
@@ -734,6 +741,13 @@ def _delete_request_file(
         ok_api = azura.delete_media_file(cur_fid)
         if ok_api:
             removed_from_azura = True
+            _harden_log(
+                "autodj_temp_request_removed",
+                request_id=db_id,
+                filename=fn,
+                media_id=cur_fid,
+                method="delete_media",
+            )
             diag.log_radio_event(
                 "removed_from_azura_media",
                 request_id=db_id,
@@ -755,11 +769,23 @@ def _delete_request_file(
         ok_sftp = azura.sftp_move_to_played(fn)
         if ok_sftp:
             removed_from_azura = True
+            _harden_log(
+                "autodj_temp_request_removed",
+                request_id=db_id,
+                filename=fn,
+                method="sftp_move_to_played",
+            )
         _log("move_to_played", "success" if ok_sftp else "fail", method="sftp_rename_or_copy")
         if not ok_sftp:
             ok_sftp = azura.sftp_delete_file(fn)
             if ok_sftp:
                 removed_from_azura = True
+                _harden_log(
+                    "autodj_temp_request_removed",
+                    request_id=db_id,
+                    filename=fn,
+                    method="sftp_delete",
+                )
             _log("delete_file", "success" if ok_sftp else "fail", method="sftp_fallback")
 
     ok = ok_api or ok_sftp
@@ -1030,6 +1056,12 @@ async def _handle_stale_requests_media(
     with _lock:
         _cur_req_id = 0
         _live_req = None
+    _harden_log(
+        "autodj_repeat_prevented",
+        reason="temp_request_in_autodj",
+        filename=fn,
+        media_id=media_id,
+    )
     diag.log_radio_event(
         "stale_requests_media_guard",
         request_id=0,
@@ -1129,6 +1161,7 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         fn   = (job.get("filename")      or "").strip()
         last_request = _db_count_active() <= 0
         if last_request:
+            _harden_log("last_request_autodj_guard", request_id=db_id, filename=fn)
             _harden_log("last_request_cleanup_start", request_id=db_id, filename=fn)
         # Re-attempt deletion — idempotent: if _on_new_track already deleted
         # the file, the API returns 404 and sftp returns file-not-found.
