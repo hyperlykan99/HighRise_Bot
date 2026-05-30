@@ -24,6 +24,7 @@ class RadioCommandEntry:
 
 def _entries() -> tuple[RadioCommandEntry, ...]:
     from modules import radio_commands as rc
+    from modules import local_replay as lr
 
     return (
         RadioCommandEntry(
@@ -41,6 +42,38 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             permission="public",
             handler=rc.handle_playfav,
             module="modules.radio_commands",
+        ),
+        RadioCommandEntry(
+            command="playfavlocal",
+            aliases=(),
+            owner="dj",
+            permission="public",
+            handler=lr.handle_playfavlocal,
+            module="modules.local_replay",
+        ),
+        RadioCommandEntry(
+            command="localreplaytest",
+            aliases=(),
+            owner="dj",
+            permission="admin",
+            handler=lr.handle_playfavlocal,
+            module="modules.local_replay",
+        ),
+        RadioCommandEntry(
+            command="localreplaystatus",
+            aliases=(),
+            owner="dj",
+            permission="admin",
+            handler=lr.handle_localreplaystatus,
+            module="modules.local_replay",
+        ),
+        RadioCommandEntry(
+            command="localreplaycleanup",
+            aliases=(),
+            owner="dj",
+            permission="admin",
+            handler=lr.handle_localreplaycleanup,
+            module="modules.local_replay",
         ),
         RadioCommandEntry(
             command="queue",

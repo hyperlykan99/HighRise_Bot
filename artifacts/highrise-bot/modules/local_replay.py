@@ -1095,16 +1095,22 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         except Exception:
             pass
 
+    command_name = str(args[0]).lower() if args else "playfavlocal"
+    is_test = command_name == "localreplaytest"
+
     # ── Permission ───────────────────────────────────────────────────────────
-    try:
-        from modules.economy import can_manage_economy
-        if not can_manage_economy(user.username):
-            await _w("Owner/admin only.")
+    # !playfavlocal mirrors public !playfav for the caller's own favorites.
+    # Diagnostic/test mode remains owner/admin-only.
+    if is_test:
+        try:
+            from modules.economy import can_manage_economy
+            if not can_manage_economy(user.username):
+                await _w("Owner/admin only.")
+                return
+        except Exception as _pe:
+            print(f"{_LOG} permission check error: {_pe!r}")
+            await _w("Permission check error (non-fatal).")
             return
-    except Exception as _pe:
-        print(f"{_LOG} permission check error: {_pe!r}")
-        await _w("Permission check error (non-fatal).")
-        return
 
     # ── Feature flags ────────────────────────────────────────────────────────
     ok, reason = _flags_enabled()
@@ -1147,9 +1153,6 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
     fav_title   = (fav.get("title") or "?")[:40]
     fav_artist  = (fav.get("artist") or "").strip()
     azura_fid   = (fav.get("azura_file_id") or "").strip()
-
-    # Detect test mode: args[0] is the command name when not stripped.
-    is_test = bool(args) and str(args[0]).lower() == "localreplaytest"
 
     # Only reject if this is definitely a YouTube track.
     # A blank azura_file_id or any source_type label is NOT grounds for rejection —

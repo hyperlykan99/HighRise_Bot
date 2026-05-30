@@ -1855,6 +1855,12 @@ ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 
 # ── DJ Music commands (owned by DJ_DUDU, BOT_MODE=dj) ────────────────────────
 RADIO_REGISTRY_COMMANDS: frozenset[str] = radio_command_names()
+LOCAL_REPLAY_COMMANDS: frozenset[str] = frozenset({
+    "playfavlocal",
+    "localreplaytest",
+    "localreplaystatus",
+    "localreplaycleanup",
+})
 DJ_COMMANDS: frozenset[str] = frozenset({
     # Player-facing (public)
     "play",
@@ -1891,8 +1897,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "save",
     "mysongs", "playlist", "myplaylist2",
     "playmine", "playfav",
-    "playfavlocal", "localreplaytest",
-    "localreplaystatus", "localreplaycleanup",
+    *LOCAL_REPLAY_COMMANDS,
     "localmediascan", "localmediastatus", "localmediafind",
     "removefav", "delfav", "deletefav",
     "removefavorite",
@@ -4250,6 +4255,31 @@ class HangoutBot(BaseBot):
                 log_emote_command_received(message, user, "main.direct_emote_alias")
             reload_emote_registry()
             await start_player_emote(self, user, cmd)
+            return
+
+        # Local replay is a DJ-owned command family. Route it before the
+        # dynamic multi-bot gate so stale DB ownership rows cannot swallow it.
+        if cmd in LOCAL_REPLAY_COMMANDS:
+            if BOT_MODE != "dj":
+                return
+            print(f"[LOCAL_REPLAY_ROUTE] cmd={cmd} mode={BOT_MODE} user={user.username} args={args!r}")
+            try:
+                if cmd in ("playfavlocal", "localreplaytest"):
+                    from modules.local_replay import handle_playfavlocal as _lr_play
+                    await _lr_play(self, user, args)
+                elif cmd == "localreplaystatus":
+                    from modules.local_replay import handle_localreplaystatus as _lr_stat
+                    await _lr_stat(self, user, args)
+                elif cmd == "localreplaycleanup":
+                    from modules.local_replay import handle_localreplaycleanup as _lr_clean
+                    await _lr_clean(self, user, args)
+            except Exception as _lre:
+                print(f"[LOCAL_REPLAY] route error cmd={cmd}: {_lre!r}")
+                try:
+                    await self.highrise.send_whisper(
+                        user.id, "⚠️ Local replay command error. Check logs.")
+                except Exception:
+                    pass
             return
 
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
