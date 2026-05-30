@@ -62,6 +62,7 @@ _live_req: "dict | None" = None     # In-memory cache of the currently-playing r
 _cur_replay_temp: str   = ""        # basename of tmp_replay_* currently playing ("" = none)
 _replay_marked:   set   = set()     # basenames already marked status='playing' in local_replay_jobs
 _finished_jids:    set   = set()     # request IDs already consumed this process
+_log_cooldowns:    dict  = {}        # noisy guardian log cooldowns
 _LOCAL_TEMP_PREFIXES = ("tmp_replay_", "local_request_")
 _SAFE_REQUEST_TEMP_PREFIXES = ("tmp_replay_", "local_request_", "request_")
 
@@ -104,6 +105,17 @@ def _is_safe_request_temp_basename(name: str) -> bool:
 def _harden_log(event: str, **fields: object) -> None:
     extras = "".join(f" {k}={v!r}" for k, v in fields.items())
     print(f"[RADIO_HARDEN] event={event}{extras}")
+
+
+def _harden_log_cooldown(event: str, key: object, seconds: float = 120.0, **fields: object) -> bool:
+    now = time.time()
+    cd_key = (event, key)
+    last = float(_log_cooldowns.get(cd_key) or 0.0)
+    if now - last < seconds:
+        return False
+    _log_cooldowns[cd_key] = now
+    _harden_log(event, **fields)
+    return True
 
 
 # ─── Persistent state ─────────────────────────────────────────────────────────
@@ -166,6 +178,24 @@ def _db_find_new_ready() -> list:
     except Exception as exc:
         print(f"{_LOG} _db_find_new_ready: {exc}")
         return []
+
+
+def _db_find_oldest_active_unplayed() -> "dict | None":
+    """Return FIFO head across all active unplayed request states."""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                f"SELECT {_SEL} FROM yt_request_jobs "
+                f"WHERE status IN ({_ACT_PH}) "
+                "  AND played_at IS NULL "
+                "  AND cleaned_at IS NULL "
+                "ORDER BY id ASC LIMIT 1",
+                _ACT,
+            ).fetchone()
+            return _jrow(row) if row else None
+    except Exception as exc:
+        print(f"{_LOG} _db_find_oldest_active_unplayed: {exc}")
+        return None
 
 
 def _db_find_playing() -> "dict | None":
@@ -965,11 +995,49 @@ async def _remove_current_request_from_rotation(
     if media_id:
         loop = asyncio.get_running_loop()
         try:
+            _harden_log(
+                "request_start_detach_rotation",
+                request_id=request_id,
+                media_id=media_id,
+                filename=filename_log,
+            )
             ok = await loop.run_in_executor(None, azura.clear_file_playlists, media_id)
             result = "success" if ok else "failed"
+            if not ok:
+                _harden_log(
+                    "request_start_detach_failed",
+                    request_id=request_id,
+                    media_id=media_id,
+                    filename=filename_log,
+                    reason="clear_playlists_failed",
+                )
         except Exception as exc:
             result = f"error:{exc!r}"
             ok = False
+            _harden_log(
+                "request_start_detach_failed",
+                request_id=request_id,
+                media_id=media_id,
+                filename=filename_log,
+                reason=repr(exc),
+            )
+    if song_id:
+        loop = asyncio.get_running_loop()
+        try:
+            removed = await loop.run_in_executor(None, azura.remove_queue_items_for_song, song_id)
+            _harden_log(
+                "request_start_duplicate_upcoming_removed",
+                request_id=request_id,
+                song_id=song_id,
+                removed=removed,
+            )
+        except Exception as exc:
+            _harden_log(
+                "request_start_detach_failed",
+                request_id=request_id,
+                song_id=song_id,
+                reason=f"remove_queue_items_error:{exc!r}",
+            )
 
     diag.log_radio_event(
         "current_request_removed_from_rotation",
@@ -1105,6 +1173,116 @@ async def _handle_stale_requests_media(
     )
 
 
+async def _submit_fifo_head_if_ready(
+    bot: "BaseBot",
+    *,
+    previous_request_id: int = 0,
+    force_skip_autodj: bool = False,
+) -> bool:
+    head = _db_find_oldest_active_unplayed()
+    if not head:
+        return False
+    head_id = int(head.get("id") or 0)
+    status = (head.get("status") or "").strip().lower()
+    title = head.get("title") or ""
+
+    if status == "playing":
+        _harden_log_cooldown(
+            "queue_order_mismatch_prevented",
+            (head_id, status),
+            reason="fifo_head_already_in_azura",
+            request_id=head_id,
+            status=status,
+        )
+        return False
+
+    if status in ("queued", "submitted"):
+        if previous_request_id and force_skip_autodj:
+            _harden_log(
+                "request_handoff_next_ready",
+                previous_request_id=previous_request_id,
+                next_request_id=head_id,
+            )
+            _harden_log("request_handoff_submit", next_request_id=head_id)
+            _harden_log(
+                "request_handoff_skip_autodj",
+                next_request_id=head_id,
+                reason="autodj_started_before_request",
+            )
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, azura.skip_current)
+            return True
+        _harden_log_cooldown(
+            "queue_order_mismatch_prevented",
+            (head_id, status),
+            reason="fifo_head_already_in_azura",
+            request_id=head_id,
+            status=status,
+        )
+        return False
+
+    if status != "ready":
+        _harden_log_cooldown(
+            "fifo_head_waiting",
+            (head_id, status),
+            request_id=head_id,
+            status=status,
+            title=title,
+        )
+        ready_later = _db_find_new_ready()
+        for blocked in ready_later:
+            blocked_id = int(blocked.get("id") or 0)
+            if blocked_id and blocked_id != head_id:
+                _harden_log_cooldown(
+                    "fifo_later_ready_blocked",
+                    (head_id, blocked_id, status),
+                    head_request_id=head_id,
+                    blocked_request_id=blocked_id,
+                )
+                break
+        if previous_request_id:
+            _harden_log(
+                "request_handoff_waiting",
+                next_request_id=head_id,
+                status=status,
+            )
+        return False
+
+    uid = (head.get("azura_song_id") or "").strip()
+    if not uid:
+        _harden_log_cooldown(
+            "fifo_head_waiting",
+            (head_id, "missing_azura_song_id"),
+            request_id=head_id,
+            status="ready_missing_azura_song_id",
+            title=title,
+        )
+        return False
+
+    if head_id in _submitted_jids:
+        return False
+
+    _submitted_jids.add(head_id)
+    if previous_request_id:
+        _harden_log(
+            "request_handoff_next_ready",
+            previous_request_id=previous_request_id,
+            next_request_id=head_id,
+        )
+        _harden_log("request_handoff_submit", next_request_id=head_id)
+    _harden_log(
+        "fifo_queue_pick",
+        request_id=head_id,
+        queue_rank=1,
+        title=title,
+    )
+    asyncio.create_task(
+        _verified_skip_task(bot, head_id, uid, force_skip_autodj=force_skip_autodj),
+        name=f"radio_verified_submit_{head_id}",
+    )
+    return True
+
+
 # ─── Track event handlers ─────────────────────────────────────────────────────
 
 async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
@@ -1216,6 +1394,13 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         f" remaining_in_queue={remaining}"
     )
     if remaining > 0:
+        handoff_started = await _submit_fifo_head_if_ready(
+            bot,
+            previous_request_id=db_id,
+            force_skip_autodj=True,
+        )
+        if handoff_started:
+            return
         print(
             f"[QUEUE_GUARD] skip switch_to_vibe because"
             f" active_requests={remaining}"
@@ -1471,7 +1656,13 @@ async def _on_new_track(
 
 # ─── Verified-skip background task ───────────────────────────────────────────
 
-async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> None:
+async def _verified_skip_task(
+    bot: "BaseBot",
+    job_id: int,
+    unique_id: str,
+    *,
+    force_skip_autodj: bool = False,
+) -> None:
     """
     Background asyncio task — does NOT block the poll loop.
 
@@ -1604,6 +1795,13 @@ async def _verified_skip_task(bot: "BaseBot", job_id: int, unique_id: str) -> No
                 f" removed_from_azura=false"
                 f" — queued in AzuraCast, current song will not be interrupted"
             )
+            if force_skip_autodj:
+                _harden_log(
+                    "request_handoff_skip_autodj",
+                    next_request_id=job_id,
+                    reason="autodj_started_before_request",
+                )
+                await loop.run_in_executor(None, azura.skip_current)
 
         # ── Poll Now Playing every 1 s for 15 s ────────────────────────────────
         # Passive monitor only — detects if the request starts playing naturally
@@ -1763,64 +1961,22 @@ async def _poll_loop(bot: "BaseBot") -> None:
             await asyncio.sleep(POLL_INTERVAL)
             db.set_room_setting("radio_worker_heartbeat_queue", str(time.time()))
 
-            # ── Find ready requests (uploaded + registered in AzuraCast) ─────
-            all_ready = _db_find_new_ready()
-            # Sync _submitted_jids — remove IDs no longer status='ready'
+            # ── FIFO request submission gate ────────────────────────────────
+            all_active_head = _db_find_oldest_active_unplayed()
+            # Sync _submitted_jids — remove IDs no longer active/submitted.
             if _submitted_jids:
-                ready_ids = {j["id"] for j in all_ready}
-                _submitted_jids.intersection_update(ready_ids)
+                active_id = {int(all_active_head["id"])} if all_active_head else set()
+                active_id.update(
+                    int(j["id"]) for j in [_db_find_outstanding_submitted() or {}] if j.get("id")
+                )
+                _submitted_jids.intersection_update(active_id)
 
             # AzuraCast AutoDJ controls order — vibe+requests playlists always both ON
             with _lock:
                 skip_task_busy = _skip_task_active
 
-            # ── Submit oldest unsubmitted ready request to AzuraCast ─────────
-            # Queues the song so AzuraCast plays it after the current track.
-            # NEVER skips — only staff !skip may interrupt the current song.
-            if all_ready and not skip_task_busy:
-                outstanding = _db_find_outstanding_submitted()
-                if outstanding:
-                    _harden_log(
-                        "queue_order_mismatch_prevented",
-                        reason="azura_request_already_outstanding",
-                        request_id=outstanding.get("id"),
-                        status=outstanding.get("status"),
-                    )
-                    next_job = None
-                else:
-                    next_job = all_ready[0]
-                if next_job and next_job["id"] not in _submitted_jids:
-                    if rq.is_terminal_status(next_job.get("status", "")):
-                        print(
-                            f"{_LOG} stage=request_submit_guard"
-                            f" request_id={next_job['id']} status={next_job.get('status')!r}"
-                            f" terminal=true"
-                        )
-                        continue
-                    uid = (next_job.get("azura_song_id") or "").strip()
-                    if uid:
-                        _submitted_jids.add(next_job["id"])
-                        _harden_log(
-                            "queue_pick",
-                            request_id=next_job.get("id"),
-                            queue_rank=1,
-                            created_at=next_job.get("started_at") or "",
-                            title=next_job.get("title", ""),
-                        )
-                        print(
-                            f"{_LOG} Queuing request for playback (no skip): "
-                            f"{next_job.get('title','?')!r} uid={uid!r}"
-                        )
-                        asyncio.create_task(
-                            _verified_skip_task(bot, next_job["id"], uid),
-                            name=f"radio_verified_submit_{next_job['id']}",
-                        )
-                    else:
-                        print(
-                            f"{_LOG} stage=request_no_uid"
-                            f" job={next_job.get('id','?')!r}"
-                            f" — no AzuraCast unique_id yet, skipping submit"
-                        )
+            if all_active_head and not skip_task_busy:
+                await _submit_fifo_head_if_ready(bot)
 
             # ── Fetch nowplaying from AzuraCast ──────────────────────────────
             np = await loop.run_in_executor(None, azura.fetch_nowplaying)
