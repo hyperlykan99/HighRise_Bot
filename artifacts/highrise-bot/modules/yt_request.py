@@ -1878,20 +1878,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         _update_job(jid, status="ready", finished_at=time.time())
         _staged_mp3 = ""  # clear so finally won't delete (file is now on AzuraCast)
         print(f"[YT_REQUEST] Job #{jid} — ready in {upload_secs:.1f}s: {title[:80]}")
-        try:
-            await _w(
-                bot,
-                uid,
-                rq.render_added_to_queue_message(
-                    title=title,
-                    artist=yt_artist,
-                    position=rq.future_count(),
-                    priority=int(job.get("priority") or 0),
-                    staff_free=(job.get("payment_type") == "admin"),
-                ),
-            )
-        except Exception:
-            pass
+        print(f"[RADIO_HARDEN] event=duplicate_queue_confirmation_suppressed request_id={db_id}")
 
     except _YtBlockedError as exc:
         raw_err = str(exc)
@@ -2609,10 +2596,19 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
         }
 
     # ── User-friendly confirmation ─────────────────────────────────────────────
-    pay_str = ""
-    if coins_to_charge > 0:
-        pay_str = f"\n💰 {coins_to_charge} coins charged."
-    await _w(bot, user.id, f"⏳ Preparing your song…{pay_str}"[:249])
+    await _w(
+        bot,
+        user.id,
+        rq.render_added_to_queue_message(
+            position=rq.future_count(),
+            priority=priority,
+            staff_free=(payment_type == "admin"),
+        ),
+    )
+    print(
+        f"[RADIO_HARDEN] event=queue_confirmation_sent_once"
+        f" request_id={job.get('db_id', 0)} title={job.get('title', '')!r}"
+    )
 
     asyncio.create_task(_run_job(bot, job))
 
@@ -4169,12 +4165,13 @@ def radio_submit_job(
     coins_charged: int = 0,
     payment_type: str = "paid",
     priority: int = 0,
-) -> None:
+) -> int:
     """Create a new job record and launch the yt-dlp → SFTP pipeline."""
     job = _new_job(user_id, username, url, coins_charged, payment_type, priority)
     with _prep_ids_lock:
         _prep_active_jids.add(job["id"])
     asyncio.create_task(_run_job(bot, job))
+    return int(job.get("db_id") or 0)
 
 
 def radio_cancel_job(jid: int, reason: str = "cancelled_by_admin") -> "dict | None":

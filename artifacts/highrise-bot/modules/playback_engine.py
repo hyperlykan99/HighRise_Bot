@@ -89,11 +89,15 @@ def _is_local_temp_basename(name: str) -> bool:
 
 
 def _is_safe_request_temp_basename(name: str) -> bool:
+    stem = name[:-4] if name and name.endswith(".mp3") else ""
     return bool(
         name
         and name == name.rsplit("/", 1)[-1]
         and name.endswith(".mp3")
-        and name.startswith(_SAFE_REQUEST_TEMP_PREFIXES)
+        and (
+            name.startswith(_SAFE_REQUEST_TEMP_PREFIXES)
+            or (6 <= len(stem) <= 32 and all(c.isalnum() or c in "_-" for c in stem))
+        )
     )
 
 
@@ -629,6 +633,7 @@ def _delete_request_file(
     # ── 1. Lookup media_id if azura_file_id was never stored ─────────────────
     if fn and ("/" in fn or "\\" in fn):
         _log("cleanup_safety_skip", "fail", reason="path_not_basename")
+        _harden_log("temp_remove_failed", filename=fn, reason="path_not_basename")
         diag.log_radio_event(
             "cleanup_safety_skip",
             request_id=db_id,
@@ -646,6 +651,7 @@ def _delete_request_file(
 
     if log_source_type in ("local", "local_copy", "local_replay", "local_favorite") and not is_local_temp:
         _log("cleanup_safety_skip", "fail", reason="local_source_not_protected_temp")
+        _harden_log("temp_remove_failed", filename=fn, reason="local_source_not_protected_temp")
         diag.log_radio_event(
             "cleanup_safety_skip",
             request_id=db_id,
@@ -798,6 +804,7 @@ def _delete_request_file(
     verify_ok = azura.verify_file_deleted(fn, wait_secs=3.0)
     _log("verify", "success" if verify_ok else "fail")
     if not verify_ok:
+        _harden_log("temp_remove_failed", request_id=db_id, filename=fn, reason="verify_failed")
         diag.log_radio_event(
             "cleanup_failed",
             request_id=db_id,
@@ -844,6 +851,7 @@ def _delete_request_file(
             )
         return True
     else:
+        _harden_log("temp_remove_failed", request_id=db_id, filename=fn, reason="cleanup_failed")
         _log("cleanup_complete", "fail", title=repr(title_s),
              note="will_retry_on_next_cycle")
         diag.log_radio_event(
@@ -1059,8 +1067,9 @@ async def _handle_stale_requests_media(
     _harden_log(
         "autodj_repeat_prevented",
         reason="temp_request_in_autodj",
+        request_id=0,
         filename=fn,
-        media_id=media_id,
+        azura_file_id=media_id,
     )
     diag.log_radio_event(
         "stale_requests_media_guard",
@@ -1161,7 +1170,7 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         fn   = (job.get("filename")      or "").strip()
         last_request = _db_count_active() <= 0
         if last_request:
-            _harden_log("last_request_autodj_guard", request_id=db_id, filename=fn)
+            _harden_log("last_request_autodj_guard", request_id=db_id, filename=fn, azura_file_id=fid)
             _harden_log("last_request_cleanup_start", request_id=db_id, filename=fn)
         # Re-attempt deletion — idempotent: if _on_new_track already deleted
         # the file, the API returns 404 and sftp returns file-not-found.

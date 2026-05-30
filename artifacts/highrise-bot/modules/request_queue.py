@@ -734,6 +734,7 @@ def render_added_to_queue_message(
         lines.append(f"💿 Plays left: {int(plays_left)}")
     else:
         lines.append("Cost: Free")
+    lines.append("Please wait…")
     return "\n".join(lines)[:249]
 
 
@@ -1119,9 +1120,9 @@ def submit_job(
     coins_charged: int = 0,
     payment_type: str = "paid",
     priority: int = 0,
-) -> None:
+) -> int:
     """Create a job record and launch the yt-dlp → SFTP → AzuraCast pipeline."""
-    _rq().radio_submit_job(bot, user_id, username, url, coins_charged, payment_type, priority)
+    return int(_rq().radio_submit_job(bot, user_id, username, url, coins_charged, payment_type, priority) or 0)
 
 
 def cancel_job(jid: int, reason: str = "cancelled_by_admin") -> "dict | None":

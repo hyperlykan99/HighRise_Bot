@@ -531,7 +531,6 @@ async def _submit_url(
             plays_left=_remaining,
         ),
     )
-
     # Radio rewards: successful request queued
     _req_key = (_title or url)[:150]
     rr.record_reward(uid, uname, "request", song_key=_req_key)
@@ -540,11 +539,15 @@ async def _submit_url(
         rr.update_song_info(_req_key, _title, _artist)
 
     # Launch pipeline
-    rq.submit_job(
+    request_id = rq.submit_job(
         bot, uid, uname, url,
         coins_charged=price,
         payment_type="paid" if price > 0 else "free",
         priority=priority,
+    )
+    print(
+        f"[RADIO_HARDEN] event=queue_confirmation_sent_once"
+        f" request_id={request_id} title={_title!r}"
     )
     return True
 

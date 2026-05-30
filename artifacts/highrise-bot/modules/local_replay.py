@@ -873,6 +873,10 @@ async def queue_local_fav(
         staff_free=staff_free,
         plays_left=plays_left,
     ))
+    print(
+        f"[RADIO_HARDEN] event=queue_confirmation_sent_once"
+        f" request_id={request_id} title={fav_title!r}"
+    )
     asyncio.create_task(
         _prepare_local_fav_request(
             bot=bot,
@@ -1362,6 +1366,20 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
     )
     _link_yt_job(temp_filename, _yt_job_id)
     _update_status(temp_filename, "staged")
+    try:
+        import modules.request_queue as rq
+        await _w(rq.render_added_to_queue_message(
+            title=fav_title,
+            artist=fav_artist,
+            position=rq.future_count(),
+            staff_free=True,
+        ))
+        print(
+            f"[RADIO_HARDEN] event=queue_confirmation_sent_once"
+            f" request_id={_yt_job_id} title={fav_title!r}"
+        )
+    except Exception:
+        await _w(f"✅ Local replay queued!\n'{fav_title}'\nPlease wait…")
 
     try:
         from modules.yt_request import process_staged_existing_mp3
@@ -1379,16 +1397,10 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
 
     if pipeline_ok:
         _update_status(temp_filename, "ready")
-        try:
-            import modules.request_queue as rq
-            await _w(rq.render_added_to_queue_message(
-                title=fav_title,
-                artist=fav_artist,
-                position=rq.future_count(),
-                staff_free=True,
-            ))
-        except Exception:
-            await _w(f"✅ Local replay queued!\n'{fav_title}'\nCleanup: auto after play.")
+        print(
+            f"[RADIO_HARDEN] event=duplicate_queue_confirmation_suppressed"
+            f" request_id={_yt_job_id}"
+        )
     else:
         _update_status(temp_filename, "failed")
         try:
