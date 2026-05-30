@@ -546,7 +546,7 @@ async def _submit_url(
         priority=priority,
     )
     print(
-        f"[RADIO_HARDEN] event=queue_confirmation_sent_once"
+        f"[RADIO_CLEAN] event=queue_confirmation_preserved"
         f" request_id={request_id} title={_title!r}"
     )
     return True

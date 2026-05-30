@@ -874,7 +874,7 @@ async def queue_local_fav(
         plays_left=plays_left,
     ))
     print(
-        f"[RADIO_HARDEN] event=queue_confirmation_sent_once"
+        f"[RADIO_CLEAN] event=queue_confirmation_preserved"
         f" request_id={request_id} title={fav_title!r}"
     )
     asyncio.create_task(
@@ -1375,7 +1375,7 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
             staff_free=True,
         ))
         print(
-            f"[RADIO_HARDEN] event=queue_confirmation_sent_once"
+            f"[RADIO_CLEAN] event=queue_confirmation_preserved"
             f" request_id={_yt_job_id} title={fav_title!r}"
         )
     except Exception:
@@ -1398,7 +1398,7 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
     if pipeline_ok:
         _update_status(temp_filename, "ready")
         print(
-            f"[RADIO_HARDEN] event=duplicate_queue_confirmation_suppressed"
+            f"[RADIO_CLEAN] event=duplicate_confirmation_suppressed"
             f" request_id={_yt_job_id}"
         )
     else:

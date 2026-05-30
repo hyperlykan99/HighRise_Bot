@@ -137,6 +137,24 @@ def get_job_identity(job_id: int) -> dict:
         return {}
 
 
+def get_oldest_active_unplayed_request() -> dict:
+    """Return FIFO head across active unplayed queue rows. No Azura side effects."""
+    try:
+        with db.db_conn() as conn:
+            row = conn.execute(
+                f"SELECT {_SEL} FROM yt_request_jobs "
+                f"WHERE status IN ({_ACT_PH}) "
+                "AND played_at IS NULL "
+                "AND cleaned_at IS NULL "
+                "ORDER BY id ASC LIMIT 1",
+                _ACTIVE,
+            ).fetchone()
+        return _jrow(row) if row else {}
+    except Exception as exc:
+        print(f"{_LOG} get_oldest_active_unplayed_request error: {exc}")
+        return {}
+
+
 def is_terminal_status(status: str) -> bool:
     return (status or "").strip().lower() in _TERMINAL
 

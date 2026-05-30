@@ -640,7 +640,7 @@ def _supersede_duplicate_active_requests(
             ).fetchall()
             for old_id, old_fid, old_status in rows:
                 if int(old_id or 0) == int(keep_id):
-                    print(f"[RADIO_HARDEN] event=duplicate_guard_skip_current request_id={keep_id}")
+                    print(f"[RADIO_CLEAN] event=duplicate_guard_skip_current request_id={keep_id}")
                     continue
                 conn.execute(
                     "UPDATE yt_request_jobs "
@@ -1878,7 +1878,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         _update_job(jid, status="ready", finished_at=time.time())
         _staged_mp3 = ""  # clear so finally won't delete (file is now on AzuraCast)
         print(f"[YT_REQUEST] Job #{jid} — ready in {upload_secs:.1f}s: {title[:80]}")
-        print(f"[RADIO_HARDEN] event=duplicate_queue_confirmation_suppressed request_id={db_id}")
+        print(f"[RADIO_CLEAN] event=duplicate_confirmation_suppressed request_id={db_id}")
 
     except _YtBlockedError as exc:
         raw_err = str(exc)
@@ -2606,7 +2606,7 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
         ),
     )
     print(
-        f"[RADIO_HARDEN] event=queue_confirmation_sent_once"
+        f"[RADIO_CLEAN] event=queue_confirmation_preserved"
         f" request_id={job.get('db_id', 0)} title={job.get('title', '')!r}"
     )
 

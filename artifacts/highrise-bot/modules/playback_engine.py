@@ -104,7 +104,7 @@ def _is_safe_request_temp_basename(name: str) -> bool:
 
 def _harden_log(event: str, **fields: object) -> None:
     extras = "".join(f" {k}={v!r}" for k, v in fields.items())
-    print(f"[RADIO_HARDEN] event={event}{extras}")
+    print(f"[RADIO_CLEAN] event={event}{extras}")
 
 
 def _harden_log_cooldown(event: str, key: object, seconds: float = 120.0, **fields: object) -> bool:
@@ -128,22 +128,6 @@ def _save(key: str, value: str) -> None:
 
 
 # ─── DB job queries ───────────────────────────────────────────────────────────
-
-def _db_find_oldest_ready() -> "dict | None":
-    """The oldest request with status='ready' that hasn't started playing yet."""
-    try:
-        with db.db_conn() as conn:
-            row = conn.execute(
-                f"SELECT {_SEL} FROM yt_request_jobs "
-                "WHERE status='ready' AND played_at IS NULL "
-                "  AND cleaned_at IS NULL "
-                "ORDER BY id ASC LIMIT 1",
-            ).fetchone()
-            return _jrow(row) if row else None
-    except Exception as exc:
-        print(f"{_LOG} _db_find_oldest_ready: {exc}")
-        return None
-
 
 def _db_find_outstanding_submitted() -> "dict | None":
     """Return the oldest request already handed to AzuraCast but not consumed."""
@@ -181,21 +165,8 @@ def _db_find_new_ready() -> list:
 
 
 def _db_find_oldest_active_unplayed() -> "dict | None":
-    """Return FIFO head across all active unplayed request states."""
-    try:
-        with db.db_conn() as conn:
-            row = conn.execute(
-                f"SELECT {_SEL} FROM yt_request_jobs "
-                f"WHERE status IN ({_ACT_PH}) "
-                "  AND played_at IS NULL "
-                "  AND cleaned_at IS NULL "
-                "ORDER BY id ASC LIMIT 1",
-                _ACT,
-            ).fetchone()
-            return _jrow(row) if row else None
-    except Exception as exc:
-        print(f"{_LOG} _db_find_oldest_active_unplayed: {exc}")
-        return None
+    """Scheduler wrapper around request_queue's pure FIFO DB helper."""
+    return rq.get_oldest_active_unplayed_request() or None
 
 
 def _db_find_playing() -> "dict | None":
@@ -1271,7 +1242,7 @@ async def _submit_fifo_head_if_ready(
         )
         _harden_log("request_handoff_submit", next_request_id=head_id)
     _harden_log(
-        "fifo_queue_pick",
+        "fifo_pick",
         request_id=head_id,
         queue_rank=1,
         title=title,
@@ -1387,6 +1358,8 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
                     )
             if cleanup_ok and last_request:
                 _harden_log("last_request_cleanup_done", request_id=db_id)
+            if cleanup_ok:
+                _harden_log("request_cleanup_done", request_id=db_id, filename=fn)
 
     remaining = _db_count_active()
     print(
