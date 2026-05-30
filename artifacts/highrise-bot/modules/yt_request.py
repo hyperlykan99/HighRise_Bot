@@ -555,6 +555,111 @@ def _db_update_azura_ids(db_id: int, file_id: str, song_id: str) -> None:
     rq.update_azura_ids(db_id, file_id, song_id)
 
 
+def _supersede_duplicate_active_requests(
+    keep_id: int,
+    *,
+    filename: str = "",
+    video_id: str = "",
+    url: str = "",
+) -> None:
+    """Mark unregistered duplicate active rows for the same request identity as terminal."""
+    if not keep_id:
+        return
+    clauses: list[str] = []
+    params: list[object] = []
+    if filename:
+        clauses.append("filename=?")
+        params.append(filename)
+    if video_id:
+        clauses.append("video_id=?")
+        params.append(video_id)
+    if url:
+        clauses.append("url=?")
+        params.append(url)
+    if not clauses:
+        return
+    duplicate_statuses = tuple(ACTIVE_QUEUE_STATUSES) + ("error",)
+    ph = ",".join("?" * len(duplicate_statuses))
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT id, COALESCE(azura_file_id,''), status FROM yt_request_jobs "
+                f"WHERE id<>? AND played_at IS NULL AND status IN ({ph}) "
+                "AND COALESCE(azura_file_id,'')='' "
+                f"AND ({' OR '.join(clauses)}) "
+                "ORDER BY CASE WHEN COALESCE(azura_file_id,'')!='' THEN 0 ELSE 1 END, id ASC",
+                (keep_id, *duplicate_statuses, *params),
+            ).fetchall()
+            for old_id, old_fid, old_status in rows:
+                conn.execute(
+                    "UPDATE yt_request_jobs "
+                    "SET status='duplicate_superseded', error='duplicate_superseded', "
+                    "finished_at=datetime('now') "
+                    "WHERE id=? AND played_at IS NULL",
+                    (old_id,),
+                )
+                print(
+                    f"[RADIO_HARDEN] event=duplicate_request_superseded"
+                    f" old_request_id={old_id} kept_request_id={keep_id}"
+                    f" old_status={old_status!r} old_media_id={old_fid!r}"
+                )
+    except Exception as exc:
+        print(f"[RADIO_HARDEN] duplicate_supersede_error request_id={keep_id} error={exc!r}")
+
+
+def _active_duplicate_for_request(
+    *,
+    url: str = "",
+    video_id: str = "",
+    filename: str = "",
+) -> "dict | None":
+    clauses: list[str] = []
+    params: list[object] = []
+    if url:
+        clauses.append("url=?")
+        params.append(url)
+    if video_id:
+        clauses.append("video_id=?")
+        params.append(video_id)
+    if filename:
+        clauses.append("filename=?")
+        params.append(filename)
+    if not clauses:
+        return None
+    active = tuple(ACTIVE_QUEUE_STATUSES)
+    ph = ",".join("?" * len(active))
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT id, status, title, filename, azura_file_id FROM yt_request_jobs "
+                f"WHERE played_at IS NULL AND (status IN ({ph}) "
+                "OR (status='error' AND COALESCE(azura_file_id,'')!='')) "
+                f"AND ({' OR '.join(clauses)}) "
+                "ORDER BY CASE WHEN COALESCE(azura_file_id,'')!='' THEN 0 ELSE 1 END, id ASC "
+                "LIMIT 1",
+                (*active, *params),
+            ).fetchone()
+        if not row:
+            return None
+        if (row[1] or "").strip().lower() == "error" and (row[4] or ""):
+            rq.mark_ready(row[0], finished_at=time.time())
+            print(
+                f"[RADIO_HARDEN] event=media_ready_after_registration_error"
+                f" request_id={row[0]} media_id={row[4]}"
+            )
+        recovered_error = (row[1] or "").strip().lower() == "error" and (row[4] or "")
+        return {
+            "id": row[0],
+            "status": "ready" if recovered_error else row[1] or "",
+            "title": row[2] or "",
+            "filename": row[3] or "",
+            "azura_file_id": row[4] or "",
+        }
+    except Exception as exc:
+        print(f"[RADIO_HARDEN] duplicate_lookup_error error={exc!r}")
+        return None
+
+
 def _db_get_oldest_staged() -> "dict | None":
     """
     Return the oldest job with status='staged' (downloaded file waiting in
@@ -1398,6 +1503,15 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
                               path=repr(row_path),
                               strategy=_strategy)
                         _db_update_azura_ids(db_id, str(file_id), unique_id or "")
+                        print(
+                            f"[RADIO_HARDEN] event=azura_registration_ok"
+                            f" request_id={db_id} media_id={file_id}"
+                        )
+                        _supersede_duplicate_active_requests(
+                            db_id,
+                            filename=filename,
+                            video_id=_job_vid_lc,
+                        )
                         break
             except Exception as exc:
                 _rlog("media_lookup", "error",
@@ -1647,22 +1761,27 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         if upload_exc[0] is not None:
             raise upload_exc[0]
 
-        status_after_upload = rq.get_job_status(jid)
+        db_id = int(job.get("db_id") or jid)
+        status_after_upload = rq.get_job_status(db_id)
         if rq.is_terminal_status(status_after_upload):
             print(
                 f"[RADIO_HARDEN] event=failed_row_not_revived"
-                f" request_id={jid} old_status={status_after_upload!r} attempted_status='ready'"
+                f" request_id={db_id} old_status={status_after_upload!r} attempted_status='ready'"
             )
             return
         with sqlite3.connect(_DB_PATH) as conn:
             _az_row = conn.execute(
                 "SELECT azura_file_id, azura_song_id FROM yt_request_jobs WHERE id=?",
-                (jid,),
+                (db_id,),
             ).fetchone()
         _az_fid = (_az_row[0] or "") if _az_row else ""
         _az_sid = (_az_row[1] or "") if _az_row else ""
         if not _az_fid:
             raise RuntimeError("azura_registration_missing")
+        print(
+            f"[RADIO_HARDEN] event=request_ready_after_playlist_assign"
+            f" request_id={db_id} media_id={_az_fid}"
+        )
 
         # ── Ready: uploaded + registered in AzuraCast Requests playlist ───────
         _update_job(jid, status="ready", finished_at=time.time())
@@ -1826,6 +1945,10 @@ async def process_existing_request_file(
         if not azura_file_id:
             return False
 
+        print(
+            f"[RADIO_HARDEN] event=request_ready_after_playlist_assign"
+            f" request_id={db_id} media_id={azura_file_id}"
+        )
         rq.mark_ready(db_id, filename=filename, source_type=source_type)
         diag.log_radio_event(
             "submitted_to_azura",
@@ -1903,6 +2026,10 @@ async def process_staged_existing_mp3(
         if not azura_file_id:
             return False
 
+        print(
+            f"[RADIO_HARDEN] event=request_ready_after_playlist_assign"
+            f" request_id={db_id} media_id={azura_file_id}"
+        )
         rq.mark_ready(db_id, filename=safe_name, source_type=source_type, finished_at=time.time())
         diag.log_radio_event(
             "submitted_to_azura",
@@ -2277,6 +2404,20 @@ async def handle_ytrequest(bot: "BaseBot", user: "User", args: list[str]) -> Non
     vid_id = _extract_video_id_from_url(url)
     if vid_id and _is_banned_track_by_id(vid_id):
         await _w(bot, user.id, "🚫 That song is not allowed in this room.")
+        return
+
+    active_dup = _active_duplicate_for_request(url=url, video_id=vid_id)
+    if active_dup:
+        print(
+            f"[RADIO_HARDEN] event=duplicate_request_superseded"
+            f" old_request_id=0 kept_request_id={active_dup.get('id')}"
+            f" reason='active_duplicate_request'"
+        )
+        await _w(
+            bot,
+            user.id,
+            f"📋 That song is already in the request queue as #{active_dup.get('id')}.",
+        )
         return
 
     # ── Duplicate check (same URL in last 24 h) ──────────────────────────────
