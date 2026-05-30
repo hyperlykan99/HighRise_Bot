@@ -27,6 +27,5 @@ TERMINAL_QUEUE_STATUSES = (
     "failed",
     "failed_download",
     "cancelled",
-    "error",
     "cleaned",
 )

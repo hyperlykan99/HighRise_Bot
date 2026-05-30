@@ -148,6 +148,9 @@ def is_terminal_job(job_id: int) -> bool:
 def _log_terminal_revival_block(job_id: int, attempted_status: str, job: "dict | None" = None) -> None:
     data = job or get_job_identity(job_id)
     status = (data.get("status") or "").strip().lower()
+    azura_file_id = data.get("azura_file_id", "")
+    if status == "error" and attempted_status == "ready" and azura_file_id:
+        return
     print(
         f"[RADIO_HARDEN] event=failed_row_not_revived"
         f" request_id={job_id}"
@@ -159,7 +162,7 @@ def _log_terminal_revival_block(job_id: int, attempted_status: str, job: "dict |
         request_id=job_id,
         status=status,
         attempted_status=attempted_status,
-        azura_file_id=data.get("azura_file_id", ""),
+        azura_file_id=azura_file_id,
         azura_song_id=data.get("azura_song_id", ""),
         temp_path=data.get("filename", ""),
     )

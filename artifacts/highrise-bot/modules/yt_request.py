@@ -566,7 +566,7 @@ def _db_get_oldest_staged() -> "dict | None":
             row = conn.execute(
                 "SELECT id, filename, title, username FROM yt_request_jobs "
                 "WHERE status='staged' AND played_at IS NULL AND filename!='' "
-                "ORDER BY priority DESC, id ASC LIMIT 1",
+                "ORDER BY id ASC LIMIT 1",
             ).fetchone()
         if row:
             return {
@@ -576,6 +576,30 @@ def _db_get_oldest_staged() -> "dict | None":
     except Exception as exc:
         print(f"[YT_STAGING] _db_get_oldest_staged error (non-fatal): {exc}")
     return None
+
+
+def _fail_staged_file_missing(db_id: int, filename: str) -> None:
+    """Terminally fail a staged request whose local staging file is gone."""
+    print(
+        f"[RADIO_HARDEN] event=staged_file_missing"
+        f" request_id={db_id} filename={filename!r}"
+    )
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT user_id, coins_charged FROM yt_request_jobs WHERE id=?",
+                (db_id,),
+            ).fetchone()
+        if row and row[0] and int(row[1] or 0) > 0:
+            _refund_coins(row[0], int(row[1] or 0))
+    except Exception as exc:
+        print(f"[YT_STAGING] staged_file_missing refund check error: {exc!r}")
+    _db_update_job(
+        db_id,
+        status="failed",
+        error="staged_file_missing",
+        finished_at=time.time(),
+    )
 
 
 def _db_get_pending_cleanup() -> list[dict]:
@@ -1412,6 +1436,7 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
         # Method A: batch  POST /files/batch {"do":"playlist",...}
         # Method B: direct PUT  PUT /file/{id} {"playlists":[pid]}
         # If BOTH verify fail → abort: refund + error whisper + no skip.
+        playlist_assign_statuses: list[int] = []
         try:
             resp = req_lib.post(
                 batch_url,
@@ -1419,6 +1444,7 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
                 headers=headers,
                 timeout=15,
             )
+            playlist_assign_statuses.append(int(resp.status_code))
             _rlog("playlist_assign", "success" if resp.status_code in (200, 204) else "fail",
                   media_id=file_id, method="batch",
                   http_status=str(resp.status_code),
@@ -1450,6 +1476,7 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
                     headers=headers,
                     timeout=15,
                 )
+                playlist_assign_statuses.append(int(resp.status_code))
                 _rlog("playlist_assign", "success" if resp.status_code in (200, 204) else "fail",
                       media_id=file_id, method="put",
                       http_status=str(resp.status_code),
@@ -1466,11 +1493,27 @@ def _azura_post_upload(filename: str, db_id: int = 0, bot: "object | None" = Non
                   media_id=file_id, attempt="2")
 
             if not in_pl:
-                # Both methods failed verification — abort, refund, notify user.
-                _rlog("playlist_assign", "final_fail", media_id=file_id,
-                      note="both_methods_failed_aborting_skip_user_notified")
-                _abort_request("playlist_assign_failed")
-                return
+                if 405 in playlist_assign_statuses and file_id is not None:
+                    print(
+                        f"[RADIO_HARDEN] event=playlist_assign_skipped_nonfatal"
+                        f" request_id={db_id} media_id={file_id} status=405"
+                    )
+                    print(
+                        f"[RADIO_HARDEN] event=media_ready_after_playlist_assign_405"
+                        f" request_id={db_id} media_id={file_id}"
+                    )
+                    _rlog(
+                        "playlist_assign",
+                        "nonfatal_405_media_indexed",
+                        media_id=file_id,
+                        note="engine_will_detect_indexed_requests_media",
+                    )
+                else:
+                    # Both methods failed verification — abort, refund, notify user.
+                    _rlog("playlist_assign", "final_fail", media_id=file_id,
+                          note="both_methods_failed_aborting_skip_user_notified")
+                    _abort_request("playlist_assign_failed")
+                    return
 
         # ── 6. (skip removed) ─────────────────────────────────────────────────
         # Upload is complete — playback_engine's poll loop detects when this
@@ -1618,7 +1661,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
             ).fetchone()
         _az_fid = (_az_row[0] or "") if _az_row else ""
         _az_sid = (_az_row[1] or "") if _az_row else ""
-        if not _az_fid or not _az_sid:
+        if not _az_fid:
             raise RuntimeError("azura_registration_missing")
 
         # ── Ready: uploaded + registered in AzuraCast Requests playlist ───────
@@ -1780,7 +1823,7 @@ async def process_existing_request_file(
             ).fetchone()
         azura_file_id = (row[0] or "") if row else ""
         azura_song_id = (row[1] or "") if row else ""
-        if not azura_file_id or not azura_song_id:
+        if not azura_file_id:
             return False
 
         rq.mark_ready(db_id, filename=filename, source_type=source_type)
@@ -1857,7 +1900,7 @@ async def process_staged_existing_mp3(
             ).fetchone()
         azura_file_id = (row[0] or "") if row else ""
         azura_song_id = (row[1] or "") if row else ""
-        if not azura_file_id or not azura_song_id:
+        if not azura_file_id:
             return False
 
         rq.mark_ready(db_id, filename=safe_name, source_type=source_type, finished_at=time.time())
@@ -1913,8 +1956,7 @@ def radio_promote_staged_job(bot: "object | None", loop: "object | None") -> boo
             f" result=fail"
             f" error=staged_file_missing"
         )
-        _db_update_job(db_id, status="error", error="staged_file_missing",
-                       finished_at=time.time())
+        _fail_staged_file_missing(db_id, filename)
         return False
 
     print(
@@ -3826,7 +3868,7 @@ async def radio_request_prepare_worker(
             with sqlite3.connect(_DB_PATH) as _conn:
                 rows = _conn.execute(
                     "SELECT id, user_id, username, url, title, status, "
-                    "       coins_charged, payment_type "
+                    "       coins_charged, payment_type, filename, source_type "
                     "FROM yt_request_jobs "
                     f"WHERE status IN ({restore_ph}) AND played_at IS NULL "
                     "ORDER BY id ASC LIMIT 20",
@@ -3834,7 +3876,7 @@ async def radio_request_prepare_worker(
                 ).fetchall()
 
             for row in rows:
-                jid, uid, uname, url_val, title, status, coins, ptype = row
+                jid, uid, uname, url_val, title, status, coins, ptype, filename, source_type = row
                 with _prep_ids_lock:
                     if jid in _prep_active_jids:
                         continue          # already being processed
@@ -3844,9 +3886,18 @@ async def radio_request_prepare_worker(
                     "id": jid, "user_id": uid, "username": uname,
                     "url": url_val, "title": title or "", "status": status,
                     "coins_charged": coins or 0, "payment_type": ptype or "free",
+                    "filename": filename or "", "source_type": source_type or "",
                 }
 
                 if status in ("downloading", "downloaded", "uploading"):
+                    fn = (filename or "").strip()
+                    source = (source_type or "").strip()
+                    staged_path = os.path.join(STAGING_DIR, fn) if fn else ""
+                    if source != "youtube" and (not staged_path or not os.path.exists(staged_path)):
+                        _fail_staged_file_missing(jid, fn)
+                        with _prep_ids_lock:
+                            _prep_active_jids.discard(jid)
+                        continue
                     # Reset stuck in-flight job so _run_job starts fresh
                     print(f"[PREPARE] Resetting stuck job #{jid} ({status}→pending)")
                     _update_job(jid, status="pending")
