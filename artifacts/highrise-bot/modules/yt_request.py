@@ -1777,6 +1777,85 @@ async def process_existing_request_file(
         print(f"[YT_REQUEST] process_existing_request_file error: {exc!r}")
         return False
 
+
+async def process_staged_existing_mp3(
+    bot: "BaseBot",
+    db_id: int,
+    source_mp3_path: str,
+    *,
+    filename: str = "",
+    source_type: str = "local_favorite",
+    source_path: str = "",
+) -> bool:
+    """
+    Continue the normal YouTube request pipeline after a non-YouTube source
+    has produced a local MP3. The source step differs; upload, Azura
+    registration, ready status, playback detection, and cleanup remain shared.
+    """
+    if not db_id or not source_mp3_path or not os.path.isfile(source_mp3_path):
+        return False
+
+    safe_name = os.path.basename(filename or source_mp3_path)
+    if not safe_name.endswith(".mp3"):
+        safe_name = f"{safe_name}.mp3"
+    if not (safe_name.startswith("local_request_") or safe_name.startswith("tmp_replay_")):
+        safe_name = f"local_request_{safe_name}"
+
+    loop = asyncio.get_running_loop()
+    staged_path = os.path.join(STAGING_DIR, safe_name)
+    try:
+        os.makedirs(STAGING_DIR, exist_ok=True)
+        if os.path.abspath(source_mp3_path) != os.path.abspath(staged_path):
+            shutil.copyfile(source_mp3_path, staged_path)
+        rq.update_job_fields(db_id, status="downloaded", filename=safe_name, source_type=source_type)
+        diag.log_radio_event(
+            "file_source_ready",
+            request_id=db_id,
+            source_type=source_type,
+            temp_path=safe_name,
+            source_path=source_path or source_mp3_path,
+        )
+
+        async with _upload_sem:
+            rq.update_job_fields(db_id, status="uploading", filename=safe_name, source_type=source_type)
+            await loop.run_in_executor(None, _sftp_step, staged_path, lambda: None)
+            await loop.run_in_executor(None, _azura_post_upload, safe_name, db_id, bot, loop)
+
+        status = rq.get_job_status(db_id)
+        if rq.is_terminal_status(status):
+            return False
+
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT azura_file_id, azura_song_id FROM yt_request_jobs WHERE id=?",
+                (db_id,),
+            ).fetchone()
+        azura_file_id = (row[0] or "") if row else ""
+        azura_song_id = (row[1] or "") if row else ""
+        if not azura_file_id or not azura_song_id:
+            return False
+
+        rq.mark_ready(db_id, filename=safe_name, source_type=source_type, finished_at=time.time())
+        diag.log_radio_event(
+            "submitted_to_azura",
+            request_id=db_id,
+            source_type=source_type,
+            temp_path=safe_name,
+            source_path=source_path or source_mp3_path,
+            azura_file_id=azura_file_id,
+            azura_song_id=azura_song_id,
+        )
+        return True
+    except Exception as exc:
+        print(f"[YT_REQUEST] process_staged_existing_mp3 error: {exc!r}")
+        return False
+    finally:
+        try:
+            if os.path.isfile(staged_path) and os.path.basename(staged_path).startswith(("local_request_", "tmp_replay_")):
+                os.unlink(staged_path)
+        except Exception:
+            pass
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Staged-job promotion (Option A: one active file in /Requests at a time)
 # ─────────────────────────────────────────────────────────────────────────────

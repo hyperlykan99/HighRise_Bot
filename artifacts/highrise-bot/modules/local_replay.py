@@ -487,6 +487,29 @@ def _copy_to_temp(azura_file_path: str, temp_filename: str, filename: str = "") 
     return False, "local_temp_copy_failed"
 
 
+def _copy_to_request_staging(azura_file_path: str, temp_filename: str, filename: str = "") -> tuple[bool, str, str]:
+    """
+    Copy a resolved local library MP3 into the same staging directory used by
+    YouTube downloads. The shared yt_request pipeline uploads from there.
+    """
+    if not _safe_temp_filename(temp_filename):
+        return False, "local_temp_copy_failed", ""
+    source = _resolve_local_source_path(azura_file_path, filename)
+    if not source:
+        return False, "local_source_missing", ""
+    try:
+        from modules.yt_request import STAGING_DIR
+        os.makedirs(STAGING_DIR, exist_ok=True)
+        dest = os.path.join(STAGING_DIR, temp_filename)
+        print(f"{_LOG} local_temp_copy_started source={source!r} dest={dest!r}")
+        shutil.copyfile(source, dest)
+        print(f"{_LOG} local_temp_copy_done bytes={os.path.getsize(dest)}")
+        return True, "ok", dest
+    except Exception as exc:
+        print(f"{_LOG} staging copy failed: {exc!r}")
+        return False, "local_temp_copy_failed", ""
+
+
 def _build_path_candidates(azura_file_path: str, filename: str = "") -> list[str]:
     """
     Return an ordered list of absolute/relative SFTP paths to probe.
@@ -965,13 +988,13 @@ async def _prepare_local_fav_request(
                     "local_source_path_missing")
         return
 
-    # ── Stale cleanup + SFTP copy ─────────────────────────────────────────────
+    # ── Stale cleanup + source copy into shared request staging ──────────────
     try:
         await loop.run_in_executor(None, _cleanup_stale_temps)
     except Exception:
         pass
 
-    temp_filename = f"tmp_replay_{request_id}_{uuid.uuid4().hex[:10]}.mp3"
+    temp_filename = f"local_request_{request_id}_{uuid.uuid4().hex[:10]}.mp3"
     try:
         import modules.request_queue as rq
         rq.update_job_fields(request_id, filename=temp_filename, status="processing")
@@ -998,8 +1021,9 @@ async def _prepare_local_fav_request(
     )
     copy_ok = False
     copy_reason = "local_temp_copy_failed"
+    staged_path = ""
     try:
-        copy_ok, copy_reason = await loop.run_in_executor(None, _copy_to_temp, azura_file_path, temp_filename, azura_filename)
+        copy_ok, copy_reason, staged_path = await loop.run_in_executor(None, _copy_to_request_staging, azura_file_path, temp_filename, azura_filename)
     except Exception as exc:
         print(f"{_LOG} queue_local_fav copy error: {exc!r}")
 
@@ -1019,7 +1043,7 @@ async def _prepare_local_fav_request(
             azura_file_path,
         )
         return
-    _update_status(temp_filename, "uploaded")
+    _update_status(temp_filename, "staged")
     _radio_event(
         "local_temp_copy_done",
         request_id=request_id,
@@ -1034,36 +1058,21 @@ async def _prepare_local_fav_request(
     )
 
     if _request_is_terminal():
-        _radio_event(
-            "cleanup_started",
-            request_id=request_id,
-            user_id=uid,
-            username=uname,
-            title=fav_title,
-            source_type="local_replay",
-            temp_path=temp_filename,
-            source_path=azura_file_path,
-        )
-        if await loop.run_in_executor(None, _sftp_delete_temp, temp_filename):
-            _radio_event(
-                "temp_deleted",
-                request_id=request_id,
-                user_id=uid,
-                username=uname,
-                title=fav_title,
-                source_type="local_replay",
-                temp_path=temp_filename,
-                source_path=azura_file_path,
-            )
+        try:
+            if staged_path and os.path.basename(staged_path).startswith(_SAFE_TEMP_PREFIXES):
+                os.unlink(staged_path)
+        except Exception:
+            pass
         return
 
     try:
-        from modules.yt_request import process_existing_request_file
-        ok = await process_existing_request_file(
+        from modules.yt_request import process_staged_existing_mp3
+        ok = await process_staged_existing_mp3(
             bot,
             request_id,
-            temp_filename,
-            source_type="local_replay",
+            staged_path,
+            filename=temp_filename,
+            source_type="local_favorite",
             source_path=azura_file_path,
         )
     except Exception as exc:
@@ -1072,11 +1081,13 @@ async def _prepare_local_fav_request(
 
     if not ok and not _request_is_terminal():
         await _fail(
-            f"❌ Couldn't prepare '{fav_title}'. Try another version.",
+            f"❌ Could not prepare '{fav_title}'. Local source found, but request pipeline failed.",
             "local_post_file_pipeline_failed",
             temp_filename,
             azura_file_path,
         )
+    elif ok:
+        _update_status(temp_filename, "ready")
     return
 
 # !playfavlocal / !localreplaytest
@@ -1295,16 +1306,17 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
     except Exception:
         pass
 
-    # ── Generate temp filename ───────────────────────────────────────────────
-    temp_filename = f"tmp_replay_{uuid.uuid4().hex[:12]}.mp3"
+    # ── Copy local source into the shared YouTube request staging area ───────
+    temp_filename = f"local_request_{uuid.uuid4().hex[:12]}.mp3"
     print(f"{_LOG} temp filename: {temp_filename}")
 
-    # ── SFTP: copy source → temp ─────────────────────────────────────────────
+    await _w(f"🎵 Local replay #{pos}: {fav_title}\nPreparing local request...")
     copy_ok = False
     copy_reason = "local_temp_copy_failed"
+    staged_path = ""
     try:
-        copy_ok, copy_reason = await loop.run_in_executor(
-            None, _copy_to_temp, azura_file_path, temp_filename, azura_filename
+        copy_ok, copy_reason, staged_path = await loop.run_in_executor(
+            None, _copy_to_request_staging, azura_file_path, temp_filename, azura_filename
         )
     except Exception as exc:
         print(f"{_LOG} copy executor error: {exc!r}")
@@ -1318,226 +1330,75 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
         )
         return
 
-    # ── AzuraCast: rescan → poll until indexed (max 5 attempts × 2 s) ────────
-    _MAX_INDEX_ATTEMPTS = 5
-    _INDEX_RETRY_DELAY  = 2.0   # seconds between each search attempt
-
-    azura_unique_id = ""
-    azura_file_id_str = ""
+    _yt_job_id = 0
     try:
-        from modules.azuracast_controller import (
-            rescan_requests_folder, search_media,
+        import modules.request_queue as rq
+        _yt_job_id = rq.create_request(
+            user_id=user.id,
+            username=user.username,
+            url="",
+            title=fav_title,
+            status="processing",
+            filename=temp_filename,
+            azura_file_id="",
+            azura_song_id="",
+            coins_charged=0,
+            payment_type="free",
+            source_type="local_favorite",
         )
-        # Trigger rescan once, then poll
-        await loop.run_in_executor(None, rescan_requests_folder)
-        await asyncio.sleep(_INDEX_RETRY_DELAY)
-
-        for attempt in range(1, _MAX_INDEX_ATTEMPTS + 1):
-            media_row = await loop.run_in_executor(
-                None, search_media, temp_filename
-            )
-            if media_row:
-                # Match yt_request.py extraction exactly — never fall back to
-                # the numeric 'id' field, which is NOT a valid requestable id.
-                azura_unique_id = str(
-                    media_row.get("unique_id")
-                    or media_row.get("song_unique_id")
-                    or (media_row.get("song") or {}).get("id")
-                    or ""
-                )
-                azura_file_id_str = str(media_row.get("id") or "")
-                print(
-                    f"{_LOG} indexed attempt={attempt}"
-                    f" file_id={azura_file_id_str!r}"
-                    f" unique_id={azura_unique_id!r}"
-                    f" song_id={(media_row.get('song') or {}).get('id')!r}"
-                )
-                await _w(
-                    f"Attempt {attempt}: indexed"
-                    f" file_id={azura_file_id_str}"
-                    f" uid={azura_unique_id[:20] if azura_unique_id else 'EMPTY'}"
-                )
-                break
-
-            print(f"{_LOG} attempt {attempt}: not indexed yet ({temp_filename})")
-            await _w(f"Attempt {attempt}: not indexed yet…")
-
-            if attempt < _MAX_INDEX_ATTEMPTS:
-                # Re-trigger rescan on each miss, then wait
-                try:
-                    await loop.run_in_executor(None, rescan_requests_folder)
-                except Exception:
-                    pass
-                await asyncio.sleep(_INDEX_RETRY_DELAY)
-
     except Exception as exc:
-        print(f"{_LOG} rescan/search error: {exc!r}")
+        print(f"{_LOG} create local request job error: {exc!r}")
 
-    # ── Track in DB ──────────────────────────────────────────────────────────
+    if not _yt_job_id:
+        await _w(f"❌ Could not prepare '{fav_title}'. Local source found, but request pipeline failed.")
+        return
+
     _insert_job(
         user_id=user.id,
         username=user.username,
         fav_title=fav_title,
         source_path=azura_file_path,
         temp_filename=temp_filename,
-        azura_unique_id=azura_unique_id,
-        azura_file_id=azura_file_id_str,
     )
+    _link_yt_job(temp_filename, _yt_job_id)
+    _update_status(temp_filename, "staged")
 
-    # ── Debug: upload path vs AzuraCast media path ───────────────────────────
-    _sftp_cfg_now  = _get_sftp_cfg()
-    _upload_folder = _sftp_cfg_now.get("folder", "?")
-    _upload_dest   = f"{_upload_folder.rstrip('/')}/{temp_filename}"
-    _azura_mpath   = (media_row.get("path") if media_row else None) or "NOT_INDEXED"
-    print(
-        f"{_LOG} path_debug"
-        f" upload_dest={_upload_dest!r}"
-        f" azura_media_path={_azura_mpath!r}"
-        f" file_id={azura_file_id_str!r}"
-        f" unique_id={azura_unique_id!r}"
-    )
-    await _w(
-        f"📂 upload→{_upload_folder}"
-        f"\nazura_path={_azura_mpath}"
-    )
+    try:
+        from modules.yt_request import process_staged_existing_mp3
+        pipeline_ok = await process_staged_existing_mp3(
+            bot,
+            _yt_job_id,
+            staged_path,
+            filename=temp_filename,
+            source_type="local_favorite",
+            source_path=azura_file_path,
+        )
+    except Exception as exc:
+        print(f"{_LOG} shared request pipeline error: {exc!r}")
+        pipeline_ok = False
 
-    # ── Assign temp file to Requests playlist — mirrors YouTube pipeline ─────
-    # YouTube's _azura_post_upload resolves playlist_id in two steps:
-    #   1. AZURA_PLAYLIST_ID env var
-    #   2. GET /playlists → find by name "Requests" / "Request"
-    # We apply the same two-step resolution here.
-    _pl_assigned  = False
-    _target_pl_id = ""
-    _pl_source    = ""
-    if azura_file_id_str:
+    if pipeline_ok:
+        _update_status(temp_filename, "ready")
         try:
-            import modules.config_store as _cs
-            from modules.azuracast_controller import (
-                add_file_to_playlist as _add_pl,
-                list_playlists       as _list_pl,
-                find_playlist_by_name as _find_pl,
-            )
-
-            # Step 1: env var (same as YouTube)
-            _target_pl_id = _cs.requests_playlist_id()
-            if _target_pl_id:
-                _pl_source = "env_var"
-            else:
-                # Step 2: name lookup (same fallback as YouTube _azura_post_upload)
-                _all_pls = await loop.run_in_executor(None, _list_pl)
-                _pl_names = [
-                    f"{p.get('id')}:{p.get('name')}"
-                    for p in _all_pls
-                ]
-                print(
-                    f"{_LOG} requests_assign_debug"
-                    f" AZURA_PLAYLIST_ID=UNSET"
-                    f" playlists_found={len(_all_pls)}"
-                    f" names={_pl_names!r}"
-                )
-                await _w(
-                    f"AZURA_PLAYLIST_ID unset → name lookup"
-                    f"\nFound {len(_all_pls)} playlists:"
-                    f" {', '.join(_pl_names)[:180]}"
-                )
-                for _pname in ("Requests", "Request"):
-                    _pl_row = await loop.run_in_executor(None, _find_pl, _pname)
-                    if _pl_row:
-                        _target_pl_id = str(_pl_row.get("id") or "")
-                        _pl_source    = f"name_lookup:{_pname}"
-                        print(
-                            f"{_LOG} requests_assign_debug"
-                            f" name_lookup={_pname!r}"
-                            f" found_id={_target_pl_id!r}"
-                        )
-                        break
-
-            print(
-                f"{_LOG} requests_assign"
-                f" playlist_id={_target_pl_id!r}"
-                f" source={_pl_source!r}"
-                f" file_id={azura_file_id_str!r}"
-            )
-            if _target_pl_id:
-                _pl_assigned = await loop.run_in_executor(
-                    None, _add_pl, azura_file_id_str, _target_pl_id
-                )
-                print(
-                    f"{_LOG} requests_assign result={_pl_assigned}"
-                    f" playlist_id={_target_pl_id!r}"
-                    f" source={_pl_source!r}"
-                )
-            else:
-                print(
-                    f"{_LOG} requests_assign: no playlist resolved"
-                    f" (env_var=unset, name_lookup=no_match)"
-                )
-        except Exception as _vex:
-            print(f"{_LOG} requests_assign error: {_vex!r}")
-        await _w(
-            f"playlist_id={_target_pl_id or 'NONE'}"
-            f" src={_pl_source or 'none'}"
-            f" assigned={'true' if _pl_assigned else 'false'}"
-        )
-        if not _pl_assigned:
-            await _w(
-                "❌ Requests playlist assign failed."
-                " Staging blocked — track not requestable."
-            )
-
-    # ── Gate: must have AzuraCast unique_id ─────────────────────────────────
-    if not azura_unique_id:
-        await _w(
-            f"⚠️ AzuraCast indexing timeout for '{fav_title}'.\n"
-            f"Use !localreplaycleanup to clear the temp file."
-        )
-        return
-
-    # Gate: file must be in Requests playlist so AzuraCast can service it.
-    if azura_file_id_str and not _pl_assigned:
-        _update_status(temp_filename, "cleanup_pending")
-        await _w(
-            f"❌ Cannot stage: '{fav_title[:40]}' not in"
-            f" Requests playlist {_target_pl_id or 'NONE'}"
-            f" (src={_pl_source or 'none'})."
-            f" !localreplaycleanup to clear."
-        )
-        return
-
-    # ── Stage: insert yt_request_jobs so playback_engine submits + cleans up ─
-    # Do NOT call submit_request here — playback_engine owns submission.
-    # Flow: ready → playback_engine submits → playing → finished → cleanup.
-    _yt_job_id = _register_as_yt_request_job(
-        user_id=user.id,
-        username=user.username,
-        title=fav_title,
-        temp_filename=temp_filename,
-        azura_file_id=azura_file_id_str,
-        azura_song_id=azura_unique_id,
-    )
-    if _yt_job_id:
-        _link_yt_job(temp_filename, _yt_job_id)
-        print(
-            f"{_LOG} staged yt_request_job_id={_yt_job_id}"
-            f" uid={azura_unique_id!r}"
-            f" — playback_engine will submit"
-        )
-        await _w(
-            f"✅ Local replay staged!\n"
-            f"'{fav_title}'\n"
-            f"Temp: {temp_filename[:28]}\n"
-            f"Cleanup: auto after play."
-        )
+            import modules.request_queue as rq
+            await _w(rq.render_added_to_queue_message(
+                title=fav_title,
+                artist=fav_artist,
+                position=rq.future_count(),
+                staff_free=True,
+            ))
+        except Exception:
+            await _w(f"✅ Local replay queued!\n'{fav_title}'\nCleanup: auto after play.")
     else:
-        _update_status(temp_filename, "cleanup_pending")
-        print(
-            f"{_LOG} yt_request_jobs insert returned 0"
-            f" — staging failed; use !localreplaycleanup"
-        )
+        _update_status(temp_filename, "failed")
+        try:
+            import modules.request_queue as rq
+            if not rq.is_terminal_job(_yt_job_id):
+                rq.mark_failed(_yt_job_id, "local_post_file_pipeline_failed")
+        except Exception:
+            pass
         await _w(
-            f"❌ Staging failed: could not create request job"
-            f" (check bot console).\n"
-            f"!localreplaycleanup to clear temp."
+            f"❌ Could not prepare '{fav_title}'. Local source found, but request pipeline failed."
         )
 
 
