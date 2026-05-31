@@ -1878,7 +1878,7 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         _update_job(jid, status="ready", finished_at=time.time())
         _staged_mp3 = ""  # clear so finally won't delete (file is now on AzuraCast)
         print(f"[YT_REQUEST] Job #{jid} — ready in {upload_secs:.1f}s: {title[:80]}")
-        print(f"[RADIO_CLEAN] event=duplicate_confirmation_suppressed request_id={db_id}")
+        print(f"[RADIO_CLEAN] event=duplicate_queue_confirmation_suppressed request_id={db_id}")
 
     except _YtBlockedError as exc:
         raw_err = str(exc)

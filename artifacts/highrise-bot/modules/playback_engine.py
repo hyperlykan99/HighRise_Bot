@@ -3,8 +3,8 @@ modules/playback_engine.py
 --------------------------
 AzuraCast-first playback engine.
 
-AzuraCast AutoDJ controls playback order entirely.
-The bot submits requests, watches now-playing, and cleans up files after play.
+AzuraCast AutoDJ/Requests playlist controls playback order by default.
+The bot uploads request files, watches now-playing, and cleans up files after play.
 
 Playlist Rules (always enforced)
 ─────────────────────────────────
@@ -12,8 +12,8 @@ Playlist Rules (always enforced)
   • Current vibe playlist — ALWAYS enabled
   • All other vibe/music playlists — disabled
 
-The bot never disables the vibe playlist when requests are queued, never
-pre-switches modes, and never skips the current song automatically.
+The bot never disables the vibe playlist when requests are queued and, in
+azura_playlist mode, never pre-submits or skips songs to enforce a bot order.
 
 Song Detection  (polls every POLL_INTERVAL seconds)
 ───────────────
@@ -24,6 +24,7 @@ Song Detection  (polls every POLL_INTERVAL seconds)
 """
 from __future__ import annotations
 import asyncio
+import os
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -42,19 +43,26 @@ if TYPE_CHECKING:
 _LOG          = "[PLAYBACK]"
 POLL_INTERVAL = 5       # seconds between AzuraCast nowplaying polls
 _STATE_NS     = "playback_"
+_REQUEST_PLAYBACK_MODE = (
+    os.getenv("RADIO_REQUEST_PLAYBACK_MODE", "azura_playlist")
+    .strip()
+    .lower()
+    or "azura_playlist"
+)
+_AZURA_PLAYLIST_MODE = _REQUEST_PLAYBACK_MODE != "bot_fifo"
 
 # ─── Module-level state ───────────────────────────────────────────────────────
 _lock                   = threading.Lock()
 _stop_flag              = threading.Event()    # Set on shutdown; executor threads check this
 _stage_promotion_lock   = threading.Lock()     # Prevents concurrent staged-job promotions
-_submitted_jids:  set   = set()                # job IDs submitted to AzuraCast request queue
+_submitted_jids:  set   = set()                # bot_fifo mode: job IDs submitted to AzuraCast request queue
 _started:         bool  = False
 _mode:            str   = "vibe"    # "vibe" | "requests"
 _cur_song_id:     str   = ""        # AzuraCast song.id currently playing
 _cur_req_id:      int   = 0         # yt_request_jobs.id of the active request (0 = none)
 _last_ann_id:     str   = ""        # song.id last announced (dedup)
 _last_ann_title:  str   = ""        # normalized title last announced (title-fallback dedup)
-_skip_task_active: bool = False     # True while a _verified_skip_task is running
+_skip_task_active: bool = False     # bot_fifo mode: True while a _verified_skip_task is running
 _cur_elapsed:     int   = 0         # AzuraCast elapsed seconds for current song
 _cur_duration:    int   = 0         # AzuraCast total duration of current song
 _live_req: "dict | None" = None     # In-memory cache of the currently-playing request; set at
@@ -1139,6 +1147,12 @@ async def _handle_stale_requests_media(
         f" filename={fn!r}"
         f" removed_from_azura={str(bool(cleanup_ok)).lower()}"
     )
+    _harden_log(
+        "stale_requests_media_cleanup",
+        filename=fn,
+        media_id=media_id,
+        removed=bool(cleanup_ok),
+    )
     await _force_skip_if_stale_request_current(
         0, media_id, song_id, fn, title, "post_cleanup_still_requests_media"
     )
@@ -1150,6 +1164,8 @@ async def _submit_fifo_head_if_ready(
     previous_request_id: int = 0,
     force_skip_autodj: bool = False,
 ) -> bool:
+    if _AZURA_PLAYLIST_MODE:
+        return False
     head = _db_find_oldest_active_unplayed()
     if not head:
         return False
@@ -1367,18 +1383,21 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         f" remaining_in_queue={remaining}"
     )
     if remaining > 0:
-        handoff_started = await _submit_fifo_head_if_ready(
-            bot,
-            previous_request_id=db_id,
-            force_skip_autodj=True,
-        )
-        if handoff_started:
-            return
         print(
             f"[QUEUE_GUARD] skip switch_to_vibe because"
             f" active_requests={remaining}"
         )
-        print(f"[QUEUE_GUARD] pending request preserved")
+        if _AZURA_PLAYLIST_MODE:
+            print(f"[QUEUE_GUARD] Azura Requests playlist will schedule remaining media")
+        else:
+            handoff_started = await _submit_fifo_head_if_ready(
+                bot,
+                previous_request_id=db_id,
+                force_skip_autodj=True,
+            )
+            if handoff_started:
+                return
+            print(f"[QUEUE_GUARD] pending request preserved")
     else:
         with _lock:
             cur_mode = _mode
@@ -1565,6 +1584,7 @@ async def _on_new_track(
                 f" match_method={match_method!r}"
             )
             _harden_log("request_start", request_id=db_id, title=req_title)
+            _harden_log("request_detected_playing", request_id=db_id, filename=fn)
             await ann.announce_request_live(bot, req_title, artist, req_uname)
             with _lock:
                 _live_req = {
@@ -1927,6 +1947,8 @@ async def _poll_loop(bot: "BaseBot") -> None:
     global _cur_song_id, _cur_req_id, _cur_elapsed, _cur_duration, _mode, _cur_replay_temp
 
     print(f"{_LOG} Poll loop started (every {POLL_INTERVAL}s)")
+    if _AZURA_PLAYLIST_MODE:
+        _harden_log("azura_playlist_mode_enabled", mode=_REQUEST_PLAYBACK_MODE)
     loop = asyncio.get_running_loop()
 
     while True:
@@ -1934,22 +1956,22 @@ async def _poll_loop(bot: "BaseBot") -> None:
             await asyncio.sleep(POLL_INTERVAL)
             db.set_room_setting("radio_worker_heartbeat_queue", str(time.time()))
 
-            # ── FIFO request submission gate ────────────────────────────────
-            all_active_head = _db_find_oldest_active_unplayed()
-            # Sync _submitted_jids — remove IDs no longer active/submitted.
-            if _submitted_jids:
-                active_id = {int(all_active_head["id"])} if all_active_head else set()
-                active_id.update(
-                    int(j["id"]) for j in [_db_find_outstanding_submitted() or {}] if j.get("id")
-                )
-                _submitted_jids.intersection_update(active_id)
+            if not _AZURA_PLAYLIST_MODE:
+                # ── bot_fifo fallback submission gate ───────────────────────
+                all_active_head = _db_find_oldest_active_unplayed()
+                # Sync _submitted_jids — remove IDs no longer active/submitted.
+                if _submitted_jids:
+                    active_id = {int(all_active_head["id"])} if all_active_head else set()
+                    active_id.update(
+                        int(j["id"]) for j in [_db_find_outstanding_submitted() or {}] if j.get("id")
+                    )
+                    _submitted_jids.intersection_update(active_id)
 
-            # AzuraCast AutoDJ controls order — vibe+requests playlists always both ON
-            with _lock:
-                skip_task_busy = _skip_task_active
+                with _lock:
+                    skip_task_busy = _skip_task_active
 
-            if all_active_head and not skip_task_busy:
-                await _submit_fifo_head_if_ready(bot)
+                if all_active_head and not skip_task_busy:
+                    await _submit_fifo_head_if_ready(bot)
 
             # ── Fetch nowplaying from AzuraCast ──────────────────────────────
             np = await loop.run_in_executor(None, azura.fetch_nowplaying)

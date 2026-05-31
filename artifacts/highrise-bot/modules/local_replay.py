@@ -1398,7 +1398,7 @@ async def handle_playfavlocal(bot, user, args: list[str] | None = None) -> None:
     if pipeline_ok:
         _update_status(temp_filename, "ready")
         print(
-            f"[RADIO_CLEAN] event=duplicate_confirmation_suppressed"
+            f"[RADIO_CLEAN] event=duplicate_queue_confirmation_suppressed"
             f" request_id={_yt_job_id}"
         )
     else:
