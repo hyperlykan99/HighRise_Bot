@@ -1,14 +1,12 @@
 """
 modules/yt_request.py
 ---------------------
-!ytrequest <url>  — download YouTube audio → SFTP → AzuraCast Requests playlist
-!ytnow            — show the latest successfully requested song (public)
-!ytqueue          — show pending/recent jobs from DB (admin+)
-!ytstatus         — SFTP + API config readiness and session stats (admin+)
-!ytcooldown       — show cooldown / length-limit settings (admin+)
-!setytcooldown <s>— set per-user cooldown in seconds (admin+)
+YouTube source-acquisition pipeline for DJ_DUDU radio requests.
 
-BOT_MODE = dj only.  DJ_DUDU is the sole owner of these commands.
+Canonical public commands live in modules.radio_command_registry and
+modules.radio_commands. The old yt* handlers in this file remain for legacy
+compatibility/admin diagnostics only; new public request flow should enter
+through !play / !pick.
 
 Validation per request:
     • Must be a single YouTube video URL (no playlists)
@@ -18,13 +16,17 @@ Validation per request:
     • Per-user cooldown: owner=0 s, admin=30 s, user=configurable (default 300 s)
 
 Pipeline per request:
-    1. Pre-flight: fetch metadata via yt-dlp (no download) → validate
-    2. Download best-audio + ffmpeg → mp3 in tmpdir
-    3. paramiko SFTP put → Requests/<id>.mp3
-    4. Room chat announcement: 🎵 Added to radio: <title> — requested by @<user>
-    5. AzuraCast API: rescan → search → playlist-add → request-queue
-    6. All jobs logged to yt_request_jobs DB table (persistent history)
-    7. Temp files cleaned up whether or not the upload succeeds
+    1. radio_commands creates the yt_request_jobs row and sends the single
+       "✅ Added to queue ... Please wait…" confirmation.
+    2. yt_request downloads/converts the YouTube source to a temp MP3.
+    3. SFTP uploads the temp file into the AzuraCast Requests folder.
+    4. AzuraCast API rescans/searches and assigns the media to Requests.
+    5. The same DB row is marked ready; no second Added-to-queue message.
+    6. playback_engine detects when Azura plays the Requests media, announces
+       Source: Request, detaches it from rotation, and cleans it after play.
+
+In RADIO_REQUEST_PLAYBACK_MODE=azura_playlist, this module does not submit or
+skip songs to enforce FIFO. AzuraCast Requests playlist controls playback order.
 
 Required env vars:
     AZURA_SFTP_HOST   AZURA_SFTP_USER   AZURA_SFTP_PASS
@@ -626,7 +628,7 @@ def _supersede_duplicate_active_requests(
         params.append(url)
     if not clauses:
         return
-    duplicate_statuses = tuple(ACTIVE_QUEUE_STATUSES) + ("error",)
+    duplicate_statuses = tuple(ACTIVE_QUEUE_STATUSES)
     ph = ",".join("?" * len(duplicate_statuses))
     try:
         with sqlite3.connect(_DB_PATH) as conn:
@@ -683,8 +685,7 @@ def _active_duplicate_for_request(
         with sqlite3.connect(_DB_PATH) as conn:
             row = conn.execute(
                 "SELECT id, status, title, filename, azura_file_id FROM yt_request_jobs "
-                f"WHERE played_at IS NULL AND (status IN ({ph}) "
-                "OR (status='error' AND COALESCE(azura_file_id,'')!='')) "
+                f"WHERE played_at IS NULL AND status IN ({ph}) "
                 f"AND ({' OR '.join(clauses)}) "
                 "ORDER BY CASE WHEN COALESCE(azura_file_id,'')!='' THEN 0 ELSE 1 END, id ASC "
                 "LIMIT 1",
@@ -692,16 +693,9 @@ def _active_duplicate_for_request(
             ).fetchone()
         if not row:
             return None
-        if (row[1] or "").strip().lower() == "error" and (row[4] or ""):
-            rq.mark_ready(row[0], finished_at=time.time())
-            print(
-                f"[RADIO_HARDEN] event=media_ready_after_registration_error"
-                f" request_id={row[0]} media_id={row[4]}"
-            )
-        recovered_error = (row[1] or "").strip().lower() == "error" and (row[4] or "")
         return {
             "id": row[0],
-            "status": "ready" if recovered_error else row[1] or "",
+            "status": row[1] or "",
             "title": row[2] or "",
             "filename": row[3] or "",
             "azura_file_id": row[4] or "",

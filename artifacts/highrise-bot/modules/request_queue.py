@@ -8,18 +8,19 @@ on yt_request's in-memory _jobs dict.  This means the queue survives bot restart
 and crashes without losing any pending requests.
 
 Queue statuses used by this system (superset of yt_request originals):
-  pending     — job created, waiting for pipeline
-  downloading — yt-dlp step running
-  uploading   — SFTP step running
-  staged      — download done, waiting for /Requests slot to free up (Option A)
-  done        — file uploaded + AzuraCast registered, azura_file_id set
-  queued      — promoted by playback_engine; Requests playlist is active
-  playing     — song is currently streaming on AzuraCast
-  played      — finished playing; played_at set; file may or may not be deleted yet
-  error       — pipeline failed or admin-cancelled
+  pending/downloading/uploading/indexing/staged — source preparation in progress
+  ready       — temp media uploaded, indexed, and assigned to Azura Requests
+  playing     — Azura now-playing matched this request row
+  played      — finished playing; cleanup may still be running
+  cleaned     — temp request media removed from Azura/filesystem
+  error       — failed or cancelled terminal row; never revived automatically
 
 Write operations that need the download pipeline delegate to yt_request via
 _rq() (deferred import to break circular dependency at load time).
+
+Playback order is owned by the AzuraCast Requests playlist in
+RADIO_REQUEST_PLAYBACK_MODE=azura_playlist. This module only owns DB state,
+queue display, and lifecycle guards; it does not call Azura APIs.
 """
 from __future__ import annotations
 import time
@@ -167,8 +168,6 @@ def _log_terminal_revival_block(job_id: int, attempted_status: str, job: "dict |
     data = job or get_job_identity(job_id)
     status = (data.get("status") or "").strip().lower()
     azura_file_id = data.get("azura_file_id", "")
-    if status == "error" and attempted_status == "ready" and azura_file_id:
-        return
     print(
         f"[RADIO_HARDEN] event=failed_row_not_revived"
         f" request_id={job_id}"
@@ -315,11 +314,11 @@ def mark_ready(job_id: int, finished_at: "object | None" = None,
 
 def mark_submitted(job_id: int) -> bool:
     """
-    Mark a ready request as queued after AzuraCast accepts submit_request().
+    LEGACY bot_fifo helper: mark a ready request as queued after AzuraCast
+    accepts submit_request().
 
-    This makes Azura submission durable across bot restarts: a queued row can
-    still be matched when it plays, but it will not be selected for submission
-    again by playback_engine.
+    In azura_playlist mode the bot does not submit requests to force order;
+    AzuraCast plays indexed Requests playlist media directly.
     """
     if not job_id:
         return False
@@ -631,14 +630,13 @@ def pending_jobs() -> list:
 
 def display_jobs() -> list:
     """
-    Jobs shown by !queue — all visible in-flight stages.
+    Jobs shown by !queue — upcoming/waiting request rows only.
 
-    Includes: pending, downloading, downloaded, uploading, staged, ready,
-    playing.  Excludes played/error (terminal).
+    Includes pending/preparing rows (⏳) and ready/indexed rows (✅).
+    Excludes the current playing request and all terminal rows.
 
-    "playing" rows appear at the top of !queue as ▶️ NOW PLAYING.
-    "staged"  rows are downloaded but waiting for AzuraCast slot (📦).
-    "ready"   rows are uploaded and waiting to stream (✅).
+    "ready" rows are uploaded and waiting for AzuraCast Requests playback.
+    non-ready active rows are still preparing/uploading.
 
     Oldest-first so queue position numbers are stable.
     stage=queue_read is logged by the calling command handler.

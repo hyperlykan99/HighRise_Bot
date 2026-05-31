@@ -4257,22 +4257,15 @@ class HangoutBot(BaseBot):
             await start_player_emote(self, user, cmd)
             return
 
-        # Local replay is a DJ-owned command family. Route it before the
-        # dynamic multi-bot gate so stale DB ownership rows cannot swallow it.
+        # Local replay is a DJ-owned command family. Route through the canonical
+        # radio registry before the dynamic multi-bot gate so stale DB ownership
+        # rows cannot swallow it.
         if cmd in LOCAL_REPLAY_COMMANDS:
             if BOT_MODE != "dj":
                 return
             print(f"[LOCAL_REPLAY_ROUTE] cmd={cmd} mode={BOT_MODE} user={user.username} args={args!r}")
             try:
-                if cmd in ("playfavlocal", "localreplaytest"):
-                    from modules.local_replay import handle_playfavlocal as _lr_play
-                    await _lr_play(self, user, args)
-                elif cmd == "localreplaystatus":
-                    from modules.local_replay import handle_localreplaystatus as _lr_stat
-                    await _lr_stat(self, user, args)
-                elif cmd == "localreplaycleanup":
-                    from modules.local_replay import handle_localreplaycleanup as _lr_clean
-                    await _lr_clean(self, user, args)
+                await dispatch_radio_command(self, user, args, cmd)
             except Exception as _lre:
                 print(f"[LOCAL_REPLAY] route error cmd={cmd}: {_lre!r}")
                 try:
@@ -8319,6 +8312,8 @@ class HangoutBot(BaseBot):
         elif cmd == "playmine":
             await rc_playmine(self, user, args)
         elif cmd in ("playfavlocal", "localreplaytest"):
+            # Legacy fallback only. Normal routing happens through
+            # radio_command_registry before the multi-bot gate.
             try:
                 from modules.local_replay import handle_playfavlocal as _lr_play
                 await _lr_play(self, user, args)
@@ -8330,6 +8325,8 @@ class HangoutBot(BaseBot):
                 except Exception:
                     pass
         elif cmd == "localreplaystatus":
+            # Legacy fallback only. Normal routing happens through
+            # radio_command_registry before the multi-bot gate.
             try:
                 from modules.local_replay import handle_localreplaystatus as _lr_stat
                 await _lr_stat(self, user, args)
@@ -8341,6 +8338,8 @@ class HangoutBot(BaseBot):
                 except Exception:
                     pass
         elif cmd == "localreplaycleanup":
+            # Legacy fallback only. Normal routing happens through
+            # radio_command_registry before the multi-bot gate.
             try:
                 from modules.local_replay import handle_localreplaycleanup as _lr_clean
                 await _lr_clean(self, user, args)

@@ -1,14 +1,14 @@
 """
 modules/local_replay.py
 -----------------------
-SAFE TEMP REQUEST-COPY PLAYBACK
+Local favorite source acquisition for the shared radio request pipeline.
 
 Feature-flagged — BOTH env vars must be exactly "true" (case-insensitive):
     LOCAL_REPLAY_ENABLED=false
     LOCAL_REPLAY_ALLOW_COPY=false
 
-Commands (owner/admin only during testing):
-    !playfavlocal <#>       — copy a local favorite to UUID temp, queue it
+Commands:
+    !playfavlocal <#>       — copy a local favorite to a safe temp request MP3
     !localreplaytest <#>    — alias for !playfavlocal (test-mode label)
     !localreplaystatus      — list recent local replay jobs
     !localreplaycleanup     — manually purge stale temp files
@@ -17,24 +17,22 @@ Safe flow
 ---------
 1.  Validate favorite exists and is a local (non-YouTube) file.
 2.  GET AzuraCast file record → confirm source exists, obtain VPS path.
-3.  SFTP: stat source path to verify file is present on VPS.
-4.  Generate temp UUID filename:  tmp_replay_{hex12}.mp3
-5.  SFTP: stream-copy source → {requests_folder}/tmp_replay_{hex12}.mp3
-        Source root: AZURA_MEDIA_SFTP_PATH env var (if set),
-                     else parent dir of AZURA_SFTP_PATH (derived default).
-6.  AzuraCast: rescan requests folder, sleep 2 s for indexing.
-7.  AzuraCast: search_media(temp_filename) → extract unique_id.
-8.  AzuraCast: submit_request(unique_id) — queue the temp copy only.
-9.  Track lifecycle in local_replay_jobs (lazy-created) DB table.
-10. Cleanup: stale temps (>2 h) deleted at start of next !playfavlocal,
-             or on demand via !localreplaycleanup.
+3.  Copy source locally or through SFTP to a safe temp MP3.
+4.  Hand the temp MP3 to yt_request's shared upload/index path.
+5.  Mark the original request row ready after Azura indexes Requests media.
+6.  playback_engine detects playback, announces Source: Request, detaches the
+    temp media from rotation, and cleans it after play.
+
+AzuraCast Requests playlist controls playback order in azura_playlist mode.
+This module does not run a separate playback loop and does not send a second
+Added-to-queue message when the temp media becomes ready.
 
 ABSOLUTE RULES
 --------------
 - Failures NEVER crash the bot or affect the main queue / AutoDJ.
 - No startup imports; all imports are deferred inside call sites.
 - No background polling tasks created by this module.
-- NEVER delete or queue original library files — only tmp_replay_* files.
+- NEVER delete or queue original library files — only safe temp request files.
 - Both feature flags must be "true" or every handler exits silently.
 """
 from __future__ import annotations

@@ -1,5 +1,9 @@
 """
-Registry-driven dispatch for radio commands.
+Registry-driven dispatch for canonical DJ_DUDU radio commands.
+
+Public request commands should route here into modules.radio_commands or
+modules.local_replay. modules.yt_request owns source preparation and keeps old
+yt* compatibility/admin handlers only.
 """
 from __future__ import annotations
 

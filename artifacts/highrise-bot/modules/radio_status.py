@@ -26,6 +26,7 @@ TERMINAL_QUEUE_STATUSES = (
     "skipped",
     "failed",
     "failed_download",
+    "error",
     "duplicate_superseded",
     "cancelled",
     "cleaned",

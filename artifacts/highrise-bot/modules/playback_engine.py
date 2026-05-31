@@ -19,7 +19,7 @@ Song Detection  (polls every POLL_INTERVAL seconds)
 ───────────────
   On song change:
     1. Previous track was a request → mark played in DB, delete file from AzuraCast
-    2. New track matches a queued request → mark playing, announce to room
+    2. New Requests media matches an active DB request → mark playing, announce Source: Request
     3. New track is a vibe song → announce with vibe prefix
 """
 from __future__ import annotations
