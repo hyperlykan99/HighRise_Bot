@@ -817,6 +817,139 @@ def fetch_queue() -> list:
     return []
 
 
+def _normalize_queue_item(item: dict, source: str = "queue") -> dict:
+    """Return a compact comparable view of an Azura queue/nowplaying item."""
+    if not isinstance(item, dict):
+        item = {}
+    song = item.get("song") or {}
+    media = item.get("media") or item.get("song_media") or {}
+    path = (
+        media.get("path")
+        or item.get("path")
+        or item.get("media_path")
+        or song.get("path")
+        or ""
+    )
+    filename = (path or item.get("filename") or "").rsplit("/", 1)[-1]
+    media_id = (
+        media.get("id")
+        or item.get("media_id")
+        or item.get("media")
+        or item.get("file_id")
+        or ""
+    )
+    song_id = (
+        song.get("unique_id")
+        or song.get("id")
+        or item.get("song_id")
+        or item.get("unique_id")
+        or ""
+    )
+    queue_id = item.get("id") or item.get("queue_id") or item.get("request_id") or ""
+    title = song.get("title") or item.get("title") or ""
+    return {
+        "source": source,
+        "queue_id": str(queue_id or ""),
+        "media_id": str(media_id or ""),
+        "song_id": str(song_id or ""),
+        "unique_id": str(song_id or ""),
+        "path": str(path or ""),
+        "filename": str(filename or ""),
+        "title": str(title or ""),
+        "raw": item,
+    }
+
+
+def inspect_upcoming_items() -> list[dict]:
+    """
+    Defensive read of Azura upcoming/playing-next state.
+
+    Includes /queue plus any playing_next/upcoming fields surfaced by
+    nowplaying. Callers should treat queue ids as optional.
+    """
+    items: list[dict] = []
+    for item in fetch_queue():
+        items.append(_normalize_queue_item(item, "queue"))
+    try:
+        np = fetch_nowplaying() or {}
+        for key in ("playing_next", "next_playing", "upcoming", "queue"):
+            value = np.get(key)
+            if isinstance(value, dict):
+                items.append(_normalize_queue_item(value, key))
+            elif isinstance(value, list):
+                for entry in value:
+                    items.append(_normalize_queue_item(entry, key))
+    except Exception as exc:
+        print(f"{_LOG} inspect_upcoming_items error: {exc!r}")
+    return items
+
+
+def _queue_item_matches_request(item: dict, *, media_id: str = "", song_id: str = "", filename: str = "", path: str = "") -> bool:
+    media_id = str(media_id or "").strip()
+    song_id = str(song_id or "").strip()
+    filename = str(filename or "").strip().rsplit("/", 1)[-1]
+    path = str(path or "").strip().lstrip("/")
+    item_media = str(item.get("media_id") or "").strip()
+    item_song = str(item.get("song_id") or item.get("unique_id") or "").strip()
+    item_path = str(item.get("path") or "").strip().lstrip("/")
+    item_file = str(item.get("filename") or "").strip()
+    if media_id and item_media and media_id == item_media:
+        return True
+    if song_id and item_song and song_id == item_song:
+        return True
+    if path and item_path and path.lower() == item_path.lower():
+        return True
+    if filename and item_file and filename.lower() == item_file.lower():
+        return True
+    if filename and item_path and item_path.lower() == f"requests/{filename}".lower():
+        return True
+    return False
+
+
+def remove_queue_items_matching(*, media_id: str = "", song_id: str = "", filename: str = "", path: str = "") -> int:
+    """Best-effort removal of Azura upcoming queue rows matching request media."""
+    cfg = azura_api_cfg()
+    if not cfg:
+        return 0
+    import requests as req_lib
+
+    removed = 0
+    for item in inspect_upcoming_items():
+        if not _queue_item_matches_request(
+            item,
+            media_id=media_id,
+            song_id=song_id,
+            filename=filename,
+            path=path,
+        ):
+            continue
+        queue_id = item.get("queue_id") or ""
+        if not queue_id:
+            print(
+                f"{_LOG} remove_queue_item_match skipped"
+                f" reason=no_queue_id item={str(item.get('raw') or item)[:180]!r}"
+            )
+            continue
+        try:
+            resp = req_lib.delete(
+                f"{cfg['base_url']}/api/station/{cfg['station_id']}/queue/{queue_id}",
+                headers=_headers(cfg),
+                timeout=10,
+            )
+            ok = resp.status_code in (200, 204, 404)
+            print(
+                f"{_LOG} remove_queue_item_match"
+                f" queue_id={queue_id!r} media_id={media_id!r}"
+                f" song_id={song_id!r} filename={filename!r}"
+                f" status={resp.status_code} ok={ok}"
+            )
+            if ok:
+                removed += 1
+        except Exception as exc:
+            print(f"{_LOG} remove_queue_item_match error queue_id={queue_id!r}: {exc!r}")
+    return removed
+
+
 def remove_queue_items_for_song(unique_id: str) -> int:
     """
     Best-effort removal of queued AzuraCast request entries for a song.

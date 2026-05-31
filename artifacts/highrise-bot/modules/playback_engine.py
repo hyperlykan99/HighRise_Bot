@@ -1016,6 +1016,53 @@ def _log_replay_guard_blocked(
     )
 
 
+async def _remove_prequeued_request_duplicates(
+    request_id: int,
+    media_id: str = "",
+    song_id: str = "",
+    filename: str = "",
+    path: str = "",
+    context: str = "request_start",
+) -> int:
+    """Remove duplicate upcoming Azura queue rows for the same request media."""
+    media_id = (media_id or "").strip()
+    song_id = (song_id or "").strip()
+    filename = (filename or "").strip().rsplit("/", 1)[-1]
+    path = (path or (f"Requests/{filename}" if filename else "")).strip()
+    if not (media_id or song_id or filename or path):
+        return 0
+
+    loop = asyncio.get_running_loop()
+    try:
+        removed = await loop.run_in_executor(
+            None,
+            lambda: azura.remove_queue_items_matching(
+                media_id=media_id,
+                song_id=song_id,
+                filename=filename,
+                path=path,
+            ),
+        )
+    except Exception as exc:
+        _harden_log(
+            "request_prequeue_duplicate_detected",
+            request_id=request_id,
+            action="unable_to_remove",
+            context=context,
+            error=repr(exc),
+        )
+        return 0
+
+    if removed:
+        _harden_log(
+            "request_prequeue_duplicate_removed",
+            request_id=request_id,
+            removed=removed,
+            context=context,
+        )
+    return int(removed or 0)
+
+
 async def _remove_current_request_from_rotation(
     job: "dict | None",
     live_media_id: str = "",
@@ -1092,6 +1139,14 @@ async def _remove_current_request_from_rotation(
                 song_id=song_id,
                 reason=f"remove_queue_items_error:{exc!r}",
             )
+    await _remove_prequeued_request_duplicates(
+        request_id,
+        media_id=media_id,
+        song_id=song_id,
+        filename=filename_log,
+        path=temp_path,
+        context="request_start",
+    )
 
     diag.log_radio_event(
         "current_request_removed_from_rotation",
@@ -1173,6 +1228,41 @@ async def _force_skip_if_stale_request_current(
     return bool(skipped)
 
 
+async def _guard_cleaned_request_not_prequeued(
+    db_id: int,
+    fid: str,
+    song_id: str,
+    fn: str,
+    title: str,
+    reason: str = "post_cleanup_guard",
+) -> None:
+    """After cleanup, make sure Azura is not still playing or prequeueing it."""
+    skipped = await _force_skip_if_stale_request_current(db_id, fid, song_id, fn, title, reason)
+    if skipped:
+        _harden_log(
+            "autodj_repeat_prevented",
+            reason="cleaned_request_still_current",
+            request_id=db_id,
+            filename=fn,
+        )
+    removed = await _remove_prequeued_request_duplicates(
+        db_id,
+        media_id=fid,
+        song_id=song_id,
+        filename=fn,
+        path=f"Requests/{fn}" if fn else "",
+        context="post_cleanup",
+    )
+    if removed:
+        _harden_log(
+            "autodj_repeat_prevented",
+            reason="cleaned_request_in_upcoming",
+            request_id=db_id,
+            filename=fn,
+            removed=removed,
+        )
+
+
 async def _handle_stale_requests_media(
     bot: "BaseBot",
     media_id: str,
@@ -1228,6 +1318,15 @@ async def _handle_stale_requests_media(
         media_id=media_id,
         removed=bool(cleanup_ok),
     )
+    if cleanup_ok:
+        await _guard_cleaned_request_not_prequeued(
+            0,
+            media_id,
+            song_id,
+            fn,
+            title or "stale Requests media",
+            "stale_requests_cleanup_guard",
+        )
     await _force_skip_if_stale_request_current(
         0, media_id, song_id, fn, title, "post_cleanup_still_requests_media"
     )
@@ -1447,6 +1546,15 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
                         azura_song_id=sid,
                         reason="finished_request_still_current",
                     )
+            if cleanup_ok:
+                await _guard_cleaned_request_not_prequeued(
+                    db_id,
+                    fid,
+                    (job.get("azura_song_id") or "").strip(),
+                    fn,
+                    job.get("title", "?"),
+                    "finished_request_cleanup_guard",
+                )
             if cleanup_ok and last_request:
                 _harden_log("last_request_cleanup_done", request_id=db_id)
             if cleanup_ok:
