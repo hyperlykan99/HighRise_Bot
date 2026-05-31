@@ -628,6 +628,30 @@ def pending_jobs() -> list:
         return []
 
 
+def active_jobs_for_user(user_id: str) -> list:
+    """
+    Active unplayed request rows owned by a user, oldest first.
+
+    Used by room-leave handling in the current DB-backed Azura playlist flow.
+    """
+    uid = (user_id or "").strip()
+    if not uid:
+        return []
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {_SEL} FROM yt_request_jobs "
+                f"WHERE user_id=? AND status IN ({_ACT_PH}) "
+                "AND played_at IS NULL AND cleaned_at IS NULL "
+                "ORDER BY id ASC",
+                (uid, *_ACTIVE),
+            ).fetchall()
+            return [_jrow(r) for r in rows]
+    except Exception as exc:
+        print(f"{_LOG} active_jobs_for_user error: {exc}")
+        return []
+
+
 def display_jobs() -> list:
     """
     Jobs shown by !queue — upcoming/waiting request rows only.

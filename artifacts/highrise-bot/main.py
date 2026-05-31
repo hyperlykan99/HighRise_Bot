@@ -538,6 +538,7 @@ if _IS_DJ_BOT:
             handle_musicshop       as rc_musicshop,
             handle_buyrequests     as rc_buyrequests,
             handle_buyplays        as rc_buyplays,
+            handle_requester_left  as rc_requester_left,
             startup_radio,
         )
         from modules.radio_rewards import (
@@ -590,7 +591,7 @@ if not _IS_DJ_BOT:
      rc_removefav, rc_playmine, rc_likes, rc_voters, rc_likeslist,
      rc_dislikeslist, rc_topsongs, rc_toprequesters, rc_playedby, rc_myplayed,
      rc_queuelimit, rc_setqueuelimit, rc_radiotutorial, rc_musicshop,
-     rc_buyrequests, rc_buyplays, startup_radio) = (_S,) * 46
+     rc_buyrequests, rc_buyplays, rc_requester_left, startup_radio) = (_S,) * 47
     rr_radiostats = rr_toplisteners = rr_toprequests = rr_topliked = rr_topdisliked = _S
     ra_achievements = _S
 from modules.dm_queue import startup_host_dm_queue_loop
@@ -9130,6 +9131,10 @@ class HangoutBot(BaseBot):
             await handle_poker_user_left(self, user)
         except Exception as _pe:
             print(f"[ON_LEAVE POKER] @{user.username}: {_pe!r}")
+        try:
+            await rc_requester_left(self, user.id, user.username)
+        except Exception as _dj_leave_db:
+            print(f"[ON_LEAVE RADIO] @{user.username}: {_dj_leave_db!r}")
         try:
             await on_request_user_left(self, user.id, user.username)
         except Exception as _dj_leave:

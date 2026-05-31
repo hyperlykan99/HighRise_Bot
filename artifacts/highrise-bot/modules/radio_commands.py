@@ -333,6 +333,53 @@ def _is_staff(username: str) -> bool:
     return is_owner(username) or is_admin(username)
 
 
+def _job_user_matches(job: dict | None, user_id: str) -> bool:
+    return bool(job and (job.get("user_id") or "") == (user_id or ""))
+
+
+def _safe_request_temp_filename(job: dict | None) -> str:
+    """
+    Return a request-temp basename safe for SFTP cleanup, or "".
+
+    Original Azura library paths are never accepted here.
+    """
+    if not job:
+        return ""
+    fn = (job.get("filename") or "").strip()
+    if not fn or "/" in fn or "\\" in fn or not fn.lower().endswith(".mp3"):
+        return ""
+    source = (job.get("source_type") or "").strip().lower()
+    if fn.startswith(("tmp_replay_", "local_request_", "request_")):
+        return fn
+    if source == "youtube":
+        stem = fn[:-4]
+        if 6 <= len(stem) <= 64 and all(ch.isalnum() or ch in "_-" for ch in stem):
+            return fn
+    return ""
+
+
+async def _cleanup_request_temp_media(job: dict | None) -> None:
+    """Best-effort cleanup for cancelled/requester-left request temp media."""
+    if not job:
+        return
+    loop = asyncio.get_running_loop()
+    fid = (job.get("azura_file_id") or "").strip()
+    fn = _safe_request_temp_filename(job)
+    if fid and not fn:
+        print(
+            f"[RADIO_CLEAN] event=temp_remove_failed"
+            f" request_id={job.get('id')}"
+            f" filename={(job.get('filename') or '')!r}"
+            f" reason='unsafe_or_missing_temp_filename'"
+        )
+        return
+    if fid:
+        await loop.run_in_executor(None, azura.clear_file_playlists, fid)
+        await loop.run_in_executor(None, azura.delete_media_file, fid)
+    if fn:
+        await loop.run_in_executor(None, azura.sftp_delete_file, fn)
+
+
 from modules.radio_renderer import _fmt_secs, _progress_bar
 import modules.radio_renderer as rdr
 
@@ -856,7 +903,7 @@ async def handle_nowplaying(bot: "BaseBot", user: "User", _args: list) -> None:
 
 async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
     """
-    !skip — immediately skip the current song (admin+).
+    !skip — staff can skip anything; requesters may skip their own live request.
 
     After a confirmed skip:
     - Matches the NP response against ALL active jobs (ready OR playing) so a
@@ -867,11 +914,8 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
     - Queues file cleanup via playback engine (move to PlayedRequests/, rescan).
     - Logs stage=request_skipped with match_method and prior_status for audit.
     """
-    if not _is_staff(user.username):
-        await _w(bot, user.id, "🔒 Staff only.")
-        return
-
     loop = asyncio.get_running_loop()
+    is_staff_user = _is_staff(user.username)
 
     # Fetch NP BEFORE the skip so we can match what is currently on air.
     np = await loop.run_in_executor(None, azura.fetch_nowplaying)
@@ -890,6 +934,10 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
     cp             = rq.currently_playing()
     job_to_consume = np_match or cp
 
+    if not is_staff_user and not _job_user_matches(job_to_consume, user.id):
+        await _w(bot, user.id, "🎵 That is not your request. Use !voteskip to vote skip.")
+        return
+
     ok = await loop.run_in_executor(None, azura.skip_current)
     if ok:
         if job_to_consume:
@@ -903,6 +951,7 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
                     f" title={job_to_consume.get('title','?')!r}"
                     f" username={job_to_consume.get('username','?')!r}"
                     f" skipped_by={user.username!r}"
+                    f" requester_skip={str(not is_staff_user).lower()}"
                     f" match_method={match_method!r}"
                     f" prior_status={prior_status!r}"
                 )
@@ -918,7 +967,7 @@ async def handle_skip(bot: "BaseBot", user: "User", _args: list) -> None:
 async def handle_remove(bot: "BaseBot", user: "User", args: list) -> None:
     """!remove <#> — cancel a pending request by queue position (admin+)."""
     if not _is_staff(user.username):
-        await _w(bot, user.id, "🔒 Staff only.")
+        await _w(bot, user.id, "🔒 Staff only. Use !cancel to remove your own queued songs.")
         return
 
     pending = rq.pending_jobs()
@@ -1051,6 +1100,96 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
         loop.run_in_executor(None, azura.sftp_delete_file, fn)
 
     await _w(bot, uid, f"✅ Cancelled: {title}{note}")
+
+
+async def handle_requester_left(bot: "BaseBot", user_id: str, username: str) -> None:
+    """
+    Cancel or skip a user's active request rows when they leave the room.
+
+    This is the canonical DB-backed leave handler for the current
+    radio_commands -> request_queue -> yt_request -> playback_engine flow.
+    """
+    if not cs.skip_if_requester_leaves():
+        return
+
+    uid = (user_id or "").strip()
+    if not uid:
+        return
+
+    jobs = rq.active_jobs_for_user(uid)
+    if not jobs:
+        return
+
+    loop = asyncio.get_running_loop()
+    np = await loop.run_in_executor(None, azura.fetch_nowplaying)
+    np_match = engine.match_nowplaying_to_job(np) if np else None
+    cp = rq.currently_playing()
+    current = np_match or cp or {}
+    current_id = int(current.get("id") or 0)
+
+    for job in jobs:
+        jid = int(job.get("id") or 0)
+        if not jid:
+            continue
+
+        requester_name = (job.get("username") or username or "").strip()
+        if requester_name and _is_staff(requester_name) and cs.admin_requests_ignore_leave():
+            continue
+
+        status = (job.get("status") or "").strip().lower()
+        coins = int(job.get("coins_charged") or 0)
+        is_priority = bool(job.get("priority", 0))
+        refund_enabled = cs.refund_if_leaves()
+        refunded_bits: list[str] = []
+
+        async def _refund_if_needed(reason: str) -> None:
+            if not refund_enabled:
+                return
+            if coins > 0:
+                ps.refund(uid, coins, reason)
+                diag.log_radio_event(
+                    "refund",
+                    request_id=jid,
+                    user_id=uid,
+                    coins=coins,
+                    reason=reason,
+                )
+                refunded_bits.append(f"coins:{coins}")
+            if requester_name and not _is_staff(requester_name) and not is_priority:
+                try:
+                    mc.refund_credit(uid, requester_name)
+                    refunded_bits.append("music_credit:1")
+                except Exception as _mce:
+                    print(f"{_LOG} requester_left mc.refund_credit error: {_mce!r}")
+
+        is_current_request = jid == current_id
+        if status == "playing" or is_current_request:
+            if not is_current_request:
+                continue
+            ok = await loop.run_in_executor(None, azura.skip_current)
+            if ok:
+                await _refund_if_needed("requester_left_current")
+                asyncio.create_task(engine.on_request_skipped(bot, jid))
+            print(
+                f"[RADIO_CLEAN] event=requester_left_skip_current"
+                f" request_id={jid}"
+                f" user_id={uid!r}"
+                f" refunded={str(bool(refunded_bits)).lower()}"
+                f" skip_ok={str(bool(ok)).lower()}"
+            )
+            continue
+
+        cancelled = rq.cancel_job(jid, "requester_left")
+        if not cancelled:
+            continue
+        await _refund_if_needed("requester_left")
+        await _cleanup_request_temp_media(cancelled or job)
+        print(
+            f"[RADIO_CLEAN] event=requester_left_cancel"
+            f" request_id={jid}"
+            f" user_id={uid!r}"
+            f" refunded={str(bool(refunded_bits)).lower()}"
+        )
 
 
 # ─── !clearqueue ──────────────────────────────────────────────────────────────
