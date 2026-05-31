@@ -658,7 +658,7 @@ def _delete_request_file(
         )
         return False
 
-    if log_source_type in ("local", "local_copy", "local_replay", "local_favorite") and not is_local_temp:
+    if fn and log_source_type in ("local", "local_copy", "local_replay", "local_favorite") and not is_local_temp:
         _log("cleanup_safety_skip", "fail", reason="local_source_not_protected_temp")
         _harden_log("temp_remove_failed", filename=fn, reason="local_source_not_protected_temp")
         diag.log_radio_event(
@@ -875,6 +875,81 @@ def _delete_request_file(
             temp_path=fn,
         )
         return False
+
+
+async def cleanup_cancelled_request_media(
+    bot: "BaseBot | None",
+    job_or_id: "dict | int",
+    reason: str = "cancelled_by_user",
+) -> bool:
+    """
+    Public cancellation cleanup path for queued/preparing requests.
+
+    Uses the same full Azura/SFTP cleanup sequence as finished/skipped request
+    media. Unsafe local-library filenames are never removed via SFTP; when a
+    media id is available, the Azura media record/playlists can still be
+    removed safely.
+    """
+    if isinstance(job_or_id, dict):
+        job = dict(job_or_id)
+    else:
+        job = _db_get_job(int(job_or_id or 0)) or {}
+
+    job_id = int(job.get("id") or 0)
+    if not job_id:
+        _harden_log("temp_remove_failed", reason="missing_request_id", cleanup_reason=reason)
+        return False
+
+    fid = (job.get("azura_file_id") or "").strip()
+    fn = (job.get("filename") or "").strip()
+    title = (job.get("title") or "?").strip()
+    song_id = (job.get("azura_song_id") or "").strip()
+
+    safe_fn = fn if _is_safe_request_temp_basename(fn) else ""
+    if fn and not safe_fn:
+        _harden_log(
+            "temp_remove_failed",
+            request_id=job_id,
+            filename=fn,
+            reason="unsafe_temp_filename_sftp_skipped",
+            cleanup_reason=reason,
+        )
+
+    if not fid and not safe_fn:
+        _harden_log(
+            "cancel_cleanup_deferred",
+            request_id=job_id,
+            reason="not_uploaded_yet",
+            cleanup_reason=reason,
+        )
+        return False
+
+    _harden_log(
+        "cancel_cleanup_start",
+        request_id=job_id,
+        filename=safe_fn or fn,
+        azura_file_id=fid,
+        azura_song_id=song_id,
+        reason=reason,
+    )
+    loop = asyncio.get_running_loop()
+    removed = await loop.run_in_executor(
+        None,
+        _delete_request_file,
+        job_id,
+        fid,
+        safe_fn,
+        title,
+        song_id,
+    )
+    _harden_log(
+        "cancel_cleanup_done" if removed else "temp_remove_failed",
+        request_id=job_id,
+        filename=safe_fn or fn,
+        removed=bool(removed),
+        reason=reason if not removed else "",
+    )
+    return bool(removed)
 
 
 def _nowplaying_request_state(fid: str, song_id: str, fn: str) -> dict:

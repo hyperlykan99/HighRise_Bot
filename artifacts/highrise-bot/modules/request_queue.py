@@ -865,7 +865,7 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
     3. Refund coins if refund=True (via payment_service).
     4. File cleanup:
        - staged jobs  → delete local staging file (request_staging/<filename>)
-       - done/queued  → delete AzuraCast media (API first, SFTP fallback)
+       - uploaded jobs are returned to the caller for playback_engine cleanup
        Never deletes the currently-playing job.
     5. Count remaining after all cancellations.
     6. Emit structured log: stage=queue_clear.
@@ -883,7 +883,6 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
     """
     import os
     import modules.payment_service as ps
-    import modules.azuracast_controller as azura
 
     # ── 1. Snapshot ───────────────────────────────────────────────────────────
     try:
@@ -909,6 +908,7 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
 
     refunded_coins = 0
     cancelled_ids: list = []
+    cancelled_jobs: list = []
 
     for j in jobs:
         jid    = j["id"]
@@ -919,8 +919,9 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
         status = j.get("status", "")
 
         # ── 2. Cancel in DB ───────────────────────────────────────────────────
-        cancel_job(jid, "cleared_by_admin")
+        cancelled = cancel_job(jid, "cleared_by_admin")
         cancelled_ids.append(jid)
+        cancelled_jobs.append(cancelled or j)
 
         # ── 3. Refund ─────────────────────────────────────────────────────────
         if refund and coins > 0 and uid:
@@ -958,48 +959,11 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
                     f" staging_delete_error jid={jid} fn={fn!r} err={exc!r}"
                 )
 
-        elif status in ("done", "queued", "ready") and fn:
-            # Uploaded file in AzuraCast /Requests — delete via API, SFTP fallback.
-            ok = False
-            if fid:
-                try:
-                    ok = azura.delete_media_file(fid)
-                    print(
-                        f"{_LOG} stage=queue_clear command={command}"
-                        f" api_delete={'ok' if ok else 'fail'}"
-                        f" jid={jid} fid={fid!r}"
-                    )
-                except Exception as exc:
-                    print(
-                        f"{_LOG} stage=queue_clear command={command}"
-                        f" api_delete_error jid={jid} fid={fid!r} err={exc!r}"
-                    )
-            if not ok and fn:
-                try:
-                    if "/" in fn or "\\" in fn:
-                        diag.log_radio_event(
-                            "cleanup_safety_skip",
-                            request_id=jid,
-                            user_id=uid,
-                            temp_path=fn,
-                            source_path="",
-                        )
-                        print(
-                            f"{_LOG} stage=queue_clear command={command}"
-                            f" sftp_delete=skipped_safety jid={jid} fn={fn!r}"
-                        )
-                    else:
-                        ok2 = azura.sftp_delete_file(fn)
-                        print(
-                            f"{_LOG} stage=queue_clear command={command}"
-                            f" sftp_delete={'ok' if ok2 else 'fail'}"
-                            f" jid={jid} fn={fn!r}"
-                        )
-                except Exception as exc:
-                    print(
-                        f"{_LOG} stage=queue_clear command={command}"
-                        f" sftp_delete_error jid={jid} fn={fn!r} err={exc!r}"
-                    )
+        elif status in ("done", "queued", "ready") and (fn or fid):
+            print(
+                f"{_LOG} stage=queue_clear command={command}"
+                f" cleanup_delegated=true jid={jid} fid={fid!r} fn={fn!r}"
+            )
 
     # ── 5. Count after ────────────────────────────────────────────────────────
     try:
@@ -1023,6 +987,7 @@ def queue_clear_all(command: str = "clearqueue", refund: bool = True) -> dict:
         "count_after":    count_after,
         "refunded_coins": refunded_coins,
         "cancelled_ids":  cancelled_ids,
+        "cancelled_jobs": cancelled_jobs,
     }
 
 

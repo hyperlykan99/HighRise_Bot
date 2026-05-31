@@ -1853,6 +1853,17 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
                 f"[RADIO_HARDEN] event=failed_row_not_revived"
                 f" request_id={db_id} old_status={status_after_upload!r} attempted_status='ready'"
             )
+            try:
+                from modules import playback_engine as engine
+                await engine.cleanup_cancelled_request_media(
+                    bot, db_id, reason="terminal_after_upload"
+                )
+            except Exception as cleanup_exc:
+                print(
+                    f"[RADIO_CLEAN] event=temp_remove_failed"
+                    f" request_id={db_id} reason='terminal_after_upload_cleanup_error'"
+                    f" error={cleanup_exc!r}"
+                )
             return
         with sqlite3.connect(_DB_PATH) as conn:
             _az_row = conn.execute(
@@ -2020,6 +2031,17 @@ async def process_existing_request_file(
                 f"[RADIO_HARDEN] event=failed_row_not_revived"
                 f" request_id={db_id} old_status={status!r} attempted_status='ready'"
             )
+            try:
+                from modules import playback_engine as engine
+                await engine.cleanup_cancelled_request_media(
+                    bot, db_id, reason="terminal_after_upload"
+                )
+            except Exception as cleanup_exc:
+                print(
+                    f"[RADIO_CLEAN] event=temp_remove_failed"
+                    f" request_id={db_id} reason='terminal_after_upload_cleanup_error'"
+                    f" error={cleanup_exc!r}"
+                )
             return False
 
         with sqlite3.connect(_DB_PATH) as conn:
@@ -2101,6 +2123,17 @@ async def process_staged_existing_mp3(
                 f"[RADIO_HARDEN] event=failed_row_not_revived"
                 f" request_id={db_id} old_status={status!r} attempted_status='ready'"
             )
+            try:
+                from modules import playback_engine as engine
+                await engine.cleanup_cancelled_request_media(
+                    bot, db_id, reason="terminal_after_upload"
+                )
+            except Exception as cleanup_exc:
+                print(
+                    f"[RADIO_CLEAN] event=temp_remove_failed"
+                    f" request_id={db_id} reason='terminal_after_upload_cleanup_error'"
+                    f" error={cleanup_exc!r}"
+                )
             return False
 
         with sqlite3.connect(_DB_PATH) as conn:

@@ -365,49 +365,6 @@ def _job_used_music_credit(job: dict | None, requester_name: str = "") -> bool:
     return False
 
 
-def _safe_request_temp_filename(job: dict | None) -> str:
-    """
-    Return a request-temp basename safe for SFTP cleanup, or "".
-
-    Original Azura library paths are never accepted here.
-    """
-    if not job:
-        return ""
-    fn = (job.get("filename") or "").strip()
-    if not fn or "/" in fn or "\\" in fn or not fn.lower().endswith(".mp3"):
-        return ""
-    source = (job.get("source_type") or "").strip().lower()
-    if fn.startswith(("tmp_replay_", "local_request_", "request_")):
-        return fn
-    if source == "youtube":
-        stem = fn[:-4]
-        if 6 <= len(stem) <= 64 and all(ch.isalnum() or ch in "_-" for ch in stem):
-            return fn
-    return ""
-
-
-async def _cleanup_request_temp_media(job: dict | None) -> None:
-    """Best-effort cleanup for cancelled/requester-left request temp media."""
-    if not job:
-        return
-    loop = asyncio.get_running_loop()
-    fid = (job.get("azura_file_id") or "").strip()
-    fn = _safe_request_temp_filename(job)
-    if fid and not fn:
-        print(
-            f"[RADIO_CLEAN] event=temp_remove_failed"
-            f" request_id={job.get('id')}"
-            f" filename={(job.get('filename') or '')!r}"
-            f" reason='unsafe_or_missing_temp_filename'"
-        )
-        return
-    if fid:
-        await loop.run_in_executor(None, azura.clear_file_playlists, fid)
-        await loop.run_in_executor(None, azura.delete_media_file, fid)
-    if fn:
-        await loop.run_in_executor(None, azura.sftp_delete_file, fn)
-
-
 from modules.radio_renderer import _fmt_secs, _progress_bar
 import modules.radio_renderer as rdr
 
@@ -1049,14 +1006,11 @@ async def handle_remove(bot: "BaseBot", user: "User", args: list) -> None:
         except Exception as _mce:
             print(f"{_LOG} handle_remove mc.refund_credit error: {_mce!r}")
 
-    # Best-effort file cleanup
-    loop = asyncio.get_running_loop()
-    fid  = (job.get("azura_file_id") or "").strip()
-    fn   = (job.get("filename")      or "").strip()
-    if fid:
-        loop.run_in_executor(None, azura.delete_media_file, fid)
-    elif fn:
-        loop.run_in_executor(None, azura.sftp_delete_file, fn)
+    await engine.cleanup_cancelled_request_media(
+        bot,
+        cancelled or job,
+        reason="removed_by_admin",
+    )
 
     await _w(bot, user.id, f"✅ Removed: {title}{note}")
 
@@ -1152,13 +1106,11 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
         mc.refund_credit(uid, user.username)
         note += "\n🎟 1 music request refunded."
 
-    loop = asyncio.get_running_loop()
-    fid  = (job.get("azura_file_id") or "").strip()
-    fn   = (job.get("filename")      or "").strip()
-    if fid:
-        loop.run_in_executor(None, azura.delete_media_file, fid)
-    elif fn:
-        loop.run_in_executor(None, azura.sftp_delete_file, fn)
+    await engine.cleanup_cancelled_request_media(
+        bot,
+        cancelled or job,
+        reason="cancelled_by_user",
+    )
 
     print(
         f"[RADIO_CANCEL] stage=cancel_request"
@@ -1250,7 +1202,11 @@ async def handle_requester_left(bot: "BaseBot", user_id: str, username: str) -> 
         if not cancelled:
             continue
         await _refund_if_needed("requester_left")
-        await _cleanup_request_temp_media(cancelled or job)
+        await engine.cleanup_cancelled_request_media(
+            bot,
+            cancelled or job,
+            reason="requester_left",
+        )
         print(
             f"[RADIO_CLEAN] event=requester_left_cancel"
             f" request_id={jid}"
@@ -1284,6 +1240,13 @@ async def handle_clearqueue(bot: "BaseBot", user: "User", _args: list) -> None:
     if count == 0:
         await _w(bot, user.id, "✅ Queue is already empty.")
         return
+
+    for job in result.get("cancelled_jobs", []):
+        await engine.cleanup_cancelled_request_media(
+            bot,
+            job,
+            reason="cleared_by_admin",
+        )
 
     await ann.announce_queue_cleared(bot, count, ref)
 
