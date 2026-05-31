@@ -1044,10 +1044,31 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
                    and j.get("status") not in ("playing",)]
 
     if not user_jobs:
+        current = rq.currently_playing()
+        if _job_user_matches(current, uid):
+            print(
+                f"[RADIO_CANCEL] stage=cancel_failed"
+                f" reason='request_already_playing'"
+                f" request_id={current.get('id')}"
+                f" user={user.username!r}"
+            )
+            await _w(bot, uid, "🎵 Your request is already playing. Use !skip to skip it.")
+            return
+        print(
+            f"[RADIO_CANCEL] stage=cancel_failed"
+            f" reason='no_cancelable_requests'"
+            f" user={user.username!r}"
+        )
         await _w(bot, uid, "📋 You have no pending requests to cancel.")
         return
 
     if len(user_jobs) > 1 and (len(args) < 2 or not args[1].isdigit()):
+        print(
+            f"[RADIO_CANCEL] stage=cancel_failed"
+            f" reason='multiple_requests_need_index'"
+            f" user={user.username!r}"
+            f" count={len(user_jobs)}"
+        )
         lines = [f"📋 Your requests (use !cancel <#>):"]
         for i, j in enumerate(user_jobs, 1):
             t = (j.get("title") or "downloading…")[:30]
@@ -1058,6 +1079,13 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
     if len(args) > 1 and args[1].isdigit():
         idx = int(args[1]) - 1
         if idx < 0 or idx >= len(user_jobs):
+            print(
+                f"[RADIO_CANCEL] stage=cancel_failed"
+                f" reason='invalid_index'"
+                f" user={user.username!r}"
+                f" requested={args[1]!r}"
+                f" count={len(user_jobs)}"
+            )
             await _w(bot, uid, f"⚠️ You have {len(user_jobs)} request(s). Use !cancel 1–{len(user_jobs)}.")
             return
         job = user_jobs[idx]
@@ -1071,6 +1099,12 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
 
     cancelled = rq.cancel_job(jid, "cancelled_by_user")
     if not cancelled:
+        print(
+            f"[RADIO_CANCEL] stage=cancel_failed"
+            f" reason='cancel_race_or_started'"
+            f" request_id={jid}"
+            f" user={user.username!r}"
+        )
         await _w(bot, uid, "⚠️ Could not cancel — it may have just started playing.")
         return
 
@@ -1099,6 +1133,12 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
     elif fn:
         loop.run_in_executor(None, azura.sftp_delete_file, fn)
 
+    print(
+        f"[RADIO_CANCEL] stage=cancel_request"
+        f" request_id={jid}"
+        f" result=success"
+        f" user={user.username!r}"
+    )
     await _w(bot, uid, f"✅ Cancelled: {title}{note}")
 
 

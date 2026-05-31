@@ -4258,6 +4258,15 @@ class HangoutBot(BaseBot):
             await start_player_emote(self, user, cmd)
             return
 
+        # !cancel is a DJ radio command. Route it before the dynamic multi-bot
+        # gate and before older generic/jail cancel handlers can claim it.
+        if cmd == "cancel":
+            if BOT_MODE != "dj":
+                return
+            print(f"[RADIO_CANCEL] stage=route command=cancel user={user.username!r}")
+            await dispatch_radio_command(self, user, args, cmd)
+            return
+
         # Local replay is a DJ-owned command family. Route through the canonical
         # radio registry before the dynamic multi-bot gate so stale DB ownership
         # rows cannot swallow it.
