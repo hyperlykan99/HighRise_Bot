@@ -337,6 +337,34 @@ def _job_user_matches(job: dict | None, user_id: str) -> bool:
     return bool(job and (job.get("user_id") or "") == (user_id or ""))
 
 
+def _normal_request_payment_type(
+    *,
+    is_staff: bool = False,
+    priority: int = 0,
+    credit_consumed: bool = False,
+) -> str:
+    if priority:
+        return "priority_luxe"
+    if is_staff:
+        return "staff_free"
+    if credit_consumed:
+        return "music_credit"
+    return "free"
+
+
+def _job_used_music_credit(job: dict | None, requester_name: str = "") -> bool:
+    if not job:
+        return False
+    payment_type = (job.get("payment_type") or "").strip().lower()
+    if payment_type in ("music_credit", "song_play", "song_play_credit"):
+        return True
+    # Compatibility for recent rows created before payment_type was explicit.
+    if payment_type in ("", "free") and not bool(job.get("priority", 0)):
+        name = (requester_name or job.get("username") or "").strip()
+        return bool(name and not _is_staff(name) and int(job.get("coins_charged") or 0) == 0)
+    return False
+
+
 def _safe_request_temp_filename(job: dict | None) -> str:
     """
     Return a request-temp basename safe for SFTP cleanup, or "".
@@ -547,16 +575,16 @@ async def _submit_url(
             return False
         _credit_consumed = True
 
-    # Price + payment
-    price = ps.request_cost_for(uname)
-    ok, err = ps.charge(uid, price)
-    if not ok:
-        if _credit_consumed:
-            mc.refund_credit(uid, uname)
-        await _w(bot, uid, f"💸 {err}")
-        return False
+    # Normal requests are paid with Song Plays only. Priority requests were
+    # already paid with Luxe Tickets by the caller; staff requests are free.
+    price = 0
+    payment_type = _normal_request_payment_type(
+        is_staff=is_staff,
+        priority=priority,
+        credit_consumed=_credit_consumed,
+    )
 
-    # Update cooldown after successful charge
+    # Update cooldown after successful credit/ticket handling.
     _cooldowns[uid] = time.time()
 
     # Compute queue position: count only future songs, excluding currently playing
@@ -589,7 +617,7 @@ async def _submit_url(
     request_id = rq.submit_job(
         bot, uid, uname, url,
         coins_charged=price,
-        payment_type="paid" if price > 0 else "free",
+        payment_type=payment_type,
         priority=priority,
     )
     print(
@@ -1012,10 +1040,9 @@ async def handle_remove(bot: "BaseBot", user: "User", args: list) -> None:
         )
         note = f" ({coins:,} coins refunded)"
 
-    # Refund music request credit if the requester was not a staff member
-    # (staff requests bypass the credit system, so no credit to refund).
+    # Refund Song Play only for rows that were paid with a music credit.
     req_uname = (job.get("username") or "").strip()
-    if req_uname and not _is_staff(req_uname):
+    if _job_used_music_credit(job, req_uname):
         try:
             mc.refund_credit(uid, req_uname)
             note += " + 1 play refunded"
@@ -1120,8 +1147,8 @@ async def handle_cancel(bot: "BaseBot", user: "User", args: list) -> None:
         )
         note = f"\n💸 {coins:,} coins refunded."
 
-    # Refund music request credit (non-staff, non-priority requests only)
-    if not _is_staff(user.username) and not is_priority:
+    # Refund Song Play only for rows that were paid with a music credit.
+    if _job_used_music_credit(job, user.username) and not is_priority:
         mc.refund_credit(uid, user.username)
         note += "\n🎟 1 music request refunded."
 
@@ -1195,7 +1222,7 @@ async def handle_requester_left(bot: "BaseBot", user_id: str, username: str) -> 
                     reason=reason,
                 )
                 refunded_bits.append(f"coins:{coins}")
-            if requester_name and not _is_staff(requester_name) and not is_priority:
+            if _job_used_music_credit(job, requester_name) and not is_priority:
                 try:
                     mc.refund_credit(uid, requester_name)
                     refunded_bits.append("music_credit:1")
@@ -2450,13 +2477,11 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
             except Exception:
                 _plays_left_after = None
 
-        price = ps.request_cost_for(uname)
-        ok, err = ps.charge(uid, price)
-        if not ok:
-            if _cr_consumed:
-                mc.refund_credit(uid, uname)
-            await _w(bot, uid, f"💸 {err}")
-            return
+        price = 0
+        payment_type = _normal_request_payment_type(
+            is_staff=is_stf,
+            credit_consumed=_cr_consumed,
+        )
 
         _cooldowns[uid] = time.time()
         _pos = rq.future_count() + 1
@@ -2466,7 +2491,7 @@ async def handle_playfav(bot: "BaseBot", user: "User", args: list) -> None:
             bot, user, fav, pos,
             credit_consumed=_cr_consumed,
             coins_charged=price,
-            payment_type="paid" if price > 0 else "free",
+            payment_type=payment_type,
             queue_position=_pos,
             staff_free=is_stf,
             plays_left=_plays_left_after,
@@ -2828,13 +2853,11 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                     plays_left = mc.get_credits(uid, uname)["total"]
                 except Exception:
                     plays_left = None
-            price = ps.request_cost_for(uname)
-            ok, err = ps.charge(uid, price)
-            if not ok:
-                if credit_used:
-                    mc.refund_credit(uid, uname)
-                await _w(bot, uid, f"💸 {err}")
-                return
+            price = 0
+            payment_type = _normal_request_payment_type(
+                is_staff=is_stf,
+                credit_consumed=credit_used,
+            )
             _cooldowns[uid] = time.time()
             from modules.local_replay import queue_local_fav as _ql
             await _ql(
@@ -2849,7 +2872,7 @@ async def handle_playlist(bot: "BaseBot", user: "User", args: list) -> None:
                 song_idx,
                 credit_consumed=credit_used,
                 coins_charged=price,
-                payment_type="paid" if price > 0 else "free",
+                payment_type=payment_type,
                 queue_position=rq.future_count() + 1,
                 staff_free=is_stf,
                 plays_left=plays_left,
