@@ -4203,14 +4203,23 @@ function renderRadioRequests(d) {
         <form id="radioSettingsForm" class="settings-form">
           ${settingInput("max_active_queue", "Queue Limit", s.max_active_queue ?? 20)}
           ${settingInput("per_user_queue_limit", "Per User Limit", s.per_user_queue_limit ?? 3)}
-          ${settingInput("request_cooldown", "Request Cooldown", s.request_cooldown ?? 300)}
-          ${settingInput("request_price", "Request Price", s.request_price ?? 500)}
-          ${settingInput("voteskip_threshold", "Voteskip Threshold", s.voteskip_threshold ?? 3)}
-          <label class="switch"><input type="checkbox" name="skip_on_leave" ${String(s.skip_on_leave) !== "false" ? "checked" : ""}/><span>Skip if requester leaves</span></label>
-          <label class="switch"><input type="checkbox" name="refund_on_leave" ${String(s.refund_on_leave) !== "false" ? "checked" : ""}/><span>Refund if requester leaves</span></label>
-          <label class="switch"><input type="checkbox" name="admin_ignore_leave" ${String(s.admin_ignore_leave) !== "false" ? "checked" : ""}/><span>Staff requests ignore leave</span></label>
+          ${settingInput("request_cooldown", "Cooldown Seconds", s.request_cooldown ?? 300)}
+          ${settingInput("voteskip_threshold", "Vote Skip Required Players", s.voteskip_threshold ?? 3)}
+          <label class="switch"><input type="checkbox" name="skip_on_leave" ${String(s.skip_on_leave) !== "false" ? "checked" : ""}/><span>Skip Request if Requester Leaves</span></label>
+          <label class="switch"><input type="checkbox" name="refund_on_leave" ${String(s.refund_on_leave) !== "false" ? "checked" : ""}/><span>Refund Song Play if Requester Leaves</span></label>
+          <label class="switch"><input type="checkbox" name="admin_ignore_leave" ${String(s.admin_ignore_leave) !== "false" ? "checked" : ""}/><span>Admin Requests Ignore Leave Rule</span></label>
           <button class="btn primary">Save Request Settings</button>
         </form>
+      </div>
+      <div class="card">
+        <h2>Payment Model</h2>
+        <div class="status-grid">
+          <div><span class="muted">Normal Requests</span><strong>📀 Song Plays only</strong></div>
+          <div><span class="muted">Legacy ChillCoin Request Price</span><strong>Ignored</strong></div>
+          <div><span class="muted">Legacy DB Value</span><strong>${esc(s.request_price_legacy ?? 0)}</strong></div>
+          <div><span class="muted">Max Duration</span><strong>${esc(s.request_max_duration ?? 600)} sec</strong></div>
+        </div>
+        <div class="notice">Normal <code>!play</code>, <code>!pick</code>, and favorites consume 📀 Song Plays. Priority requests still use Luxe Tickets.</div>
       </div>
     </div>
     ${futureControls([
@@ -8563,7 +8572,6 @@ function bindAdminPageEvents() {
           max_active_queue: data.max_active_queue,
           per_user_queue_limit: data.per_user_queue_limit,
           request_cooldown: data.request_cooldown,
-          request_price: data.request_price,
           voteskip_threshold: data.voteskip_threshold,
           skip_on_leave: form.elements.skip_on_leave?.checked,
           refund_on_leave: form.elements.refund_on_leave?.checked,

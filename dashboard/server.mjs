@@ -1313,7 +1313,9 @@ function readLocalRadioStatus(db) {
     max_active_queue: getSetting(db, "radio_max_active_queue", "20"),
     per_user_queue_limit: getSetting(db, "radio_per_user_queue_limit", "3"),
     request_cooldown: getSetting(db, "radio_request_cooldown", "300"),
-    request_price: getSetting(db, "radio_request_price", "500"),
+    request_price_legacy: getSetting(db, "radio_request_price", "500"),
+    request_payment_model: "song_plays",
+    request_max_duration: process.env.REQUEST_MAX_DURATION || "600",
     voteskip_threshold: getSetting(db, "radio_voteskip_threshold", "3"),
     skip_on_leave: getSetting(db, "radio_skip_on_leave", "true"),
     refund_on_leave: getSetting(db, "radio_refund_on_leave", "true"),
@@ -6304,7 +6306,6 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     max_active_queue: { key: "radio_max_active_queue", min: 1, max: 50 },
     per_user_queue_limit: { key: "radio_per_user_queue_limit", min: 0, max: 20 },
     request_cooldown: { key: "radio_request_cooldown", min: 30, max: 86400 },
-    request_price: { key: "radio_request_price", min: 0, max: 1000000 },
     voteskip_threshold: { key: "radio_voteskip_threshold", min: 2, max: 25 },
   };
   const updates = {};
