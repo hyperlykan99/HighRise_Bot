@@ -457,6 +457,64 @@ def _render_request_history_pages(rows: list[dict], title: str, staff: bool = Fa
     return pages
 
 
+def _radio_audit_label(row: dict) -> str:
+    status = (row.get("status") or "").strip().lower()
+    err = (row.get("error") or "").strip().lower()
+    cleaned = (row.get("cleaned_at") or "").strip()
+    played = (row.get("played_at") or row.get("finished_at") or "").strip()
+
+    if status in ("pending", "processing", "downloading", "downloaded", "uploading", "indexing", "staged"):
+        return "queued/preparing"
+    if status in ("ready", "queued", "submitted"):
+        return "ready"
+    if status == "playing":
+        return "playing"
+    if cleaned:
+        return "cleanup done"
+    if status in ("played", "done") or played:
+        return "played"
+    if "requester_left" in err or "left" in err:
+        return "requester-left cancelled"
+    if "skip" in err:
+        return "skipped"
+    if "cleanup" in err and ("fail" in err or "error" in err):
+        return "cleanup failed"
+    if "cancel" in err or "remove" in err or "clear" in err or status == "cancelled":
+        return "cancelled"
+    if "refund" in err:
+        return "refunded Song Play"
+    if status in ("failed", "failed_download", "error"):
+        return "failed/refunded"
+    if status == "duplicate_superseded":
+        return "duplicate suppressed"
+    return status or "request event"
+
+
+def _render_radio_audit_pages(rows: list[dict]) -> list[str]:
+    lines = ["🧾 Radio Audit"]
+    for row in rows:
+        rid = row.get("id") or "?"
+        label = _radio_audit_label(row)
+        song = (row.get("title") or "Untitled").strip()
+        if len(song) > 28:
+            song = song[:27] + "…"
+        who = (row.get("username") or "Unknown")[:14]
+        lines.append(f"#{rid} @{who} — {label}: {song}")
+
+    pages: list[str] = []
+    page = ""
+    for line in lines:
+        candidate = f"{page}\n{line}" if page else line
+        if len(candidate) > 245 and page:
+            pages.append(page)
+            page = line
+        else:
+            page = candidate
+    if page:
+        pages.append(page)
+    return pages
+
+
 def _split_search_pages(results: list[dict], max_secs: int) -> list[str]:
     footer = "Reply: !pick 1-5"
     body_pages: list[list[str]] = []
@@ -1336,6 +1394,29 @@ async def handle_history(bot: "BaseBot", user: "User", _args: list) -> None:
         await _w(bot, user.id, msg)
         if i < len(pages) - 1:
             await asyncio.sleep(0.1)
+
+
+async def handle_radiolog(bot: "BaseBot", user: "User", args: list) -> None:
+    """!radiolog — staff view of recent radio request lifecycle/audit events."""
+    if not _is_staff(user.username):
+        await _w(bot, user.id, "🔒 Staff only.")
+        return
+
+    limit = 10
+    if len(args) >= 2:
+        try:
+            limit = max(5, min(20, int(args[1])))
+        except Exception:
+            limit = 10
+
+    rows = rq.room_request_history(limit)
+    if not rows:
+        await _w(bot, user.id, "🧾 No radio audit events yet.")
+        return
+
+    print(f"{_LOG} stage=radiolog user={user.username!r} rows={len(rows)}")
+    pages = _render_radio_audit_pages(rows)
+    await _send_pages(bot, user.id, pages)
 
 
 # ─── !voteskip ────────────────────────────────────────────────────────────────
@@ -3264,6 +3345,7 @@ handle_skip            = _safe(handle_skip)
 handle_remove          = _safe(handle_remove)
 handle_clearqueue      = _safe(handle_clearqueue)
 handle_history         = _safe(handle_history)
+handle_radiolog        = _safe(handle_radiolog)
 handle_voteskip        = _safe(handle_voteskip)
 handle_vibes           = _safe(handle_vibes)
 handle_vibe            = _safe(handle_vibe)

@@ -128,6 +128,14 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             module="modules.radio_commands",
         ),
         RadioCommandEntry(
+            command="radiolog",
+            aliases=("radioaudit",),
+            owner="dj",
+            permission="staff",
+            handler=rc.handle_radiolog,
+            module="modules.radio_commands",
+        ),
+        RadioCommandEntry(
             command="queuelimit",
             aliases=("setqueuelimit",),
             owner="dj",
