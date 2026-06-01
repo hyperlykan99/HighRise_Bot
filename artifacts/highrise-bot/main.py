@@ -8502,7 +8502,7 @@ class HangoutBot(BaseBot):
         elif cmd == "clearrequests":
             await handle_clearrequests(self, user, args)
         elif cmd == "requesthistory":
-            await handle_requesthistory(self, user, args)
+            await rc_history(self, user, args)
         elif cmd == "requestcleanup":
             await handle_requestcleanup(self, user, args)
         elif cmd == "playedrequests":

@@ -1096,6 +1096,55 @@ def recent_history(limit: int = 10) -> list:
         return []
 
 
+_HISTORY_COLS = (
+    "id", "user_id", "username", "title", "status", "error", "source_type",
+    "payment_type", "priority", "started_at", "finished_at", "played_at", "cleaned_at",
+)
+_HISTORY_SEL = (
+    "id, user_id, username, title, status, COALESCE(error, '') AS error, "
+    "COALESCE(source_type, '') AS source_type, COALESCE(payment_type, '') AS payment_type, "
+    "COALESCE(priority, 0) AS priority, started_at, finished_at, played_at, cleaned_at"
+)
+
+
+def _history_row(row) -> dict:
+    return dict(zip(_HISTORY_COLS, row))
+
+
+def user_request_history(user_id: str, limit: int = 8) -> list:
+    """Recent request lifecycle rows for one user, newest first."""
+    uid = (user_id or "").strip()
+    if not uid:
+        return []
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {_HISTORY_SEL} FROM yt_request_jobs "
+                "WHERE user_id=? "
+                "ORDER BY id DESC LIMIT ?",
+                (uid, int(limit)),
+            ).fetchall()
+            return [_history_row(r) for r in rows]
+    except Exception as exc:
+        print(f"{_LOG} user_request_history error: {exc}")
+        return []
+
+
+def room_request_history(limit: int = 12) -> list:
+    """Recent room request lifecycle rows, newest first."""
+    try:
+        with db.db_conn() as conn:
+            rows = conn.execute(
+                f"SELECT {_HISTORY_SEL} FROM yt_request_jobs "
+                "ORDER BY id DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+            return [_history_row(r) for r in rows]
+    except Exception as exc:
+        print(f"{_LOG} room_request_history error: {exc}")
+        return []
+
+
 # ─── Dedup + ban checks (delegate to yt_request) ─────────────────────────────
 
 def check_dedup(url: str, window_secs: int) -> "dict | None":

@@ -403,6 +403,60 @@ async def _send_pages(bot: "BaseBot", uid: str, pages: list[str]) -> None:
         await asyncio.sleep(0.05)
 
 
+def _request_history_status(row: dict) -> str:
+    status = (row.get("status") or "").strip().lower()
+    err = (row.get("error") or "").strip().lower()
+    if status in ("ready", "queued", "submitted"):
+        return "✅ ready"
+    if status in ("pending", "processing", "downloading", "downloaded", "uploading", "indexing", "staged"):
+        return "⏳ preparing"
+    if status == "playing":
+        return "▶️ playing"
+    if status in ("played", "done"):
+        return "🎧 played"
+    if status == "cleaned":
+        return "🧹 cleaned"
+    if status in ("failed", "failed_download", "skipped"):
+        return f"⚠️ {status.replace('_', ' ')}"
+    if status in ("error", "cancelled"):
+        if "left" in err:
+            return "↩️ requester left"
+        if "skip" in err:
+            return "⏭️ skipped"
+        if "cancel" in err or "remove" in err or "clear" in err:
+            return "❌ cancelled"
+        if "refund" in err:
+            return "↩️ refunded"
+        return "⚠️ failed"
+    return status or "unknown"
+
+
+def _render_request_history_pages(rows: list[dict], title: str, staff: bool = False) -> list[str]:
+    lines = [title]
+    for row in rows:
+        label = _request_history_status(row)
+        song = (row.get("title") or "Untitled").strip()
+        if len(song) > 34:
+            song = song[:33] + "…"
+        who = f"@{(row.get('username') or 'Unknown')[:14]} — " if staff else ""
+        source = (row.get("source_type") or "").strip()
+        prefix = "📀 " if source in ("local_replay", "local_copy", "local_favorite") else ""
+        lines.append(f"{label} {who}{prefix}{song}")
+
+    pages: list[str] = []
+    page = ""
+    for line in lines:
+        candidate = f"{page}\n{line}" if page else line
+        if len(candidate) > 245 and page:
+            pages.append(page)
+            page = line
+        else:
+            page = candidate
+    if page:
+        pages.append(page)
+    return pages
+
+
 def _split_search_pages(results: list[dict], max_secs: int) -> list[str]:
     footer = "Reply: !pick 1-5"
     body_pages: list[list[str]] = []
@@ -1254,7 +1308,20 @@ async def handle_clearqueue(bot: "BaseBot", user: "User", _args: list) -> None:
 # ─── !history ─────────────────────────────────────────────────────────────────
 
 async def handle_history(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!history — last 8 played requests, paginated 4-per-page."""
+    """!history — last 8 played requests; !radiohistory/!requesthistory — staff audit view."""
+    cmd = ((_args or ["history"])[0] or "history").lower()
+    if cmd in ("radiohistory", "requesthistory"):
+        if not _is_staff(user.username):
+            await _w(bot, user.id, "🔒 Staff only.")
+            return
+        rows = rq.room_request_history(10)
+        if not rows:
+            await _w(bot, user.id, "📜 No request history yet.")
+            return
+        pages = _render_request_history_pages(rows, title="📜 Radio Request History", staff=True)
+        await _send_pages(bot, user.id, pages)
+        return
+
     history = rq.recent_history(8)
     if not history:
         await _w(bot, user.id, "📜 No request history yet. Be the first to request a song!")
@@ -2493,26 +2560,27 @@ async def handle_playmine(bot: "BaseBot", user: "User", args: list) -> None:
 # ─── !myrequests ─────────────────────────────────────────────────────────────
 
 async def handle_myrequests(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!myrequests — show Song Play credit balance."""
+    """!myrequests — show Song Play balance plus recent request lifecycle."""
     _rlog("myrequests", "handle_myrequests", user.username)
+    history = rq.user_request_history(user.id, 6)
     if _is_staff(user.username):
-        await _w(
-            bot, user.id,
-            "💿 Song Plays: Unlimited\n"
-            "🛠️ Staff: Free\n"
-            "⚡ Priority: Free (Staff)",
-        )
+        pages = ["💿 Song Plays: Unlimited\n🛠️ Staff: Free\n⚡ Priority: Free (Staff)"]
+        if history:
+            pages.extend(_render_request_history_pages(history, title="📜 Your Recent Requests", staff=False))
+        await _send_pages(bot, user.id, pages)
         return
     c = mc.get_credits(user.id, user.username)
-    await _w(
-        bot, user.id,
+    pages = [
         f"💿 Song Plays:\n"
         f"Free: {c['free']}\n"
         f"👑 VIP: {c['vip']}\n"
         f"Bought: {c['purchased']}\n"
         f"⚡ Priority: 100 🎟️\n"
-        f"Buy more: !musicshop",
-    )
+        f"Buy more: !musicshop"
+    ]
+    if history:
+        pages.extend(_render_request_history_pages(history, title="📜 Your Recent Requests", staff=False))
+    await _send_pages(bot, user.id, pages)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
