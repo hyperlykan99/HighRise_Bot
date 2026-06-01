@@ -235,6 +235,15 @@ def _fav_remove_title(user_id: str, title: str) -> bool:
         return False
 
 
+def _favorite_source_icon(row: dict) -> str:
+    source = (row.get("source_type") or "").strip().lower()
+    if source in ("local", "local_favorite", "local_replay", "local_request") or row.get("azura_file_id"):
+        return "📀"
+    if row.get("url"):
+        return "▶️"
+    return "🎵"
+
+
 def _rate(user_id: str, username: str, key: str, rating: str) -> str:
     """Upsert into dj_ratings. Returns 'added'|'changed'|'same'|'error'."""
     try:
@@ -1810,7 +1819,7 @@ async def handle_radiohelp(bot: "BaseBot", user: "User", _args: list) -> None:
         "📜 !queue — See request queue\n"
         "🎧 !np — Current song\n"
         "📀 !vibe status — Current vibe\n"
-        "⭐ !fav / !favorite — Save current song\n"
+        "⭐ !favnow / !favorite — Save current song\n"
         "📂 !playlist — VIP playlists",
     )
     await asyncio.sleep(0.2)
@@ -1888,7 +1897,7 @@ async def handle_radiotutorial(bot: "BaseBot", user: "User", _args: list) -> Non
 
         "🎧 Tutorial (5/7)\n"
         "Step 5: Save songs you love\n"
-        "→ !fav / !favorite  saves current song\n"
+        "→ !favnow / !favorite  saves current song\n"
         "→ !favorites        view saved songs\n"
         "→ !playfav #        re-play a saved song",
 
@@ -2336,7 +2345,7 @@ async def handle_dislikeslist(bot: "BaseBot", user: "User", _args: list) -> None
 # ─── !favorite / !fav / !addtoplaylist ───────────────────────────────────────
 
 async def handle_favorite(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!favorite / !fav / !addtoplaylist — save current AzuraCast track to favorites."""
+    """!favorite / !fav / !favnow — save current AzuraCast track to favorites."""
     _rlog("favorite", "handle_favorite", user.username)
     loop  = asyncio.get_running_loop()
     track = await loop.run_in_executor(None, _azura_track)
@@ -2374,7 +2383,7 @@ async def handle_unfavorite(bot: "BaseBot", user: "User", _args: list) -> None:
 # ─── !favorites / !favs / !myplaylist ────────────────────────────────────────
 
 async def handle_favorites(bot: "BaseBot", user: "User", _args: list) -> None:
-    """!favorites / !favs — list your saved songs, 4 per page (newest first)."""
+    """!favorites / !favs — list your saved songs, 5 per page (newest first)."""
     _rlog("favorites", "handle_favorites", user.username)
     rows = _fav_get(user.id, limit=20)
     if not rows:
@@ -2382,10 +2391,11 @@ async def handle_favorites(bot: "BaseBot", user: "User", _args: list) -> None:
         return
     items: list[str] = []
     for i, r in enumerate(rows, 1):
-        t = (r.get("title") or "?")[:28]
-        a = (r.get("artist") or "")[:14]
-        items.append(f"{i}. {t}" + (f" — {a}" if a else ""))
-    chunk_size  = 4
+        t = (r.get("title") or "?")[:25]
+        a = (r.get("artist") or "")[:12]
+        icon = _favorite_source_icon(r)
+        items.append(f"{i}. {icon} {t}" + (f" — {a}" if a else ""))
+    chunk_size  = 5
     chunks      = [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
     total_pages = len(chunks)
     for pg, chunk in enumerate(chunks, 1):
@@ -2395,7 +2405,7 @@ async def handle_favorites(bot: "BaseBot", user: "User", _args: list) -> None:
         if pg < total_pages:
             await asyncio.sleep(0.1)
     await asyncio.sleep(0.05)
-    await _w(bot, user.id, "!playfav <#>  !unfav <#>  !fav")
+    await _w(bot, user.id, "!playfav <#>  !removefav <#>  !favnow")
 
 
 # ─── !removefavorite <number> ────────────────────────────────────────────────

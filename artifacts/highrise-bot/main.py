@@ -1881,7 +1881,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "djstats", "djprice",
     "djleaderboard", "djtop",
     "priorityqueue", "pqueue",
-    "favorite", "unfavorite", "favorites",
+    "favorite", "favnow", "unfavorite", "favorites",
     "like", "dislike", "songrating",
     "topsongs", "toprequesters",
     "radiostats", "toplisteners",
@@ -1902,7 +1902,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "localmediascan", "localmediastatus", "localmediafind",
     "removefav", "delfav", "deletefav",
     "removefavorite",
-    "fav", "addtoplaylist",
+    "fav", "favnow", "addtoplaylist",
     "favs",
     "radiotutorial",
     "musicshop",
@@ -8305,7 +8305,7 @@ class HangoutBot(BaseBot):
             await handle_dj_stats(self, user)
         elif cmd in ("priority", "pr", "priorityreq"):
             await rc_priority(self, user, args)
-        elif cmd in ("favorite", "fav", "addtoplaylist"):
+        elif cmd in ("favorite", "fav", "favnow", "addtoplaylist"):
             await rc_favorite(self, user, args)
         elif cmd == "save":
             await rc_save(self, user, args)
