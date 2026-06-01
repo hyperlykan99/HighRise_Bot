@@ -110,6 +110,44 @@ def _is_youtube_playlist_url(url: str) -> bool:
         or "start_radio=1" in u
     )
 
+
+_LOCAL_SOURCE_TYPES = {
+    "local",
+    "local_copy",
+    "local_replay",
+    "local_favorite",
+    "local_request",
+    "playfav_local",
+}
+
+
+def _is_local_source_type(source_type: str) -> bool:
+    return (source_type or "").strip().lower() in _LOCAL_SOURCE_TYPES
+
+
+def _is_youtube_job(job: dict) -> bool:
+    source = (job.get("source_type") or "").strip().lower()
+    url = (job.get("url") or "").strip()
+    if _is_local_source_type(source):
+        return False
+    if source and source != "youtube":
+        return False
+    return bool(url and _is_youtube_url(url))
+
+
+def _log_local_replay_owns_request(job_id: int, source_type: str) -> None:
+    print(
+        f"[RADIO_HARDEN] event=local_replay_pipeline_owns_request"
+        f" request_id={job_id} source_type={source_type!r}"
+    )
+
+
+def _log_skip_youtube_recovery_for_local(job_id: int, source_type: str) -> None:
+    print(
+        f"[RADIO_HARDEN] event=skip_youtube_recovery_for_local"
+        f" request_id={job_id} source_type={source_type!r}"
+    )
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Config helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1749,6 +1787,13 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
         _prep_active_jids.add(jid)
 
     try:
+        if not _is_youtube_job(job):
+            source = (job.get("source_type") or "").strip() or "unknown"
+            _log_skip_youtube_recovery_for_local(db_id or jid, source)
+            if _is_local_source_type(source):
+                _log_local_replay_owns_request(db_id or jid, source)
+            return
+
         # ── Step 1: Download + convert ──────────────────────────────────────
         _stage = "download"
         _update_job(jid, status="downloading")
@@ -4145,6 +4190,20 @@ async def radio_request_prepare_worker(
 
             for row in rows:
                 jid, uid, uname, url_val, title, status, coins, ptype, filename, source_type = row
+                source = (source_type or "").strip()
+                url_s = (url_val or "").strip()
+                if source != "youtube" or not _is_youtube_url(url_s):
+                    if _is_local_source_type(source):
+                        _log_skip_youtube_recovery_for_local(jid, source)
+                        _log_local_replay_owns_request(jid, source)
+                    else:
+                        print(
+                            f"[RADIO_HARDEN] event=skip_youtube_recovery_for_local"
+                            f" request_id={jid} source_type={source!r}"
+                            f" reason='missing_or_non_youtube_url'"
+                        )
+                    continue
+
                 with _prep_ids_lock:
                     if jid in _prep_active_jids:
                         continue          # already being processed
@@ -4159,9 +4218,8 @@ async def radio_request_prepare_worker(
 
                 if status in ("downloading", "downloaded", "uploading"):
                     fn = (filename or "").strip()
-                    source = (source_type or "").strip()
                     staged_path = os.path.join(STAGING_DIR, fn) if fn else ""
-                    if source != "youtube" and (not staged_path or not os.path.exists(staged_path)):
+                    if not staged_path or not os.path.exists(staged_path):
                         _fail_staged_file_missing(jid, fn)
                         with _prep_ids_lock:
                             _prep_active_jids.discard(jid)
