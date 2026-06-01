@@ -995,6 +995,31 @@ def _nowplaying_matches_request(fid: str, song_id: str, fn: str) -> bool:
     return bool(_nowplaying_request_state(fid, song_id, fn).get("matches_request"))
 
 
+def _azura_item_matches_request(
+    item: dict,
+    *,
+    fid: str = "",
+    song_id: str = "",
+    fn: str = "",
+) -> bool:
+    fid = str(fid or "").strip()
+    song_id = str(song_id or "").strip()
+    fn = str(fn or "").strip().rsplit("/", 1)[-1]
+    item_media = str(item.get("media_id") or "").strip()
+    item_song = str(item.get("song_id") or item.get("unique_id") or "").strip()
+    item_path = str(item.get("path") or "").strip().lstrip("/")
+    item_file = str(item.get("filename") or "").strip().rsplit("/", 1)[-1]
+    if fid and item_media and fid == item_media:
+        return True
+    if song_id and item_song and song_id == item_song:
+        return True
+    if fn and item_file and fn.lower() == item_file.lower():
+        return True
+    if fn and item_path and item_path.lower() == f"requests/{fn}".lower():
+        return True
+    return False
+
+
 def _log_replay_guard_blocked(
     job_id: int,
     status: str,
@@ -1263,6 +1288,83 @@ async def _guard_cleaned_request_not_prequeued(
         )
 
 
+async def _last_request_hard_kill_guard(
+    db_id: int,
+    fid: str,
+    song_id: str,
+    fn: str,
+    title: str,
+    *,
+    attempts: int = 8,
+    delay: float = 1.5,
+) -> None:
+    """
+    Final-request safety loop.
+
+    Azura/Liquidsoap can briefly keep a cleaned request as current or
+    playing_next. Keep removing/skipping the exact media for a short bounded
+    window so the temp request cannot replay as AutoDJ residue.
+    """
+    fid = (fid or "").strip()
+    song_id = (song_id or "").strip()
+    fn = (fn or "").strip().rsplit("/", 1)[-1]
+    loop = asyncio.get_running_loop()
+    safe = False
+
+    for attempt in range(1, attempts + 1):
+        state = await loop.run_in_executor(None, _nowplaying_request_state, fid, song_id, fn)
+        if state.get("matches_request"):
+            _harden_log(
+                "last_request_repeat_skip",
+                request_id=db_id,
+                media_id=state.get("media_id") or fid,
+                filename=fn,
+                attempt=attempt,
+            )
+            await loop.run_in_executor(None, azura.skip_current)
+
+        upcoming = await loop.run_in_executor(None, azura.inspect_upcoming_items)
+        matches = [
+            item for item in upcoming
+            if _azura_item_matches_request(item, fid=fid, song_id=song_id, fn=fn)
+        ]
+        if matches:
+            removed = await loop.run_in_executor(
+                None,
+                lambda: azura.remove_queue_items_matching(
+                    media_id=fid,
+                    song_id=song_id,
+                    filename=fn,
+                    path=f"Requests/{fn}" if fn else "",
+                ),
+            )
+            if removed:
+                _harden_log(
+                    "last_request_prequeue_removed",
+                    request_id=db_id,
+                    removed=removed,
+                )
+            else:
+                _harden_log(
+                    "last_request_prequeue_detected",
+                    request_id=db_id,
+                    action="unable_to_remove",
+                )
+
+        if not state.get("matches_request") and not matches:
+            safe = True
+            break
+
+        await asyncio.sleep(delay)
+
+    _harden_log(
+        "last_request_cleanup_safe",
+        request_id=db_id,
+        filename=fn,
+        safe=bool(safe),
+    )
+
+
 async def _handle_stale_requests_media(
     bot: "BaseBot",
     media_id: str,
@@ -1276,6 +1378,11 @@ async def _handle_stale_requests_media(
     with _lock:
         _cur_req_id = 0
         _live_req = None
+    _harden_log(
+        "stale_requests_media_skip",
+        path=media_path,
+        media_id=media_id,
+    )
     _harden_log(
         "autodj_repeat_prevented",
         reason="temp_request_in_autodj",
@@ -1556,6 +1663,13 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
                     "finished_request_cleanup_guard",
                 )
             if cleanup_ok and last_request:
+                await _last_request_hard_kill_guard(
+                    db_id,
+                    fid,
+                    (job.get("azura_song_id") or "").strip(),
+                    fn,
+                    job.get("title", "?"),
+                )
                 _harden_log("last_request_cleanup_done", request_id=db_id)
             if cleanup_ok:
                 _harden_log("request_cleanup_done", request_id=db_id, filename=fn)
@@ -1799,17 +1913,12 @@ async def _on_new_track(
 
     elif from_requests:
         # NP is from Requests/ folder but no DB record matched.
-        # If the queue is empty, this is stale media buffered by Azura/Liquidsoap.
-        # Do not announce it, do not revive DB state, and force it out.
-        if _db_count_active() <= 0:
-            await _handle_stale_requests_media(
-                bot, media_id, match_uid, media_path, title
-            )
-        else:
-            # Active work still exists; suppress AutoDJ but let the next poll
-            # recover naturally if Azura has not indexed identifiers yet.
-            with _lock:
-                _cur_req_id = 0
+        # Treat unmatched Requests/ media as stale residue immediately. A real
+        # active request should match by media id, song id, or filename; waiting
+        # here lets cleaned temp files repeat through Liquidsoap prequeue.
+        await _handle_stale_requests_media(
+            bot, media_id, match_uid, media_path, title
+        )
         print(
             f"{_LOG} NP from Requests/ but no DB match — suppressing AutoDJ announce"
             f" path={media_path!r}"
