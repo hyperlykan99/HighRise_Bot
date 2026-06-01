@@ -889,14 +889,19 @@ async def handle_queue(bot: "BaseBot", user: "User", _args: list) -> None:
         await _send_queue_page("🎶 UP NEXT\nempty\n!play to request a song")
         return
 
-    lines: list[str] = ["🎶 UP NEXT"]
+    lines: list[str] = ["🎧 Queue"]
     for n, j in enumerate(all_jobs, 1):
         icon   = _qicon(j.get("status", ""))
         uname  = (j.get("username") or "?").strip()[:12]
         title  = (j.get("title")    or "…").strip()
         artist = (j.get("artist")   or "").strip()
-        label  = title[:30] + (f" - {artist[:16]}" if artist else "")
-        lines.append(f"{n}. @{uname} - {label} {icon}")
+        source = (j.get("source_type") or "").strip()
+        source_icon = "📀 " if source in ("local_replay", "local_copy", "local_favorite") else ""
+        if icon == "⏳" and title in ("", "…"):
+            label = "Preparing…"
+        else:
+            label = title[:32] + (f" - {artist[:14]}" if artist else "")
+        lines.append(f"{n}. {icon} @{uname} — {source_icon}{label}")
 
     lines.append("!play to request a song")
 
