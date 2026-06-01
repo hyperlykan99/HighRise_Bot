@@ -1917,37 +1917,39 @@ async def handle_musicshop(bot: "BaseBot", user: "User", _args: list) -> None:
         await _w(bot, user.id, "🛠️ Staff: Unlimited 💿 Song Plays. No shop needed!")
         return
     c = mc.get_credits(user.id, user.username)
+    coin_prices = mc.coin_pack_prices()
+    luxe_prices = mc.luxe_pack_prices()
+    coin_line = "  ".join(f"• {amount}→{price:,}" for amount, price in coin_prices.items())
+    luxe_line = "  ".join(f"• {amount}→{price:,}" for amount, price in luxe_prices.items())
     # Message 1: balance + coin packs
     await _w(
         bot, user.id,
         f"🎵 ChillTopia Music Shop\n"
         f"💿 Plays: Free {c['free']} · 👑VIP {c['vip']} · Bought {c['purchased']}\n"
         f"🪙 Chill Coins:\n"
-        f"• 1→500  • 5→2400  • 10→4500  • 25→10000",
+        f"{coin_line}",
     )
     await asyncio.sleep(0.2)
     # Message 2: luxe packs + priority
     await _w(
         bot, user.id,
         f"🎟️ Luxe Tickets:\n"
-        f"• 1→20  • 5→95  • 10→180  • 25→400\n"
+        f"{luxe_line}\n"
         f"⚡ Priority: 100 🎟️ (jumps the queue)\n"
-        f"Buy: !buyplays coins 5  or  !buyplays luxe 5",
+        f"Buy: !buysongplays coins 5  or  !buyplays luxe 5",
     )
 
 
 # ─── !buyplays / !buyrequests ────────────────────────────────────────────────
 
-_BR_COINS = mc.SHOP_COINS   # {1: 500, 5: 2400, 10: 4500, 25: 10000}
-_BR_LUXE  = mc.SHOP_LUXE    # {1: 20,  5: 95,   10: 180,  25: 400}
-_BR_VALID = sorted(_BR_COINS.keys())   # [1, 5, 10, 25]
+_BR_VALID = sorted(mc.SHOP_COINS.keys())   # [1, 5, 10, 25]
 
 
 async def handle_buyplays(bot: "BaseBot", user: "User", args: list) -> None:
     """
-    !buyplays coins <1|5|10|25>   — buy Song Plays with Chill Coins
-    !buyplays luxe  <1|5|10|25>   — buy Song Plays with Luxe Tickets
-    Alias: !buyrequests (same handler)
+    !buyplays coins <1|5|10|25> — buy Song Plays with Chill Coins
+    !buyplays luxe <1|5|10|25>  — buy Song Plays with Luxe Tickets
+    Aliases: !buyrequests, !buysongplays
     """
     uid   = user.id
     uname = user.username
@@ -1978,7 +1980,9 @@ async def handle_buyplays(bot: "BaseBot", user: "User", args: list) -> None:
         return
 
     amount = int(args[2])
-    if amount not in _BR_COINS:
+    coin_prices = mc.coin_pack_prices()
+    luxe_prices = mc.luxe_pack_prices()
+    if amount not in coin_prices:
         await _w(
             bot, uid,
             f"❌ Pack size must be {', '.join(str(x) for x in _BR_VALID)}.\n{usage}",
@@ -1986,7 +1990,7 @@ async def handle_buyplays(bot: "BaseBot", user: "User", args: list) -> None:
         return
 
     if currency == "coins":
-        price = _BR_COINS[amount]
+        price = coin_prices[amount]
         ok, err = ps.charge(uid, price)
         if not ok:
             await _w(
@@ -2009,7 +2013,7 @@ async def handle_buyplays(bot: "BaseBot", user: "User", args: list) -> None:
         )
 
     else:  # luxe
-        price = _BR_LUXE[amount]
+        price = luxe_prices[amount]
         bal   = get_luxe_balance(uid)
         if bal < price:
             await _w(

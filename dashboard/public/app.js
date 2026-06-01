@@ -4221,6 +4221,21 @@ function renderRadioRequests(d) {
         </div>
         <div class="notice">Normal <code>!play</code>, <code>!pick</code>, and favorites consume 📀 Song Plays. Priority requests still use Luxe Tickets.</div>
       </div>
+      <div class="card">
+        <h2>Song Plays Shop</h2>
+        <div class="notice">These prices feed <code>!musicshop</code>, <code>!buyplays</code>, and <code>!buysongplays</code>. Normal requests still consume one Song Play only.</div>
+        <form id="radioShopForm" class="settings-form" style="margin-top:12px">
+          ${settingInput("music_shop_coin_pack_1", "1 Play · Chill Coins", s.music_shop_coin_pack_1 ?? 500)}
+          ${settingInput("music_shop_coin_pack_5", "5 Plays · Chill Coins", s.music_shop_coin_pack_5 ?? 2400)}
+          ${settingInput("music_shop_coin_pack_10", "10 Plays · Chill Coins", s.music_shop_coin_pack_10 ?? 4500)}
+          ${settingInput("music_shop_coin_pack_25", "25 Plays · Chill Coins", s.music_shop_coin_pack_25 ?? 10000)}
+          ${settingInput("music_shop_luxe_pack_1", "1 Play · Luxe Tickets", s.music_shop_luxe_pack_1 ?? 20)}
+          ${settingInput("music_shop_luxe_pack_5", "5 Plays · Luxe Tickets", s.music_shop_luxe_pack_5 ?? 95)}
+          ${settingInput("music_shop_luxe_pack_10", "10 Plays · Luxe Tickets", s.music_shop_luxe_pack_10 ?? 180)}
+          ${settingInput("music_shop_luxe_pack_25", "25 Plays · Luxe Tickets", s.music_shop_luxe_pack_25 ?? 400)}
+          <button class="btn primary">Save Song Plays Prices</button>
+        </form>
+      </div>
     </div>
     ${futureControls([
       { endpoint: "playlist move up/down", purpose: "Reorder queue safely", status: "Future" },
@@ -8576,6 +8591,24 @@ function bindAdminPageEvents() {
           skip_on_leave: form.elements.skip_on_leave?.checked,
           refund_on_leave: form.elements.refund_on_leave?.checked,
           admin_ignore_leave: form.elements.admin_ignore_leave?.checked,
+        }),
+      }));
+  });
+  document.getElementById("radioShopForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    await action("Song Plays prices saved.", () =>
+      api("/api/radio/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          music_shop_coin_pack_1: data.music_shop_coin_pack_1,
+          music_shop_coin_pack_5: data.music_shop_coin_pack_5,
+          music_shop_coin_pack_10: data.music_shop_coin_pack_10,
+          music_shop_coin_pack_25: data.music_shop_coin_pack_25,
+          music_shop_luxe_pack_1: data.music_shop_luxe_pack_1,
+          music_shop_luxe_pack_5: data.music_shop_luxe_pack_5,
+          music_shop_luxe_pack_10: data.music_shop_luxe_pack_10,
+          music_shop_luxe_pack_25: data.music_shop_luxe_pack_25,
         }),
       }));
   });

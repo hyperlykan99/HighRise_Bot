@@ -1320,6 +1320,14 @@ function readLocalRadioStatus(db) {
     skip_on_leave: getSetting(db, "radio_skip_on_leave", "true"),
     refund_on_leave: getSetting(db, "radio_refund_on_leave", "true"),
     admin_ignore_leave: getSetting(db, "radio_admin_ignore_leave", "true"),
+    music_shop_coin_pack_1: getSetting(db, "music_shop_coin_pack_1", "500"),
+    music_shop_coin_pack_5: getSetting(db, "music_shop_coin_pack_5", "2400"),
+    music_shop_coin_pack_10: getSetting(db, "music_shop_coin_pack_10", "4500"),
+    music_shop_coin_pack_25: getSetting(db, "music_shop_coin_pack_25", "10000"),
+    music_shop_luxe_pack_1: getSetting(db, "music_shop_luxe_pack_1", "20"),
+    music_shop_luxe_pack_5: getSetting(db, "music_shop_luxe_pack_5", "95"),
+    music_shop_luxe_pack_10: getSetting(db, "music_shop_luxe_pack_10", "180"),
+    music_shop_luxe_pack_25: getSetting(db, "music_shop_luxe_pack_25", "400"),
   };
   const blocklist = {
     requesters: safeTableRows(db, "request_blocked_requesters", { orderBy: columnExists(db, "request_blocked_requesters", "added_at") ? "added_at DESC" : "", limit: "200" }),
@@ -6307,6 +6315,14 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     per_user_queue_limit: { key: "radio_per_user_queue_limit", min: 0, max: 20 },
     request_cooldown: { key: "radio_request_cooldown", min: 30, max: 86400 },
     voteskip_threshold: { key: "radio_voteskip_threshold", min: 2, max: 25 },
+    music_shop_coin_pack_1: { key: "music_shop_coin_pack_1", min: 0, max: 1000000 },
+    music_shop_coin_pack_5: { key: "music_shop_coin_pack_5", min: 0, max: 1000000 },
+    music_shop_coin_pack_10: { key: "music_shop_coin_pack_10", min: 0, max: 1000000 },
+    music_shop_coin_pack_25: { key: "music_shop_coin_pack_25", min: 0, max: 1000000 },
+    music_shop_luxe_pack_1: { key: "music_shop_luxe_pack_1", min: 0, max: 1000000 },
+    music_shop_luxe_pack_5: { key: "music_shop_luxe_pack_5", min: 0, max: 1000000 },
+    music_shop_luxe_pack_10: { key: "music_shop_luxe_pack_10", min: 0, max: 1000000 },
+    music_shop_luxe_pack_25: { key: "music_shop_luxe_pack_25", min: 0, max: 1000000 },
   };
   const updates = {};
   for (const [field, cfg] of Object.entries(schema)) {

@@ -27,6 +27,30 @@ SHOP_LUXE:  "dict[int, int]" = {1: 20,  5: 95,    10: 180,   25: 400}
 PRIORITY_COST_LUXE = 100
 
 
+def _setting_int(key: str, default: int, minimum: int = 0, maximum: int = 1_000_000) -> int:
+    try:
+        value = int(str(db.get_room_setting(key, str(default))).strip())
+    except Exception:
+        return default
+    return max(minimum, min(maximum, value))
+
+
+def coin_pack_prices() -> "dict[int, int]":
+    """Runtime Song Plays coin prices, dashboard-editable via room_settings."""
+    return {
+        amount: _setting_int(f"music_shop_coin_pack_{amount}", price)
+        for amount, price in SHOP_COINS.items()
+    }
+
+
+def luxe_pack_prices() -> "dict[int, int]":
+    """Runtime Song Plays Luxe Ticket prices, dashboard-editable via room_settings."""
+    return {
+        amount: _setting_int(f"music_shop_luxe_pack_{amount}", price)
+        for amount, price in SHOP_LUXE.items()
+    }
+
+
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
 def _ensure_row(user_id: str, username: str) -> None:
