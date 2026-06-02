@@ -50,6 +50,7 @@ _REQUEST_PLAYBACK_MODE = (
     or "azura_playlist"
 )
 _AZURA_PLAYLIST_MODE = _REQUEST_PLAYBACK_MODE != "bot_fifo"
+_AZURA_NATIVE_REQUEST_MODE = _REQUEST_PLAYBACK_MODE == "azura_native_request"
 
 # ─── Module-level state ───────────────────────────────────────────────────────
 _lock                   = threading.Lock()
@@ -2239,7 +2240,9 @@ async def _poll_loop(bot: "BaseBot") -> None:
     global _cur_song_id, _cur_req_id, _cur_elapsed, _cur_duration, _mode, _cur_replay_temp
 
     print(f"{_LOG} Poll loop started (every {POLL_INTERVAL}s)")
-    if _AZURA_PLAYLIST_MODE:
+    if _AZURA_NATIVE_REQUEST_MODE:
+        print("[RADIO_NATIVE] event=native_request_mode_enabled")
+    elif _AZURA_PLAYLIST_MODE:
         _harden_log("azura_playlist_mode_enabled", mode=_REQUEST_PLAYBACK_MODE)
     loop = asyncio.get_running_loop()
 

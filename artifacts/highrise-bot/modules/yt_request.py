@@ -25,8 +25,15 @@ Pipeline per request:
     6. playback_engine detects when Azura plays the Requests media, announces
        Source: Request, detaches it from rotation, and cleans it after play.
 
-In RADIO_REQUEST_PLAYBACK_MODE=azura_playlist, this module does not submit or
-skip songs to enforce FIFO. AzuraCast Requests playlist controls playback order.
+RADIO_REQUEST_PLAYBACK_MODE:
+    azura_playlist        — uploads/indexes media and lets the Requests playlist
+                            schedule playback.
+    azura_native_request  — uploads/indexes media, then submits it via Azura's
+                            native request API. In this mode the Requests
+                            playlist should be a requestable media pool, not
+                            normal General Rotation AutoDJ media.
+
+Neither mode restores bot FIFO or backend skip fights.
 
 Required env vars:
     AZURA_SFTP_HOST   AZURA_SFTP_USER   AZURA_SFTP_PASS
@@ -52,6 +59,7 @@ import config as _config
 import database as db
 from modules import dashboard_settings as _dash
 import modules.config_store as cs
+import modules.music_credits as mc
 from modules.permissions import is_admin, is_owner, is_manager
 from modules.radio_status import ACTIVE_QUEUE_STATUSES
 import modules.request_queue as rq
@@ -156,6 +164,14 @@ _DEFAULT_COOLDOWN  = 300   # seconds
 _MAX_ACTIVE_JOBS   = 20    # legacy fallback; runtime limit is config_store
 _MAX_DURATION_SECS = 600   # 10 minutes — reject longer videos
 _DEDUP_WINDOW_SECS = 86400 # 24 hours  — block re-requests of same URL
+
+def _request_playback_mode() -> str:
+    return (os.getenv("RADIO_REQUEST_PLAYBACK_MODE", "azura_playlist") or "azura_playlist").strip().lower()
+
+
+def _native_request_mode() -> bool:
+    return _request_playback_mode() == "azura_native_request"
+
 
 def _cooldown_secs() -> int:
     try:
@@ -780,6 +796,195 @@ def _cleanup_failed_uploaded_request(db_id: int, reason: str = "request_failed_a
             f"[RADIO_HARDEN] event=failed_request_cleanup_error"
             f" request_id={db_id} filename={filename!r} error={exc!r}"
         )
+
+
+def _native_request_submit_blocking(
+    db_id: int,
+    *,
+    media_id: str,
+    song_id: str,
+    filename: str,
+    title: str,
+) -> tuple[bool, str, str]:
+    """
+    Submit uploaded media through AzuraCast's native listener-request API.
+
+    In this mode the Requests playlist should be requestable media pool only,
+    not normal General Rotation AutoDJ media. We still assign the file to the
+    Requests playlist so Azura can discover it as requestable.
+    """
+    print(f"[RADIO_NATIVE] event=native_request_mode_enabled request_id={db_id}")
+    candidates: list[str] = []
+    if song_id:
+        candidates.append(song_id)
+    if media_id:
+        candidates.append(media_id)
+
+    for candidate in candidates:
+        ok, status, body = azura.submit_request_verbose(candidate)
+        print(
+            f"[RADIO_NATIVE] event=native_request_submit"
+            f" request_id={db_id} requestable_id={candidate!r}"
+            f" result={'success' if ok else 'fail'} status={status}"
+        )
+        if ok:
+            return True, candidate, "direct"
+        if status not in (400, 404, 409, 422):
+            # Still try lookup below; Azura versions differ on request ids.
+            pass
+
+    lookup_terms = [filename, f"Requests/{filename}" if filename else "", title]
+    seen: set[str] = set()
+    for term in lookup_terms:
+        term = (term or "").strip()
+        if not term or term.lower() in seen:
+            continue
+        seen.add(term.lower())
+        requestable_id = azura.lookup_requestable_id(term)
+        print(
+            f"[RADIO_NATIVE] event=requestable_lookup"
+            f" request_id={db_id} search={term!r}"
+            f" result={requestable_id!r}"
+        )
+        if not requestable_id:
+            time.sleep(1.5)
+            requestable_id = azura.lookup_requestable_id(term)
+            print(
+                f"[RADIO_NATIVE] event=requestable_lookup"
+                f" request_id={db_id} search={term!r}"
+                f" retry=true result={requestable_id!r}"
+            )
+        if not requestable_id:
+            continue
+        ok, status, body = azura.submit_request_verbose(requestable_id)
+        print(
+            f"[RADIO_NATIVE] event=native_request_submit"
+            f" request_id={db_id} requestable_id={requestable_id!r}"
+            f" result={'success' if ok else 'fail'} status={status}"
+        )
+        if ok:
+            return True, requestable_id, "lookup"
+
+    return False, "", "requestable_lookup_or_submit_failed"
+
+
+def _job_used_song_play(payment_type: str, coins_charged: int, priority: int, username: str) -> bool:
+    ptype = (payment_type or "").strip().lower()
+    if ptype in ("music_credit", "song_play", "song_play_credit"):
+        return True
+    if ptype in ("", "free") and not priority and not coins_charged and username:
+        return not (is_owner(username) or is_admin(username) or is_manager(username))
+    return False
+
+
+async def _fail_uploaded_request_after_native_submit(
+    bot: "BaseBot",
+    db_id: int,
+    filename: str,
+    reason: str,
+) -> None:
+    print(
+        f"[RADIO_NATIVE] event=native_request_submit_failed"
+        f" request_id={db_id} reason={reason!r}"
+    )
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT user_id, username, coins_charged, payment_type, priority "
+                "FROM yt_request_jobs WHERE id=?",
+                (db_id,),
+            ).fetchone()
+        uid = (row[0] or "") if row else ""
+        uname = (row[1] or "") if row else ""
+        coins = int((row[2] if row else 0) or 0)
+        ptype = (row[3] or "") if row else ""
+        priority = int((row[4] if row else 0) or 0)
+        if coins > 0 and uid:
+            _refund_coins(uid, coins)
+        if uid and _job_used_song_play(ptype, coins, priority, uname):
+            try:
+                mc.refund_credit(uid, uname)
+            except Exception as exc:
+                print(f"[RADIO_NATIVE] song_play_refund_error request_id={db_id}: {exc!r}")
+        rq.mark_failed(db_id, reason, status="failed", finished_at=time.time())
+        try:
+            from modules import playback_engine as engine
+            await engine.cleanup_cancelled_request_media(
+                bot,
+                db_id,
+                reason="native_request_submit_failed",
+            )
+        except Exception as cleanup_exc:
+            print(
+                f"[RADIO_CLEAN] event=temp_remove_failed"
+                f" request_id={db_id} filename={filename!r}"
+                f" reason='native_submit_cleanup_error' error={cleanup_exc!r}"
+            )
+        if bot and uid:
+            await _w(bot, uid, "❌ Couldn't queue that song in AzuraCast. Your Song Play was refunded.")
+    except Exception as exc:
+        print(f"[RADIO_NATIVE] native_submit_fail_cleanup_error request_id={db_id}: {exc!r}")
+
+
+async def _finalize_uploaded_request(
+    bot: "BaseBot",
+    db_id: int,
+    filename: str,
+    *,
+    source_type: str,
+    source_path: str = "",
+    finished_at: "object | None" = None,
+) -> bool:
+    with sqlite3.connect(_DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT azura_file_id, azura_song_id, title FROM yt_request_jobs WHERE id=?",
+            (db_id,),
+        ).fetchone()
+    azura_file_id = (row[0] or "") if row else ""
+    azura_song_id = (row[1] or "") if row else ""
+    title = (row[2] or "") if row else ""
+    if not azura_file_id:
+        return False
+
+    print(
+        f"[RADIO_HARDEN] event=request_ready_after_playlist_assign"
+        f" request_id={db_id} media_id={azura_file_id}"
+    )
+
+    if _native_request_mode():
+        loop = asyncio.get_running_loop()
+        ok, requestable_id, reason = await loop.run_in_executor(
+            None,
+            lambda: _native_request_submit_blocking(
+                db_id,
+                media_id=azura_file_id,
+                song_id=azura_song_id,
+                filename=filename,
+                title=title,
+            ),
+        )
+        if not ok:
+            await _fail_uploaded_request_after_native_submit(bot, db_id, filename, reason)
+            return False
+        rq.mark_ready(db_id, filename=filename, source_type=source_type, finished_at=finished_at)
+        rq.mark_submitted(db_id)
+        print(
+            f"[RADIO_NATIVE] event=native_request_ready"
+            f" request_id={db_id} requestable_id={requestable_id!r}"
+        )
+    else:
+        rq.mark_ready(db_id, filename=filename, source_type=source_type, finished_at=finished_at)
+
+    diag.log_radio_event(
+        "submitted_to_azura",
+        request_id=db_id,
+        source_type=source_type,
+        temp_path=filename,
+        source_path=source_path,
+        azura_file_id=azura_file_id,
+        azura_song_id=azura_song_id,
+    )
+    return True
 
 
 def _db_get_oldest_staged() -> "dict | None":
@@ -1919,22 +2124,24 @@ async def _run_job(bot: "BaseBot", job: dict) -> None:
                     f" error={cleanup_exc!r}"
                 )
             return
-        with sqlite3.connect(_DB_PATH) as conn:
-            _az_row = conn.execute(
-                "SELECT azura_file_id, azura_song_id FROM yt_request_jobs WHERE id=?",
-                (db_id,),
-            ).fetchone()
-        _az_fid = (_az_row[0] or "") if _az_row else ""
-        _az_sid = (_az_row[1] or "") if _az_row else ""
-        if not _az_fid:
-            raise RuntimeError("azura_registration_missing")
-        print(
-            f"[RADIO_HARDEN] event=request_ready_after_playlist_assign"
-            f" request_id={db_id} media_id={_az_fid}"
+        ok_ready = await _finalize_uploaded_request(
+            bot,
+            db_id,
+            os.path.basename(mp3_path),
+            source_type="youtube",
+            source_path=job.get("url", ""),
+            finished_at=time.time(),
         )
+        if not ok_ready:
+            if rq.is_terminal_status(rq.get_job_status(db_id)):
+                return
+            raise RuntimeError("azura_registration_missing")
 
         # ── Ready: uploaded + registered in AzuraCast Requests playlist ───────
-        _update_job(jid, status="ready", finished_at=time.time())
+        with _jobs_lock:
+            if jid in _jobs:
+                _jobs[jid]["status"] = "ready"
+                _jobs[jid]["finished_at"] = time.time()
         _staged_mp3 = ""  # clear so finally won't delete (file is now on AzuraCast)
         print(f"[YT_REQUEST] Job #{jid} — ready in {upload_secs:.1f}s: {title[:80]}")
         print(f"[RADIO_CLEAN] event=duplicate_queue_confirmation_suppressed request_id={db_id}")
@@ -2098,30 +2305,15 @@ async def process_existing_request_file(
                 )
             return False
 
-        with sqlite3.connect(_DB_PATH) as conn:
-            row = conn.execute(
-                "SELECT azura_file_id, azura_song_id FROM yt_request_jobs WHERE id=?",
-                (db_id,),
-            ).fetchone()
-        azura_file_id = (row[0] or "") if row else ""
-        azura_song_id = (row[1] or "") if row else ""
-        if not azura_file_id:
-            return False
-
-        print(
-            f"[RADIO_HARDEN] event=request_ready_after_playlist_assign"
-            f" request_id={db_id} media_id={azura_file_id}"
-        )
-        rq.mark_ready(db_id, filename=filename, source_type=source_type)
-        diag.log_radio_event(
-            "submitted_to_azura",
-            request_id=db_id,
+        ok_ready = await _finalize_uploaded_request(
+            bot,
+            db_id,
+            filename,
             source_type=source_type,
-            temp_path=filename,
             source_path=source_path,
-            azura_file_id=azura_file_id,
-            azura_song_id=azura_song_id,
         )
+        if not ok_ready:
+            return False
         return True
     except Exception as exc:
         print(f"[YT_REQUEST] process_existing_request_file error: {exc!r}")
@@ -2190,30 +2382,16 @@ async def process_staged_existing_mp3(
                 )
             return False
 
-        with sqlite3.connect(_DB_PATH) as conn:
-            row = conn.execute(
-                "SELECT azura_file_id, azura_song_id FROM yt_request_jobs WHERE id=?",
-                (db_id,),
-            ).fetchone()
-        azura_file_id = (row[0] or "") if row else ""
-        azura_song_id = (row[1] or "") if row else ""
-        if not azura_file_id:
-            return False
-
-        print(
-            f"[RADIO_HARDEN] event=request_ready_after_playlist_assign"
-            f" request_id={db_id} media_id={azura_file_id}"
-        )
-        rq.mark_ready(db_id, filename=safe_name, source_type=source_type, finished_at=time.time())
-        diag.log_radio_event(
-            "submitted_to_azura",
-            request_id=db_id,
+        ok_ready = await _finalize_uploaded_request(
+            bot,
+            db_id,
+            safe_name,
             source_type=source_type,
-            temp_path=safe_name,
             source_path=source_path or source_mp3_path,
-            azura_file_id=azura_file_id,
-            azura_song_id=azura_song_id,
+            finished_at=time.time(),
         )
+        if not ok_ready:
+            return False
         return True
     except Exception as exc:
         print(f"[YT_REQUEST] process_staged_existing_mp3 error: {exc!r}")
