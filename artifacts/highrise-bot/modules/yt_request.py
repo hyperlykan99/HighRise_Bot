@@ -336,6 +336,7 @@ _download_sem     = asyncio.Semaphore(2)   # max 2 concurrent downloads
 _upload_sem       = asyncio.Semaphore(1)   # max 1 concurrent upload
 _prep_active_jids: set = set()             # job IDs currently in _run_job pipeline
 _prep_ids_lock    = threading.Lock()       # guards _prep_active_jids
+_STAGED_MISSING_YOUTUBE_STALE_SECS = 900
 
 def _new_job(user_id: str, username: str, url: str,
              coins_charged: int = 0, payment_type: str = "free",
@@ -805,11 +806,12 @@ def _db_get_oldest_staged() -> "dict | None":
     return None
 
 
-def _fail_staged_file_missing(db_id: int, filename: str) -> None:
+def _fail_staged_file_missing(db_id: int, filename: str, *, source_type: str = "", reason: str = "staged_file_missing") -> None:
     """Terminally fail a staged request whose local staging file is gone."""
     print(
-        f"[RADIO_HARDEN] event=staged_file_missing"
+        f"[RADIO_HARDEN] event=staged_file_missing_failed"
         f" request_id={db_id} filename={filename!r}"
+        f" source_type={source_type!r} reason={reason!r}"
     )
     try:
         with sqlite3.connect(_DB_PATH) as conn:
@@ -827,6 +829,41 @@ def _fail_staged_file_missing(db_id: int, filename: str) -> None:
         error="staged_file_missing",
         finished_at=time.time(),
     )
+
+
+def _defer_youtube_staged_missing(db_id: int, source_type: str, status: str) -> None:
+    print(
+        f"[RADIO_HARDEN] event=staged_file_missing_deferred"
+        f" request_id={db_id} source_type={source_type!r} status={status!r}"
+    )
+
+
+def _youtube_staged_missing_is_stale(db_id: int) -> bool:
+    try:
+        with sqlite3.connect(_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT started_at FROM yt_request_jobs WHERE id=?",
+                (db_id,),
+            ).fetchone()
+        raw = (row[0] if row else "") or ""
+        if not raw:
+            return False
+        if isinstance(raw, (int, float)):
+            started_ts = float(raw)
+        else:
+            try:
+                started_ts = float(str(raw))
+            except Exception:
+                parsed = time.strptime(str(raw).split(".")[0], "%Y-%m-%d %H:%M:%S")
+                started_ts = time.mktime(parsed)
+        return (time.time() - started_ts) >= _STAGED_MISSING_YOUTUBE_STALE_SECS
+    except Exception as exc:
+        print(
+            f"[RADIO_HARDEN] event=staged_file_missing_deferred"
+            f" request_id={db_id} source_type='youtube'"
+            f" status='unknown' reason='stale_check_error:{exc!r}'"
+        )
+        return False
 
 
 def _db_get_pending_cleanup() -> list[dict]:
@@ -2248,7 +2285,12 @@ def radio_promote_staged_job(bot: "object | None", loop: "object | None") -> boo
             f" result=fail"
             f" error=staged_file_missing"
         )
-        _fail_staged_file_missing(db_id, filename)
+        _fail_staged_file_missing(
+            db_id,
+            filename,
+            source_type=job.get("source_type") or "staged",
+            reason="staged_source_missing",
+        )
         return False
 
     print(
@@ -4220,7 +4262,25 @@ async def radio_request_prepare_worker(
                     fn = (filename or "").strip()
                     staged_path = os.path.join(STAGING_DIR, fn) if fn else ""
                     if not staged_path or not os.path.exists(staged_path):
-                        _fail_staged_file_missing(jid, fn)
+                        if source == "youtube" and status in ("pending", "processing", "downloading", "downloaded", "uploading", "indexing"):
+                            if not _youtube_staged_missing_is_stale(jid):
+                                _defer_youtube_staged_missing(jid, source, status)
+                                with _prep_ids_lock:
+                                    _prep_active_jids.discard(jid)
+                                continue
+                            _fail_staged_file_missing(
+                                jid,
+                                fn,
+                                source_type=source,
+                                reason="youtube_staged_file_missing_stale",
+                            )
+                        else:
+                            _fail_staged_file_missing(
+                                jid,
+                                fn,
+                                source_type=source,
+                                reason="local_or_staged_source_missing",
+                            )
                         with _prep_ids_lock:
                             _prep_active_jids.discard(jid)
                         continue
