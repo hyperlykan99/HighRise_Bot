@@ -51,6 +51,12 @@ _REQUEST_PLAYBACK_MODE = (
 )
 _AZURA_PLAYLIST_MODE = _REQUEST_PLAYBACK_MODE != "bot_fifo"
 _AZURA_NATIVE_REQUEST_MODE = _REQUEST_PLAYBACK_MODE == "azura_native_request"
+_PURGE_REQUEST_MEDIA_ON_START = (
+    os.getenv("RADIO_PURGE_REQUEST_MEDIA_ON_START", "true")
+    .strip()
+    .lower()
+    not in ("0", "false", "no", "off")
+)
 
 # ─── Module-level state ───────────────────────────────────────────────────────
 _lock                   = threading.Lock()
@@ -71,6 +77,7 @@ _live_req: "dict | None" = None     # In-memory cache of the currently-playing r
 _cur_replay_temp: str   = ""        # basename of tmp_replay_* currently playing ("" = none)
 _replay_marked:   set   = set()     # basenames already marked status='playing' in local_replay_jobs
 _finished_jids:    set   = set()     # request IDs already consumed this process
+_start_purged_jids: set   = set()     # request files moved/deleted while still playing
 _log_cooldowns:    dict  = {}        # noisy guardian log cooldowns
 _LOCAL_TEMP_PREFIXES = ("tmp_replay_", "local_request_")
 _SAFE_REQUEST_TEMP_PREFIXES = ("tmp_replay_", "local_request_", "request_")
@@ -1196,6 +1203,177 @@ async def _remove_current_request_from_rotation(
     return ok
 
 
+def _request_start_purge_blocking(
+    job: dict,
+    live_media_id: str = "",
+    live_song_id: str = "",
+    live_filename: str = "",
+) -> bool:
+    """
+    Blocking start-time purge for request temp media.
+
+    Keeps the DB row as status='playing'.  This only removes future selection
+    paths: upcoming queue rows, playlist membership, and the temp file under
+    Requests/.  End-of-song cleanup still marks played/cleaned and is
+    idempotent if the file was already moved or deleted here.
+    """
+    request_id = int((job or {}).get("id") or 0)
+    source_type = ((job or {}).get("source_type") or "").strip().lower()
+    media_id = (live_media_id or (job or {}).get("azura_file_id") or "").strip()
+    song_id = (live_song_id or (job or {}).get("azura_song_id") or "").strip()
+    raw_filename = (live_filename or (job or {}).get("filename") or "").strip()
+    filename = raw_filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].strip()
+    request_path = f"Requests/{filename}" if filename else ""
+
+    if not request_id:
+        _harden_log("request_start_purge_skipped", reason="missing_request_id")
+        return False
+    if not _PURGE_REQUEST_MEDIA_ON_START:
+        _harden_log("request_start_purge_skipped", request_id=request_id, reason="disabled")
+        return False
+
+    if not filename:
+        _harden_log("request_start_purge_skipped", request_id=request_id, reason="missing_filename")
+        return False
+    if not _is_safe_request_temp_basename(filename):
+        _harden_log(
+            "request_start_purge_skipped",
+            request_id=request_id,
+            filename=filename,
+            reason="unsafe_temp_filename",
+        )
+        return False
+    if source_type in ("local", "local_copy", "local_replay", "local_favorite") and not _is_local_temp_basename(filename):
+        _harden_log(
+            "request_start_purge_skipped",
+            request_id=request_id,
+            filename=filename,
+            source_type=source_type,
+            reason="local_source_not_protected_temp",
+        )
+        return False
+
+    _harden_log(
+        "request_start_purge_start",
+        request_id=request_id,
+        filename=filename,
+        media_id=media_id,
+    )
+
+    removed_queue = 0
+    try:
+        removed_queue = azura.remove_queue_items_matching(
+            media_id=media_id,
+            song_id=song_id,
+            filename=filename,
+            path=request_path,
+        )
+    except Exception as exc:
+        _harden_log(
+            "request_start_purge_queue_removed",
+            request_id=request_id,
+            removed=0,
+            error=repr(exc),
+        )
+    else:
+        _harden_log(
+            "request_start_purge_queue_removed",
+            request_id=request_id,
+            removed=removed_queue,
+        )
+
+    playlist_cleared = False
+    if media_id:
+        try:
+            playlist_cleared = bool(azura.clear_file_playlists(media_id))
+        except Exception as exc:
+            _harden_log(
+                "request_start_purge_playlist_cleared",
+                request_id=request_id,
+                result=f"error:{exc!r}",
+            )
+        else:
+            _harden_log(
+                "request_start_purge_playlist_cleared",
+                request_id=request_id,
+                result="success" if playlist_cleared else "failed",
+            )
+    else:
+        _harden_log(
+            "request_start_purge_playlist_cleared",
+            request_id=request_id,
+            result="skipped_missing_media_id",
+        )
+
+    moved = False
+    move_result = "failed"
+    try:
+        moved = bool(azura.sftp_move_to_played(filename))
+        move_result = "moved" if moved else "move_failed"
+        if not moved:
+            deleted = bool(azura.sftp_delete_file(filename))
+            moved = deleted
+            move_result = "deleted" if deleted else "failed"
+    except Exception as exc:
+        move_result = f"error:{exc!r}"
+        moved = False
+    _harden_log(
+        "request_start_purge_file_moved",
+        request_id=request_id,
+        result=move_result,
+    )
+
+    rescan_ok = False
+    try:
+        rescan_ok = bool(azura.rescan_requests_folder())
+    except Exception:
+        rescan_ok = False
+
+    verify_ok = False
+    try:
+        verify_ok = bool(azura.verify_file_deleted(filename, wait_secs=2.0))
+    except Exception:
+        verify_ok = False
+
+    ok = bool(playlist_cleared or moved or verify_ok)
+    _harden_log(
+        "request_start_purge_done",
+        request_id=request_id,
+        result="success" if ok else "failed",
+        rescan=bool(rescan_ok),
+        verify=bool(verify_ok),
+    )
+    return ok
+
+
+async def _purge_request_media_on_start(
+    job: "dict | None",
+    live_media_id: str = "",
+    live_song_id: str = "",
+    live_filename: str = "",
+) -> bool:
+    request_id = int((job or {}).get("id") or 0)
+    if not request_id:
+        _harden_log("request_start_purge_skipped", reason="missing_request_id")
+        return False
+    if request_id in _start_purged_jids:
+        _harden_log("request_start_purge_skipped", request_id=request_id, reason="already_purged")
+        return True
+
+    loop = asyncio.get_running_loop()
+    ok = await loop.run_in_executor(
+        None,
+        _request_start_purge_blocking,
+        dict(job or {}),
+        live_media_id,
+        live_song_id,
+        live_filename,
+    )
+    if ok:
+        _start_purged_jids.add(request_id)
+    return bool(ok)
+
+
 async def _force_skip_if_stale_request_current(
     db_id: int,
     fid: str,
@@ -1555,7 +1733,7 @@ async def _submit_fifo_head_if_ready(
 # ─── Track event handlers ─────────────────────────────────────────────────────
 
 async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
-    global _cur_req_id, _live_req, _submitted_jids, _finished_jids
+    global _cur_req_id, _live_req, _submitted_jids, _finished_jids, _start_purged_jids
     already_finished = db_id in _finished_jids
     if already_finished:
         print(
@@ -1619,6 +1797,8 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
         if last_request:
             _harden_log("last_request_autodj_guard", request_id=db_id, filename=fn, azura_file_id=fid)
             _harden_log("last_request_cleanup_start", request_id=db_id, filename=fn)
+        if db_id in _start_purged_jids:
+            _harden_log("request_cleanup_already_purged", request_id=db_id, filename=fn)
         # Re-attempt deletion — idempotent: if _on_new_track already deleted
         # the file, the API returns 404 and sftp returns file-not-found.
         # Both are treated as success so cleaned_at is set.
@@ -1674,6 +1854,7 @@ async def _on_request_finished(bot: "BaseBot", db_id: int) -> None:
                 _harden_log("last_request_cleanup_done", request_id=db_id)
             if cleanup_ok:
                 _harden_log("request_cleanup_done", request_id=db_id, filename=fn)
+                _start_purged_jids.discard(db_id)
 
     remaining = _db_count_active()
     print(
@@ -1863,6 +2044,12 @@ async def _on_new_track(
                 live_filename=live_fn,
                 reason="on_new_track_already_playing",
             )
+            await _purge_request_media_on_start(
+                match,
+                live_media_id=live_fid,
+                live_song_id=(match.get("azura_song_id") or song_uid or song_id or ""),
+                live_filename=live_fn,
+            )
         else:
             _db_set_status(db_id, "playing", media_id=live_fid)
             await _remove_current_request_from_rotation(
@@ -1883,6 +2070,12 @@ async def _on_new_track(
             )
             _harden_log("request_start", request_id=db_id, title=req_title)
             _harden_log("request_detected_playing", request_id=db_id, filename=fn)
+            await _purge_request_media_on_start(
+                match,
+                live_media_id=live_fid,
+                live_song_id=(match.get("azura_song_id") or song_uid or song_id or ""),
+                live_filename=live_fn,
+            )
             await ann.announce_request_live(bot, req_title, artist, req_uname)
             with _lock:
                 _live_req = {
