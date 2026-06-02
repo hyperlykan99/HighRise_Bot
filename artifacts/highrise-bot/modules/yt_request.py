@@ -336,7 +336,6 @@ _download_sem     = asyncio.Semaphore(2)   # max 2 concurrent downloads
 _upload_sem       = asyncio.Semaphore(1)   # max 1 concurrent upload
 _prep_active_jids: set = set()             # job IDs currently in _run_job pipeline
 _prep_ids_lock    = threading.Lock()       # guards _prep_active_jids
-_STAGED_MISSING_YOUTUBE_STALE_SECS = 900
 
 def _new_job(user_id: str, username: str, url: str,
              coins_charged: int = 0, payment_type: str = "free",
@@ -834,36 +833,9 @@ def _fail_staged_file_missing(db_id: int, filename: str, *, source_type: str = "
 def _defer_youtube_staged_missing(db_id: int, source_type: str, status: str) -> None:
     print(
         f"[RADIO_HARDEN] event=staged_file_missing_deferred"
-        f" request_id={db_id} source_type={source_type!r} status={status!r}"
+        f" request_id={db_id} source_type={source_type!r}"
+        f" status={status!r} reason='youtube_pipeline_owns_file'"
     )
-
-
-def _youtube_staged_missing_is_stale(db_id: int) -> bool:
-    try:
-        with sqlite3.connect(_DB_PATH) as conn:
-            row = conn.execute(
-                "SELECT started_at FROM yt_request_jobs WHERE id=?",
-                (db_id,),
-            ).fetchone()
-        raw = (row[0] if row else "") or ""
-        if not raw:
-            return False
-        if isinstance(raw, (int, float)):
-            started_ts = float(raw)
-        else:
-            try:
-                started_ts = float(str(raw))
-            except Exception:
-                parsed = time.strptime(str(raw).split(".")[0], "%Y-%m-%d %H:%M:%S")
-                started_ts = time.mktime(parsed)
-        return (time.time() - started_ts) >= _STAGED_MISSING_YOUTUBE_STALE_SECS
-    except Exception as exc:
-        print(
-            f"[RADIO_HARDEN] event=staged_file_missing_deferred"
-            f" request_id={db_id} source_type='youtube'"
-            f" status='unknown' reason='stale_check_error:{exc!r}'"
-        )
-        return False
 
 
 def _db_get_pending_cleanup() -> list[dict]:
@@ -4263,23 +4235,16 @@ async def radio_request_prepare_worker(
                     staged_path = os.path.join(STAGING_DIR, fn) if fn else ""
                     if not staged_path or not os.path.exists(staged_path):
                         if source == "youtube" and status in ("pending", "processing", "downloading", "downloaded", "uploading", "indexing"):
-                            if not _youtube_staged_missing_is_stale(jid):
-                                _defer_youtube_staged_missing(jid, source, status)
-                                with _prep_ids_lock:
-                                    _prep_active_jids.discard(jid)
-                                continue
-                            _fail_staged_file_missing(
-                                jid,
-                                fn,
-                                source_type=source,
-                                reason="youtube_staged_file_missing_stale",
-                            )
+                            _defer_youtube_staged_missing(jid, source, status)
+                            with _prep_ids_lock:
+                                _prep_active_jids.discard(jid)
+                            continue
                         else:
                             _fail_staged_file_missing(
                                 jid,
                                 fn,
                                 source_type=source,
-                                reason="local_or_staged_source_missing",
+                                reason="local_source_missing",
                             )
                         with _prep_ids_lock:
                             _prep_active_jids.discard(jid)
