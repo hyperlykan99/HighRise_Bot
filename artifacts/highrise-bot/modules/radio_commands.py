@@ -1254,6 +1254,15 @@ async def handle_requester_left(bot: "BaseBot", user_id: str, username: str) -> 
     This is the canonical DB-backed leave handler for the current
     radio_commands -> request_queue -> yt_request -> playback_engine flow.
     """
+    import os
+    if (os.getenv("RADIO_SYSTEM_VERSION", "v1") or "v1").strip().lower() == "v2":
+        try:
+            from modules.radio_v2.commands import handle_requester_left as _v2_left
+            await _v2_left(bot, user_id, username)
+        except Exception as exc:
+            print(f"{_LOG} radio_v2 requester_left error: {exc!r}")
+        return
+
     if not cs.skip_if_requester_leaves():
         return
 
@@ -3308,6 +3317,18 @@ async def startup_radio(bot: "BaseBot") -> None:
     Called from on_start for the DJ bot.
     Starts the bot-controlled playback engine + legacy file cleanup safety-net.
     """
+    import os
+    if (os.getenv("RADIO_SYSTEM_VERSION", "v1") or "v1").strip().lower() == "v2":
+        try:
+            from modules.radio_v2 import playback as _v2_playback
+            from modules.radio_v2 import queue as _v2_queue
+            _v2_queue.ensure_schema()
+            _v2_playback.start(bot)
+            print("[DJ_RADIO] Radio V2 startup complete")
+        except Exception as exc:
+            print(f"[DJ_RADIO] Radio V2 startup error: {exc!r}")
+        return
+
     global _cleanup_poll_task_handle
     from modules.media_cleanup import start as _start_cleanup
     import modules.radio_diagnostics as diag

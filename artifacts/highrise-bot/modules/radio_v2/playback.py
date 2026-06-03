@@ -1,0 +1,223 @@
+"""Radio V2 playback watcher and cleanup lifecycle."""
+from __future__ import annotations
+
+import asyncio
+import time
+
+import modules.azuracast_controller as azura
+import modules.config_store as cs
+from modules.radio_renderer import render_now_playing
+from modules.radio_v2 import cleanup
+from modules.radio_v2 import diagnostics as diag
+from modules.radio_v2 import queue
+from modules.radio_v2 import settings
+
+_started = False
+_task: "asyncio.Task | None" = None
+_current_request_id = 0
+_last_song_key = ""
+_vote_skip: dict[str, set[str]] = {}
+
+
+def _song_key(np: dict) -> str:
+    now = (np or {}).get("now_playing") or {}
+    song = now.get("song") or {}
+    media = now.get("media") or {}
+    return (
+        str(media.get("id") or "")
+        or str(song.get("unique_id") or "")
+        or str(song.get("id") or "")
+        or f"{song.get('artist') or ''}|{song.get('title') or ''}"
+    )
+
+
+def _extract(np: dict) -> tuple[dict, dict, int, int]:
+    now = (np or {}).get("now_playing") or {}
+    song = now.get("song") or {}
+    media = now.get("media") or {}
+    elapsed = int(now.get("elapsed") or 0)
+    duration = int(now.get("duration") or song.get("duration") or 0)
+    return song, media, elapsed, duration
+
+
+def current_request() -> dict:
+    if _current_request_id:
+        return queue.get_request(_current_request_id)
+    return queue.currently_playing()
+
+
+def match_nowplaying(np: dict) -> dict:
+    song, media, _elapsed, _duration = _extract(np or {})
+    media_id = str(media.get("id") or "").strip()
+    song_id = (song.get("unique_id") or song.get("id") or "").strip()
+    path = (media.get("path") or "").strip()
+    title = (song.get("title") or "").strip()
+    return queue.match_nowplaying(media_id=media_id, song_id=song_id, path=path, title=title)
+
+
+async def _say(bot, msg: str) -> None:
+    try:
+        await bot.highrise.chat(msg[:249])
+    except Exception as exc:
+        print(f"[RADIO_V2] chat_error={exc!r}")
+
+
+async def announce_now(bot, row: dict, song: dict, elapsed: int, duration: int) -> None:
+    msg = render_now_playing(
+        {
+            "title": row.get("title") or song.get("title") or "Unknown",
+            "artist": row.get("artist") or song.get("artist") or "",
+            "requester": row.get("username") or "",
+            "source": "request",
+            "elapsed": elapsed,
+            "duration": duration,
+            "likes": 0,
+            "dislikes": 0,
+        }
+    )
+    await _say(bot, msg)
+
+
+async def _handle_request_start(bot, row: dict, song: dict, media: dict, elapsed: int, duration: int) -> None:
+    global _current_request_id
+    request_id = int(row.get("id") or 0)
+    if not request_id:
+        return
+    _current_request_id = request_id
+    queue.mark_status(
+        request_id,
+        "playing",
+        azura_file_id=str(media.get("id") or row.get("azura_file_id") or ""),
+        azura_song_id=(song.get("unique_id") or song.get("id") or row.get("azura_song_id") or ""),
+    )
+    diag.log(
+        "request_detected_playing",
+        request_id=request_id,
+        filename=row.get("temp_filename") or "",
+        media_id=media.get("id") or "",
+    )
+    try:
+        azura.remove_queue_items_matching(
+            media_id=str(media.get("id") or row.get("azura_file_id") or ""),
+            song_id=(song.get("unique_id") or song.get("id") or row.get("azura_song_id") or ""),
+            filename=row.get("temp_filename") or "",
+            path=f"Requests/{row.get('temp_filename') or ''}",
+        )
+        azura.clear_file_playlists(str(media.get("id") or row.get("azura_file_id") or ""))
+    except Exception:
+        pass
+    await announce_now(bot, row, song, elapsed, duration)
+
+
+async def _finish_current(bot, request_id: int) -> None:
+    global _current_request_id
+    row = queue.get_request(request_id)
+    if not row:
+        _current_request_id = 0
+        return
+    if row.get("status") == "playing":
+        queue.mark_status(request_id, "played")
+    diag.log("request_done", request_id=request_id, title=row.get("title") or "")
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, cleanup.cleanup_request_media, queue.get_request(request_id), "played")
+    _current_request_id = 0
+
+
+async def _handle_stale_requests_media(song: dict, media: dict) -> None:
+    path = (media.get("path") or "").strip()
+    filename = path.rsplit("/", 1)[-1].strip()
+    media_id = str(media.get("id") or "").strip()
+    song_id = (song.get("unique_id") or song.get("id") or "").strip()
+    diag.log("stale_requests_media_skip", path=path, media_id=media_id)
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, azura.skip_current)
+    await loop.run_in_executor(
+        None,
+        cleanup.cleanup_request_media,
+        {
+            "id": 0,
+            "temp_filename": filename,
+            "azura_file_id": media_id,
+            "azura_song_id": song_id,
+        },
+        "stale_requests_media",
+    )
+
+
+async def _poll(bot) -> None:
+    global _last_song_key
+    diag.log("mode_enabled")
+    diag.log("requests_playlist_should_not_be_general_rotation")
+    while True:
+        try:
+            loop = asyncio.get_running_loop()
+            np = await loop.run_in_executor(None, azura.fetch_nowplaying)
+            if not np:
+                await asyncio.sleep(5)
+                continue
+            key = _song_key(np)
+            if key and key != _last_song_key:
+                previous_request = _current_request_id
+                song, media, elapsed, duration = _extract(np)
+                row = match_nowplaying(np)
+                if previous_request and (not row or int(row.get("id") or 0) != previous_request):
+                    await _finish_current(bot, previous_request)
+                if row:
+                    await _handle_request_start(bot, row, song, media, elapsed, duration)
+                else:
+                    path = (media.get("path") or "").strip()
+                    if path.lower().lstrip("/").startswith("requests/"):
+                        await _handle_stale_requests_media(song, media)
+                _last_song_key = key
+        except Exception as exc:
+            diag.log("watcher_error", error=repr(exc))
+        await asyncio.sleep(5)
+
+
+def start(bot) -> None:
+    global _started, _task
+    if _started:
+        return
+    if not settings.enabled():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except Exception:
+        return
+    _task = loop.create_task(_poll(bot), name="radio_v2_playback")
+    _started = True
+
+
+async def skip_current_request(bot, user_id: str, staff: bool = False) -> tuple[bool, str]:
+    row = current_request()
+    if not row:
+        return False, "Nothing is playing right now."
+    if not staff and (row.get("user_id") or "") != user_id:
+        return False, "That is not your request. Use !voteskip to vote skip."
+    loop = asyncio.get_running_loop()
+    ok = await loop.run_in_executor(None, azura.skip_current)
+    if ok:
+        await _finish_current(bot, int(row.get("id") or 0))
+        return True, "⏭️ Skipped."
+    return False, "❌ Skip failed. Try again."
+
+
+async def vote_skip(bot, user_id: str) -> tuple[bool, str]:
+    loop = asyncio.get_running_loop()
+    np = await loop.run_in_executor(None, azura.fetch_nowplaying)
+    if not np:
+        return False, "🎵 Nothing is playing right now."
+    key = _song_key(np)
+    if not key:
+        return False, "🎵 Nothing is playing right now."
+    threshold = settings.voteskip_threshold()
+    voters = _vote_skip.setdefault(key, set())
+    if user_id in voters:
+        return False, f"👎 Already voted. {max(0, threshold - len(voters))} more vote(s) needed."
+    voters.add(user_id)
+    if len(voters) >= threshold:
+        await loop.run_in_executor(None, azura.skip_current)
+        _vote_skip.pop(key, None)
+        return True, f"👎 Vote skip passed ({threshold}/{threshold})."
+    return True, f"👎 Vote skip: {len(voters)}/{threshold}"
+

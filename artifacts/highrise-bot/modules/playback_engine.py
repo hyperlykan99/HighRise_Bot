@@ -51,6 +51,7 @@ _REQUEST_PLAYBACK_MODE = (
 )
 _AZURA_PLAYLIST_MODE = _REQUEST_PLAYBACK_MODE != "bot_fifo"
 _AZURA_NATIVE_REQUEST_MODE = _REQUEST_PLAYBACK_MODE == "azura_native_request"
+_RADIO_SYSTEM_VERSION = (os.getenv("RADIO_SYSTEM_VERSION", "v1") or "v1").strip().lower()
 _PURGE_REQUEST_MEDIA_ON_START = (
     os.getenv("RADIO_PURGE_REQUEST_MEDIA_ON_START", "true")
     .strip()
@@ -2106,6 +2107,12 @@ async def _on_new_track(
         # Playlist switch deferred to _on_request_finished when queue empties.
 
     elif from_requests:
+        if _RADIO_SYSTEM_VERSION == "v2":
+            print(
+                f"{_LOG} NP from Requests/ in Radio V2 mode — V2 watcher owns cleanup"
+                f" path={media_path!r}"
+            )
+            return
         # NP is from Requests/ folder but no DB record matched.
         # Treat unmatched Requests/ media as stale residue immediately. A real
         # active request should match by media id, song id, or filename; waiting

@@ -7,6 +7,7 @@ yt* compatibility/admin handlers only.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Awaitable, Callable, TYPE_CHECKING
 
@@ -27,8 +28,17 @@ class RadioCommandEntry:
 
 
 def _entries() -> tuple[RadioCommandEntry, ...]:
-    from modules import radio_commands as rc
-    from modules import local_replay as lr
+    v2_enabled = (os.getenv("RADIO_SYSTEM_VERSION", "v1") or "v1").strip().lower() == "v2"
+    if v2_enabled:
+        from modules.radio_v2 import commands as rc
+        lr = rc
+        module_name = "modules.radio_v2.commands"
+        local_module_name = module_name
+    else:
+        from modules import radio_commands as rc
+        from modules import local_replay as lr
+        module_name = "modules.radio_commands"
+        local_module_name = "modules.local_replay"
 
     return (
         RadioCommandEntry(
@@ -37,7 +47,15 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=rc.handle_request,
-            module="modules.radio_commands",
+            module=module_name,
+        ),
+        RadioCommandEntry(
+            command="pick",
+            aliases=("djpick",),
+            owner="dj",
+            permission="public",
+            handler=rc.handle_pick,
+            module=module_name,
         ),
         RadioCommandEntry(
             command="playfav",
@@ -45,7 +63,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=rc.handle_playfav,
-            module="modules.radio_commands",
+            module=module_name,
         ),
         RadioCommandEntry(
             command="playfavlocal",
@@ -53,7 +71,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=lr.handle_playfavlocal,
-            module="modules.local_replay",
+            module=local_module_name,
         ),
         RadioCommandEntry(
             command="localreplaytest",
@@ -61,23 +79,23 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="admin",
             handler=lr.handle_playfavlocal,
-            module="modules.local_replay",
+            module=local_module_name,
         ),
         RadioCommandEntry(
             command="localreplaystatus",
             aliases=(),
             owner="dj",
             permission="admin",
-            handler=lr.handle_localreplaystatus,
-            module="modules.local_replay",
+            handler=(rc.handle_radiostatus if v2_enabled else lr.handle_localreplaystatus),
+            module=(module_name if v2_enabled else local_module_name),
         ),
         RadioCommandEntry(
             command="localreplaycleanup",
             aliases=(),
             owner="dj",
             permission="admin",
-            handler=lr.handle_localreplaycleanup,
-            module="modules.local_replay",
+            handler=(rc.handle_radiostatus if v2_enabled else lr.handle_localreplaycleanup),
+            module=(module_name if v2_enabled else local_module_name),
         ),
         RadioCommandEntry(
             command="queue",
@@ -85,7 +103,15 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=rc.handle_queue,
-            module="modules.radio_commands",
+            module=module_name,
+        ),
+        RadioCommandEntry(
+            command="nowplaying",
+            aliases=("now", "np"),
+            owner="dj",
+            permission="public",
+            handler=rc.handle_nowplaying,
+            module=module_name,
         ),
         RadioCommandEntry(
             command="skip",
@@ -93,7 +119,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="staff",
             handler=rc.handle_skip,
-            module="modules.radio_commands",
+            module=module_name,
         ),
         RadioCommandEntry(
             command="remove",
@@ -101,7 +127,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="staff",
             handler=rc.handle_remove,
-            module="modules.radio_commands",
+            module=module_name,
         ),
         RadioCommandEntry(
             command="cancel",
@@ -109,7 +135,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=rc.handle_cancel,
-            module="modules.radio_commands",
+            module=module_name,
         ),
         RadioCommandEntry(
             command="radiohelp",
@@ -117,7 +143,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=rc.handle_radiohelp,
-            module="modules.radio_commands",
+            module=module_name,
         ),
         RadioCommandEntry(
             command="radiostatus",
@@ -125,7 +151,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=rc.handle_radiostatus,
-            module="modules.radio_commands",
+            module=module_name,
         ),
         RadioCommandEntry(
             command="radiolog",
@@ -133,7 +159,15 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="staff",
             handler=rc.handle_radiolog,
-            module="modules.radio_commands",
+            module=module_name,
+        ),
+        RadioCommandEntry(
+            command="voteskip",
+            aliases=("skipvote",),
+            owner="dj",
+            permission="public",
+            handler=rc.handle_voteskip,
+            module=module_name,
         ),
         RadioCommandEntry(
             command="myrequests",
@@ -141,7 +175,15 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=rc.handle_myrequests,
-            module="modules.radio_commands",
+            module=module_name,
+        ),
+        RadioCommandEntry(
+            command="requesthistory",
+            aliases=("radiohistory",),
+            owner="dj",
+            permission="staff",
+            handler=(rc.handle_requesthistory if v2_enabled else rc.handle_history),
+            module=module_name,
         ),
         RadioCommandEntry(
             command="musicshop",
@@ -149,7 +191,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=rc.handle_musicshop,
-            module="modules.radio_commands",
+            module=module_name,
         ),
         RadioCommandEntry(
             command="buyplays",
@@ -157,15 +199,39 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             owner="dj",
             permission="public",
             handler=rc.handle_buyplays,
-            module="modules.radio_commands",
+            module=module_name,
+        ),
+        RadioCommandEntry(
+            command="favorites",
+            aliases=("favs", "myplaylist"),
+            owner="dj",
+            permission="public",
+            handler=rc.handle_favorites,
+            module=module_name,
+        ),
+        RadioCommandEntry(
+            command="favorite",
+            aliases=("fav", "favnow", "addtoplaylist"),
+            owner="dj",
+            permission="public",
+            handler=rc.handle_favorite,
+            module=module_name,
+        ),
+        RadioCommandEntry(
+            command="removefav",
+            aliases=("delfav", "deletefav", "removefavorite"),
+            owner="dj",
+            permission="public",
+            handler=rc.handle_removefav,
+            module=module_name,
         ),
         RadioCommandEntry(
             command="queuelimit",
             aliases=("setqueuelimit",),
             owner="dj",
             permission="staff",
-            handler=rc.handle_queuelimit,
-            module="modules.radio_commands",
+            handler=(rc.handle_radiostatus if v2_enabled else rc.handle_queuelimit),
+            module=module_name,
         ),
     )
 
