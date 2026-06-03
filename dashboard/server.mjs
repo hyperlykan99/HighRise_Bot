@@ -1205,6 +1205,15 @@ const RADIO_SETTING_DEFAULTS = {
   request_disc_cost_vip: ["1", "int"],
   request_disc_cost_staff: ["0", "int"],
   request_disc_cost_owner: ["0", "int"],
+  radio_enabled: ["true", "bool"],
+  now_announce_song_changes: ["true", "bool"],
+  now_announce_autodj: ["true", "bool"],
+  now_announce_requests: ["true", "bool"],
+  now_command_response_mode: ["whisper", "str"],
+  now_show_progress_bar: ["true", "bool"],
+  now_show_likes_dislikes: ["true", "bool"],
+  now_show_request_play_count: ["true", "bool"],
+  now_footer_text: ["🎶 !play to request a song", "str"],
 };
 
 function ensureRadioSettings(db) {
@@ -1298,6 +1307,37 @@ function readMusicDiscIdentity(db, query) {
      LIMIT 10`,
   ).all(user.user_id);
   return { username: user.username, balance: Number(balance || 0), history };
+}
+
+function getRadioRuntimeState(db, key, fallback = "") {
+  try {
+    if (!tableExists(db, "radio_runtime_state")) return fallback;
+    const row = db.prepare("SELECT value FROM radio_runtime_state WHERE key=? LIMIT 1").get(key);
+    return row?.value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function parseJsonState(raw, fallback = null) {
+  try {
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function activeQueueCountFromRadioRequests(db) {
+  try {
+    if (!tableExists(db, "radio_requests")) return 0;
+    return Number(
+      db.prepare(
+        "SELECT COUNT(*) AS n FROM radio_requests WHERE status IN ('pending','preparing','ready','submitted','playing')",
+      ).get()?.n || 0,
+    );
+  } catch {
+    return 0;
+  }
 }
 
 function boolFromSetting(value, fallback = false) {
@@ -1471,6 +1511,26 @@ function readLocalRadioStatus(db) {
     request_disc_cost_vip: getRadioSetting(db, "request_disc_cost_vip", "1"),
     request_disc_cost_staff: getRadioSetting(db, "request_disc_cost_staff", "0"),
     request_disc_cost_owner: getRadioSetting(db, "request_disc_cost_owner", "0"),
+    radio_enabled: getRadioSetting(db, "radio_enabled", "true"),
+    now_announce_song_changes: getRadioSetting(db, "now_announce_song_changes", "true"),
+    now_announce_autodj: getRadioSetting(db, "now_announce_autodj", "true"),
+    now_announce_requests: getRadioSetting(db, "now_announce_requests", "true"),
+    now_command_response_mode: getRadioSetting(db, "now_command_response_mode", "whisper"),
+    now_show_progress_bar: getRadioSetting(db, "now_show_progress_bar", "true"),
+    now_show_likes_dislikes: getRadioSetting(db, "now_show_likes_dislikes", "true"),
+    now_show_request_play_count: getRadioSetting(db, "now_show_request_play_count", "true"),
+    now_footer_text: getRadioSetting(db, "now_footer_text", "🎶 !play to request a song"),
+  };
+  const currentTrack = parseJsonState(getRadioRuntimeState(db, "current_track", ""), null);
+  const lastPoll = parseJsonState(getRadioRuntimeState(db, "last_poll", ""), null);
+  const skeletonHealth = {
+    radio_enabled: settings.radio_enabled !== "false",
+    azura_api_configured: Boolean((process.env.AZURA_BASE_URL || "").trim() && (process.env.AZURA_API_KEY || "").trim()),
+    azura_sftp_configured: Boolean((process.env.AZURA_SFTP_HOST || "").trim() && (process.env.AZURA_SFTP_USER || "").trim() && (process.env.AZURA_SFTP_PASS || "").trim()),
+    current_track: currentTrack,
+    queue_size: activeQueueCountFromRadioRequests(db),
+    last_poll: lastPoll,
+    last_error: getRadioRuntimeState(db, "last_error", "none"),
   };
   const blocklist = {
     requesters: safeTableRows(db, "request_blocked_requesters", { orderBy: columnExists(db, "request_blocked_requesters", "added_at") ? "added_at DESC" : "", limit: "200" }),
@@ -1501,6 +1561,7 @@ function readLocalRadioStatus(db) {
     recently_played: recent,
     counts,
     settings,
+    skeleton_health: skeletonHealth,
     blocklist,
     stats,
     local_library: localLibrary,
@@ -6494,6 +6555,17 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     setRadioSetting(req.db, "music_disc_display_name", value, "str", req.user.username);
     updates.music_disc_display_name = value;
   }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "now_footer_text")) {
+    const value = String(req.body.now_footer_text || "🎶 !play to request a song").trim().slice(0, 120) || "🎶 !play to request a song";
+    setRadioSetting(req.db, "now_footer_text", value, "str", req.user.username);
+    updates.now_footer_text = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "now_command_response_mode")) {
+    const requested = String(req.body.now_command_response_mode || "whisper").trim().toLowerCase();
+    const value = ["whisper", "chat"].includes(requested) ? requested : "whisper";
+    setRadioSetting(req.db, "now_command_response_mode", value, "str", req.user.username);
+    updates.now_command_response_mode = value;
+  }
   for (const field of ["skip_on_leave", "refund_on_leave", "admin_ignore_leave"]) {
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, field)) continue;
     const key = `radio_${field}`;
@@ -6501,7 +6573,18 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     setRoomSetting(req.db, key, value);
     updates[key] = value;
   }
-  for (const field of ["music_shop_enabled", "music_disc_purchase_coins_enabled", "music_disc_purchase_luxe_enabled"]) {
+  for (const field of [
+    "music_shop_enabled",
+    "music_disc_purchase_coins_enabled",
+    "music_disc_purchase_luxe_enabled",
+    "radio_enabled",
+    "now_announce_song_changes",
+    "now_announce_autodj",
+    "now_announce_requests",
+    "now_show_progress_bar",
+    "now_show_likes_dislikes",
+    "now_show_request_play_count",
+  ]) {
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, field)) continue;
     const value = req.body[field] ? "true" : "false";
     setRadioSetting(req.db, field, value, "bool", req.user.username);

@@ -4188,8 +4188,24 @@ function radioJobColumns() {
 
 function renderRadioRequests(d) {
   const s = d.settings || {};
+  const h = d.skeleton_health || {};
+  const track = h.current_track || {};
   return `
     <div class="grid">
+      <div class="card">
+        <h2>Radio Skeleton Health</h2>
+        <div class="status-grid">
+          <div><span class="muted">Radio</span><strong>${h.radio_enabled ? "Enabled" : "Disabled"}</strong></div>
+          <div><span class="muted">Azura API</span><strong>${h.azura_api_configured ? "Configured" : "Missing config"}</strong></div>
+          <div><span class="muted">Azura SFTP</span><strong>${h.azura_sftp_configured ? "Configured" : "Missing config"}</strong></div>
+          <div><span class="muted">Queue Size</span><strong>${esc(h.queue_size ?? 0)}</strong></div>
+          <div><span class="muted">Last Poll</span><strong>${esc(h.last_poll?.ok === true ? "OK" : h.last_poll?.ok === false ? "Fail" : "Not yet")}</strong></div>
+          <div><span class="muted">Last Error</span><strong>${esc(h.last_error || "none")}</strong></div>
+        </div>
+        <div class="notice" style="margin-top:12px">
+          Current track: <strong>${esc(track.title || "Unknown")}</strong>${track.artist ? ` by ${esc(track.artist)}` : ""}
+        </div>
+      </div>
       <div class="card">
         <h2>Request Gate</h2>
         <label class="switch" style="margin-bottom:16px">
@@ -4201,6 +4217,7 @@ function renderRadioRequests(d) {
       <div class="card">
         <h2>Request Limits</h2>
         <form id="radioSettingsForm" class="settings-form">
+          <label class="switch"><input type="checkbox" name="radio_enabled" ${String(s.radio_enabled) !== "false" ? "checked" : ""}/><span>Radio Enabled</span></label>
           ${settingInput("max_active_queue", "Queue Limit", s.max_active_queue ?? 20)}
           ${settingInput("per_user_queue_limit", "Per User Limit", s.per_user_queue_limit ?? 3)}
           ${settingInput("request_cooldown", "Cooldown Seconds", s.request_cooldown ?? 300)}
@@ -4208,6 +4225,23 @@ function renderRadioRequests(d) {
           <label class="switch"><input type="checkbox" name="skip_on_leave" ${String(s.skip_on_leave) !== "false" ? "checked" : ""}/><span>Skip Request if Requester Leaves</span></label>
           <label class="switch"><input type="checkbox" name="refund_on_leave" ${String(s.refund_on_leave) !== "false" ? "checked" : ""}/><span>Refund Song Play if Requester Leaves</span></label>
           <label class="switch"><input type="checkbox" name="admin_ignore_leave" ${String(s.admin_ignore_leave) !== "false" ? "checked" : ""}/><span>Admin Requests Ignore Leave Rule</span></label>
+          <label class="switch"><input type="checkbox" name="now_announce_song_changes" ${String(s.now_announce_song_changes) !== "false" ? "checked" : ""}/><span>Announce Song Changes</span></label>
+          <label class="switch"><input type="checkbox" name="now_announce_autodj" ${String(s.now_announce_autodj) !== "false" ? "checked" : ""}/><span>Announce Auto DJ</span></label>
+          <label class="switch"><input type="checkbox" name="now_announce_requests" ${String(s.now_announce_requests) !== "false" ? "checked" : ""}/><span>Announce Requests</span></label>
+          <label class="switch"><input type="checkbox" name="now_show_progress_bar" ${String(s.now_show_progress_bar) !== "false" ? "checked" : ""}/><span>Show Progress Bar</span></label>
+          <label class="switch"><input type="checkbox" name="now_show_likes_dislikes" ${String(s.now_show_likes_dislikes) !== "false" ? "checked" : ""}/><span>Show Likes / Dislikes</span></label>
+          <label class="switch"><input type="checkbox" name="now_show_request_play_count" ${String(s.now_show_request_play_count) !== "false" ? "checked" : ""}/><span>Show Request Play Count</span></label>
+          <div class="field">
+            <label class="field-label">Now Command Response Mode</label>
+            <select name="now_command_response_mode">
+              <option value="whisper" ${String(s.now_command_response_mode || "whisper") === "whisper" ? "selected" : ""}>Whisper</option>
+              <option value="chat" ${String(s.now_command_response_mode || "") === "chat" ? "selected" : ""}>Chat</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label">Now Footer Text</label>
+            <input type="text" name="now_footer_text" value="${esc(s.now_footer_text ?? "🎶 !play to request a song")}" />
+          </div>
           <button class="btn primary">Save Request Settings</button>
         </form>
       </div>
@@ -8625,9 +8659,18 @@ function bindAdminPageEvents() {
           per_user_queue_limit: data.per_user_queue_limit,
           request_cooldown: data.request_cooldown,
           voteskip_threshold: data.voteskip_threshold,
+          radio_enabled: form.elements.radio_enabled?.checked,
           skip_on_leave: form.elements.skip_on_leave?.checked,
           refund_on_leave: form.elements.refund_on_leave?.checked,
           admin_ignore_leave: form.elements.admin_ignore_leave?.checked,
+          now_announce_song_changes: form.elements.now_announce_song_changes?.checked,
+          now_announce_autodj: form.elements.now_announce_autodj?.checked,
+          now_announce_requests: form.elements.now_announce_requests?.checked,
+          now_show_progress_bar: form.elements.now_show_progress_bar?.checked,
+          now_show_likes_dislikes: form.elements.now_show_likes_dislikes?.checked,
+          now_show_request_play_count: form.elements.now_show_request_play_count?.checked,
+          now_command_response_mode: data.now_command_response_mode,
+          now_footer_text: data.now_footer_text,
         }),
       }));
   });

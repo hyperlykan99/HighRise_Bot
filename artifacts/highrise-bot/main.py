@@ -436,7 +436,9 @@ from modules.staff_alerts import (
     handle_playermodnotice,
     handle_reportalertdebug,
 )
+from modules.radio.commands import dispatch_radio_command
 from modules.radio.music_shop import dispatch_music_disc_command
+from modules.radio.startup import startup_radio_skeleton
 async def _music_rebuild_notice(bot, user, *_args, **_kwargs) -> None:
     try:
         await bot.highrise.send_whisper(user.id, "🎵 Music system is being rebuilt.")
@@ -1807,7 +1809,16 @@ MUSIC_DISC_COMMANDS: frozenset[str] = frozenset({
     "requestdiscprice",
     "setrequestdisc",
 })
-ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS | MUSIC_DISC_COMMANDS
+RADIO_SKELETON_COMMANDS: frozenset[str] = frozenset({
+    "radiohelp",
+    "q",
+    "queue",
+    "now",
+    "np",
+    "radiotest",
+    "musicstatus",
+})
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS | MUSIC_DISC_COMMANDS | RADIO_SKELETON_COMMANDS
 
 DASHBOARD_CASINO_BLOCK_COMMANDS: frozenset[str] = frozenset(
     BJ_COMMANDS
@@ -3878,12 +3889,11 @@ class HangoutBot(BaseBot):
             _safe_task(startup_host_dm_queue_loop(self), "startup_host_dm_queue_loop")
         else:
             log_cooldown(f"startup_skip:{BOT_MODE}:host", f"[MODULE_SKIP] module=host mode={BOT_MODE} reason=startup_not_owner", seconds=300)
-        # Radio is intentionally offline during the fresh rebuild.
-        log_cooldown(
-            f"startup_skip:{BOT_MODE}:radio_rebuild",
-            f"[DJ_RADIO] module=radio mode={BOT_MODE} reason=music_system_rebuild",
-            seconds=300,
-        )
+        # Radio skeleton — DJ bot only. Phase 3 is read-only now-playing/health.
+        if should_this_bot_run_module("dj"):
+            _safe_task(startup_radio_skeleton(self), "startup_radio_skeleton")
+        else:
+            log_cooldown(f"startup_skip:{BOT_MODE}:radio", f"[MODULE_SKIP] module=radio mode={BOT_MODE} reason=startup_not_owner", seconds=300)
         # Bot emote loop recovery — all bot modes (each bot checks its own DB key)
         _safe_task(startup_bot_emote_recovery(self), "startup_bot_emote_recovery")
         # Dancefloor recovery — DJ owns the polling loop in multi-bot deployments
@@ -4109,6 +4119,12 @@ class HangoutBot(BaseBot):
             if BOT_MODE != "dj":
                 return
             await dispatch_music_disc_command(self, user, cmd, args)
+            return
+
+        if cmd in RADIO_SKELETON_COMMANDS:
+            if BOT_MODE != "dj":
+                return
+            await dispatch_radio_command(self, user, cmd, args)
             return
 
         if cmd in DJ_COMMANDS:

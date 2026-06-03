@@ -18,6 +18,15 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "request_disc_cost_vip": ("1", "int"),
     "request_disc_cost_staff": ("0", "int"),
     "request_disc_cost_owner": ("0", "int"),
+    "radio_enabled": ("true", "bool"),
+    "now_announce_song_changes": ("true", "bool"),
+    "now_announce_autodj": ("true", "bool"),
+    "now_announce_requests": ("true", "bool"),
+    "now_command_response_mode": ("whisper", "str"),
+    "now_show_progress_bar": ("true", "bool"),
+    "now_show_likes_dislikes": ("true", "bool"),
+    "now_show_request_play_count": ("true", "bool"),
+    "now_footer_text": ("🎶 !play to request a song", "str"),
 }
 
 
@@ -79,4 +88,3 @@ def get_bool_setting(key: str, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on", "enabled"}
-
