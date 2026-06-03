@@ -158,8 +158,8 @@ def rescan_requests_folder() -> bool:
         return False
     endpoint = f"/api/station/{cfg['station_id']}/files/batch"
     attempts = (
-        ("POST", endpoint, {"do": "rescan", "current_directory": folder}),
-        ("POST", endpoint, {"do": "rescan", "currentDirectory": folder}),
+        ("PUT", endpoint, {"do": "rescan", "current_directory": folder}),
+        ("PUT", endpoint, {"do": "rescan", "currentDirectory": folder}),
     )
     for method, path, payload in attempts:
         status, _data, body = _api_response(path, method=method, payload=payload, timeout=30)
@@ -197,17 +197,84 @@ def attach_requests_playlist(file_id: str) -> bool:
     cfg = cs.azura_api_cfg()
     if not cfg or not file_id or not playlist_id:
         return True
-    try:
-        _api_request(
-            f"/api/station/{cfg['station_id']}/file/{file_id}",
-            method="PUT",
-            payload={"playlists": [int(playlist_id) if str(playlist_id).isdigit() else playlist_id]},
-            timeout=15,
-        )
+    playlist = int(playlist_id) if str(playlist_id).isdigit() else playlist_id
+    endpoint = f"/api/station/{cfg['station_id']}/file/{file_id}"
+    status, _data, body = _api_response(
+        endpoint,
+        method="PUT",
+        payload={"playlists": [playlist]},
+        timeout=15,
+    )
+    ok = status in (200, 202, 204)
+    print(
+        f"[RADIO_PHASE4] event={'azura_playlist_assign_ok' if ok else 'azura_playlist_assign_failed'} "
+        f"method=PUT endpoint={endpoint!r} file_id={file_id!r} playlist_id={playlist_id!r} "
+        f"status={status} body={body[:180]!r}"
+    )
+    if ok:
         return True
-    except Exception as exc:
-        print(f"[RADIO_PHASE4] event=attach_playlist_failed file_id={file_id!r} error={exc!r}")
+
+    batch_endpoint = f"/api/station/{cfg['station_id']}/files/batch"
+    try:
+        file_value = int(file_id)
+    except (TypeError, ValueError):
+        file_value = file_id
+    status, _data, body = _api_response(
+        batch_endpoint,
+        method="PUT",
+        payload={"do": "playlist", "playlist": playlist_id, "files": [file_value]},
+        timeout=15,
+    )
+    ok = status in (200, 202, 204)
+    print(
+        f"[RADIO_PHASE4] event={'azura_playlist_assign_ok' if ok else 'azura_playlist_assign_failed'} "
+        f"method=PUT endpoint={batch_endpoint!r} file_id={file_id!r} playlist_id={playlist_id!r} "
+        f"status={status} body={body[:180]!r}"
+    )
+    return ok
+
+
+def requestable_media_ready(remote_filename: str, azura_song_id: str = "") -> bool:
+    if not safe_request_filename(remote_filename):
         return False
+    cfg = cs.azura_api_cfg()
+    if not cfg:
+        return False
+    phrase = urllib.parse.quote(remote_filename)
+    endpoint = f"/api/station/{cfg['station_id']}/requests?searchPhrase={phrase}"
+    status, data, body = _api_response(endpoint, timeout=15)
+    if status not in (200, 202, 204):
+        print(
+            f"[RADIO_PHASE4] event=azura_requestable_lookup_failed endpoint={endpoint!r} "
+            f"status={status} body={body[:180]!r}"
+        )
+        return False
+    rows = data if isinstance(data, list) else (data or {}).get("rows", [])
+    wanted = {str(azura_song_id or "").strip(), remote_filename, f"{os.path.basename(cs.sftp_cfg().get('folder', 'Requests').rstrip('/'))}/{remote_filename}"}
+    wanted.discard("")
+    for row in rows:
+        song = row.get("song") if isinstance(row, dict) and isinstance(row.get("song"), dict) else {}
+        path = str(row.get("path") or song.get("path") or "")
+        filename = os.path.basename(path)
+        ids = {
+            str(row.get("request_id") or "").strip(),
+            str(row.get("unique_id") or "").strip(),
+            str(row.get("song_id") or "").strip(),
+            str(song.get("id") or "").strip(),
+            str(song.get("unique_id") or "").strip(),
+        }
+        ids.discard("")
+        if filename == remote_filename or bool(ids & wanted):
+            print(
+                f"[RADIO_PHASE4] event=azura_requestable_ready "
+                f"unique_id={azura_song_id!r} requestable_ids={sorted(ids)!r} path={path!r}"
+            )
+            return True
+    print(
+        f"[RADIO_PHASE4] event=azura_requestable_not_found "
+        f"filename={remote_filename!r} unique_id={azura_song_id!r} rows={len(rows)}"
+    )
+    return False
 
 
 def submit_request(azura_song_id: str) -> tuple[bool, int, str]:

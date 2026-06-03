@@ -231,15 +231,39 @@ async def process_request_job(bot, request_id: int) -> None:
             raise RuntimeError("azura_index_timeout")
 
         file_id = azura.media_file_id(media)
+        azura_path = media.get("path") or remote_path
+        print(
+            f"[RADIO_PHASE4] event=azura_media_found request_id={request_id} "
+            f"media_id={file_id!r} unique_id={song_id!r} path={azura_path!r}"
+        )
         if file_id:
-            await asyncio.to_thread(azura.attach_requests_playlist, file_id)
+            assigned = await asyncio.to_thread(azura.attach_requests_playlist, file_id)
+            if not assigned:
+                print(
+                    f"[RADIO_PHASE4] event=azura_playlist_assign_failed "
+                    f"request_id={request_id} media_id={file_id!r}"
+                )
         radio_db.mark_status(
             request_id,
             "ready",
             azura_file_id=file_id,
             azura_song_id=song_id,
-            azura_path=media.get("path") or remote_path,
+            azura_path=azura_path,
         )
+        requestable = False
+        for attempt in range(10):
+            if attempt == 0 or attempt % 5 == 0:
+                await asyncio.to_thread(azura.rescan_requests_folder)
+            requestable = await asyncio.to_thread(azura.requestable_media_ready, filename, song_id)
+            if requestable:
+                break
+            await asyncio.sleep(2)
+        if not requestable:
+            print(
+                f"[RADIO_PHASE4] event=azura_index_timeout request_id={request_id} "
+                f"filename={filename!r} reason=requestable_not_found"
+            )
+            raise RuntimeError("azura_requestable_timeout")
         ok, status, body = await asyncio.to_thread(azura.submit_request, song_id)
         if not ok:
             print(
@@ -249,7 +273,7 @@ async def process_request_job(bot, request_id: int) -> None:
             raise RuntimeError(f"azura_submit_failed status={status} body={body[:200]!r}")
         radio_db.mark_status(request_id, "submitted")
         print(
-            f"[RADIO_PHASE4] event=request_submitted request_id={request_id} "
+            f"[RADIO_PHASE4] event=azura_submit_ok request_id={request_id} "
             f"song_id={song_id!r} status={status}"
         )
     except Exception as exc:
