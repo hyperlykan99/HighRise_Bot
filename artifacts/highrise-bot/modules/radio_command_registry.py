@@ -28,8 +28,16 @@ class RadioCommandEntry:
 
 
 def _entries() -> tuple[RadioCommandEntry, ...]:
-    v2_enabled = (os.getenv("RADIO_SYSTEM_VERSION", "v1") or "v1").strip().lower() == "v2"
-    if v2_enabled:
+    version = (os.getenv("RADIO_SYSTEM_VERSION", "v1") or "v1").strip().lower()
+    v2_enabled = version == "v2"
+    v3_enabled = version == "v3"
+    modern_enabled = v2_enabled or v3_enabled
+    if v3_enabled:
+        from modules.radio_v3 import commands as rc
+        lr = rc
+        module_name = "modules.radio_v3.commands"
+        local_module_name = module_name
+    elif v2_enabled:
         from modules.radio_v2 import commands as rc
         lr = rc
         module_name = "modules.radio_v2.commands"
@@ -86,16 +94,16 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             aliases=(),
             owner="dj",
             permission="admin",
-            handler=(rc.handle_radiostatus if v2_enabled else lr.handle_localreplaystatus),
-            module=(module_name if v2_enabled else local_module_name),
+            handler=(rc.handle_radiostatus if modern_enabled else lr.handle_localreplaystatus),
+            module=(module_name if modern_enabled else local_module_name),
         ),
         RadioCommandEntry(
             command="localreplaycleanup",
             aliases=(),
             owner="dj",
             permission="admin",
-            handler=(rc.handle_radiostatus if v2_enabled else lr.handle_localreplaycleanup),
-            module=(module_name if v2_enabled else local_module_name),
+            handler=(rc.handle_radiostatus if modern_enabled else lr.handle_localreplaycleanup),
+            module=(module_name if modern_enabled else local_module_name),
         ),
         RadioCommandEntry(
             command="queue",
@@ -182,7 +190,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             aliases=("radiohistory",),
             owner="dj",
             permission="staff",
-            handler=(rc.handle_requesthistory if v2_enabled else rc.handle_history),
+            handler=(rc.handle_requesthistory if modern_enabled else rc.handle_history),
             module=module_name,
         ),
         RadioCommandEntry(
@@ -230,7 +238,7 @@ def _entries() -> tuple[RadioCommandEntry, ...]:
             aliases=("setqueuelimit",),
             owner="dj",
             permission="staff",
-            handler=(rc.handle_radiostatus if v2_enabled else rc.handle_queuelimit),
+            handler=(rc.handle_radiostatus if modern_enabled else rc.handle_queuelimit),
             module=module_name,
         ),
     )

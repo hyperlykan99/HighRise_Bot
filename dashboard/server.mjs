@@ -1248,6 +1248,8 @@ async function fetchRemoteStatus() {
 
 function readLocalRadioStatus(db) {
   const hasYtJobs = tableExists(db, "yt_request_jobs") && columnExists(db, "yt_request_jobs", "status");
+  const radioVersion = String(process.env.RADIO_SYSTEM_VERSION || "v1").toLowerCase();
+  const useV3 = radioVersion === "v3" && tableExists(db, "radio_v3_requests") && columnExists(db, "radio_v3_requests", "status");
   let nowPlaying = null;
   let queue = [];
   let recent = [];
@@ -1255,7 +1257,34 @@ function readLocalRadioStatus(db) {
   let failedToday = 0;
   let playedToday = 0;
   let topRequester = null;
-  if (hasYtJobs) {
+  if (useV3) {
+    const desired = ["id", "title", "artist", "username", "user_id", "status", "error", "azura_file_id", "azura_song_id", "temp_filename", "source_type", "payment_type", "priority", "started_at", "played_at", "cleaned_at", "created_at", "ready_at", "cancelled_at"];
+    nowPlaying = safeOne(db, "radio_v3_requests", desired, { where: "status='playing'", orderBy: "id DESC" });
+    queue = safeRows(db, "radio_v3_requests", desired, {
+      where: "status IN ('pending','preparing','ready','loading')",
+      orderBy: "id ASC",
+      limit: "50",
+    }).map((row, i) => ({ ...row, filename: row.temp_filename || "", artist: row.artist || "", pos: i + 1 }));
+    recent = safeRows(db, "radio_v3_requests", desired, {
+      where: "status IN ('played','cleaned','failed','cancelled')",
+      orderBy: "id DESC",
+      limit: "50",
+    }).map((row) => ({ ...row, filename: row.temp_filename || "" }));
+    try {
+      counts = Object.fromEntries(
+        db
+          .prepare("SELECT status, COUNT(*) AS n FROM radio_v3_requests GROUP BY status")
+          .all()
+          .map((r) => [r.status, r.n]),
+      );
+      const dateExpr = "COALESCE(played_at, started_at, created_at)";
+      playedToday = db.prepare(`SELECT COUNT(*) AS n FROM radio_v3_requests WHERE status IN ('played','cleaned') AND date(${dateExpr})=date('now')`).get().n ?? 0;
+      failedToday = db.prepare(`SELECT COUNT(*) AS n FROM radio_v3_requests WHERE status IN ('failed','cancelled') AND date(${dateExpr})=date('now')`).get().n ?? 0;
+      topRequester = db.prepare("SELECT username, COUNT(*) AS requests FROM radio_v3_requests WHERE COALESCE(username,'')!='' GROUP BY username ORDER BY requests DESC LIMIT 1").get() ?? null;
+    } catch (err) {
+      console.error(`[DASHBOARD_DB] radio_v3_counts_failed error=${err.message}`);
+    }
+  } else if (hasYtJobs) {
     const desired = ["id", "title", "artist", "username", "user_id", "url", "status", "error", "azura_file_id", "azura_song_id", "filename", "source_type", "payment_type", "coins_charged", "priority", "started_at", "finished_at", "played_at", "cleaned_at"];
     const orderId = columnExists(db, "yt_request_jobs", "id") ? "id DESC" : "rowid DESC";
     nowPlaying = safeOne(db, "yt_request_jobs", desired, { where: "status='playing'", orderBy: orderId });
@@ -1307,6 +1336,8 @@ function readLocalRadioStatus(db) {
     limit: "30",
   });
   const settings = {
+    radio_system_version: radioVersion,
+    live_queue_source: useV3 ? "radio_v3_requests" : "yt_request_jobs",
     requests_enabled: dashboardGate && roomGate,
     dashboard_requests_enabled: dashboardGate,
     radio_requests_enabled: roomGate,
@@ -1342,7 +1373,9 @@ function readLocalRadioStatus(db) {
     radio_user_stats: safeTableRows(db, "radio_user_stats", { orderBy: columnExists(db, "radio_user_stats", "updated_at") ? "updated_at DESC" : "", limit: "100" }),
     radio_song_stats: safeTableRows(db, "radio_song_stats", { orderBy: columnExists(db, "radio_song_stats", "updated_at") ? "updated_at DESC" : "", limit: "100" }),
     rewards: safeTableRows(db, "radio_reward_log", { orderBy: columnExists(db, "radio_reward_log", "created_at") ? "created_at DESC" : "", limit: "100" }),
-    top_requesters: hasYtJobs ? rowsOrEmpty(db, "yt_request_jobs", "SELECT username, COUNT(*) AS requests FROM yt_request_jobs WHERE COALESCE(username,'')!='' GROUP BY username ORDER BY requests DESC LIMIT 20") : [],
+    top_requesters: useV3
+      ? rowsOrEmpty(db, "radio_v3_requests", "SELECT username, COUNT(*) AS requests FROM radio_v3_requests WHERE COALESCE(username,'')!='' GROUP BY username ORDER BY requests DESC LIMIT 20")
+      : (hasYtJobs ? rowsOrEmpty(db, "yt_request_jobs", "SELECT username, COUNT(*) AS requests FROM yt_request_jobs WHERE COALESCE(username,'')!='' GROUP BY username ORDER BY requests DESC LIMIT 20") : []),
   };
   const workerHealth = {
     queue_heartbeat: getSetting(db, "radio_worker_heartbeat_queue", ""),
@@ -1360,7 +1393,7 @@ function readLocalRadioStatus(db) {
     stats,
     local_library: localLibrary,
     logs: {
-      audit: safeRows(db, "audit_logs", ["id","actor","action_type","target_type","target_id","old_value","new_value","ip_address","created_at"], { where: "action_type LIKE 'radio_%' OR target_type='yt_request_jobs' OR target_type='bot_command_queue'", orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "", limit: "100" }),
+      audit: safeRows(db, "audit_logs", ["id","actor","action_type","target_type","target_id","old_value","new_value","ip_address","created_at"], { where: "action_type LIKE 'radio_%' OR target_type IN ('yt_request_jobs','radio_v3_requests','bot_command_queue')", orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "", limit: "100" }),
       command_errors: safeTableRows(db, "command_error_logs", { orderBy: columnExists(db, "command_error_logs", "created_at") ? "created_at DESC" : "", limit: "100" }),
     },
     command_queue: { pending: pendingCommands, recent: recentCommands },
@@ -1374,6 +1407,7 @@ function readLocalRadioStatus(db) {
       top_requester: topRequester,
       worker_health: workerHealth,
       azuracast: { stream_configured: Boolean(radioUrl), status: radioUrl ? "stream_url_configured" : "not_configured" },
+      live_queue_source: useV3 ? "radio_v3_requests" : "yt_request_jobs",
     },
     terminal_statuses: TERMINAL_REQUEST_STATUSES,
     queue_open: dashboardGate && roomGate,

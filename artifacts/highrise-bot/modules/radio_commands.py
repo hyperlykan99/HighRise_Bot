@@ -1255,7 +1255,15 @@ async def handle_requester_left(bot: "BaseBot", user_id: str, username: str) -> 
     radio_commands -> request_queue -> yt_request -> playback_engine flow.
     """
     import os
-    if (os.getenv("RADIO_SYSTEM_VERSION", "v1") or "v1").strip().lower() == "v2":
+    _radio_version = (os.getenv("RADIO_SYSTEM_VERSION", "v1") or "v1").strip().lower()
+    if _radio_version == "v3":
+        try:
+            from modules.radio_v3.commands import handle_requester_left as _v3_left
+            await _v3_left(bot, user_id, username)
+        except Exception as exc:
+            print(f"{_LOG} radio_v3 requester_left error: {exc!r}")
+        return
+    if _radio_version == "v2":
         try:
             from modules.radio_v2.commands import handle_requester_left as _v2_left
             await _v2_left(bot, user_id, username)
