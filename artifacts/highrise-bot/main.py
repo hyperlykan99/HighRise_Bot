@@ -436,164 +436,11 @@ from modules.staff_alerts import (
     handle_playermodnotice,
     handle_reportalertdebug,
 )
-from modules.dj_music import (
-    handle_dj_pick,
-    handle_dj_config, handle_dj_set,
-    handle_dj_debug, handle_dj_lock, handle_dj_clear,
-    handle_dj_radio,
-    handle_dj_status, handle_dj_history, handle_dj_toprequests,
-    handle_dj_upnext, handle_dj_stats,
-    handle_dj_repeat, handle_dj_shuffle, handle_dj_autoplay, handle_dj_vibes,
-    handle_dj_djprice, handle_dj_setdjprice,
-    handle_dj_priorityrequest, handle_dj_viprequest,
-    handle_dj_tipdj, handle_dj_leaderboard,
-    handle_dj_priorityqueue, handle_dj_moveup, handle_dj_bump,
-    handle_dj_dedicate, handle_dj_shoutout,
-    handle_dj_djban, handle_dj_djunban, handle_dj_djbanlist,
-    handle_dj_songban, handle_dj_songunban, handle_dj_songbanlist,
-    handle_dj_djreport, handle_dj_djreports,
-    handle_dj_setradio, handle_dj_radiostatus,
-    handle_dj_radioconfig, handle_dj_setradiotype,
-    handle_dj_setradiomount, handle_dj_setradiometadata,
-    handle_dj_webplayer, handle_dj_setwebplayer,
-    handle_dj_nowpage, handle_dj_setnowpage,
-    handle_dj_songrating,
-    handle_dj_announce, handle_dj_announcequeue,
-    handle_dj_limits,
-    handle_dj_setrequestcooldown, handle_dj_setmaxuserqueue, handle_dj_setmaxqueue,
-    handle_dj_cleanup,
-    handle_dj_songinfo, handle_dj_recent,
-    handle_dj_cancelrequest, handle_dj_requeststatus,
-    handle_dj_check, handle_dj_health, handle_dj_resetstate, handle_dj_backup,
-    handle_dj_testall,
-    handle_dj_help,
-)
-# ── DJ-only radio modules: only load on dj/all bots to avoid pulling yt_dlp,
-# paramiko, and AzuraCast clients into every bot process. ──────────────────
-_IS_DJ_BOT = config.BOT_MODE in ("dj", "all")
-if _IS_DJ_BOT:
+async def _music_rebuild_notice(bot, user, *_args, **_kwargs) -> None:
     try:
-        from modules.yt_request import (
-            handle_ytrequest, handle_ytqueue, handle_ytstatus,
-            handle_ytnow, handle_ytcooldown, handle_setytcooldown,
-            handle_ytpick,
-            has_pending_yt_search,
-            handle_clearrequests,
-            handle_requesthistory,
-            handle_requestcleanup,
-            handle_playedrequests,
-            startup_yt_cleanup_task,
-            handle_setrequestcost,
-            handle_setprioritycost,
-            handle_bantrack,
-            handle_unbantrack,
-            handle_banrequester,
-            handle_unbanrequester,
-            handle_queueadmin,
-            on_request_user_left,
-        )
-        from modules.radio_commands import (
-            handle_request         as rc_request,
-            handle_pick            as rc_pick,
-            handle_queue           as rc_queue,
-            handle_skip            as rc_skip,
-            handle_remove          as rc_remove,
-            handle_clearqueue      as rc_clearqueue,
-            handle_history         as rc_history,
-            handle_voteskip        as rc_voteskip,
-            handle_nowplaying      as rc_nowplaying,
-            handle_vibes           as rc_vibes,
-            handle_vibe            as rc_vibe,
-            handle_vibescan        as rc_vibescan,
-            handle_setrequestprice as rc_setrequestprice,
-            handle_radiohelp       as rc_radiohelp,
-            handle_radiostatus     as rc_radiostatus,
-            handle_like            as rc_like,
-            handle_dislike         as rc_dislike,
-            handle_favorite        as rc_favorite,
-            handle_unfavorite      as rc_unfavorite,
-            handle_favorites       as rc_favorites,
-            handle_removefavorite  as rc_removefavorite,
-            handle_myrequests      as rc_myrequests,
-            handle_cancel          as rc_cancel,
-            handle_priority        as rc_priority,
-            handle_save            as rc_save,
-            handle_mysongs         as rc_mysongs,
-            handle_playfav         as rc_playfav,
-            handle_playlist        as rc_playlist,
-            handle_ratings         as rc_ratings,
-            handle_removefav       as rc_removefav,
-            handle_playmine        as rc_playmine,
-            handle_likes           as rc_likes,
-            handle_voters          as rc_voters,
-            handle_likeslist       as rc_likeslist,
-            handle_dislikeslist    as rc_dislikeslist,
-            handle_topsongs        as rc_topsongs,
-            handle_toprequesters   as rc_toprequesters,
-            handle_playedby        as rc_playedby,
-            handle_myplayed        as rc_myplayed,
-            handle_queuelimit      as rc_queuelimit,
-            handle_setqueuelimit   as rc_setqueuelimit,
-            handle_radiotutorial   as rc_radiotutorial,
-            handle_musicshop       as rc_musicshop,
-            handle_buyrequests     as rc_buyrequests,
-            handle_buyplays        as rc_buyplays,
-            handle_requester_left  as rc_requester_left,
-            startup_radio,
-        )
-        from modules.radio_rewards import (
-            handle_radiostats      as rr_radiostats,
-            handle_toplisteners    as rr_toplisteners,
-            handle_toprequests     as rr_toprequests,
-            handle_topliked        as rr_topliked,
-            handle_topdisliked     as rr_topdisliked,
-        )
-        from modules.radio_achievements import (
-            handle_radioachievements as ra_achievements,
-        )
-        from modules.radio_command_registry import (
-            command_names as radio_command_names,
-            dispatch_radio_command,
-            lookup as lookup_radio_command,
-            registry as radio_command_registry,
-        )
-    except Exception as _radio_import_err:
-        import traceback as _tb_radio
-        print(
-            f"[DJ_RADIO] WARNING: radio module import failed — {_radio_import_err!r}\n"
-            "[DJ_RADIO] Bot will stay online; radio commands unavailable until fixed."
-        )
-        _tb_radio.print_exc()
-        _IS_DJ_BOT = False  # fall through to stubs so NameErrors never occur
-if not _IS_DJ_BOT:
-    # Non-DJ bots: lightweight no-ops so the routing dispatch never NameErrors.
-    # Command ownership (should_this_bot_handle) already prevents these from
-    # being called — these stubs are purely defensive.
-    print(f"[DJ_RADIO] Skipped radio module imports — BOT_MODE={config.BOT_MODE}")
-    async def _dj_stub(*_a, **_k): pass
-    _S = _dj_stub
-    handle_ytrequest = handle_ytqueue = handle_ytstatus = handle_ytnow = _S
-    handle_ytcooldown = handle_setytcooldown = handle_ytpick = _S
-    has_pending_yt_search = lambda *_a, **_k: False
-    handle_clearrequests = handle_requesthistory = handle_requestcleanup = _S
-    handle_playedrequests = handle_setrequestcost = handle_setprioritycost = _S
-    handle_bantrack = handle_unbantrack = handle_banrequester = handle_unbanrequester = _S
-    handle_queueadmin = on_request_user_left = startup_yt_cleanup_task = _S
-    async def dispatch_radio_command(*_a, **_k): return False
-    def lookup_radio_command(*_a, **_k): return None
-    def radio_command_registry(*_a, **_k): return {}
-    def radio_command_names(*_a, **_k): return frozenset()
-    (rc_request, rc_pick, rc_queue, rc_skip, rc_remove, rc_clearqueue,
-     rc_history, rc_voteskip, rc_nowplaying, rc_vibes, rc_vibe, rc_vibescan,
-     rc_setrequestprice, rc_radiohelp, rc_radiostatus, rc_like, rc_dislike, rc_favorite,
-     rc_unfavorite, rc_favorites, rc_removefavorite, rc_myrequests, rc_cancel,
-     rc_priority, rc_save, rc_mysongs, rc_playfav, rc_playlist, rc_ratings,
-     rc_removefav, rc_playmine, rc_likes, rc_voters, rc_likeslist,
-     rc_dislikeslist, rc_topsongs, rc_toprequesters, rc_playedby, rc_myplayed,
-     rc_queuelimit, rc_setqueuelimit, rc_radiotutorial, rc_musicshop,
-     rc_buyrequests, rc_buyplays, rc_requester_left, startup_radio) = (_S,) * 47
-    rr_radiostats = rr_toplisteners = rr_toprequests = rr_topliked = rr_topdisliked = _S
-    ra_achievements = _S
+        await bot.highrise.send_whisper(user.id, "🎵 Music system is being rebuilt.")
+    except Exception:
+        pass
 from modules.dm_queue import startup_host_dm_queue_loop
 from modules.startup_tasks import create_guarded_startup_task
 from modules.autosummary import (
@@ -1854,21 +1701,14 @@ ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | {
 STAFF_CMDS         = STAFF_CMDS   | TIP_AUDIT_COMMANDS | {"syncdebug"}
 ADMIN_ONLY_CMDS    = ADMIN_ONLY_CMDS | TIP_AUDIT_COMMANDS
 
-# ── DJ Music commands (owned by DJ_DUDU, BOT_MODE=dj) ────────────────────────
-RADIO_REGISTRY_COMMANDS: frozenset[str] = radio_command_names()
-LOCAL_REPLAY_COMMANDS: frozenset[str] = frozenset({
-    "playfavlocal",
-    "localreplaytest",
-    "localreplaystatus",
-    "localreplaycleanup",
-})
+# ── DJ music commands temporarily disabled for the fresh radio rebuild. ──────
 DJ_COMMANDS: frozenset[str] = frozenset({
     # Player-facing (public)
     "play",
     "now",
     "request", "sr", "req", "song", "requesy",
     "pick", "djpick",
-    "queue", "djqueue",
+    "q", "queue", "djqueue", "radioqueue",
     "nowplaying", "np",
     "skip", "djskip",
     "skipvote",
@@ -1898,7 +1738,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "save",
     "mysongs", "playlist", "myplaylist2",
     "playmine", "playfav",
-    *LOCAL_REPLAY_COMMANDS,
+    "playfavlocal", "localreplaytest", "localreplaystatus", "localreplaycleanup",
     "localmediascan", "localmediastatus", "localmediafind",
     "removefav", "delfav", "deletefav",
     "removefavorite",
@@ -1958,7 +1798,6 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "djresetstate", "djbackup",
     "djtestall",
 })
-DJ_COMMANDS = DJ_COMMANDS | RADIO_REGISTRY_COMMANDS
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS
 
 DASHBOARD_CASINO_BLOCK_COMMANDS: frozenset[str] = frozenset(
@@ -4030,12 +3869,12 @@ class HangoutBot(BaseBot):
             _safe_task(startup_host_dm_queue_loop(self), "startup_host_dm_queue_loop")
         else:
             log_cooldown(f"startup_skip:{BOT_MODE}:host", f"[MODULE_SKIP] module=host mode={BOT_MODE} reason=startup_not_owner", seconds=300)
-        # AzuraCast request cleanup + announcement loop — DJ bot only
-        if should_this_bot_run_module("yt_request"):
-            print(f"[DJ_RADIO] Starting radio systems — BOT_MODE={BOT_MODE}")
-            _safe_task(startup_radio(self), "startup_radio")
-        else:
-            log_cooldown(f"startup_skip:{BOT_MODE}:yt_request", f"[MODULE_SKIP] module=yt_request mode={BOT_MODE} reason=startup_not_owner", seconds=300)
+        # Radio is intentionally offline during the fresh rebuild.
+        log_cooldown(
+            f"startup_skip:{BOT_MODE}:radio_rebuild",
+            f"[DJ_RADIO] module=radio mode={BOT_MODE} reason=music_system_rebuild",
+            seconds=300,
+        )
         # Bot emote loop recovery — all bot modes (each bot checks its own DB key)
         _safe_task(startup_bot_emote_recovery(self), "startup_bot_emote_recovery")
         # Dancefloor recovery — DJ owns the polling loop in multi-bot deployments
@@ -4045,7 +3884,6 @@ class HangoutBot(BaseBot):
             _safe_task(startup_dancefloor_recovery(self), "startup_dancefloor_recovery")
             _safe_task(startup_custom_loop_recovery(self), "startup_custom_loop_recovery")
             _safe_task(startup_sync_recovery(self), "startup_sync_recovery")
-            print("[LOCAL_REPLAY] commands registered")
         # Re-apply DB-persisted emote timing overrides (all modes, runs synchronously)
         try:
             apply_saved_emote_timings()
@@ -4258,31 +4096,10 @@ class HangoutBot(BaseBot):
             await start_player_emote(self, user, cmd)
             return
 
-        # !cancel is a DJ radio command. Route it before the dynamic multi-bot
-        # gate and before older generic/jail cancel handlers can claim it.
-        if cmd == "cancel":
+        if cmd in DJ_COMMANDS:
             if BOT_MODE != "dj":
                 return
-            print(f"[RADIO_CANCEL] stage=route command=cancel user={user.username!r}")
-            await dispatch_radio_command(self, user, args, cmd)
-            return
-
-        # Local replay is a DJ-owned command family. Route through the canonical
-        # radio registry before the dynamic multi-bot gate so stale DB ownership
-        # rows cannot swallow it.
-        if cmd in LOCAL_REPLAY_COMMANDS:
-            if BOT_MODE != "dj":
-                return
-            print(f"[LOCAL_REPLAY_ROUTE] cmd={cmd} mode={BOT_MODE} user={user.username} args={args!r}")
-            try:
-                await dispatch_radio_command(self, user, args, cmd)
-            except Exception as _lre:
-                print(f"[LOCAL_REPLAY] route error cmd={cmd}: {_lre!r}")
-                try:
-                    await self.highrise.send_whisper(
-                        user.id, "⚠️ Local replay command error. Check logs.")
-                except Exception:
-                    pass
+            await _music_rebuild_notice(self, user)
             return
 
         # ── Multi-bot gate — ignore if another bot owns this command ─────────
@@ -8249,336 +8066,8 @@ class HangoutBot(BaseBot):
         elif cmd in DJ_COMMANDS and BOT_MODE != "dj":
             pass  # non-DJ bot silently ignores all music/radio commands
 
-        elif await dispatch_radio_command(self, user, args, cmd):
-            pass
-
-        elif cmd in ("pick", "djpick"):
-            if has_pending_yt_search(user.id):
-                await rc_pick(self, user, args)
-            else:
-                await handle_dj_pick(self, user, args)
-        elif cmd in ("now", "nowplaying", "np"):
-            await rc_nowplaying(self, user, args)
-        elif cmd in ("stopmusic", "djstop"):
-            await handle_dj_clear(self, user)
-        elif cmd == "clearqueue":
-            await rc_clearqueue(self, user, args)
-        elif cmd in ("djconfig", "djsettings"):
-            await handle_dj_config(self, user)
-        elif cmd == "djset":
-            await handle_dj_set(self, user, args)
-        elif cmd == "djdebug":
-            await handle_dj_debug(self, user, args)
-        elif cmd == "djannounce":
-            await handle_dj_announce(self, user, args)
-        elif cmd == "announcequeue":
-            await handle_dj_announcequeue(self, user)
-        elif cmd == "djlimits":
-            await handle_dj_limits(self, user)
-        elif cmd == "setrequestcooldown":
-            await handle_dj_setrequestcooldown(self, user, args)
-        elif cmd == "setmaxuserqueue":
-            await handle_dj_setmaxuserqueue(self, user, args)
-        elif cmd == "setmaxqueue":
-            await handle_dj_setmaxqueue(self, user, args)
-        elif cmd == "djcleanup":
-            await handle_dj_cleanup(self, user)
-        elif cmd == "djlock":
-            await handle_dj_lock(self, user, args)
-        elif cmd == "radiolock":
-            await handle_dj_lock(self, user, args)
-        elif cmd == "djclear":
-            await handle_dj_clear(self, user)
-        elif cmd == "radioclear":
-            await handle_dj_clear(self, user)
-        elif cmd == "radio":
-            await handle_dj_radio(self, user)
-        elif cmd == "djstatus":
-            await handle_dj_status(self, user)
-        elif cmd == "djhistory":
-            await handle_dj_history(self, user)
-        elif cmd == "toprequests":
-            await handle_dj_toprequests(self, user)
-        elif cmd == "upnext":
-            await handle_dj_upnext(self, user)
-        elif cmd == "djstats":
-            await handle_dj_stats(self, user)
-        elif cmd in ("priority", "pr", "priorityreq"):
-            await rc_priority(self, user, args)
-        elif cmd in ("favorite", "fav", "favnow", "addtoplaylist"):
-            await rc_favorite(self, user, args)
-        elif cmd == "save":
-            await rc_save(self, user, args)
-        elif cmd in ("favorites", "favs", "myplaylist"):
-            await rc_favorites(self, user, args)
-        elif cmd == "unfavorite":
-            await rc_unfavorite(self, user, args)
-        elif cmd == "removefavorite":
-            await rc_removefavorite(self, user, args)
-        elif cmd in ("removefav", "delfav", "deletefav"):
-            await rc_removefav(self, user, args)
-        elif cmd in ("mysongs", "myplaylist2"):
-            await rc_mysongs(self, user, args)
-        elif cmd == "playmine":
-            await rc_playmine(self, user, args)
-        elif cmd in ("playfavlocal", "localreplaytest"):
-            # Legacy fallback only. Normal routing happens through
-            # radio_command_registry before the multi-bot gate.
-            try:
-                from modules.local_replay import handle_playfavlocal as _lr_play
-                await _lr_play(self, user, args)
-            except Exception as _lre:
-                print(f"[LOCAL_REPLAY] handler error: {_lre!r}")
-                try:
-                    await self.highrise.send_whisper(
-                        user.id, "⚠️ Local replay command error. Check logs.")
-                except Exception:
-                    pass
-        elif cmd == "localreplaystatus":
-            # Legacy fallback only. Normal routing happens through
-            # radio_command_registry before the multi-bot gate.
-            try:
-                from modules.local_replay import handle_localreplaystatus as _lr_stat
-                await _lr_stat(self, user, args)
-            except Exception as _lre:
-                print(f"[LOCAL_REPLAY] status error: {_lre!r}")
-                try:
-                    await self.highrise.send_whisper(
-                        user.id, "⚠️ Local replay command error. Check logs.")
-                except Exception:
-                    pass
-        elif cmd == "localreplaycleanup":
-            # Legacy fallback only. Normal routing happens through
-            # radio_command_registry before the multi-bot gate.
-            try:
-                from modules.local_replay import handle_localreplaycleanup as _lr_clean
-                await _lr_clean(self, user, args)
-            except Exception as _lre:
-                print(f"[LOCAL_REPLAY] cleanup error: {_lre!r}")
-                try:
-                    await self.highrise.send_whisper(
-                        user.id, "⚠️ Local replay command error. Check logs.")
-                except Exception:
-                    pass
-        elif cmd == "localmediascan":
-            try:
-                from modules.local_media_map import handle_localmediascan as _lms
-                await _lms(self, user, args)
-            except Exception as _lme:
-                print(f"[LOCAL_MEDIA_MAP] scan error: {_lme!r}")
-                try:
-                    await self.highrise.send_whisper(
-                        user.id, "⚠️ Media map scan error. Check logs.")
-                except Exception:
-                    pass
-        elif cmd == "localmediastatus":
-            try:
-                from modules.local_media_map import handle_localmediastatus as _lmst
-                await _lmst(self, user, args)
-            except Exception as _lme:
-                print(f"[LOCAL_MEDIA_MAP] status error: {_lme!r}")
-                try:
-                    await self.highrise.send_whisper(
-                        user.id, "⚠️ Media map error. Check logs.")
-                except Exception:
-                    pass
-        elif cmd == "localmediafind":
-            try:
-                from modules.local_media_map import handle_localmediafind as _lmf
-                await _lmf(self, user, args)
-            except Exception as _lme:
-                print(f"[LOCAL_MEDIA_MAP] find error: {_lme!r}")
-                try:
-                    await self.highrise.send_whisper(
-                        user.id, "⚠️ Media map error. Check logs.")
-                except Exception:
-                    pass
-        elif cmd == "like":
-            await rc_like(self, user, args)
-        elif cmd == "dislike":
-            await rc_dislike(self, user, args)
-        elif cmd in ("likes", "votes"):
-            await rc_likes(self, user, args)
-        elif cmd == "topsongs":
-            await rc_topsongs(self, user, args)
-        elif cmd == "toprequesters":
-            await rc_toprequesters(self, user, args)
-        elif cmd == "radiostats":
-            await rr_radiostats(self, user, args)
-        elif cmd == "toplisteners":
-            await rr_toplisteners(self, user, args)
-        elif cmd == "topliked":
-            await rr_topliked(self, user, args)
-        elif cmd == "topdisliked":
-            await rr_topdisliked(self, user, args)
-        elif cmd in {"radioachievements", "radioach", "radioawards"}:
-            await ra_achievements(self, user, args)
-        elif cmd == "voters":
-            await rc_voters(self, user, args)
-        elif cmd == "likeslist":
-            await rc_likeslist(self, user, args)
-        elif cmd == "dislikeslist":
-            await rc_dislikeslist(self, user, args)
-        elif cmd in ("playlist", "pl"):
-            await rc_playlist(self, user, args)
-        elif cmd == "ratings":
-            await rc_ratings(self, user, args)
-        elif cmd == "unfav":
-            await rc_removefavorite(self, user, args)
-        elif cmd == "songrating":
-            await handle_dj_songrating(self, user)
-        elif cmd == "repeat":
-            await handle_dj_repeat(self, user, args)
-        elif cmd == "shuffle":
-            await handle_dj_shuffle(self, user)
-        elif cmd == "autoplay":
-            await handle_dj_autoplay(self, user, args)
-        elif cmd == "djvibes":
-            await handle_dj_vibes(self, user, args)
-        elif cmd == "djprice":
-            await handle_dj_djprice(self, user)
-        elif cmd == "setdjprice":
-            await handle_dj_setdjprice(self, user, args)
-        elif cmd in ("priorityrequest", "priorityreq", "pr"):
-            await handle_dj_priorityrequest(self, user, args)
-        elif cmd in ("viprequest", "vipreq"):
-            await handle_dj_viprequest(self, user, args)
-        elif cmd == "tipdj":
-            await handle_dj_tipdj(self, user, args)
-        elif cmd in ("djleaderboard", "djtop"):
-            await handle_dj_leaderboard(self, user)
-        elif cmd in ("priorityqueue", "pqueue"):
-            await handle_dj_priorityqueue(self, user)
-        elif cmd == "moveup":
-            await handle_dj_moveup(self, user, args)
-        elif cmd == "bump":
-            await handle_dj_bump(self, user, args)
-        elif cmd == "dedicate":
-            await handle_dj_dedicate(self, user, args)
-        elif cmd == "shoutout":
-            await handle_dj_shoutout(self, user, args)
-        elif cmd == "djban":
-            await handle_dj_djban(self, user, args)
-        elif cmd == "djunban":
-            await handle_dj_djunban(self, user, args)
-        elif cmd == "djbanlist":
-            await handle_dj_djbanlist(self, user)
-        elif cmd == "songban":
-            await handle_dj_songban(self, user, args)
-        elif cmd == "songunban":
-            await handle_dj_songunban(self, user, args)
-        elif cmd == "songbanlist":
-            await handle_dj_songbanlist(self, user)
-        elif cmd == "djreport":
-            await handle_dj_djreport(self, user, args)
-        elif cmd == "djreports":
-            await handle_dj_djreports(self, user)
-        elif cmd == "setradio":
-            await handle_dj_setradio(self, user, args)
-        elif cmd == "radiostatus":
-            await handle_dj_radiostatus(self, user)
-        elif cmd == "radioconfig":
-            await handle_dj_radioconfig(self, user)
-        elif cmd == "setradiotype":
-            await handle_dj_setradiotype(self, user, args)
-        elif cmd == "setradiomount":
-            await handle_dj_setradiomount(self, user, args)
-        elif cmd == "setradiometadata":
-            await handle_dj_setradiometadata(self, user, args)
-        elif cmd == "ytrequest":
-            # !ytrequest is now an alias for !play (handles URL or search)
-            await handle_yt_play(self, user, args)
-        elif cmd == "ytqueue":
-            await handle_ytqueue(self, user, args)
-        elif cmd == "ytstatus":
-            await handle_ytstatus(self, user, args)
-        elif cmd == "ytnow":
-            # !ytnow is an alias for !now — uses unified resolver + renderer
-            await rc_nowplaying(self, user, args)
-        elif cmd == "ytcooldown":
-            await handle_ytcooldown(self, user, args)
-        elif cmd == "setytcooldown":
-            await handle_setytcooldown(self, user, args)
-        elif cmd == "clearrequests":
-            await handle_clearrequests(self, user, args)
-        elif cmd == "requesthistory":
-            await rc_history(self, user, args)
-        elif cmd == "requestcleanup":
-            await handle_requestcleanup(self, user, args)
-        elif cmd == "playedrequests":
-            await handle_playedrequests(self, user, args)
-        elif cmd == "setrequestcost":
-            await handle_setrequestcost(self, user, args)
-        elif cmd == "setprioritycost":
-            await handle_setprioritycost(self, user, args)
-        elif cmd == "bantrack":
-            await handle_bantrack(self, user, args)
-        elif cmd == "unbantrack":
-            await handle_unbantrack(self, user, args)
-        elif cmd == "banrequester":
-            await handle_banrequester(self, user, args)
-        elif cmd == "unbanrequester":
-            await handle_unbanrequester(self, user, args)
-        elif cmd == "queueadmin":
-            await handle_queueadmin(self, user, args)
-        elif cmd in ("voteskip", "skipvote"):
-            await rc_voteskip(self, user, args)
-        elif cmd == "vibes":
-            await rc_vibes(self, user, args)
-        elif cmd == "vibe":
-            await rc_vibe(self, user, args)
-        elif cmd == "vibescan":
-            await rc_vibescan(self, user, args)
-        elif cmd in ("history", "radiohistory"):
-            await rc_history(self, user, args)
-        elif cmd == "playedby":
-            await rc_playedby(self, user, args)
-        elif cmd in ("myplayed", "myrequested"):
-            await rc_myplayed(self, user, args)
-        elif cmd == "queuelimit":
-            await rc_queuelimit(self, user, args)
-        elif cmd == "setqueuelimit":
-            await rc_setqueuelimit(self, user, args)
-        elif cmd == "setrequestprice":
-            await rc_setrequestprice(self, user, args)
-        elif cmd == "webplayer":
-            await handle_dj_webplayer(self, user)
-        elif cmd == "setwebplayer":
-            await handle_dj_setwebplayer(self, user, args)
-        elif cmd == "nowpage":
-            await handle_dj_nowpage(self, user)
-        elif cmd == "setnowpage":
-            await handle_dj_setnowpage(self, user, args)
-        elif cmd == "songinfo":
-            await handle_dj_songinfo(self, user, args)
-        elif cmd == "recent":
-            await handle_dj_recent(self, user)
-        elif cmd == "myrequests":
-            await rc_myrequests(self, user, args)
-        elif cmd == "radiotutorial":
-            await rc_radiotutorial(self, user, args)
-        elif cmd == "musicshop":
-            await rc_musicshop(self, user, args)
-        elif cmd == "buyrequests":
-            await rc_buyrequests(self, user, args)
-        elif cmd == "buyplays":
-            await rc_buyplays(self, user, args)
-        elif cmd == "cancelrequest":
-            await handle_dj_cancelrequest(self, user, args)
-        elif cmd == "requeststatus":
-            await handle_dj_requeststatus(self, user)
-        elif cmd == "djcheck":
-            await handle_dj_check(self, user)
-        elif cmd == "djhealth":
-            await handle_dj_health(self, user)
-        elif cmd == "djresetstate":
-            await handle_dj_resetstate(self, user)
-        elif cmd == "djbackup":
-            await handle_dj_backup(self, user)
-        elif cmd == "djtestall":
-            await handle_dj_testall(self, user)
-        elif cmd == "djhelp":
-            await handle_dj_help(self, user)
+        elif cmd in DJ_COMMANDS:
+            await _music_rebuild_notice(self, user)
 
         # ── Alerts ────────────────────────────────────────────────────────────
         elif cmd == "alert":
@@ -9140,14 +8629,6 @@ class HangoutBot(BaseBot):
             await handle_poker_user_left(self, user)
         except Exception as _pe:
             print(f"[ON_LEAVE POKER] @{user.username}: {_pe!r}")
-        try:
-            await rc_requester_left(self, user.id, user.username)
-        except Exception as _dj_leave_db:
-            print(f"[ON_LEAVE RADIO] @{user.username}: {_dj_leave_db!r}")
-        try:
-            await on_request_user_left(self, user.id, user.username)
-        except Exception as _dj_leave:
-            print(f"[ON_LEAVE DJ] @{user.username}: {_dj_leave!r}")
 
     async def on_reaction(self, user: User, reaction: str, receiver: User) -> None:
         """

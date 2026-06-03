@@ -1161,75 +1161,14 @@ def skip_and_verify_request(
 
 def reconcile_requests_playlist() -> dict:
     """
-    Scan yt_request_jobs for completed/failed requests that still have
-    AzuraCast file IDs recorded but have not had their playlist assignments
-    cleared yet (cleaned_at IS NULL).  For each such row, calls
-    clear_file_playlists() so the track cannot replay via AutoDJ, then
-    stamps cleaned_at in the DB.
+    Old radio request cleanup has been removed for the fresh rebuild.
 
-    Call periodically (e.g. on bot startup or via admin command) to catch any
-    cleanup that was missed during normal playback flow.
-
-    Returns a summary dict:
-        {"status": "ok", "checked": N, "cleaned": N, "errors": N}
-    or  {"status": "skipped", "reason": "..."}
-    or  {"status": "error", "error": "..."}
-
-    stage=requests_playlist_reconcile
+    The Azura transport helpers remain available for non-radio media-map tools,
+    but request lifecycle reconciliation is intentionally disconnected until the
+    new radio system owns its own tables and cleanup path.
     """
-    cfg = azura_api_cfg()
-    if not cfg:
-        print(f"{_LOG} stage=requests_playlist_reconcile status=skipped reason=no_api_config")
-        return {"status": "skipped", "reason": "no_api_config"}
-
-    terminal = ("played", "skipped", "failed", "cancelled", "error")
-
-    try:
-        import database as _db
-        rows: list = []
-        with _db.db_conn() as conn:
-            ph = ",".join("?" * len(terminal))
-            rows = conn.execute(
-                f"SELECT id, filename, azura_file_id, title, status "
-                f"FROM yt_request_jobs "
-                f"WHERE status IN ({ph}) "
-                f"  AND azura_file_id != '' "
-                f"  AND (cleaned_at IS NULL OR cleaned_at = '') "
-                f"ORDER BY id ASC LIMIT 50",
-                terminal,
-            ).fetchall()
-    except Exception as exc:
-        print(f"{_LOG} stage=requests_playlist_reconcile db_read_error={exc!r}")
-        return {"status": "error", "error": str(exc)}
-
-    cleaned = 0
-    errors  = 0
-    for row in rows:
-        jid, fn, fid, title, status = row
-        ok = clear_file_playlists(fid)
-        print(
-            f"{_LOG} stage=requests_playlist_reconcile"
-            f" request_id={jid} file_id={fid!r}"
-            f" filename={fn!r} title={title!r}"
-            f" db_status={status!r}"
-            f" playlist_cleared={ok}"
-        )
-        if ok:
-            try:
-                import modules.request_queue as rq
-                rq.mark_cleaned(jid)
-            except Exception as exc2:
-                print(f"{_LOG} stage=requests_playlist_reconcile stamp_error={exc2!r} id={jid}")
-            cleaned += 1
-        else:
-            errors += 1
-
-    print(
-        f"{_LOG} stage=requests_playlist_reconcile"
-        f" total_checked={len(rows)}"
-        f" cleaned={cleaned} errors={errors}"
-    )
-    return {"status": "ok", "checked": len(rows), "cleaned": cleaned, "errors": errors}
+    print(f"{_LOG} stage=requests_playlist_reconcile status=skipped reason=radio_rebuild")
+    return {"status": "skipped", "reason": "radio_rebuild"}
 
 
 # ─── Dynamic folder / playlist discovery ──────────────────────────────────────

@@ -224,44 +224,17 @@ def _require_dj_action(action: str) -> None:
 
 async def _do_radio_skip(bot: "BaseBot", payload: dict, requester_id: str) -> str:
     _require_dj_action("radio_skip")
-    import modules.azuracast_controller as azura
-    import modules.playback_engine as engine
-    import modules.request_queue as rq
-
-    loop = asyncio.get_running_loop()
-    np = await loop.run_in_executor(None, azura.fetch_nowplaying)
-    np_match = engine.match_nowplaying_to_job(np) if np else None
-    current = np_match or rq.currently_playing()
-    ok = await loop.run_in_executor(None, azura.skip_current)
-    if not ok:
-        raise RuntimeError("AzuraCast skip failed")
-    if current and current.get("id"):
-        asyncio.create_task(engine.on_request_skipped(bot, int(current["id"])))
-    return f"radio skip requested; matched_request={current.get('id') if current else 'none'}"
+    return "music system is being rebuilt; radio skip is unavailable"
 
 
 async def _do_radio_clear(bot: "BaseBot", payload: dict, requester_id: str) -> str:
     _require_dj_action("radio_clear")
-    import modules.request_queue as rq
-
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(
-        None,
-        lambda: rq.queue_clear_all(command="dashboard_clear", refund=True),
-    )
-    return (
-        f"radio queue cleared; before={result.get('count_before', 0)} "
-        f"after={result.get('count_after', 0)} refunded={result.get('refunded_coins', 0)}"
-    )
+    return "music system is being rebuilt; radio clear is unavailable"
 
 
 async def _do_radio_cleanup(bot: "BaseBot", payload: dict, requester_id: str) -> str:
     _require_dj_action("radio_cleanup")
-    import modules.azuracast_controller as azura
-
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, azura.reconcile_requests_playlist)
-    return f"radio cleanup completed; result={result}"
+    return "music system is being rebuilt; radio cleanup is unavailable"
 
 
 async def _do_radio_reload(bot: "BaseBot", payload: dict, requester_id: str) -> str:

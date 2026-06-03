@@ -1228,7 +1228,6 @@ _MODULE_OWNER_MODES: dict[str, str] = {
     "shop":         "shopkeeper",
     "security":     "security",
     "dj":           "dj",
-    "yt_request":   "dj",
     "events":       "eventhost",
     "host":         "host",
     "ai_assistant": "host",
