@@ -254,16 +254,22 @@ async def process_request_job(bot, request_id: int) -> None:
         for attempt in range(10):
             if attempt == 0 or attempt % 5 == 0:
                 await asyncio.to_thread(azura.rescan_requests_folder)
-            requestable = await asyncio.to_thread(azura.requestable_media_ready, filename, song_id)
+            requestable = await asyncio.to_thread(
+                azura.requestable_media_ready,
+                filename,
+                song_id,
+                job.get("title") or "",
+                job.get("artist") or "",
+                file_id,
+            )
             if requestable:
                 break
             await asyncio.sleep(2)
         if not requestable:
             print(
-                f"[RADIO_PHASE4] event=azura_index_timeout request_id={request_id} "
-                f"filename={filename!r} reason=requestable_not_found"
+                f"[RADIO_PHASE4] event=azura_requestable_not_confirmed request_id={request_id} "
+                f"filename={filename!r} unique_id={song_id!r} action=submit_once"
             )
-            raise RuntimeError("azura_requestable_timeout")
         ok, status, body = await asyncio.to_thread(azura.submit_request, song_id)
         if not ok:
             print(

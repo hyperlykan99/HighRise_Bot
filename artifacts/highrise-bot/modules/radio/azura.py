@@ -197,15 +197,18 @@ def attach_requests_playlist(file_id: str) -> bool:
     cfg = cs.azura_api_cfg()
     if not cfg or not file_id or not playlist_id:
         return True
+    log_requests_playlist_config()
     playlist = int(playlist_id) if str(playlist_id).isdigit() else playlist_id
     endpoint = f"/api/station/{cfg['station_id']}/file/{file_id}"
+    payload = {"playlists": [playlist]}
+    print(f"[RADIO_PHASE4] event=azura_media_update_payload media_id={file_id!r} payload={payload!r}")
     status, _data, body = _api_response(
         endpoint,
         method="PUT",
-        payload={"playlists": [playlist]},
+        payload=payload,
         timeout=15,
     )
-    ok = status in (200, 202, 204)
+    ok = status in (200, 202, 204) and verify_file_in_playlist(file_id, playlist_id)
     print(
         f"[RADIO_PHASE4] event={'azura_playlist_assign_ok' if ok else 'azura_playlist_assign_failed'} "
         f"method=PUT endpoint={endpoint!r} file_id={file_id!r} playlist_id={playlist_id!r} "
@@ -225,7 +228,7 @@ def attach_requests_playlist(file_id: str) -> bool:
         payload={"do": "playlist", "playlist": playlist_id, "files": [file_value]},
         timeout=15,
     )
-    ok = status in (200, 202, 204)
+    ok = status in (200, 202, 204) and verify_file_in_playlist(file_id, playlist_id)
     print(
         f"[RADIO_PHASE4] event={'azura_playlist_assign_ok' if ok else 'azura_playlist_assign_failed'} "
         f"method=PUT endpoint={batch_endpoint!r} file_id={file_id!r} playlist_id={playlist_id!r} "
@@ -234,45 +237,114 @@ def attach_requests_playlist(file_id: str) -> bool:
     return ok
 
 
-def requestable_media_ready(remote_filename: str, azura_song_id: str = "") -> bool:
+def get_media_file(file_id: str) -> dict | None:
+    cfg = cs.azura_api_cfg()
+    if not cfg or not file_id:
+        return None
+    endpoint = f"/api/station/{cfg['station_id']}/file/{file_id}"
+    status, data, body = _api_response(endpoint, timeout=15)
+    if status == 200 and isinstance(data, dict):
+        return data
+    print(
+        f"[RADIO_PHASE4] event=azura_media_refetch_failed "
+        f"endpoint={endpoint!r} status={status} body={body[:180]!r}"
+    )
+    return None
+
+
+def verify_file_in_playlist(file_id: str, playlist_id: str) -> bool:
+    media = get_media_file(file_id)
+    playlists = media.get("playlists") if isinstance(media, dict) else []
+    if not isinstance(playlists, list):
+        playlists = []
+    ok = any(str(p.get("id") if isinstance(p, dict) else p) == str(playlist_id) for p in playlists)
+    print(
+        f"[RADIO_PHASE4] event=azura_playlist_membership "
+        f"media_id={file_id!r} playlist_id={playlist_id!r} ok={ok} playlists={playlists!r}"
+    )
+    return ok
+
+
+def log_requests_playlist_config() -> None:
+    playlist_id = cs.requests_playlist_id()
+    cfg = cs.azura_api_cfg()
+    if not cfg or not playlist_id:
+        return
+    endpoint = f"/api/station/{cfg['station_id']}/playlist/{playlist_id}"
+    status, data, body = _api_response(endpoint, timeout=15)
+    payload = data if isinstance(data, dict) else {}
+    print(
+        f"[RADIO_PHASE4] event=azura_requests_playlist_config playlist_id={playlist_id!r} "
+        f"status={status} is_enabled={payload.get('is_enabled')!r} "
+        f"is_jingle={payload.get('is_jingle')!r} source={payload.get('source')!r} "
+        f"include_in_requests={payload.get('include_in_requests')!r} "
+        f"requests_enabled={payload.get('requests_enabled')!r} body={body[:180]!r}"
+    )
+
+
+def requestable_media_ready(
+    remote_filename: str,
+    azura_song_id: str = "",
+    title: str = "",
+    artist: str = "",
+    media_id: str = "",
+) -> bool:
     if not safe_request_filename(remote_filename):
         return False
     cfg = cs.azura_api_cfg()
     if not cfg:
         return False
-    phrase = urllib.parse.quote(remote_filename)
-    endpoint = f"/api/station/{cfg['station_id']}/requests?searchPhrase={phrase}"
-    status, data, body = _api_response(endpoint, timeout=15)
-    if status not in (200, 202, 204):
-        print(
-            f"[RADIO_PHASE4] event=azura_requestable_lookup_failed endpoint={endpoint!r} "
-            f"status={status} body={body[:180]!r}"
-        )
-        return False
-    rows = data if isinstance(data, list) else (data or {}).get("rows", [])
-    wanted = {str(azura_song_id or "").strip(), remote_filename, f"{os.path.basename(cs.sftp_cfg().get('folder', 'Requests').rstrip('/'))}/{remote_filename}"}
+    folder = os.path.basename(cs.sftp_cfg().get("folder", "Requests").rstrip("/")) or "Requests"
+    phrases = [
+        ("filename", remote_filename),
+        ("path", f"{folder}/{remote_filename}"),
+        ("unique_id", azura_song_id),
+        ("media_id", media_id),
+        ("title", title),
+        ("artist_title", f"{artist} - {title}" if artist and title else ""),
+    ]
+    wanted = {str(azura_song_id or "").strip(), str(media_id or "").strip(), remote_filename, f"{folder}/{remote_filename}"}
     wanted.discard("")
-    for row in rows:
-        song = row.get("song") if isinstance(row, dict) and isinstance(row.get("song"), dict) else {}
-        path = str(row.get("path") or song.get("path") or "")
-        filename = os.path.basename(path)
-        ids = {
-            str(row.get("request_id") or "").strip(),
-            str(row.get("unique_id") or "").strip(),
-            str(row.get("song_id") or "").strip(),
-            str(song.get("id") or "").strip(),
-            str(song.get("unique_id") or "").strip(),
-        }
-        ids.discard("")
-        if filename == remote_filename or bool(ids & wanted):
-            print(
-                f"[RADIO_PHASE4] event=azura_requestable_ready "
-                f"unique_id={azura_song_id!r} requestable_ids={sorted(ids)!r} path={path!r}"
-            )
-            return True
+    total_rows = 0
+    for label, phrase in phrases:
+        phrase = str(phrase or "").strip()
+        if not phrase:
+            continue
+        endpoint = f"/api/station/{cfg['station_id']}/requests?searchPhrase={urllib.parse.quote(phrase)}"
+        status, data, body = _api_response(endpoint, timeout=15)
+        rows = data if isinstance(data, list) else (data or {}).get("rows", [])
+        rows_count = len(rows) if isinstance(rows, list) else 0
+        total_rows += rows_count
+        print(
+            f"[RADIO_PHASE4] event=azura_requestable_lookup attempt={label!r} "
+            f"endpoint={endpoint!r} status={status} rows={rows_count} body={body[:180]!r}"
+        )
+        if status not in (200, 202, 204) or not isinstance(rows, list):
+            continue
+        for row in rows:
+            song = row.get("song") if isinstance(row, dict) and isinstance(row.get("song"), dict) else {}
+            path = str(row.get("path") or song.get("path") or "")
+            filename = os.path.basename(path)
+            ids = {
+                str(row.get("request_id") or "").strip(),
+                str(row.get("unique_id") or "").strip(),
+                str(row.get("song_id") or "").strip(),
+                str(row.get("media_id") or "").strip(),
+                str(song.get("id") or "").strip(),
+                str(song.get("unique_id") or "").strip(),
+                str(song.get("media_id") or "").strip(),
+            }
+            ids.discard("")
+            if filename == remote_filename or bool(ids & wanted):
+                print(
+                    f"[RADIO_PHASE4] event=azura_requestable_ready "
+                    f"attempt={label!r} unique_id={azura_song_id!r} "
+                    f"requestable_ids={sorted(ids)!r} path={path!r}"
+                )
+                return True
     print(
         f"[RADIO_PHASE4] event=azura_requestable_not_found "
-        f"filename={remote_filename!r} unique_id={azura_song_id!r} rows={len(rows)}"
+        f"filename={remote_filename!r} unique_id={azura_song_id!r} rows={total_rows}"
     )
     return False
 
@@ -282,6 +354,7 @@ def submit_request(azura_song_id: str) -> tuple[bool, int, str]:
     if not cfg or not azura_song_id:
         return False, 0, "missing_unique_id"
     endpoint = f"/api/station/{cfg['station_id']}/request/{urllib.parse.quote(str(azura_song_id))}"
+    print(f"[RADIO_PHASE4] event=azura_submit_attempt unique_id={azura_song_id!r} endpoint={endpoint!r}")
     status, _data, body = _api_response(endpoint, method="POST", timeout=15)
     ok = status in (200, 202, 204)
     if not ok:
