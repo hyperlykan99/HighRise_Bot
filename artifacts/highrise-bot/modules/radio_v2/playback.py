@@ -17,6 +17,8 @@ _started = False
 _task: "asyncio.Task | None" = None
 _current_request_id = 0
 _next_prequeued_request_id = 0
+_expected_next_request_id = 0
+_next_submit_time = 0.0
 _last_song_key = ""
 _last_autodj_skip_ts = 0.0
 _scheduler_lock: "asyncio.Lock | None" = None
@@ -92,13 +94,17 @@ async def announce_now(bot, row: dict, song: dict, elapsed: int, duration: int) 
 
 
 async def _handle_request_start(bot, row: dict, song: dict, media: dict, elapsed: int, duration: int) -> None:
-    global _current_request_id, _next_prequeued_request_id
+    global _current_request_id, _next_prequeued_request_id, _expected_next_request_id
     request_id = int(row.get("id") or 0)
     if not request_id:
         return
     _current_request_id = request_id
     if _next_prequeued_request_id == request_id:
         _next_prequeued_request_id = 0
+    if _expected_next_request_id == request_id:
+        _expected_next_request_id = 0
+        _autodj_skip_attempts.pop(request_id, None)
+        diag.log("request_block_next_started", request_id=request_id)
     queue.mark_status(
         request_id,
         "playing",
@@ -143,6 +149,7 @@ async def _finish_current(bot, request_id: int, terminal_status: str = "played")
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, cleanup.cleanup_request_media, queue.get_request(request_id), terminal_status)
     _current_request_id = 0
+    await request_block_handoff(previous_id=request_id)
 
 
 async def _handle_stale_requests_media(song: dict, media: dict) -> None:
@@ -167,6 +174,7 @@ async def _handle_stale_requests_media(song: dict, media: dict) -> None:
 
 
 async def _submit_row(row: dict, *, prequeue: bool = False) -> bool:
+    global _expected_next_request_id, _next_submit_time
     request_id = int(row.get("id") or 0)
     if not request_id:
         return False
@@ -189,13 +197,15 @@ async def _submit_row(row: dict, *, prequeue: bool = False) -> bool:
         "prequeued" if prequeue else "submitted",
         azura_request_id=requestable_id,
     )
+    _expected_next_request_id = request_id
     _native_accept_ts[request_id] = time.time()
+    _next_submit_time = time.time()
     return True
 
 
 async def schedule_requests(reason: str = "drain", current_id: int = 0) -> dict:
     """Current+next scheduler. Never submits more than one new row per call."""
-    global _next_prequeued_request_id
+    global _expected_next_request_id, _next_prequeued_request_id
     async with _scheduler():
         active_current = current_id or _current_request_id
         already_handed = queue.active_submitted_or_prequeued()
@@ -210,40 +220,86 @@ async def schedule_requests(reason: str = "drain", current_id: int = 0) -> dict:
         if active_current:
             next_active = queue.next_active_after(active_current)
             if not next_active:
+                if settings.block_mode():
+                    diag.log("request_block_empty_autodj_allowed")
+                    _expected_next_request_id = 0
                 return {"submitted": 0, "drainable": False, "head_request_id": active_current}
             next_id = int(next_active.get("id") or 0)
             status = (next_active.get("status") or "").strip().lower()
             if status not in ("uploaded", "ready"):
                 diag.log("scheduler_next_waiting", current_id=active_current, next_id=next_id, status=status)
+                if settings.block_mode():
+                    _expected_next_request_id = next_id
+                    diag.log("request_block_waiting_for_prepare", request_id=next_id, status=status)
                 return {"submitted": 0, "drainable": False, "head_request_id": next_id, "head_status": status}
             ok = await _submit_row(next_active, prequeue=True)
             if ok:
                 _next_prequeued_request_id = next_id
                 diag.log("scheduler_next_prequeued", current_id=active_current, next_id=next_id)
+                if settings.block_mode():
+                    diag.log("request_block_next_submitted", request_id=next_id)
             return {"submitted": 1 if ok else 0, "drainable": bool(ok), "head_request_id": next_id}
 
         handed = queue.active_submitted_or_prequeued()
         if handed:
             hid = int(handed.get("id") or 0)
             diag.log("request_drain_waiting_for_active", submitted_request_id=hid)
+            if settings.block_mode():
+                _expected_next_request_id = hid
+                diag.log("request_block_head_selected", request_id=hid)
             return {"submitted": 0, "drainable": True, "head_request_id": hid}
 
         head = queue.oldest_active_request()
         if not head:
+            if settings.block_mode():
+                _expected_next_request_id = 0
+                diag.log("request_block_empty_autodj_allowed")
             return {"submitted": 0, "drainable": False, "head_request_id": 0}
         head_id = int(head.get("id") or 0)
         diag.log("scheduler_head_selected", request_id=head_id)
+        if settings.block_mode():
+            _expected_next_request_id = head_id
+            diag.log("request_block_head_selected", request_id=head_id)
         status = (head.get("status") or "").strip().lower()
         if status not in ("uploaded", "ready"):
+            if settings.block_mode():
+                diag.log("request_block_waiting_for_prepare", request_id=head_id, status=status)
             return {"submitted": 0, "drainable": False, "head_request_id": head_id, "head_status": status}
         ok = await _submit_row(head, prequeue=False)
         if ok:
             diag.log("request_drain_submit_ready", count=1, candidates=1)
+            if settings.block_mode():
+                diag.log("request_block_next_submitted", request_id=head_id)
         return {"submitted": 1 if ok else 0, "drainable": bool(ok), "head_request_id": head_id}
+
+
+async def request_block_handoff(previous_id: int = 0) -> dict:
+    """Deterministic request-block handoff: pick oldest active row immediately."""
+    global _expected_next_request_id
+    if not settings.block_mode():
+        return await schedule_requests(reason="block_mode_disabled")
+    head = queue.oldest_active_request()
+    if not head:
+        diag.log("request_block_empty_autodj_allowed")
+        _expected_next_request_id = 0
+        return {"drainable": False, "head_request_id": 0}
+    head_id = int(head.get("id") or 0)
+    status = (head.get("status") or "").strip().lower()
+    diag.log("request_block_head_selected", request_id=head_id)
+    _expected_next_request_id = head_id
+    if status not in ("uploaded", "ready", "submitted", "prequeued"):
+        diag.log("request_block_waiting_for_prepare", request_id=head_id, status=status)
+        return {"drainable": False, "head_request_id": head_id, "head_status": status}
+    if status in ("submitted", "prequeued"):
+        return {"drainable": True, "head_request_id": head_id}
+    result = await schedule_requests(reason="request_block", current_id=0)
+    return result
 
 
 async def drain_ready_requests() -> dict:
     """Backward-compatible entry: run the ordered current+next scheduler."""
+    if settings.block_mode():
+        return await request_block_handoff()
     return await schedule_requests(reason="drain")
 
 
@@ -312,15 +368,19 @@ async def _legacy_drain_ready_requests() -> dict:
     }
 
 
-async def _maybe_skip_autodj_for_drain() -> None:
+async def _maybe_skip_autodj_for_drain(np: dict | None = None) -> None:
     global _last_autodj_skip_ts
     if not settings.drain_mode():
         return
     active = queue.active_count_for_drain()
     if active <= 0:
+        diag.log("request_block_empty_autodj_allowed")
         return
-    diag.log("autodj_gap_detected", active_requests=active)
-    drain = await schedule_requests(reason="autodj_gap")
+    if settings.block_mode():
+        drain = await request_block_handoff()
+    else:
+        drain = await schedule_requests(reason="autodj_gap")
+        return
     handed = queue.active_submitted_or_prequeued()
     if not handed:
         diag.log("autodj_gap_no_skip", reason="not_confirmed_queued")
@@ -330,21 +390,37 @@ async def _maybe_skip_autodj_for_drain() -> None:
         diag.log("autodj_gap_no_skip", reason="missing_request_id")
         return
     attempts = int(_autodj_skip_attempts.get(request_id) or 0)
-    if attempts >= 2:
+    max_attempts = 5 if settings.block_mode() else 2
+    cooldown = 3 if settings.block_mode() else 10
+    if attempts >= max_attempts:
         diag.log("autodj_gap_no_skip", request_id=request_id, reason="max_attempts")
         return
     accepted_at = float(_native_accept_ts.get(request_id) or 0.0)
-    if accepted_at and time.time() - accepted_at < 2.0:
+    if accepted_at and time.time() - accepted_at < 1.0:
         diag.log("autodj_gap_no_skip", request_id=request_id, reason="native_request_grace")
         return
     now = time.time()
-    if now - _last_autodj_skip_ts < 10:
+    if now - _last_autodj_skip_ts < cooldown:
         diag.log("autodj_gap_no_skip", request_id=request_id, reason="cooldown")
         return
     loop = asyncio.get_running_loop()
+    current_title = (((np or {}).get("now_playing") or {}).get("song") or {}).get("title") or ""
+    if not current_title:
+        try:
+            fresh = await loop.run_in_executor(None, azura.fetch_nowplaying)
+            current_title = (((fresh or {}).get("now_playing") or {}).get("song") or {}).get("title") or ""
+        except Exception:
+            current_title = ""
+    diag.log("request_block_autodj_interruption", current_title=current_title[:80], next_id=request_id)
     skipped = await loop.run_in_executor(None, azura.skip_current)
     _autodj_skip_attempts[request_id] = attempts + 1
     _last_autodj_skip_ts = now
+    diag.log(
+        "request_block_skip_autodj",
+        next_id=request_id,
+        attempt=attempts + 1,
+        result="success" if skipped else "failed",
+    )
     diag.log("autodj_gap_skip", request_id=request_id, result="success" if skipped else "failed")
 
 
@@ -352,6 +428,8 @@ async def _poll(bot) -> None:
     global _last_song_key
     diag.log("mode_enabled")
     diag.log("requests_playlist_should_not_be_general_rotation")
+    if settings.block_mode():
+        diag.log("request_block_mode_enabled")
     while True:
         try:
             loop = asyncio.get_running_loop()
@@ -381,7 +459,8 @@ async def _poll(bot) -> None:
                             next_id=int(next_head.get("id") or 0),
                             status=next_head.get("status") or "",
                         )
-                    await schedule_requests(reason="request_done")
+                    if not settings.block_mode():
+                        await schedule_requests(reason="request_done")
                 if row:
                     await _handle_request_start(bot, row, song, media, elapsed, duration)
                 else:
@@ -389,12 +468,12 @@ async def _poll(bot) -> None:
                     if path.lower().lstrip("/").startswith("requests/"):
                         await _handle_stale_requests_media(song, media)
                     else:
-                        await _maybe_skip_autodj_for_drain()
+                        await _maybe_skip_autodj_for_drain(np)
                 _last_song_key = key
             elif settings.drain_mode() and not _current_request_id:
                 row = match_nowplaying(np)
                 if not row:
-                    await _maybe_skip_autodj_for_drain()
+                    await _maybe_skip_autodj_for_drain(np)
         except Exception as exc:
             diag.log("watcher_error", error=repr(exc))
         await asyncio.sleep(5)

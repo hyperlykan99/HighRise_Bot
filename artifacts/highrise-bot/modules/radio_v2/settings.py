@@ -27,6 +27,16 @@ def drain_mode() -> bool:
     )
 
 
+def block_mode() -> bool:
+    default = "true" if enabled() else "false"
+    return (os.getenv("RADIO_REQUEST_BLOCK_MODE", default) or default).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 def requests_enabled() -> bool:
     return cs.request_system_enabled()
 
@@ -57,4 +67,3 @@ def refund_if_leaves() -> bool:
 
 def admin_requests_ignore_leave() -> bool:
     return cs.admin_requests_ignore_leave()
-

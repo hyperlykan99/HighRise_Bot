@@ -2439,6 +2439,10 @@ async def _verified_skip_task(
 async def _poll_loop(bot: "BaseBot") -> None:
     global _cur_song_id, _cur_req_id, _cur_elapsed, _cur_duration, _mode, _cur_replay_temp
 
+    if _RADIO_SYSTEM_VERSION == "v2":
+        print("[RADIO_V2] event=v1_playback_standdown")
+        return
+
     print(f"{_LOG} Poll loop started (every {POLL_INTERVAL}s)")
     if _AZURA_NATIVE_REQUEST_MODE:
         print("[RADIO_NATIVE] event=native_request_mode_enabled")
