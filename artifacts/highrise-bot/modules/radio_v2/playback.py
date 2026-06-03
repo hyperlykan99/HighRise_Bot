@@ -7,6 +7,7 @@ import time
 import modules.azuracast_controller as azura
 import modules.config_store as cs
 from modules.radio_renderer import render_now_playing
+from modules.radio_v2 import azura as v2_azura
 from modules.radio_v2 import cleanup
 from modules.radio_v2 import diagnostics as diag
 from modules.radio_v2 import queue
@@ -16,6 +17,7 @@ _started = False
 _task: "asyncio.Task | None" = None
 _current_request_id = 0
 _last_song_key = ""
+_last_autodj_skip_ts = 0.0
 _vote_skip: dict[str, set[str]] = {}
 
 
@@ -144,6 +146,61 @@ async def _handle_stale_requests_media(song: dict, media: dict) -> None:
     )
 
 
+async def drain_ready_requests() -> dict:
+    """Submit every uploaded V2 request that is not already native-queued."""
+    rows = queue.submit_ready_rows()
+    submitted = 0
+    for row in rows:
+        request_id = int(row.get("id") or 0)
+        if not request_id:
+            continue
+        loop = asyncio.get_running_loop()
+        ok, requestable_id = await loop.run_in_executor(
+            None,
+            lambda r=row: v2_azura.submit_native_request(
+                int(r.get("id") or 0),
+                media_id=(r.get("azura_file_id") or "").strip(),
+                song_id=(r.get("azura_song_id") or "").strip(),
+                filename=(r.get("temp_filename") or "").strip(),
+                title=(r.get("title") or "").strip(),
+            ),
+        )
+        if ok:
+            queue.mark_status(request_id, "submitted", azura_request_id=requestable_id)
+            submitted += 1
+        else:
+            diag.log("request_drain_submit_failed", request_id=request_id)
+    if submitted or rows:
+        diag.log("request_drain_submit_ready", count=submitted, candidates=len(rows))
+    return {
+        "submitted": submitted,
+        "candidates": len(rows),
+        "ready_or_submitted": queue.ready_or_submitted_count(),
+        "active": queue.active_count_for_drain(),
+    }
+
+
+async def _maybe_skip_autodj_for_drain() -> None:
+    global _last_autodj_skip_ts
+    if not settings.drain_mode():
+        return
+    active = queue.active_count_for_drain()
+    if active <= 0:
+        return
+    diag.log("request_drain_autodj_gap_detected", active_requests=active)
+    drain = await drain_ready_requests()
+    if int(drain.get("ready_or_submitted") or 0) <= 0:
+        return
+    now = time.time()
+    if now - _last_autodj_skip_ts < 10:
+        diag.log("request_drain_autodj_skip", result="cooldown")
+        return
+    loop = asyncio.get_running_loop()
+    skipped = await loop.run_in_executor(None, azura.skip_current)
+    _last_autodj_skip_ts = now
+    diag.log("request_drain_autodj_skip", result="success" if skipped else "failed")
+
+
 async def _poll(bot) -> None:
     global _last_song_key
     diag.log("mode_enabled")
@@ -162,13 +219,22 @@ async def _poll(bot) -> None:
                 row = match_nowplaying(np)
                 if previous_request and (not row or int(row.get("id") or 0) != previous_request):
                     await _finish_current(bot, previous_request)
+                    remaining = queue.active_count_for_drain()
+                    diag.log("request_done_drain_check", request_id=previous_request, remaining_active=remaining)
+                    await drain_ready_requests()
                 if row:
                     await _handle_request_start(bot, row, song, media, elapsed, duration)
                 else:
                     path = (media.get("path") or "").strip()
                     if path.lower().lstrip("/").startswith("requests/"):
                         await _handle_stale_requests_media(song, media)
+                    else:
+                        await _maybe_skip_autodj_for_drain()
                 _last_song_key = key
+            elif settings.drain_mode() and not _current_request_id:
+                row = match_nowplaying(np)
+                if not row:
+                    await _maybe_skip_autodj_for_drain()
         except Exception as exc:
             diag.log("watcher_error", error=repr(exc))
         await asyncio.sleep(5)
@@ -220,4 +286,3 @@ async def vote_skip(bot, user_id: str) -> tuple[bool, str]:
         _vote_skip.pop(key, None)
         return True, f"👎 Vote skip passed ({threshold}/{threshold})."
     return True, f"👎 Vote skip: {len(voters)}/{threshold}"
-

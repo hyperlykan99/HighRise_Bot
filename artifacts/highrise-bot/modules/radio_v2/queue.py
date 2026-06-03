@@ -137,6 +137,40 @@ def active_count() -> int:
     return int(row[0] if row else 0)
 
 
+def active_count_for_drain() -> int:
+    """Rows that should keep Radio V2 drain mode active."""
+    return active_count()
+
+
+def ready_or_submitted_count() -> int:
+    ensure_schema()
+    statuses = ("uploaded", "ready", "submitted")
+    ph = ",".join("?" * len(statuses))
+    with db.db_conn() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM radio_v2_requests WHERE status IN ({ph})",
+            statuses,
+        ).fetchone()
+    return int(row[0] if row else 0)
+
+
+def submit_ready_rows(limit: int = 10) -> list[dict]:
+    """Uploaded/indexed rows not yet handed to Azura native request API."""
+    ensure_schema()
+    ph = ",".join("?" * len(models.SUBMITTABLE_STATUSES))
+    with db.db_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {_SEL} FROM radio_v2_requests "
+            f"WHERE status IN ({ph}) "
+            "AND COALESCE(azura_file_id, '') != '' "
+            "AND COALESCE(temp_filename, '') != '' "
+            "AND COALESCE(azura_request_id, '') = '' "
+            "ORDER BY id ASC LIMIT ?",
+            (*models.SUBMITTABLE_STATUSES, int(limit)),
+        ).fetchall()
+    return [_row(r) for r in rows]
+
+
 def future_count() -> int:
     ensure_schema()
     ph = ",".join("?" * len(models.WAITING_STATUSES))
@@ -259,4 +293,3 @@ def recent_room(limit: int = 10) -> list[dict]:
     with db.db_conn() as conn:
         rows = conn.execute(f"SELECT {_SEL} FROM radio_v2_requests ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
     return [_row(r) for r in rows]
-
