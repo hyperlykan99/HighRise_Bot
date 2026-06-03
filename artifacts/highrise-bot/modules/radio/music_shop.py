@@ -35,6 +35,13 @@ def _positive_int(raw, default: int = 1) -> int:
         return default
 
 
+def _strip_command_arg(args, command: str) -> list[str]:
+    cleaned = list(args or [])
+    if cleaned and str(cleaned[0]).strip().lower() == command:
+        return cleaned[1:]
+    return cleaned
+
+
 async def handle_musicshop(bot, user, args=None) -> None:
     rs.ensure_radio_settings()
     discs.ensure_schema()
@@ -75,7 +82,7 @@ async def handle_discs(bot, user, args=None) -> None:
 async def handle_buydisc(bot, user, args=None) -> None:
     rs.ensure_radio_settings()
     discs.ensure_schema()
-    args = args or []
+    args = _strip_command_arg(args, "buydisc")
     method = (args[0].lower() if args else "").strip()
     if method not in {"coins", "coin", "luxe", "tickets", "ticket"}:
         await _w(bot, user.id, "Use: !buydisc coins OR !buydisc luxe")
@@ -86,9 +93,19 @@ async def handle_buydisc(bot, user, args=None) -> None:
 
     per_command = rs.get_int_setting("music_disc_max_purchase_per_command", 10)
     daily_limit = rs.get_int_setting("music_disc_daily_purchase_limit", 50)
-    qty = 1
-    if per_command < qty:
-        await _w(bot, user.id, "⚠️ Music Disc purchases are temporarily limited.")
+    if len(args) > 1:
+        try:
+            qty = int(str(args[1]).strip())
+        except (TypeError, ValueError):
+            await _w(bot, user.id, "⚠️ Amount must be a whole number.")
+            return
+    else:
+        qty = 1
+    if qty <= 0:
+        await _w(bot, user.id, "⚠️ Amount must be greater than 0.")
+        return
+    if qty > per_command:
+        await _w(bot, user.id, f"⚠️ You can buy at most {per_command} Music Discs per command.")
         return
     purchased_today = discs.get_daily_purchased(user.id)
     if daily_limit > 0 and purchased_today + qty > daily_limit:
@@ -99,22 +116,24 @@ async def handle_buydisc(bot, user, args=None) -> None:
         if not rs.get_bool_setting("music_disc_purchase_coins_enabled", True):
             await _w(bot, user.id, "🔒 Coin purchases are currently disabled.")
             return
-        price = rs.get_int_setting("music_disc_price_coins", 500)
+        unit_price = rs.get_int_setting("music_disc_price_coins", 500)
+        price = unit_price * qty
         balance = db.get_balance(user.id)
         if balance < price:
-            await _w(bot, user.id, f"⚠️ You need {price} coins for 1 {_display_name()}.")
+            await _w(bot, user.id, f"⚠️ You need {price} coins for {qty} {_display_name()}.")
             return
         db.adjust_balance(user.id, -price)
         new_balance = discs.add_discs(user.id, user.username, qty, discs.BUY_REASON, actor=user.username)
-        await _w(bot, user.id, f"✅ Bought 1 {_display_name()} for {price} coins.\nBalance: {new_balance} {_display_name()}")
+        await _w(bot, user.id, f"✅ Bought {qty} {_display_name()} for {price} coins.\nBalance: {new_balance} {_display_name()}")
         return
 
     if not rs.get_bool_setting("music_disc_purchase_luxe_enabled", True):
         await _w(bot, user.id, "🔒 Luxe purchases are currently disabled.")
         return
-    price = rs.get_int_setting("music_disc_price_luxe", 50)
+    unit_price = rs.get_int_setting("music_disc_price_luxe", 50)
+    price = unit_price * qty
     if get_luxe_balance(user.id) < price:
-        await _w(bot, user.id, f"⚠️ You need {price} Luxe Tickets for 1 {_display_name()}.")
+        await _w(bot, user.id, f"⚠️ You need {price} Luxe Tickets for {qty} {_display_name()}.")
         return
     if not deduct_luxe_balance(user.id, user.username, price):
         await _w(bot, user.id, "⚠️ Luxe ticket deduction failed. Try again.")
@@ -124,7 +143,7 @@ async def handle_buydisc(bot, user, args=None) -> None:
     except Exception:
         pass
     new_balance = discs.add_discs(user.id, user.username, qty, discs.BUY_REASON, actor=user.username)
-    await _w(bot, user.id, f"✅ Bought 1 {_display_name()} for {price} Luxe Tickets.\nBalance: {new_balance} {_display_name()}")
+    await _w(bot, user.id, f"✅ Bought {qty} {_display_name()} for {price} Luxe Tickets.\nBalance: {new_balance} {_display_name()}")
 
 
 async def handle_discprice(bot, user, args=None) -> None:
@@ -150,7 +169,7 @@ async def handle_setdiscprice(bot, user, args=None) -> None:
     if not _staff(user):
         await _w(bot, user.id, "This command is staff-only.")
         return
-    args = args or []
+    args = _strip_command_arg(args, "setdiscprice")
     if len(args) < 2 or args[0].lower() not in {"coins", "coin", "luxe", "tickets"}:
         await _w(bot, user.id, "Use: !setdiscprice coins <amount> OR !setdiscprice luxe <amount>")
         return
@@ -184,7 +203,7 @@ async def handle_requestdiscprice(bot, user, args=None) -> None:
 
 
 async def handle_setrequestdisc(bot, user, args=None) -> None:
-    args = args or []
+    args = _strip_command_arg(args, "setrequestdisc")
     if not _staff(user):
         await _w(bot, user.id, "This command is staff-only.")
         return
@@ -219,4 +238,3 @@ async def dispatch_music_disc_command(bot, user, cmd: str, args: list[str]) -> N
         await handle_requestdiscprice(bot, user, args)
     elif cmd == "setrequestdisc":
         await handle_setrequestdisc(bot, user, args)
-
