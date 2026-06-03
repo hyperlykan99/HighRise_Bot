@@ -12,9 +12,30 @@ import urllib.request
 from typing import Any
 
 from modules import config_store as cs
+from modules.radio import settings as radio_settings
 
 
 SAFE_PREFIXES = ("radio_yt_", "radio_local_", "radio_req_")
+
+
+def requests_playlist_id_resolved() -> tuple[str, str]:
+    """Resolve the Phase 4 Requests playlist ID without importing old radio code."""
+    sources = (
+        ("radio_settings.requests_playlist_id", lambda: radio_settings.get_setting("requests_playlist_id", "")),
+        ("radio_settings.azura_playlist_id", lambda: radio_settings.get_setting("azura_playlist_id", "")),
+        ("env.AZURA_PLAYLIST_ID", lambda: os.environ.get("AZURA_PLAYLIST_ID", "")),
+        ("env.RADIO_V3_PLAYLIST_ID", lambda: os.environ.get("RADIO_V3_PLAYLIST_ID", "")),
+    )
+    for source, getter in sources:
+        try:
+            value = str(getter() or "").strip()
+        except Exception:
+            value = ""
+        if value:
+            print(f"[RADIO_PHASE4] event=azura_requests_playlist_id_resolved source={source!r} playlist_id={value!r}")
+            return value, source
+    print("[RADIO_PHASE4] event=azura_requests_playlist_id_resolved source='missing' playlist_id=''")
+    return "", "missing"
 
 
 def _api_request(path: str, timeout: int = 8, method: str = "GET", payload: dict | None = None) -> dict | list | None:
@@ -193,7 +214,7 @@ def find_uploaded_media(remote_filename: str) -> dict | None:
 
 
 def attach_requests_playlist(file_id: str) -> bool:
-    playlist_id = cs.requests_playlist_id()
+    playlist_id, _source = requests_playlist_id_resolved()
     cfg = cs.azura_api_cfg()
     if not cfg or not file_id or not playlist_id:
         return True
@@ -279,23 +300,25 @@ def log_requests_playlist_config() -> None:
     snapshot = requests_playlist_snapshot()
     print(
         f"[RADIO_PHASE4] event=azura_requests_playlist_config playlist_id={snapshot.get('playlist_id')!r} "
+        f"source={snapshot.get('playlist_id_source')!r} "
         f"status={snapshot.get('status')!r} is_enabled={snapshot.get('is_enabled')!r} "
-        f"is_jingle={snapshot.get('is_jingle')!r} source={snapshot.get('source')!r} "
+        f"is_jingle={snapshot.get('is_jingle')!r} playlist_source={snapshot.get('source')!r} "
         f"include_in_requests={snapshot.get('include_in_requests')!r} "
         f"requests_enabled={snapshot.get('requests_enabled')!r} body={snapshot.get('body')!r}"
     )
 
 
 def requests_playlist_snapshot() -> dict:
-    playlist_id = cs.requests_playlist_id()
+    playlist_id, source = requests_playlist_id_resolved()
     cfg = cs.azura_api_cfg()
     if not cfg or not playlist_id:
-        return {"playlist_id": playlist_id or "", "status": 0, "body": "missing_config"}
+        return {"playlist_id": playlist_id or "", "playlist_id_source": source, "status": 0, "body": "missing_config"}
     endpoint = f"/api/station/{cfg['station_id']}/playlist/{playlist_id}"
     status, data, body = _api_response(endpoint, timeout=15)
     payload = data if isinstance(data, dict) else {}
     return {
         "playlist_id": playlist_id,
+        "playlist_id_source": source,
         "status": status,
         "is_enabled": payload.get("is_enabled"),
         "is_jingle": payload.get("is_jingle"),
