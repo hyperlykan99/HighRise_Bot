@@ -133,11 +133,13 @@ def health_snapshot() -> dict:
     ensure_ready()
     api = azura.test_api()
     sftp = azura.test_sftp()
+    playlist = azura.requests_playlist_snapshot()
     card, track, err = now_playing_card()
     return {
         "radio_enabled": radio_settings.get_bool_setting("radio_enabled", True),
         "api": api,
         "sftp": sftp,
+        "requests_playlist": playlist,
         "nowplaying_ok": bool(track),
         "track": track,
         "queue_size": radio_db.active_queue_count(),
@@ -152,6 +154,19 @@ def track_dedupe_key(track: dict | None) -> str:
     return str(track.get("track_key") or "")
 
 
+def _has_duplicate_active_youtube_request(user_id: str, clean_url: str) -> bool:
+    target_video_id = sources.youtube_video_id(clean_url)
+    for row in radio_db.active_requests_for_user(user_id):
+        if str(row.get("source_type") or "") != "youtube":
+            continue
+        source_ref = str(row.get("source_ref") or "")
+        if source_ref == clean_url:
+            return True
+        if target_video_id and sources.youtube_video_id(source_ref) == target_video_id:
+            return True
+    return False
+
+
 async def submit_direct_youtube_request(bot, user, url: str) -> str:
     ensure_ready()
     if not radio_settings.get_bool_setting("radio_enabled", True):
@@ -162,6 +177,8 @@ async def submit_direct_youtube_request(bot, user, url: str) -> str:
         clean_url = sources.validate_youtube_url(url)
     except sources.SourceError as exc:
         return f"⚠️ {exc}"
+    if _has_duplicate_active_youtube_request(user.id, clean_url):
+        return "⚠️ You already have this song in the queue."
     if radio_settings.get_bool_setting("block_requests_when_azura_unhealthy", True):
         api = azura.test_api()
         sftp = azura.test_sftp()
@@ -252,8 +269,6 @@ async def process_request_job(bot, request_id: int) -> None:
         )
         requestable = False
         for attempt in range(10):
-            if attempt == 0 or attempt % 5 == 0:
-                await asyncio.to_thread(azura.rescan_requests_folder)
             requestable = await asyncio.to_thread(
                 azura.requestable_media_ready,
                 filename,
@@ -272,6 +287,16 @@ async def process_request_job(bot, request_id: int) -> None:
             )
         ok, status, body = await asyncio.to_thread(azura.submit_request, song_id)
         if not ok:
+            playlist_snapshot = await asyncio.to_thread(azura.requests_playlist_snapshot)
+            media_after = await asyncio.to_thread(azura.get_media_file, file_id) if file_id else {}
+            if "not requestable" in str(body).lower():
+                print(
+                    f"[RADIO_PHASE4] event=azura_not_requestable_after_playlist_assign "
+                    f"request_id={request_id} media_id={file_id!r} unique_id={song_id!r} "
+                    f"playlist_id={playlist_snapshot.get('playlist_id')!r} "
+                    f"playlist_config={playlist_snapshot!r} "
+                    f"media_playlists={(media_after or {}).get('playlists')!r}"
+                )
             print(
                 f"[RADIO_PHASE4] event=azura_submit_failed request_id={request_id} "
                 f"status={status} body={body[:240]!r}"
@@ -296,6 +321,7 @@ async def _fail_request_before_play(bot, request_id: int, error: str) -> None:
     job = radio_db.get_request(request_id)
     if not job or job.get("status") == "playing":
         return
+    radio_db.set_runtime_state("last_error", error[:500])
     radio_db.mark_status(request_id, "failed", error=error, finish_reason="prepare_failed")
     if int(job.get("disc_cost_charged") or 0) > 0:
         music_discs.refund_discs(

@@ -229,6 +229,20 @@ def active_requests(limit: int = 50) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def active_requests_for_user(user_id: str, limit: int = 50) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE user_id=?
+                 AND status IN ('pending','preparing','ready','submitted','playing')
+               ORDER BY id ASC
+               LIMIT ?""",
+            (str(user_id or ""), max(1, min(100, int(limit)))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def match_request_for_track(track: dict) -> dict | None:
     ensure_schema()
     media_id = str(track.get("media_id") or "").strip()

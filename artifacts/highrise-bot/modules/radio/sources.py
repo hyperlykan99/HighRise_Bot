@@ -40,6 +40,23 @@ def validate_youtube_url(url: str) -> str:
     return url
 
 
+def youtube_video_id(url: str) -> str:
+    parsed = urlparse(str(url or "").strip())
+    host = parsed.netloc.lower()
+    if host.endswith("youtu.be"):
+        return parsed.path.strip("/").split("/", 1)[0]
+    if host in YOUTUBE_HOSTS:
+        if parsed.path == "/watch":
+            return (parse_qs(parsed.query).get("v") or [""])[0].strip()
+        if "/shorts/" in parsed.path:
+            parts = [part for part in parsed.path.split("/") if part]
+            try:
+                return parts[parts.index("shorts") + 1]
+            except (ValueError, IndexError):
+                return ""
+    return ""
+
+
 def fetch_metadata(url: str) -> dict:
     try:
         import yt_dlp

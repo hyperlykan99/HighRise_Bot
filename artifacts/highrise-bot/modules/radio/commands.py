@@ -54,11 +54,14 @@ async def handle_musicstatus(bot, user, args=None) -> None:
         await _w(bot, user.id, "This command is staff-only.")
         return
     snap = service.health_snapshot()
+    playlist = snap.get("requests_playlist") or {}
     lines = [
         "🎛 Music Status",
         f"Radio: {'enabled' if snap['radio_enabled'] else 'disabled'}",
         f"Azura API: {'ok' if snap['api'].get('ok') else 'fail'}",
         f"SFTP: {'ok' if snap['sftp'].get('ok') else 'fail'}",
+        f"Requests Playlist: {playlist.get('playlist_id') or 'not configured'} HTTP {playlist.get('status') or 0}",
+        f"Requests Enabled: {playlist.get('requests_enabled', playlist.get('include_in_requests', 'unknown'))}",
         f"NowPlaying: {'ok' if snap['nowplaying_ok'] else 'fail'}",
         f"Queue: {snap['queue_size']}",
         f"Last error: {snap['last_error'] or 'none'}",

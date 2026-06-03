@@ -214,6 +214,11 @@ def attach_requests_playlist(file_id: str) -> bool:
         f"method=PUT endpoint={endpoint!r} file_id={file_id!r} playlist_id={playlist_id!r} "
         f"status={status} body={body[:180]!r}"
     )
+    media_after = get_media_file(file_id) or {}
+    print(
+        f"[RADIO_PHASE4] event=azura_media_after_playlist_assign "
+        f"media_id={file_id!r} playlists={media_after.get('playlists')!r}"
+    )
     if ok:
         return True
 
@@ -233,6 +238,11 @@ def attach_requests_playlist(file_id: str) -> bool:
         f"[RADIO_PHASE4] event={'azura_playlist_assign_ok' if ok else 'azura_playlist_assign_failed'} "
         f"method=PUT endpoint={batch_endpoint!r} file_id={file_id!r} playlist_id={playlist_id!r} "
         f"status={status} body={body[:180]!r}"
+    )
+    media_after = get_media_file(file_id) or {}
+    print(
+        f"[RADIO_PHASE4] event=azura_media_after_playlist_assign "
+        f"media_id={file_id!r} playlists={media_after.get('playlists')!r}"
     )
     return ok
 
@@ -266,20 +276,36 @@ def verify_file_in_playlist(file_id: str, playlist_id: str) -> bool:
 
 
 def log_requests_playlist_config() -> None:
+    snapshot = requests_playlist_snapshot()
+    print(
+        f"[RADIO_PHASE4] event=azura_requests_playlist_config playlist_id={snapshot.get('playlist_id')!r} "
+        f"status={snapshot.get('status')!r} is_enabled={snapshot.get('is_enabled')!r} "
+        f"is_jingle={snapshot.get('is_jingle')!r} source={snapshot.get('source')!r} "
+        f"include_in_requests={snapshot.get('include_in_requests')!r} "
+        f"requests_enabled={snapshot.get('requests_enabled')!r} body={snapshot.get('body')!r}"
+    )
+
+
+def requests_playlist_snapshot() -> dict:
     playlist_id = cs.requests_playlist_id()
     cfg = cs.azura_api_cfg()
     if not cfg or not playlist_id:
-        return
+        return {"playlist_id": playlist_id or "", "status": 0, "body": "missing_config"}
     endpoint = f"/api/station/{cfg['station_id']}/playlist/{playlist_id}"
     status, data, body = _api_response(endpoint, timeout=15)
     payload = data if isinstance(data, dict) else {}
-    print(
-        f"[RADIO_PHASE4] event=azura_requests_playlist_config playlist_id={playlist_id!r} "
-        f"status={status} is_enabled={payload.get('is_enabled')!r} "
-        f"is_jingle={payload.get('is_jingle')!r} source={payload.get('source')!r} "
-        f"include_in_requests={payload.get('include_in_requests')!r} "
-        f"requests_enabled={payload.get('requests_enabled')!r} body={body[:180]!r}"
-    )
+    return {
+        "playlist_id": playlist_id,
+        "status": status,
+        "is_enabled": payload.get("is_enabled"),
+        "is_jingle": payload.get("is_jingle"),
+        "source": payload.get("source"),
+        "include_in_requests": payload.get("include_in_requests"),
+        "requests_enabled": payload.get("requests_enabled"),
+        "allow_requests": payload.get("allow_requests"),
+        "is_requestable": payload.get("is_requestable"),
+        "body": body[:1000],
+    }
 
 
 def requestable_media_ready(
