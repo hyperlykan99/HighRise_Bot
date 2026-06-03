@@ -25,11 +25,14 @@ async def _nowplaying_poll_loop(bot) -> None:
                 continue
             if not radio_settings.get_bool_setting("now_announce_song_changes", True):
                 continue
-            if not radio_settings.get_bool_setting("now_announce_autodj", True):
-                continue
             card, track, _error = service.now_playing_card()
             key = service.track_dedupe_key(track)
             if not key or key == last_key:
+                continue
+            is_request = bool(radio_db.get_runtime_state("current_request_id", ""))
+            if is_request and not radio_settings.get_bool_setting("now_announce_requests", True):
+                continue
+            if not is_request and not radio_settings.get_bool_setting("now_announce_autodj", True):
                 continue
             last_key = key
             radio_db.set_runtime_state("last_announced_track_key", key)
@@ -40,4 +43,3 @@ async def _nowplaying_poll_loop(bot) -> None:
         except Exception as exc:
             radio_db.mark_last_poll(False, repr(exc))
             print(f"[RADIO_SKELETON] event=poll_failed error={exc!r}")
-

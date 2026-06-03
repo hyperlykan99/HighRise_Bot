@@ -494,6 +494,7 @@ REGISTRY: dict[str, Cmd] = {
     "setemoteunverified": Cmd("dj","admin", False, False, True, perm="admin"),
 
     # ── DJ: music / song-request queue ───────────────────────────────────────
+    "play":             Cmd("dj","music",  True, False, True),
     "request":          Cmd("dj","music",  True, False, True,  aliases=("sr","req","song","requesy")),
     "pick":             Cmd("dj","music",  True, False, True,  aliases=("djpick",)),
     "queue":            Cmd("dj","music",  True, True,  False, aliases=("q","djqueue")),

@@ -1810,6 +1810,7 @@ MUSIC_DISC_COMMANDS: frozenset[str] = frozenset({
     "setrequestdisc",
 })
 RADIO_SKELETON_COMMANDS: frozenset[str] = frozenset({
+    "play",
     "radiohelp",
     "q",
     "queue",

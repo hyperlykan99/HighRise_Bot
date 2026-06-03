@@ -27,6 +27,16 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "now_show_likes_dislikes": ("true", "bool"),
     "now_show_request_play_count": ("true", "bool"),
     "now_footer_text": ("🎶 !play to request a song", "str"),
+    "max_song_duration_normal_secs": ("300", "int"),
+    "max_song_duration_vip_secs": ("480", "int"),
+    "max_song_duration_staff_secs": ("600", "int"),
+    "max_song_duration_owner_secs": ("0", "int"),
+    "youtube_direct_url_enabled": ("true", "bool"),
+    "youtube_reject_playlists": ("true", "bool"),
+    "youtube_reject_mixes": ("true", "bool"),
+    "youtube_reject_livestreams": ("true", "bool"),
+    "youtube_reject_shorts": ("false", "bool"),
+    "block_requests_when_azura_unhealthy": ("true", "bool"),
 }
 
 

@@ -1214,6 +1214,16 @@ const RADIO_SETTING_DEFAULTS = {
   now_show_likes_dislikes: ["true", "bool"],
   now_show_request_play_count: ["true", "bool"],
   now_footer_text: ["🎶 !play to request a song", "str"],
+  max_song_duration_normal_secs: ["300", "int"],
+  max_song_duration_vip_secs: ["480", "int"],
+  max_song_duration_staff_secs: ["600", "int"],
+  max_song_duration_owner_secs: ["0", "int"],
+  youtube_direct_url_enabled: ["true", "bool"],
+  youtube_reject_playlists: ["true", "bool"],
+  youtube_reject_mixes: ["true", "bool"],
+  youtube_reject_livestreams: ["true", "bool"],
+  youtube_reject_shorts: ["false", "bool"],
+  block_requests_when_azura_unhealthy: ["true", "bool"],
 };
 
 function ensureRadioSettings(db) {
@@ -1465,6 +1475,29 @@ function readLocalRadioStatus(db) {
     } catch (err) {
       console.error(`[DASHBOARD_DB] radio_counts_failed error=${err.message}`);
     }
+  } else if (tableExists(db, "radio_requests") && columnExists(db, "radio_requests", "status")) {
+    const desired = ["id", "title", "artist", "username", "user_id", "source_type", "source_ref", "status", "error", "azura_file_id", "azura_song_id", "azura_path", "temp_filename", "disc_cost_charged", "priority", "created_at", "prepared_at", "submitted_at", "playing_at", "played_at", "cleaned_at", "failed_at"];
+    nowPlaying = safeOne(db, "radio_requests", desired, { where: "status='playing'", orderBy: "id DESC" });
+    queue = safeRows(db, "radio_requests", desired, {
+      where: "status IN ('pending','preparing','ready','submitted')",
+      orderBy: "id ASC",
+      limit: "50",
+    }).map((row, i) => ({ ...row, filename: row.temp_filename || "", pos: i + 1 }));
+    recent = safeRows(db, "radio_requests", desired, {
+      where: "status IN ('played','cleaned','failed','cancelled')",
+      orderBy: "id DESC",
+      limit: "50",
+    }).map((row) => ({ ...row, filename: row.temp_filename || "" }));
+    try {
+      counts = Object.fromEntries(
+        db.prepare("SELECT status, COUNT(*) AS n FROM radio_requests GROUP BY status").all().map((r) => [r.status, r.n]),
+      );
+      playedToday = db.prepare("SELECT COUNT(*) AS n FROM radio_requests WHERE status IN ('played','cleaned') AND date(COALESCE(played_at, created_at))=date('now')").get().n ?? 0;
+      failedToday = db.prepare("SELECT COUNT(*) AS n FROM radio_requests WHERE status IN ('failed','cancelled') AND date(COALESCE(failed_at, cancelled_at, created_at))=date('now')").get().n ?? 0;
+      topRequester = db.prepare("SELECT username, COUNT(*) AS requests FROM radio_requests WHERE COALESCE(username,'')!='' GROUP BY username ORDER BY requests DESC LIMIT 1").get() ?? null;
+    } catch (err) {
+      console.error(`[DASHBOARD_DB] radio_phase4_counts_failed error=${err.message}`);
+    }
   }
   const radioUrl = AZURACAST_STREAM_URL ?? getSetting(db, "dj_radio_url", "");
   const dashboardGate = getDashboardSettingValue(db, "requests_enabled", "true") !== "false";
@@ -1485,7 +1518,7 @@ function readLocalRadioStatus(db) {
   });
   const settings = {
     radio_system_version: radioVersion,
-    live_queue_source: useV3 ? "radio_v3_requests" : "yt_request_jobs",
+    live_queue_source: useV3 ? "radio_v3_requests" : hasYtJobs ? "yt_request_jobs" : "radio_requests",
     requests_enabled: dashboardGate && roomGate,
     dashboard_requests_enabled: dashboardGate,
     radio_requests_enabled: roomGate,
@@ -1520,6 +1553,16 @@ function readLocalRadioStatus(db) {
     now_show_likes_dislikes: getRadioSetting(db, "now_show_likes_dislikes", "true"),
     now_show_request_play_count: getRadioSetting(db, "now_show_request_play_count", "true"),
     now_footer_text: getRadioSetting(db, "now_footer_text", "🎶 !play to request a song"),
+    max_song_duration_normal_secs: getRadioSetting(db, "max_song_duration_normal_secs", "300"),
+    max_song_duration_vip_secs: getRadioSetting(db, "max_song_duration_vip_secs", "480"),
+    max_song_duration_staff_secs: getRadioSetting(db, "max_song_duration_staff_secs", "600"),
+    max_song_duration_owner_secs: getRadioSetting(db, "max_song_duration_owner_secs", "0"),
+    youtube_direct_url_enabled: getRadioSetting(db, "youtube_direct_url_enabled", "true"),
+    youtube_reject_playlists: getRadioSetting(db, "youtube_reject_playlists", "true"),
+    youtube_reject_mixes: getRadioSetting(db, "youtube_reject_mixes", "true"),
+    youtube_reject_livestreams: getRadioSetting(db, "youtube_reject_livestreams", "true"),
+    youtube_reject_shorts: getRadioSetting(db, "youtube_reject_shorts", "false"),
+    block_requests_when_azura_unhealthy: getRadioSetting(db, "block_requests_when_azura_unhealthy", "true"),
   };
   const currentTrack = parseJsonState(getRadioRuntimeState(db, "current_track", ""), null);
   const lastPoll = parseJsonState(getRadioRuntimeState(db, "last_poll", ""), null);
@@ -6532,6 +6575,10 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     request_disc_cost_vip: { min: 0, max: 1000 },
     request_disc_cost_staff: { min: 0, max: 1000 },
     request_disc_cost_owner: { min: 0, max: 1000 },
+    max_song_duration_normal_secs: { min: 0, max: 86400 },
+    max_song_duration_vip_secs: { min: 0, max: 86400 },
+    max_song_duration_staff_secs: { min: 0, max: 86400 },
+    max_song_duration_owner_secs: { min: 0, max: 86400 },
   };
   const updates = {};
   for (const [field, cfg] of Object.entries(schema)) {
@@ -6584,6 +6631,12 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     "now_show_progress_bar",
     "now_show_likes_dislikes",
     "now_show_request_play_count",
+    "youtube_direct_url_enabled",
+    "youtube_reject_playlists",
+    "youtube_reject_mixes",
+    "youtube_reject_livestreams",
+    "youtube_reject_shorts",
+    "block_requests_when_azura_unhealthy",
   ]) {
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, field)) continue;
     const value = req.body[field] ? "true" : "false";

@@ -4231,6 +4231,16 @@ function renderRadioRequests(d) {
           <label class="switch"><input type="checkbox" name="now_show_progress_bar" ${String(s.now_show_progress_bar) !== "false" ? "checked" : ""}/><span>Show Progress Bar</span></label>
           <label class="switch"><input type="checkbox" name="now_show_likes_dislikes" ${String(s.now_show_likes_dislikes) !== "false" ? "checked" : ""}/><span>Show Likes / Dislikes</span></label>
           <label class="switch"><input type="checkbox" name="now_show_request_play_count" ${String(s.now_show_request_play_count) !== "false" ? "checked" : ""}/><span>Show Request Play Count</span></label>
+          <label class="switch"><input type="checkbox" name="youtube_direct_url_enabled" ${String(s.youtube_direct_url_enabled) !== "false" ? "checked" : ""}/><span>Direct YouTube URL Requests Enabled</span></label>
+          <label class="switch"><input type="checkbox" name="youtube_reject_playlists" ${String(s.youtube_reject_playlists) !== "false" ? "checked" : ""}/><span>Reject Playlists</span></label>
+          <label class="switch"><input type="checkbox" name="youtube_reject_mixes" ${String(s.youtube_reject_mixes) !== "false" ? "checked" : ""}/><span>Reject Mixes</span></label>
+          <label class="switch"><input type="checkbox" name="youtube_reject_livestreams" ${String(s.youtube_reject_livestreams) !== "false" ? "checked" : ""}/><span>Reject Livestreams</span></label>
+          <label class="switch"><input type="checkbox" name="youtube_reject_shorts" ${String(s.youtube_reject_shorts) === "true" ? "checked" : ""}/><span>Reject Shorts</span></label>
+          <label class="switch"><input type="checkbox" name="block_requests_when_azura_unhealthy" ${String(s.block_requests_when_azura_unhealthy) !== "false" ? "checked" : ""}/><span>Block Requests When Azura Unhealthy</span></label>
+          ${settingInput("max_song_duration_normal_secs", "Normal max song length", s.max_song_duration_normal_secs ?? 300)}
+          ${settingInput("max_song_duration_vip_secs", "VIP max song length", s.max_song_duration_vip_secs ?? 480)}
+          ${settingInput("max_song_duration_staff_secs", "Staff max song length", s.max_song_duration_staff_secs ?? 600)}
+          ${settingInput("max_song_duration_owner_secs", "Owner max song length", s.max_song_duration_owner_secs ?? 0)}
           <div class="field">
             <label class="field-label">Now Command Response Mode</label>
             <select name="now_command_response_mode">
@@ -8669,6 +8679,16 @@ function bindAdminPageEvents() {
           now_show_progress_bar: form.elements.now_show_progress_bar?.checked,
           now_show_likes_dislikes: form.elements.now_show_likes_dislikes?.checked,
           now_show_request_play_count: form.elements.now_show_request_play_count?.checked,
+          youtube_direct_url_enabled: form.elements.youtube_direct_url_enabled?.checked,
+          youtube_reject_playlists: form.elements.youtube_reject_playlists?.checked,
+          youtube_reject_mixes: form.elements.youtube_reject_mixes?.checked,
+          youtube_reject_livestreams: form.elements.youtube_reject_livestreams?.checked,
+          youtube_reject_shorts: form.elements.youtube_reject_shorts?.checked,
+          block_requests_when_azura_unhealthy: form.elements.block_requests_when_azura_unhealthy?.checked,
+          max_song_duration_normal_secs: data.max_song_duration_normal_secs,
+          max_song_duration_vip_secs: data.max_song_duration_vip_secs,
+          max_song_duration_staff_secs: data.max_song_duration_staff_secs,
+          max_song_duration_owner_secs: data.max_song_duration_owner_secs,
           now_command_response_mode: data.now_command_response_mode,
           now_footer_text: data.now_footer_text,
         }),

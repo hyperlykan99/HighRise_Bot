@@ -25,8 +25,9 @@ async def handle_radiohelp(bot, user, args=None) -> None:
                 "!discs — check your 💽 balance",
                 "!q / !queue — view queue",
                 "!now / !np — current song",
+                "!play <youtube_url> — request a direct YouTube link",
                 "!radiohelp — this help",
-                "Requests are being rebuilt.",
+                "Search and favorites are still being rebuilt.",
             ]
         ),
     )
@@ -65,8 +66,21 @@ async def handle_musicstatus(bot, user, args=None) -> None:
     await _w(bot, user.id, "\n".join(lines))
 
 
+async def handle_play(bot, user, args=None) -> None:
+    args = list(args or [])
+    if args and str(args[0]).lower() == "play":
+        args = args[1:]
+    if not args:
+        await _w(bot, user.id, "Use: !play <youtube_url>\nSearch is still being rebuilt.")
+        return
+    message = await service.submit_direct_youtube_request(bot, user, " ".join(args).strip())
+    await _w(bot, user.id, message)
+
+
 async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
-    if cmd == "radiohelp":
+    if cmd == "play":
+        await handle_play(bot, user, args)
+    elif cmd == "radiohelp":
         await handle_radiohelp(bot, user, args)
     elif cmd in {"q", "queue"}:
         await handle_queue(bot, user, args)
