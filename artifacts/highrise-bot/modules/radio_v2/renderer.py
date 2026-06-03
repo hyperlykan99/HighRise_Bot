@@ -37,7 +37,7 @@ def queue_pages(rows: list[dict]) -> list[str]:
     lines = ["🎧 Queue"]
     for idx, row in enumerate(rows, 1):
         status = (row.get("status") or "").lower()
-        icon = "✅" if status in ("uploaded", "submitted") else "⏳"
+        icon = "✅" if status in ("uploaded", "ready", "submitted", "prequeued") else "⏳"
         uname = (row.get("username") or "?").strip()[:12]
         title = (row.get("title") or "Preparing…").strip()
         source = (row.get("source_type") or "").strip()
@@ -67,10 +67,13 @@ def request_history(rows: list[dict], title: str = "📜 My Requests") -> list[s
         "pending": "⏳",
         "preparing": "⏳",
         "uploaded": "✅",
+        "ready": "✅",
         "submitted": "✅",
+        "prequeued": "✅",
         "playing": "▶️",
         "played": "🎵",
         "cancelled": "🚫",
+        "skipped": "⏭️",
         "failed": "❌",
         "cleaned": "🧹",
     }
@@ -78,4 +81,3 @@ def request_history(rows: list[dict], title: str = "📜 My Requests") -> list[s
         status = (row.get("status") or "").lower()
         lines.append(f"{icons.get(status, '•')} {status}: {(row.get('title') or 'Unknown')[:34]}")
     return ["\n".join(lines)[:249]]
-

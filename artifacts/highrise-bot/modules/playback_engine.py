@@ -2852,6 +2852,9 @@ async def startup_playback_engine(bot: "BaseBot") -> None:
     at startup time, and the bot can always respond to Highrise traffic.
     """
     global _started
+    if _RADIO_SYSTEM_VERSION == "v2":
+        print("[RADIO_V2] event=v1_playback_standdown")
+        return
     if _started:
         print(f"{_LOG} Already started — skipping duplicate call")
         return

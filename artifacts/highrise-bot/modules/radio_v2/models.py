@@ -7,6 +7,7 @@ ACTIVE_STATUSES = (
     "uploaded",
     "ready",
     "submitted",
+    "prequeued",
     "playing",
 )
 WAITING_STATUSES = (
@@ -15,14 +16,16 @@ WAITING_STATUSES = (
     "uploaded",
     "ready",
     "submitted",
+    "prequeued",
 )
 TERMINAL_STATUSES = (
     "played",
     "cancelled",
     "failed",
+    "skipped",
     "cleaned",
 )
-READY_STATUSES = ("uploaded", "ready", "submitted")
+READY_STATUSES = ("uploaded", "ready", "submitted", "prequeued")
 SUBMITTABLE_STATUSES = ("uploaded", "ready")
 
 

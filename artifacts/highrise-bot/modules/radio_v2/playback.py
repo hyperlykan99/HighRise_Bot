@@ -16,8 +16,12 @@ from modules.radio_v2 import settings
 _started = False
 _task: "asyncio.Task | None" = None
 _current_request_id = 0
+_next_prequeued_request_id = 0
 _last_song_key = ""
 _last_autodj_skip_ts = 0.0
+_scheduler_lock: "asyncio.Lock | None" = None
+_native_accept_ts: dict[int, float] = {}
+_autodj_skip_attempts: dict[int, int] = {}
 _vote_skip: dict[str, set[str]] = {}
 
 
@@ -64,6 +68,13 @@ async def _say(bot, msg: str) -> None:
         print(f"[RADIO_V2] chat_error={exc!r}")
 
 
+def _scheduler() -> asyncio.Lock:
+    global _scheduler_lock
+    if _scheduler_lock is None:
+        _scheduler_lock = asyncio.Lock()
+    return _scheduler_lock
+
+
 async def announce_now(bot, row: dict, song: dict, elapsed: int, duration: int) -> None:
     msg = render_now_playing(
         {
@@ -81,11 +92,13 @@ async def announce_now(bot, row: dict, song: dict, elapsed: int, duration: int) 
 
 
 async def _handle_request_start(bot, row: dict, song: dict, media: dict, elapsed: int, duration: int) -> None:
-    global _current_request_id
+    global _current_request_id, _next_prequeued_request_id
     request_id = int(row.get("id") or 0)
     if not request_id:
         return
     _current_request_id = request_id
+    if _next_prequeued_request_id == request_id:
+        _next_prequeued_request_id = 0
     queue.mark_status(
         request_id,
         "playing",
@@ -98,6 +111,7 @@ async def _handle_request_start(bot, row: dict, song: dict, media: dict, elapsed
         filename=row.get("temp_filename") or "",
         media_id=media.get("id") or "",
     )
+    diag.log("scheduler_current_started", request_id=request_id)
     try:
         azura.remove_queue_items_matching(
             media_id=str(media.get("id") or row.get("azura_file_id") or ""),
@@ -108,20 +122,26 @@ async def _handle_request_start(bot, row: dict, song: dict, media: dict, elapsed
         azura.clear_file_playlists(str(media.get("id") or row.get("azura_file_id") or ""))
     except Exception:
         pass
-    await announce_now(bot, row, song, elapsed, duration)
+    fresh = queue.get_request(request_id)
+    if fresh.get("announced_at") and fresh.get("status") == "playing":
+        diag.log("duplicate_now_playing_suppressed", request_id=request_id)
+    else:
+        await announce_now(bot, fresh or row, song, elapsed, duration)
+        queue.mark_announced(request_id)
+    await schedule_requests(reason="current_started", current_id=request_id)
 
 
-async def _finish_current(bot, request_id: int) -> None:
+async def _finish_current(bot, request_id: int, terminal_status: str = "played") -> None:
     global _current_request_id
     row = queue.get_request(request_id)
     if not row:
         _current_request_id = 0
         return
     if row.get("status") == "playing":
-        queue.mark_status(request_id, "played")
+        queue.mark_status(request_id, terminal_status)
     diag.log("request_done", request_id=request_id, title=row.get("title") or "")
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, cleanup.cleanup_request_media, queue.get_request(request_id), "played")
+    await loop.run_in_executor(None, cleanup.cleanup_request_media, queue.get_request(request_id), terminal_status)
     _current_request_id = 0
 
 
@@ -146,8 +166,89 @@ async def _handle_stale_requests_media(song: dict, media: dict) -> None:
     )
 
 
+async def _submit_row(row: dict, *, prequeue: bool = False) -> bool:
+    request_id = int(row.get("id") or 0)
+    if not request_id:
+        return False
+    loop = asyncio.get_running_loop()
+    ok, requestable_id = await loop.run_in_executor(
+        None,
+        lambda r=row: v2_azura.submit_native_request(
+            int(r.get("id") or 0),
+            media_id=(r.get("azura_file_id") or "").strip(),
+            song_id=(r.get("azura_song_id") or "").strip(),
+            filename=(r.get("temp_filename") or "").strip(),
+            title=(r.get("title") or "").strip(),
+        ),
+    )
+    if not ok:
+        diag.log("request_drain_submit_failed", request_id=request_id)
+        return False
+    queue.mark_status(
+        request_id,
+        "prequeued" if prequeue else "submitted",
+        azura_request_id=requestable_id,
+    )
+    _native_accept_ts[request_id] = time.time()
+    return True
+
+
+async def schedule_requests(reason: str = "drain", current_id: int = 0) -> dict:
+    """Current+next scheduler. Never submits more than one new row per call."""
+    global _next_prequeued_request_id
+    async with _scheduler():
+        active_current = current_id or _current_request_id
+        already_handed = queue.active_submitted_or_prequeued()
+        if active_current and already_handed:
+            diag.log(
+                "scheduler_order_guard",
+                active_current=active_current,
+                active_next=int(already_handed.get("id") or 0),
+            )
+            return {"submitted": 0, "drainable": True, "head_request_id": int(already_handed.get("id") or 0)}
+
+        if active_current:
+            next_active = queue.next_active_after(active_current)
+            if not next_active:
+                return {"submitted": 0, "drainable": False, "head_request_id": active_current}
+            next_id = int(next_active.get("id") or 0)
+            status = (next_active.get("status") or "").strip().lower()
+            if status not in ("uploaded", "ready"):
+                diag.log("scheduler_next_waiting", current_id=active_current, next_id=next_id, status=status)
+                return {"submitted": 0, "drainable": False, "head_request_id": next_id, "head_status": status}
+            ok = await _submit_row(next_active, prequeue=True)
+            if ok:
+                _next_prequeued_request_id = next_id
+                diag.log("scheduler_next_prequeued", current_id=active_current, next_id=next_id)
+            return {"submitted": 1 if ok else 0, "drainable": bool(ok), "head_request_id": next_id}
+
+        handed = queue.active_submitted_or_prequeued()
+        if handed:
+            hid = int(handed.get("id") or 0)
+            diag.log("request_drain_waiting_for_active", submitted_request_id=hid)
+            return {"submitted": 0, "drainable": True, "head_request_id": hid}
+
+        head = queue.oldest_active_request()
+        if not head:
+            return {"submitted": 0, "drainable": False, "head_request_id": 0}
+        head_id = int(head.get("id") or 0)
+        diag.log("scheduler_head_selected", request_id=head_id)
+        status = (head.get("status") or "").strip().lower()
+        if status not in ("uploaded", "ready"):
+            return {"submitted": 0, "drainable": False, "head_request_id": head_id, "head_status": status}
+        ok = await _submit_row(head, prequeue=False)
+        if ok:
+            diag.log("request_drain_submit_ready", count=1, candidates=1)
+        return {"submitted": 1 if ok else 0, "drainable": bool(ok), "head_request_id": head_id}
+
+
 async def drain_ready_requests() -> dict:
-    """Submit only the oldest active V2 request when it is ready."""
+    """Backward-compatible entry: run the ordered current+next scheduler."""
+    return await schedule_requests(reason="drain")
+
+
+async def _legacy_drain_ready_requests() -> dict:
+    """Deprecated multi-submit drain kept only as documentation of old behavior."""
     active_submitted = queue.active_submitted_or_playing()
     if active_submitted:
         submitted_id = int(active_submitted.get("id") or 0)
@@ -218,21 +319,33 @@ async def _maybe_skip_autodj_for_drain() -> None:
     active = queue.active_count_for_drain()
     if active <= 0:
         return
-    diag.log("request_drain_autodj_gap_detected", active_requests=active)
-    drain = await drain_ready_requests()
-    if not drain.get("drainable"):
+    diag.log("autodj_gap_detected", active_requests=active)
+    drain = await schedule_requests(reason="autodj_gap")
+    handed = queue.active_submitted_or_prequeued()
+    if not handed:
+        diag.log("autodj_gap_no_skip", reason="not_confirmed_queued")
+        return
+    request_id = int(handed.get("id") or drain.get("head_request_id") or 0)
+    if not request_id:
+        diag.log("autodj_gap_no_skip", reason="missing_request_id")
+        return
+    attempts = int(_autodj_skip_attempts.get(request_id) or 0)
+    if attempts >= 2:
+        diag.log("autodj_gap_no_skip", request_id=request_id, reason="max_attempts")
+        return
+    accepted_at = float(_native_accept_ts.get(request_id) or 0.0)
+    if accepted_at and time.time() - accepted_at < 2.0:
+        diag.log("autodj_gap_no_skip", request_id=request_id, reason="native_request_grace")
         return
     now = time.time()
     if now - _last_autodj_skip_ts < 10:
-        diag.log("request_drain_autodj_skip", result="cooldown")
+        diag.log("autodj_gap_no_skip", request_id=request_id, reason="cooldown")
         return
     loop = asyncio.get_running_loop()
-    head_id = int(drain.get("head_request_id") or 0)
-    if head_id:
-        diag.log("request_drain_autodj_skip_for_head", request_id=head_id)
     skipped = await loop.run_in_executor(None, azura.skip_current)
+    _autodj_skip_attempts[request_id] = attempts + 1
     _last_autodj_skip_ts = now
-    diag.log("request_drain_autodj_skip", result="success" if skipped else "failed")
+    diag.log("autodj_gap_skip", request_id=request_id, result="success" if skipped else "failed")
 
 
 async def _poll(bot) -> None:
@@ -262,7 +375,13 @@ async def _poll(bot) -> None:
                             previous_id=previous_request,
                             next_id=int(next_head.get("id") or 0),
                         )
-                    await drain_ready_requests()
+                        diag.log(
+                            "scheduler_next_waiting",
+                            current_id=previous_request,
+                            next_id=int(next_head.get("id") or 0),
+                            status=next_head.get("status") or "",
+                        )
+                    await schedule_requests(reason="request_done")
                 if row:
                     await _handle_request_start(bot, row, song, media, elapsed, duration)
                 else:
@@ -304,7 +423,11 @@ async def skip_current_request(bot, user_id: str, staff: bool = False) -> tuple[
     loop = asyncio.get_running_loop()
     ok = await loop.run_in_executor(None, azura.skip_current)
     if ok:
-        await _finish_current(bot, int(row.get("id") or 0))
+        request_id = int(row.get("id") or 0)
+        title = (row.get("title") or "request")[:60]
+        diag.log("request_skipped", request_id=request_id, by=user_id, staff=bool(staff))
+        await _say(bot, f"⏭️ Skipped: {title}")
+        await _finish_current(bot, request_id, terminal_status="skipped")
         return True, "⏭️ Skipped."
     return False, "❌ Skip failed. Try again."
 

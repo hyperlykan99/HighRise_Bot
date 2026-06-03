@@ -12,7 +12,7 @@ _COLS = (
     "temp_filename", "azura_file_id", "azura_song_id", "azura_request_id",
     "status", "payment_type", "song_play_refunded", "priority", "error",
     "created_at", "updated_at", "submitted_at", "started_at", "played_at",
-    "cancelled_at", "cleaned_at",
+    "cancelled_at", "cleaned_at", "announced_at",
 )
 _SEL = ", ".join(_COLS)
 
@@ -48,10 +48,18 @@ def ensure_schema() -> None:
                 started_at TEXT,
                 played_at TEXT,
                 cancelled_at TEXT,
-                cleaned_at TEXT
+                cleaned_at TEXT,
+                announced_at TEXT
             )
             """
         )
+        for sql in (
+            "ALTER TABLE radio_v2_requests ADD COLUMN announced_at TEXT",
+        ):
+            try:
+                conn.execute(sql)
+            except Exception:
+                pass
         conn.execute("CREATE INDEX IF NOT EXISTS idx_radio_v2_status ON radio_v2_requests(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_radio_v2_user ON radio_v2_requests(user_id, status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_radio_v2_media ON radio_v2_requests(azura_file_id, azura_song_id, temp_filename)")
@@ -108,12 +116,16 @@ def mark_status(request_id: int, status: str, **fields: object) -> None:
     extra["status"] = status
     if status == "submitted":
         extra.setdefault("submitted_at", time.strftime("%Y-%m-%d %H:%M:%S"))
+    elif status == "prequeued":
+        extra.setdefault("submitted_at", time.strftime("%Y-%m-%d %H:%M:%S"))
     elif status == "playing":
         extra.setdefault("started_at", time.strftime("%Y-%m-%d %H:%M:%S"))
     elif status == "played":
         extra.setdefault("played_at", time.strftime("%Y-%m-%d %H:%M:%S"))
     elif status == "cancelled":
         extra.setdefault("cancelled_at", time.strftime("%Y-%m-%d %H:%M:%S"))
+    elif status == "skipped":
+        extra.setdefault("played_at", time.strftime("%Y-%m-%d %H:%M:%S"))
     elif status == "cleaned":
         extra.setdefault("cleaned_at", time.strftime("%Y-%m-%d %H:%M:%S"))
     update_request(request_id, **extra)
@@ -144,7 +156,7 @@ def active_count_for_drain() -> int:
 
 def ready_or_submitted_count() -> int:
     ensure_schema()
-    statuses = ("uploaded", "ready", "submitted")
+    statuses = ("uploaded", "ready", "submitted", "prequeued")
     ph = ",".join("?" * len(statuses))
     with db.db_conn() as conn:
         row = conn.execute(
@@ -171,13 +183,55 @@ def oldest_active_request() -> dict:
 def active_submitted_or_playing() -> dict:
     """Return the oldest row already handed to Azura or currently on air."""
     ensure_schema()
-    statuses = ("submitted", "playing")
+    statuses = ("submitted", "prequeued", "playing")
     ph = ",".join("?" * len(statuses))
     with db.db_conn() as conn:
         row = conn.execute(
             f"SELECT {_SEL} FROM radio_v2_requests "
             f"WHERE status IN ({ph}) ORDER BY id ASC LIMIT 1",
             statuses,
+        ).fetchone()
+    return _row(row)
+
+
+def active_submitted_or_prequeued() -> dict:
+    ensure_schema()
+    statuses = ("submitted", "prequeued")
+    ph = ",".join("?" * len(statuses))
+    with db.db_conn() as conn:
+        row = conn.execute(
+            f"SELECT {_SEL} FROM radio_v2_requests "
+            f"WHERE status IN ({ph}) ORDER BY id ASC LIMIT 1",
+            statuses,
+        ).fetchone()
+    return _row(row)
+
+
+def next_submit_ready_after(request_id: int) -> dict:
+    """Oldest uploaded/ready row after current request, for one-request lookahead."""
+    ensure_schema()
+    ph = ",".join("?" * len(models.SUBMITTABLE_STATUSES))
+    with db.db_conn() as conn:
+        row = conn.execute(
+            f"SELECT {_SEL} FROM radio_v2_requests "
+            f"WHERE id>? AND status IN ({ph}) "
+            "AND COALESCE(azura_file_id, '') != '' "
+            "AND COALESCE(temp_filename, '') != '' "
+            "AND COALESCE(azura_request_id, '') = '' "
+            "ORDER BY id ASC LIMIT 1",
+            (int(request_id or 0), *models.SUBMITTABLE_STATUSES),
+        ).fetchone()
+    return _row(row)
+
+
+def next_active_after(request_id: int) -> dict:
+    ensure_schema()
+    ph = ",".join("?" * len(models.ACTIVE_STATUSES))
+    with db.db_conn() as conn:
+        row = conn.execute(
+            f"SELECT {_SEL} FROM radio_v2_requests "
+            f"WHERE id>? AND status IN ({ph}) ORDER BY id ASC LIMIT 1",
+            (int(request_id or 0), *models.ACTIVE_STATUSES),
         ).fetchone()
     return _row(row)
 
@@ -196,6 +250,10 @@ def submit_ready_rows(limit: int = 1) -> list[dict]:
     if (head.get("azura_request_id") or "").strip():
         return []
     return [head]
+
+
+def mark_announced(request_id: int) -> None:
+    update_request(request_id, announced_at=time.strftime("%Y-%m-%d %H:%M:%S"))
 
 
 def future_count() -> int:
