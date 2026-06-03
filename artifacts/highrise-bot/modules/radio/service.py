@@ -209,21 +209,28 @@ async def process_request_job(bot, request_id: int) -> None:
     try:
         radio_db.mark_status(request_id, "preparing")
         filename = sources.safe_youtube_filename(request_id)
-        radio_db.update_request(request_id, temp_filename=filename, azura_path=f"Requests/{filename}")
+        remote_path = azura.build_requests_remote_path(filename)
+        radio_db.update_request(request_id, temp_filename=filename, azura_path=remote_path)
         local_path = await asyncio.to_thread(sources.download_youtube_mp3, job["source_ref"], filename)
         if not await asyncio.to_thread(azura.upload_request_file, str(local_path), filename):
             raise RuntimeError("upload_failed")
-        await asyncio.to_thread(azura.rescan_requests_folder)
+
+        radio_db.update_request(request_id, azura_path=remote_path)
         media = None
-        for _ in range(6):
+        song_id = ""
+        for attempt in range(15):
+            if attempt == 0 or attempt % 5 == 0:
+                await asyncio.to_thread(azura.rescan_requests_folder)
             media = await asyncio.to_thread(azura.find_uploaded_media, filename)
-            if media:
+            song_id = azura.media_unique_id(media)
+            if media and song_id:
                 break
             await asyncio.sleep(2)
-        if not media:
-            raise RuntimeError("azura_media_lookup_failed")
-        file_id = str(media.get("id") or media.get("media_id") or "")
-        song_id = str(media.get("unique_id") or media.get("song_id") or media.get("id") or "")
+        if not media or not song_id:
+            print(f"[RADIO_PHASE4] event=azura_index_timeout request_id={request_id} filename={filename!r}")
+            raise RuntimeError("azura_index_timeout")
+
+        file_id = azura.media_file_id(media)
         if file_id:
             await asyncio.to_thread(azura.attach_requests_playlist, file_id)
         radio_db.mark_status(
@@ -231,12 +238,20 @@ async def process_request_job(bot, request_id: int) -> None:
             "ready",
             azura_file_id=file_id,
             azura_song_id=song_id,
-            azura_path=media.get("path") or f"Requests/{filename}",
+            azura_path=media.get("path") or remote_path,
         )
-        if not await asyncio.to_thread(azura.submit_request, song_id):
-            raise RuntimeError("azura_request_submit_failed")
+        ok, status, body = await asyncio.to_thread(azura.submit_request, song_id)
+        if not ok:
+            print(
+                f"[RADIO_PHASE4] event=azura_submit_failed request_id={request_id} "
+                f"status={status} body={body[:240]!r}"
+            )
+            raise RuntimeError(f"azura_submit_failed status={status} body={body[:200]!r}")
         radio_db.mark_status(request_id, "submitted")
-        print(f"[RADIO_PHASE4] event=request_submitted request_id={request_id} song_id={song_id!r}")
+        print(
+            f"[RADIO_PHASE4] event=request_submitted request_id={request_id} "
+            f"song_id={song_id!r} status={status}"
+        )
     except Exception as exc:
         await _fail_request_before_play(bot, request_id, repr(exc))
     finally:

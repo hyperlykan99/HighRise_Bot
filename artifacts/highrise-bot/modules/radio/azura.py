@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import errno
 import socket
 import urllib.error
 import urllib.parse
@@ -17,9 +18,16 @@ SAFE_PREFIXES = ("radio_yt_", "radio_local_", "radio_req_")
 
 
 def _api_request(path: str, timeout: int = 8, method: str = "GET", payload: dict | None = None) -> dict | list | None:
+    status, data, _body = _api_response(path, timeout=timeout, method=method, payload=payload)
+    if status >= 400:
+        raise urllib.error.HTTPError(path, status, "Azura API error", hdrs=None, fp=None)
+    return data
+
+
+def _api_response(path: str, timeout: int = 8, method: str = "GET", payload: dict | None = None) -> tuple[int, dict | list | None, str]:
     cfg = cs.azura_api_cfg()
     if not cfg:
-        return None
+        return 0, None, "no_api_config"
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     url = f"{cfg['base_url']}{path}"
     req = urllib.request.Request(
@@ -32,9 +40,23 @@ def _api_request(path: str, timeout: int = 8, method: str = "GET", payload: dict
         data=body,
         method=method,
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read().decode("utf-8", "replace")
-    return json.loads(raw) if raw else {}
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+            try:
+                data = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                data = {}
+            return int(resp.status), data, raw[:500]
+    except urllib.error.HTTPError as exc:
+        raw = ""
+        try:
+            raw = exc.read().decode("utf-8", "replace")
+        except Exception:
+            pass
+        return int(exc.code), None, raw[:500]
+    except Exception as exc:
+        return 0, None, repr(exc)[:500]
 
 
 def fetch_nowplaying() -> dict | None:
@@ -96,7 +118,7 @@ def upload_request_file(local_path: str, remote_filename: str) -> bool:
     cfg = cs.sftp_cfg()
     if not cfg.get("host") or not cfg.get("user"):
         return False
-    remote_path = f"{cfg['folder'].rstrip('/')}/{remote_filename}"
+    remote_path = build_requests_remote_path(remote_filename)
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     sftp = None
@@ -131,17 +153,24 @@ def upload_request_file(local_path: str, remote_filename: str) -> bool:
 
 def rescan_requests_folder() -> bool:
     folder = os.path.basename(cs.sftp_cfg().get("folder", "Requests").rstrip("/")) or "Requests"
-    try:
-        _api_request(
-            f"/api/station/{cs.azura_api_cfg()['station_id']}/files/batch",
-            method="POST",
-            payload={"do": "rescan", "currentDirectory": folder},
-            timeout=30,
-        )
-        return True
-    except Exception as exc:
-        print(f"[RADIO_PHASE4] event=rescan_failed error={exc!r}")
+    cfg = cs.azura_api_cfg()
+    if not cfg:
         return False
+    endpoint = f"/api/station/{cfg['station_id']}/files/batch"
+    attempts = (
+        ("POST", endpoint, {"do": "rescan", "current_directory": folder}),
+        ("POST", endpoint, {"do": "rescan", "currentDirectory": folder}),
+    )
+    for method, path, payload in attempts:
+        status, _data, body = _api_response(path, method=method, payload=payload, timeout=30)
+        ok = status in (200, 202, 204)
+        print(
+            f"[RADIO_PHASE4] event=rescan_requests_folder method={method} "
+            f"endpoint={path!r} status={status} ok={ok} body={body[:160]!r}"
+        )
+        if ok:
+            return True
+    return False
 
 
 def find_uploaded_media(remote_filename: str) -> dict | None:
@@ -181,22 +210,16 @@ def attach_requests_playlist(file_id: str) -> bool:
         return False
 
 
-def submit_request(azura_song_id: str) -> bool:
+def submit_request(azura_song_id: str) -> tuple[bool, int, str]:
     cfg = cs.azura_api_cfg()
     if not cfg or not azura_song_id:
-        return False
-    try:
-        _api_request(
-            f"/api/station/{cfg['station_id']}/request/{urllib.parse.quote(str(azura_song_id))}",
-            method="POST",
-            timeout=15,
-        )
-        return True
-    except urllib.error.HTTPError as exc:
-        print(f"[RADIO_PHASE4] event=submit_request_failed status={exc.code} error={exc!r}")
-    except Exception as exc:
-        print(f"[RADIO_PHASE4] event=submit_request_failed error={exc!r}")
-    return False
+        return False, 0, "missing_unique_id"
+    endpoint = f"/api/station/{cfg['station_id']}/request/{urllib.parse.quote(str(azura_song_id))}"
+    status, _data, body = _api_response(endpoint, method="POST", timeout=15)
+    ok = status in (200, 202, 204)
+    if not ok:
+        print(f"[RADIO_PHASE4] event=azura_submit_failed status={status} body={body[:240]!r}")
+    return ok, status, body
 
 
 def clear_file_playlists(azura_file_id: str) -> bool:
@@ -242,6 +265,31 @@ def verify_request_file_gone(remote_filename: str) -> bool:
     return find_uploaded_media(remote_filename) is None
 
 
+def build_requests_remote_path(filename: str) -> str:
+    if not safe_request_filename(filename):
+        raise ValueError(f"unsafe request filename: {filename!r}")
+    return f"{cs.sftp_cfg().get('folder', 'Requests').rstrip('/')}/{filename}"
+
+
+def media_unique_id(media: dict | None) -> str:
+    if not isinstance(media, dict):
+        return ""
+    song = media.get("song") if isinstance(media.get("song"), dict) else {}
+    return str(
+        media.get("unique_id")
+        or media.get("song_id")
+        or song.get("unique_id")
+        or song.get("id")
+        or ""
+    ).strip()
+
+
+def media_file_id(media: dict | None) -> str:
+    if not isinstance(media, dict):
+        return ""
+    return str(media.get("id") or media.get("media_id") or "").strip()
+
+
 def _sftp_delete(remote_filename: str) -> bool:
     try:
         import paramiko
@@ -250,7 +298,7 @@ def _sftp_delete(remote_filename: str) -> bool:
     cfg = cs.sftp_cfg()
     if not cfg.get("host") or not cfg.get("user"):
         return False
-    remote_path = f"{cfg['folder'].rstrip('/')}/{remote_filename}"
+    remote_path = build_requests_remote_path(remote_filename)
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     sftp = None
@@ -268,11 +316,12 @@ def _sftp_delete(remote_filename: str) -> bool:
         try:
             sftp.remove(remote_path)
         except IOError as exc:
-            if "No such file" not in str(exc):
+            if getattr(exc, "errno", None) not in (errno.ENOENT, 2) and "No such file" not in str(exc):
                 raise
+            print(f"[RADIO_PHASE4] event=sftp_delete_already_gone remote_path={remote_path!r}")
         return True
     except Exception as exc:
-        print(f"[RADIO_PHASE4] event=sftp_delete_failed filename={remote_filename!r} error={exc!r}")
+        print(f"[RADIO_PHASE4] event=sftp_delete_failed filename={remote_filename!r} remote_path={remote_path!r} error={exc!r}")
         return False
     finally:
         try:

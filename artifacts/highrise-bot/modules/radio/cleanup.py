@@ -18,6 +18,7 @@ def cleanup_request_media(request_id: int, reason: str = "cleanup") -> bool:
         return False
     filename = job.get("temp_filename") or ""
     file_id = job.get("azura_file_id") or ""
+    remote_path = azura.build_requests_remote_path(filename) if safe_generated_filename(filename) else ""
     if file_id:
         azura.clear_file_playlists(str(file_id))
     removed = azura.delete_request_file(filename if safe_generated_filename(filename) else "", str(file_id or ""))
@@ -26,6 +27,8 @@ def cleanup_request_media(request_id: int, reason: str = "cleanup") -> bool:
     ok = bool(removed or verified)
     if ok:
         radio_db.mark_status(request_id, "cleaned", finish_reason=reason)
-    print(f"[RADIO_PHASE4] event=cleanup_request_media request_id={request_id} reason={reason!r} ok={ok}")
+    print(
+        f"[RADIO_PHASE4] event=cleanup_request_media request_id={request_id} "
+        f"reason={reason!r} remote_path={remote_path!r} ok={ok}"
+    )
     return ok
-
