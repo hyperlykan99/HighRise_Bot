@@ -4222,18 +4222,55 @@ function renderRadioRequests(d) {
         <div class="notice">Normal <code>!play</code>, <code>!pick</code>, and favorites consume 📀 Song Plays. Priority requests still use Luxe Tickets.</div>
       </div>
       <div class="card">
-        <h2>Song Plays Shop</h2>
-        <div class="notice">These prices feed <code>!musicshop</code>, <code>!buyplays</code>, and <code>!buysongplays</code>. Normal requests still consume one Song Play only.</div>
+        <h2>Music Disc Shop</h2>
+        <div class="notice">Phase 2 economy only. These settings feed <code>!musicshop</code>, <code>!buydisc</code>, and future request spending. Playback remains disabled during the rebuild.</div>
         <form id="radioShopForm" class="settings-form" style="margin-top:12px">
-          ${settingInput("music_shop_coin_pack_1", "1 Play · Chill Coins", s.music_shop_coin_pack_1 ?? 500)}
-          ${settingInput("music_shop_coin_pack_5", "5 Plays · Chill Coins", s.music_shop_coin_pack_5 ?? 2400)}
-          ${settingInput("music_shop_coin_pack_10", "10 Plays · Chill Coins", s.music_shop_coin_pack_10 ?? 4500)}
-          ${settingInput("music_shop_coin_pack_25", "25 Plays · Chill Coins", s.music_shop_coin_pack_25 ?? 10000)}
-          ${settingInput("music_shop_luxe_pack_1", "1 Play · Luxe Tickets", s.music_shop_luxe_pack_1 ?? 20)}
-          ${settingInput("music_shop_luxe_pack_5", "5 Plays · Luxe Tickets", s.music_shop_luxe_pack_5 ?? 95)}
-          ${settingInput("music_shop_luxe_pack_10", "10 Plays · Luxe Tickets", s.music_shop_luxe_pack_10 ?? 180)}
-          ${settingInput("music_shop_luxe_pack_25", "25 Plays · Luxe Tickets", s.music_shop_luxe_pack_25 ?? 400)}
-          <button class="btn primary">Save Song Plays Prices</button>
+          <label class="switch"><input type="checkbox" name="music_shop_enabled" ${String(s.music_shop_enabled) !== "false" ? "checked" : ""}/><span>Music Shop Enabled</span></label>
+          <label class="switch"><input type="checkbox" name="music_disc_purchase_coins_enabled" ${String(s.music_disc_purchase_coins_enabled) !== "false" ? "checked" : ""}/><span>Coin Purchases Enabled</span></label>
+          <label class="switch"><input type="checkbox" name="music_disc_purchase_luxe_enabled" ${String(s.music_disc_purchase_luxe_enabled) !== "false" ? "checked" : ""}/><span>Luxe Purchases Enabled</span></label>
+          <div class="field">
+            <label class="field-label">Display Name</label>
+            <input type="text" name="music_disc_display_name" value="${esc(s.music_disc_display_name ?? "Song Request 💽")}" />
+          </div>
+          ${settingInput("music_disc_price_coins", "1 Disc · Chill Coins", s.music_disc_price_coins ?? 500)}
+          ${settingInput("music_disc_price_luxe", "1 Disc · Luxe Tickets", s.music_disc_price_luxe ?? 50)}
+          ${settingInput("music_disc_max_purchase_per_command", "Max Purchase Per Command", s.music_disc_max_purchase_per_command ?? 10)}
+          ${settingInput("music_disc_daily_purchase_limit", "Daily Purchase Limit", s.music_disc_daily_purchase_limit ?? 50)}
+          ${settingInput("request_disc_cost_normal", "Request Cost · Normal", s.request_disc_cost_normal ?? 1)}
+          ${settingInput("request_disc_cost_vip", "Request Cost · VIP", s.request_disc_cost_vip ?? 1)}
+          ${settingInput("request_disc_cost_staff", "Request Cost · Staff", s.request_disc_cost_staff ?? 0)}
+          ${settingInput("request_disc_cost_owner", "Request Cost · Owner", s.request_disc_cost_owner ?? 0)}
+          <button class="btn primary">Save Music Disc Settings</button>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Player Music Discs</h2>
+        <form id="musicDiscLookupForm" class="settings-form">
+          <div class="field">
+            <label class="field-label">Username</label>
+            <input type="text" name="q" placeholder="@username" />
+          </div>
+          <button class="btn">Lookup Balance</button>
+        </form>
+        <div id="musicDiscLookupResult" class="notice" style="margin-top:12px">Search a player to view Music Disc balance and recent adjustments.</div>
+        <form id="musicDiscAdjustForm" class="settings-form" style="margin-top:12px">
+          <div class="field">
+            <label class="field-label">Username</label>
+            <input type="text" name="username" placeholder="@username" />
+          </div>
+          ${settingInput("amount", "Amount", 1)}
+          <div class="field">
+            <label class="field-label">Action</label>
+            <select name="action">
+              <option value="grant">Grant</option>
+              <option value="remove">Remove</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label">Reason</label>
+            <input type="text" name="reason" value="Admin Music Disc Adjustment 💽" />
+          </div>
+          <button class="btn primary">Apply Adjustment</button>
         </form>
       </div>
     </div>
@@ -8596,21 +8633,67 @@ function bindAdminPageEvents() {
   });
   document.getElementById("radioShopForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.currentTarget));
-    await action("Song Plays prices saved.", () =>
+    const form = e.currentTarget;
+    const data = Object.fromEntries(new FormData(form));
+    await action("Music Disc settings saved.", () =>
       api("/api/radio/settings", {
         method: "PUT",
         body: JSON.stringify({
-          music_shop_coin_pack_1: data.music_shop_coin_pack_1,
-          music_shop_coin_pack_5: data.music_shop_coin_pack_5,
-          music_shop_coin_pack_10: data.music_shop_coin_pack_10,
-          music_shop_coin_pack_25: data.music_shop_coin_pack_25,
-          music_shop_luxe_pack_1: data.music_shop_luxe_pack_1,
-          music_shop_luxe_pack_5: data.music_shop_luxe_pack_5,
-          music_shop_luxe_pack_10: data.music_shop_luxe_pack_10,
-          music_shop_luxe_pack_25: data.music_shop_luxe_pack_25,
+          music_shop_enabled: form.elements.music_shop_enabled?.checked,
+          music_disc_purchase_coins_enabled: form.elements.music_disc_purchase_coins_enabled?.checked,
+          music_disc_purchase_luxe_enabled: form.elements.music_disc_purchase_luxe_enabled?.checked,
+          music_disc_display_name: data.music_disc_display_name,
+          music_disc_price_coins: data.music_disc_price_coins,
+          music_disc_price_luxe: data.music_disc_price_luxe,
+          music_disc_max_purchase_per_command: data.music_disc_max_purchase_per_command,
+          music_disc_daily_purchase_limit: data.music_disc_daily_purchase_limit,
+          request_disc_cost_normal: data.request_disc_cost_normal,
+          request_disc_cost_vip: data.request_disc_cost_vip,
+          request_disc_cost_staff: data.request_disc_cost_staff,
+          request_disc_cost_owner: data.request_disc_cost_owner,
         }),
       }));
+  });
+  const renderMusicDiscPlayer = (player) => {
+    const rows = Array.isArray(player?.history) && player.history.length
+      ? `<table><thead><tr><th>When</th><th>Action</th><th>Amount</th><th>Reason</th><th>Actor</th></tr></thead><tbody>${player.history.map((h) => `
+          <tr>
+            <td>${esc(h.created_at || "")}</td>
+            <td>${esc(h.action || "")}</td>
+            <td>${esc(h.amount ?? 0)}</td>
+            <td>${esc(h.reason || "")}</td>
+            <td>${esc(h.actor || "")}</td>
+          </tr>`).join("")}</tbody></table>`
+      : `<div class="muted">No Music Disc transactions yet.</div>`;
+    return `<div class="status-grid">
+      <div><span class="muted">Player</span><strong>@${esc(player?.username || "Unknown Player")}</strong></div>
+      <div><span class="muted">Music Discs</span><strong>${esc(player?.balance ?? 0)} 💽</strong></div>
+    </div>${rows}`;
+  };
+  document.getElementById("musicDiscLookupForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const q = new FormData(form).get("q");
+    const target = document.getElementById("musicDiscLookupResult");
+    try {
+      const data = await api(`/api/radio/music-discs/lookup?q=${encodeURIComponent(q || "")}`);
+      if (target) target.innerHTML = renderMusicDiscPlayer(data.player);
+    } catch (err) {
+      if (target) target.textContent = err?.message || "Player not found.";
+    }
+  });
+  document.getElementById("musicDiscAdjustForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const data = Object.fromEntries(new FormData(form));
+    await action("Music Disc balance updated.", async () => {
+      const result = await api("/api/radio/music-discs/adjust", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      const target = document.getElementById("musicDiscLookupResult");
+      if (target) target.innerHTML = renderMusicDiscPlayer(result.player);
+    });
   });
   document.getElementById("radioBlockRequesterForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();

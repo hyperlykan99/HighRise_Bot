@@ -1192,6 +1192,114 @@ function setRoomSetting(db, key, value) {
   db.prepare("INSERT OR REPLACE INTO room_settings (key, value) VALUES (?, ?)").run(key, value);
 }
 
+const RADIO_SETTING_DEFAULTS = {
+  music_shop_enabled: ["true", "bool"],
+  music_disc_display_name: ["Song Request 💽", "str"],
+  music_disc_price_coins: ["500", "int"],
+  music_disc_price_luxe: ["50", "int"],
+  music_disc_purchase_coins_enabled: ["true", "bool"],
+  music_disc_purchase_luxe_enabled: ["true", "bool"],
+  music_disc_max_purchase_per_command: ["10", "int"],
+  music_disc_daily_purchase_limit: ["50", "int"],
+  request_disc_cost_normal: ["1", "int"],
+  request_disc_cost_vip: ["1", "int"],
+  request_disc_cost_staff: ["0", "int"],
+  request_disc_cost_owner: ["0", "int"],
+};
+
+function ensureRadioSettings(db) {
+  db.prepare(`CREATE TABLE IF NOT EXISTS radio_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    value_type TEXT,
+    updated_by TEXT,
+    updated_at TEXT
+  )`).run();
+  const stmt = db.prepare(`INSERT OR IGNORE INTO radio_settings
+    (key, value, value_type, updated_by, updated_at)
+    VALUES (?, ?, ?, 'system', datetime('now'))`);
+  for (const [key, [value, type]] of Object.entries(RADIO_SETTING_DEFAULTS)) {
+    stmt.run(key, value, type);
+  }
+}
+
+function getRadioSetting(db, key, fallback = "") {
+  try {
+    ensureRadioSettings(db);
+    const row = db.prepare("SELECT value FROM radio_settings WHERE key=? LIMIT 1").get(key);
+    return row?.value ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function setRadioSetting(db, key, value, valueType = "str", updatedBy = "dashboard") {
+  ensureRadioSettings(db);
+  db.prepare(`INSERT INTO radio_settings (key, value, value_type, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET
+      value=excluded.value,
+      value_type=excluded.value_type,
+      updated_by=excluded.updated_by,
+      updated_at=datetime('now')`).run(key, String(value), valueType, updatedBy || "dashboard");
+}
+
+function ensureMusicDiscSchema(db) {
+  db.prepare(`CREATE TABLE IF NOT EXISTS music_disc_balances (
+    user_id TEXT PRIMARY KEY,
+    username TEXT,
+    disc_balance INTEGER DEFAULT 0,
+    created_at TEXT,
+    updated_at TEXT
+  )`).run();
+  db.prepare(`CREATE TABLE IF NOT EXISTS music_disc_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    username TEXT,
+    amount INTEGER,
+    action TEXT,
+    reason TEXT,
+    balance_after INTEGER,
+    actor TEXT,
+    created_at TEXT
+  )`).run();
+}
+
+function resolveDashboardUser(db, query) {
+  const q = String(query || "").trim().replace(/^@/, "");
+  if (!q) return null;
+  try {
+    return db.prepare(
+      "SELECT user_id, username, balance FROM users WHERE lower(username)=lower(?) OR user_id=? LIMIT 1",
+    ).get(q, q) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function readMusicDiscIdentity(db, query) {
+  ensureMusicDiscSchema(db);
+  const user = resolveDashboardUser(db, query);
+  if (!user) return null;
+  db.prepare(`INSERT OR IGNORE INTO music_disc_balances
+    (user_id, username, disc_balance, created_at, updated_at)
+    VALUES (?, ?, 0, datetime('now'), datetime('now'))`).run(user.user_id, user.username);
+  db.prepare(`UPDATE music_disc_balances
+    SET username=?, updated_at=datetime('now')
+    WHERE user_id=? AND COALESCE(username, '') != ?`).run(user.username, user.user_id, user.username);
+  const balance = db.prepare(
+    "SELECT disc_balance FROM music_disc_balances WHERE user_id=? LIMIT 1",
+  ).get(user.user_id)?.disc_balance ?? 0;
+  const history = db.prepare(
+    `SELECT id, username, amount, action, reason, balance_after, actor, created_at
+     FROM music_disc_transactions
+     WHERE user_id=?
+     ORDER BY id DESC
+     LIMIT 10`,
+  ).all(user.user_id);
+  return { username: user.username, balance: Number(balance || 0), history };
+}
+
 function boolFromSetting(value, fallback = false) {
   if (value === undefined || value === null || value === "") return fallback;
   return ["1", "true", "yes", "on", "enabled"].includes(String(value).trim().toLowerCase());
@@ -1351,14 +1459,18 @@ function readLocalRadioStatus(db) {
     skip_on_leave: getSetting(db, "radio_skip_on_leave", "true"),
     refund_on_leave: getSetting(db, "radio_refund_on_leave", "true"),
     admin_ignore_leave: getSetting(db, "radio_admin_ignore_leave", "true"),
-    music_shop_coin_pack_1: getSetting(db, "music_shop_coin_pack_1", "500"),
-    music_shop_coin_pack_5: getSetting(db, "music_shop_coin_pack_5", "2400"),
-    music_shop_coin_pack_10: getSetting(db, "music_shop_coin_pack_10", "4500"),
-    music_shop_coin_pack_25: getSetting(db, "music_shop_coin_pack_25", "10000"),
-    music_shop_luxe_pack_1: getSetting(db, "music_shop_luxe_pack_1", "20"),
-    music_shop_luxe_pack_5: getSetting(db, "music_shop_luxe_pack_5", "95"),
-    music_shop_luxe_pack_10: getSetting(db, "music_shop_luxe_pack_10", "180"),
-    music_shop_luxe_pack_25: getSetting(db, "music_shop_luxe_pack_25", "400"),
+    music_shop_enabled: getRadioSetting(db, "music_shop_enabled", "true"),
+    music_disc_display_name: getRadioSetting(db, "music_disc_display_name", "Song Request 💽"),
+    music_disc_price_coins: getRadioSetting(db, "music_disc_price_coins", "500"),
+    music_disc_price_luxe: getRadioSetting(db, "music_disc_price_luxe", "50"),
+    music_disc_purchase_coins_enabled: getRadioSetting(db, "music_disc_purchase_coins_enabled", "true"),
+    music_disc_purchase_luxe_enabled: getRadioSetting(db, "music_disc_purchase_luxe_enabled", "true"),
+    music_disc_max_purchase_per_command: getRadioSetting(db, "music_disc_max_purchase_per_command", "10"),
+    music_disc_daily_purchase_limit: getRadioSetting(db, "music_disc_daily_purchase_limit", "50"),
+    request_disc_cost_normal: getRadioSetting(db, "request_disc_cost_normal", "1"),
+    request_disc_cost_vip: getRadioSetting(db, "request_disc_cost_vip", "1"),
+    request_disc_cost_staff: getRadioSetting(db, "request_disc_cost_staff", "0"),
+    request_disc_cost_owner: getRadioSetting(db, "request_disc_cost_owner", "0"),
   };
   const blocklist = {
     requesters: safeTableRows(db, "request_blocked_requesters", { orderBy: columnExists(db, "request_blocked_requesters", "added_at") ? "added_at DESC" : "", limit: "200" }),
@@ -6349,14 +6461,16 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     per_user_queue_limit: { key: "radio_per_user_queue_limit", min: 0, max: 20 },
     request_cooldown: { key: "radio_request_cooldown", min: 30, max: 86400 },
     voteskip_threshold: { key: "radio_voteskip_threshold", min: 2, max: 25 },
-    music_shop_coin_pack_1: { key: "music_shop_coin_pack_1", min: 0, max: 1000000 },
-    music_shop_coin_pack_5: { key: "music_shop_coin_pack_5", min: 0, max: 1000000 },
-    music_shop_coin_pack_10: { key: "music_shop_coin_pack_10", min: 0, max: 1000000 },
-    music_shop_coin_pack_25: { key: "music_shop_coin_pack_25", min: 0, max: 1000000 },
-    music_shop_luxe_pack_1: { key: "music_shop_luxe_pack_1", min: 0, max: 1000000 },
-    music_shop_luxe_pack_5: { key: "music_shop_luxe_pack_5", min: 0, max: 1000000 },
-    music_shop_luxe_pack_10: { key: "music_shop_luxe_pack_10", min: 0, max: 1000000 },
-    music_shop_luxe_pack_25: { key: "music_shop_luxe_pack_25", min: 0, max: 1000000 },
+  };
+  const radioSchema = {
+    music_disc_price_coins: { min: 0, max: 1000000 },
+    music_disc_price_luxe: { min: 0, max: 1000000 },
+    music_disc_max_purchase_per_command: { min: 1, max: 1000 },
+    music_disc_daily_purchase_limit: { min: 0, max: 10000 },
+    request_disc_cost_normal: { min: 0, max: 1000 },
+    request_disc_cost_vip: { min: 0, max: 1000 },
+    request_disc_cost_staff: { min: 0, max: 1000 },
+    request_disc_cost_owner: { min: 0, max: 1000 },
   };
   const updates = {};
   for (const [field, cfg] of Object.entries(schema)) {
@@ -6367,6 +6481,19 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     setRoomSetting(req.db, cfg.key, String(clamped));
     updates[cfg.key] = String(clamped);
   }
+  for (const [field, cfg] of Object.entries(radioSchema)) {
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, field)) continue;
+    const value = Number(req.body[field]);
+    if (!Number.isFinite(value)) return json(res, { error: "invalid_number", field }, 400);
+    const clamped = Math.min(cfg.max, Math.max(cfg.min, Math.trunc(value)));
+    setRadioSetting(req.db, field, String(clamped), "int", req.user.username);
+    updates[field] = String(clamped);
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "music_disc_display_name")) {
+    const value = String(req.body.music_disc_display_name || "Song Request 💽").trim().slice(0, 80) || "Song Request 💽";
+    setRadioSetting(req.db, "music_disc_display_name", value, "str", req.user.username);
+    updates.music_disc_display_name = value;
+  }
   for (const field of ["skip_on_leave", "refund_on_leave", "admin_ignore_leave"]) {
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, field)) continue;
     const key = `radio_${field}`;
@@ -6374,8 +6501,53 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     setRoomSetting(req.db, key, value);
     updates[key] = value;
   }
+  for (const field of ["music_shop_enabled", "music_disc_purchase_coins_enabled", "music_disc_purchase_luxe_enabled"]) {
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, field)) continue;
+    const value = req.body[field] ? "true" : "false";
+    setRadioSetting(req.db, field, value, "bool", req.user.username);
+    updates[field] = value;
+  }
   audit(req.db, req.user.username, "radio_settings_update", "room_settings", "radio", "", updates, req.ip);
   json(res, { ok: true, updates, radio: readLocalRadioStatus(req.db) });
+}, closeDb);
+
+app.get("/api/radio/music-discs/lookup", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const result = readMusicDiscIdentity(req.db, req.query.q);
+  if (!result) return json(res, { ok: false, error: "Player not found." }, 404);
+  json(res, { ok: true, player: result });
+}, closeDb);
+
+app.post("/api/radio/music-discs/adjust", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  ensureMusicDiscSchema(req.db);
+  const user = resolveDashboardUser(req.db, req.body?.username || req.body?.user_id || req.body?.q);
+  if (!user) return json(res, { ok: false, error: "Player not found." }, 404);
+  const rawAmount = Number(req.body?.amount);
+  if (!Number.isFinite(rawAmount) || rawAmount <= 0) return json(res, { ok: false, error: "Amount must be positive." }, 400);
+  const amount = Math.min(100000, Math.trunc(rawAmount));
+  const mode = String(req.body?.action || "grant").toLowerCase() === "remove" ? "remove" : "grant";
+  const reason = String(req.body?.reason || "Admin Music Disc Adjustment 💽").trim().slice(0, 200) || "Admin Music Disc Adjustment 💽";
+  db.prepare(`INSERT OR IGNORE INTO music_disc_balances
+    (user_id, username, disc_balance, created_at, updated_at)
+    VALUES (?, ?, 0, datetime('now'), datetime('now'))`).run(user.user_id, user.username);
+  const current = Number(db.prepare("SELECT disc_balance FROM music_disc_balances WHERE user_id=?").get(user.user_id)?.disc_balance || 0);
+  const delta = mode === "remove" ? -Math.min(current, amount) : amount;
+  const balanceAfter = Math.max(0, current + delta);
+  db.prepare(`UPDATE music_disc_balances
+    SET username=?, disc_balance=?, updated_at=datetime('now')
+    WHERE user_id=?`).run(user.username, balanceAfter, user.user_id);
+  db.prepare(`INSERT INTO music_disc_transactions
+    (user_id, username, amount, action, reason, balance_after, actor, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`).run(
+      user.user_id,
+      user.username,
+      delta,
+      mode === "remove" ? "admin_remove" : "admin_grant",
+      reason,
+      balanceAfter,
+      req.user.username,
+    );
+  audit(req.db, req.user.username, "music_disc_adjust", "music_disc_balances", user.username, current, balanceAfter, req.ip);
+  json(res, { ok: true, player: readMusicDiscIdentity(req.db, user.username) });
 }, closeDb);
 
 app.post("/api/radio/blocklist/requester", requireAuth, requirePermission("manage_radio"), (req, res) => {

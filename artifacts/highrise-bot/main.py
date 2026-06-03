@@ -436,6 +436,7 @@ from modules.staff_alerts import (
     handle_playermodnotice,
     handle_reportalertdebug,
 )
+from modules.radio.music_shop import dispatch_music_disc_command
 async def _music_rebuild_notice(bot, user, *_args, **_kwargs) -> None:
     try:
         await bot.highrise.send_whisper(user.id, "🎵 Music system is being rebuilt.")
@@ -1745,7 +1746,6 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "fav", "favnow", "addtoplaylist",
     "favs",
     "radiotutorial",
-    "musicshop",
     "buyrequests",
     "buyplays",
     # Voting / ratings
@@ -1798,7 +1798,16 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "djresetstate", "djbackup",
     "djtestall",
 })
-ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS
+MUSIC_DISC_COMMANDS: frozenset[str] = frozenset({
+    "musicshop",
+    "buydisc",
+    "discs",
+    "discprice",
+    "setdiscprice",
+    "requestdiscprice",
+    "setrequestdisc",
+})
+ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS | MUSIC_DISC_COMMANDS
 
 DASHBOARD_CASINO_BLOCK_COMMANDS: frozenset[str] = frozenset(
     BJ_COMMANDS
@@ -4094,6 +4103,12 @@ class HangoutBot(BaseBot):
                 log_emote_command_received(message, user, "main.direct_emote_alias")
             reload_emote_registry()
             await start_player_emote(self, user, cmd)
+            return
+
+        if cmd in MUSIC_DISC_COMMANDS:
+            if BOT_MODE != "dj":
+                return
+            await dispatch_music_disc_command(self, user, cmd, args)
             return
 
         if cmd in DJ_COMMANDS:

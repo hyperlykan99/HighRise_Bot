@@ -377,6 +377,12 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "radiohelp": "dj",
     "radiotutorial": "dj",
     "musicshop": "dj",
+    "buydisc": "dj",
+    "discs": "dj",
+    "discprice": "dj",
+    "setdiscprice": "dj",
+    "requestdiscprice": "dj",
+    "setrequestdisc": "dj",
     "songplayshop": "dj",
     "buyrequests": "dj",
     "buyplays": "dj",
@@ -801,6 +807,9 @@ _DEFAULT_COMMAND_OWNERS: dict[str, str] = {
     "playfavlocal": "dj", "localreplaytest": "dj",
     "localreplaystatus": "dj", "localreplaycleanup": "dj",
     "localmediascan": "dj", "localmediastatus": "dj", "localmediafind": "dj",
+    "musicshop": "dj", "buydisc": "dj", "discs": "dj",
+    "discprice": "dj", "setdiscprice": "dj",
+    "requestdiscprice": "dj", "setrequestdisc": "dj",
     "removefavorite": "dj",
     "history": "dj", "radiohistory": "dj",
     "like": "dj", "dislike": "dj", "songrating": "dj", "ratings": "dj",
@@ -1118,6 +1127,8 @@ _DJ_MUST_OWN: frozenset[str] = frozenset({
     "heart", "hearts",
     "social", "blocksocial", "unblocksocial",
     "radiolock", "radioclear", "radioremove",
+    "musicshop", "buydisc", "discs", "discprice",
+    "setdiscprice", "requestdiscprice", "setrequestdisc",
 })
 
 
