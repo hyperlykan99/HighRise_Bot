@@ -147,8 +147,37 @@ async def _handle_stale_requests_media(song: dict, media: dict) -> None:
 
 
 async def drain_ready_requests() -> dict:
-    """Submit every uploaded V2 request that is not already native-queued."""
-    rows = queue.submit_ready_rows()
+    """Submit only the oldest active V2 request when it is ready."""
+    active_submitted = queue.active_submitted_or_playing()
+    if active_submitted:
+        submitted_id = int(active_submitted.get("id") or 0)
+        diag.log("request_drain_waiting_for_active", submitted_request_id=submitted_id)
+        return {
+            "submitted": 0,
+            "candidates": 0,
+            "ready_or_submitted": queue.ready_or_submitted_count(),
+            "active": queue.active_count_for_drain(),
+            "head_request_id": submitted_id,
+            "drainable": True,
+        }
+
+    head = queue.oldest_active_request()
+    if head:
+        head_id = int(head.get("id") or 0)
+        diag.log("request_drain_head_selected", request_id=head_id)
+        status = (head.get("status") or "").strip().lower()
+        if status not in ("uploaded", "ready"):
+            return {
+                "submitted": 0,
+                "candidates": 0,
+                "ready_or_submitted": queue.ready_or_submitted_count(),
+                "active": queue.active_count_for_drain(),
+                "head_request_id": head_id,
+                "head_status": status,
+                "drainable": False,
+            }
+
+    rows = queue.submit_ready_rows(limit=1)
     submitted = 0
     for row in rows:
         request_id = int(row.get("id") or 0)
@@ -177,6 +206,8 @@ async def drain_ready_requests() -> dict:
         "candidates": len(rows),
         "ready_or_submitted": queue.ready_or_submitted_count(),
         "active": queue.active_count_for_drain(),
+        "head_request_id": int((head or {}).get("id") or 0),
+        "drainable": bool(submitted or rows),
     }
 
 
@@ -189,13 +220,16 @@ async def _maybe_skip_autodj_for_drain() -> None:
         return
     diag.log("request_drain_autodj_gap_detected", active_requests=active)
     drain = await drain_ready_requests()
-    if int(drain.get("ready_or_submitted") or 0) <= 0:
+    if not drain.get("drainable"):
         return
     now = time.time()
     if now - _last_autodj_skip_ts < 10:
         diag.log("request_drain_autodj_skip", result="cooldown")
         return
     loop = asyncio.get_running_loop()
+    head_id = int(drain.get("head_request_id") or 0)
+    if head_id:
+        diag.log("request_drain_autodj_skip_for_head", request_id=head_id)
     skipped = await loop.run_in_executor(None, azura.skip_current)
     _last_autodj_skip_ts = now
     diag.log("request_drain_autodj_skip", result="success" if skipped else "failed")
@@ -221,6 +255,13 @@ async def _poll(bot) -> None:
                     await _finish_current(bot, previous_request)
                     remaining = queue.active_count_for_drain()
                     diag.log("request_done_drain_check", request_id=previous_request, remaining_active=remaining)
+                    next_head = queue.oldest_active_request()
+                    if next_head:
+                        diag.log(
+                            "request_drain_next_after_done",
+                            previous_id=previous_request,
+                            next_id=int(next_head.get("id") or 0),
+                        )
                     await drain_ready_requests()
                 if row:
                     await _handle_request_start(bot, row, song, media, elapsed, duration)

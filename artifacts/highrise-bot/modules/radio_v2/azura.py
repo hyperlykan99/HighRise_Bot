@@ -128,7 +128,13 @@ def submit_native_request(request_id: int, *, media_id: str, song_id: str, filen
     return False, ""
 
 
-def finalize_uploaded_request(request_id: int, filename: str, title: str) -> dict:
+def finalize_uploaded_request(
+    request_id: int,
+    filename: str,
+    title: str,
+    *,
+    submit_native: bool = False,
+) -> dict:
     azura.rescan_requests_folder()
     found = lookup_uploaded_media(filename, title)
     if not found.get("media_id"):
@@ -136,6 +142,14 @@ def finalize_uploaded_request(request_id: int, filename: str, title: str) -> dic
     media_id = found["media_id"]
     song_id = found.get("song_id", "")
     assign_to_requests_playlist(media_id)
+    if not submit_native:
+        diag.log("media_uploaded_ready", request_id=request_id, media_id=media_id, song_id=song_id)
+        return {
+            "ok": True,
+            "media_id": media_id,
+            "song_id": song_id,
+            "requestable_id": "",
+        }
     ok, requestable_id = submit_native_request(
         request_id,
         media_id=media_id,

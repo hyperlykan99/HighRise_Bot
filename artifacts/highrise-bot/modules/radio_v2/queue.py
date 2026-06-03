@@ -154,21 +154,48 @@ def ready_or_submitted_count() -> int:
     return int(row[0] if row else 0)
 
 
-def submit_ready_rows(limit: int = 10) -> list[dict]:
-    """Uploaded/indexed rows not yet handed to Azura native request API."""
+def oldest_active_request() -> dict:
+    """Oldest active V2 request. This defines visible !q/drain order."""
     ensure_schema()
-    ph = ",".join("?" * len(models.SUBMITTABLE_STATUSES))
+    ph = ",".join("?" * len(models.ACTIVE_STATUSES))
     with db.db_conn() as conn:
-        rows = conn.execute(
+        row = conn.execute(
             f"SELECT {_SEL} FROM radio_v2_requests "
             f"WHERE status IN ({ph}) "
-            "AND COALESCE(azura_file_id, '') != '' "
-            "AND COALESCE(temp_filename, '') != '' "
-            "AND COALESCE(azura_request_id, '') = '' "
-            "ORDER BY id ASC LIMIT ?",
-            (*models.SUBMITTABLE_STATUSES, int(limit)),
-        ).fetchall()
-    return [_row(r) for r in rows]
+            "ORDER BY id ASC LIMIT 1",
+            models.ACTIVE_STATUSES,
+        ).fetchone()
+    return _row(row)
+
+
+def active_submitted_or_playing() -> dict:
+    """Return the oldest row already handed to Azura or currently on air."""
+    ensure_schema()
+    statuses = ("submitted", "playing")
+    ph = ",".join("?" * len(statuses))
+    with db.db_conn() as conn:
+        row = conn.execute(
+            f"SELECT {_SEL} FROM radio_v2_requests "
+            f"WHERE status IN ({ph}) ORDER BY id ASC LIMIT 1",
+            statuses,
+        ).fetchone()
+    return _row(row)
+
+
+def submit_ready_rows(limit: int = 1) -> list[dict]:
+    """Compatibility helper: return at most the oldest submit-ready head row."""
+    head = oldest_active_request()
+    if not head:
+        return []
+    if (head.get("status") or "").strip().lower() not in models.SUBMITTABLE_STATUSES:
+        return []
+    if not (head.get("azura_file_id") or "").strip():
+        return []
+    if not (head.get("temp_filename") or "").strip():
+        return []
+    if (head.get("azura_request_id") or "").strip():
+        return []
+    return [head]
 
 
 def future_count() -> int:

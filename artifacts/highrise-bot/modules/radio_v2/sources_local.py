@@ -116,12 +116,13 @@ async def prepare_and_submit(bot, request_id: int, fav: dict) -> None:
             raise RuntimeError(result.get("error") or "native_request_submit_failed")
         queue.mark_status(
             request_id,
-            "submitted",
+            "uploaded",
             azura_file_id=result.get("media_id", ""),
             azura_song_id=result.get("song_id", ""),
-            azura_request_id=result.get("requestable_id", ""),
             temp_filename=safe_name,
         )
+        from modules.radio_v2 import playback
+        await playback.drain_ready_requests()
     except Exception as exc:
         diag.log("request_failed", request_id=request_id, source_type="local_favorite", error=repr(exc))
         row = queue.get_request(request_id)
@@ -143,4 +144,3 @@ async def prepare_and_submit(bot, request_id: int, fav: dict) -> None:
                 os.unlink(staged)
         except Exception:
             pass
-
