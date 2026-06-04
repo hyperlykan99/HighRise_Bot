@@ -50,6 +50,20 @@ def _renderer_settings() -> dict:
     }
 
 
+def _safe_generated_title(title: str) -> bool:
+    return str(title or "").strip().startswith(azura.SAFE_PREFIXES)
+
+
+def _display_track_for_request(track: dict, request: dict | None) -> dict:
+    if not request or not _safe_generated_title(str(track.get("title") or "")):
+        return track
+    display = dict(track)
+    display["title"] = request.get("title") or track.get("title") or "Unknown Track"
+    display["artist"] = request.get("artist") or track.get("artist") or "Unknown Artist"
+    display["track_key"] = azura.track_key(display)
+    return display
+
+
 def user_role(username: str) -> str:
     if permissions.is_owner(username):
         return "owner"
@@ -88,18 +102,24 @@ def now_playing_card() -> tuple[str | None, dict | None, str]:
     request = radio_db.match_request_for_track(track)
     source = "autodj"
     requester = None
+    display_track = track
     if request:
         source = "request"
         requester = request.get("username") or None
+        display_track = _display_track_for_request(track, request)
         if request.get("status") != "playing":
             radio_db.mark_status(request["id"], "playing")
-            radio_db.increment_request_play_count(track.get("track_key", ""), track.get("title", ""), track.get("artist", ""))
+            radio_db.increment_request_play_count(
+                display_track.get("track_key", ""),
+                display_track.get("title", ""),
+                display_track.get("artist", ""),
+            )
             print(f"[RADIO_PHASE4] event=request_detected_playing request_id={request['id']} filename={request.get('temp_filename')!r}")
         radio_db.set_runtime_state("current_request_id", request["id"])
-    stats = radio_db.read_track_stats(track.get("track_key", ""), track.get("title", ""), track.get("artist", ""))
+    stats = radio_db.read_track_stats(display_track.get("track_key", ""), display_track.get("title", ""), display_track.get("artist", ""))
     radio_db.mark_last_poll(True)
-    radio_db.set_runtime_state("current_track", track)
-    return renderer.render_now_playing_card(track, source, requester=requester, stats=stats, settings=_renderer_settings()), track, ""
+    radio_db.set_runtime_state("current_track", display_track)
+    return renderer.render_now_playing_card(display_track, source, requester=requester, stats=stats, settings=_renderer_settings()), display_track, ""
 
 
 def _finalize_previous_request_if_changed(track: dict) -> None:
@@ -116,12 +136,20 @@ def _finalize_previous_request_if_changed(track: dict) -> None:
         radio_db.set_runtime_state("current_request_id", "")
         return
     filename = str(job.get("temp_filename") or "")
+    stem = os.path.splitext(filename)[0] if filename else ""
+    title = str(track.get("title") or "")
     same = False
     if job.get("azura_file_id") and str(job.get("azura_file_id")) == str(track.get("media_id") or ""):
         same = True
     if job.get("azura_song_id") and str(job.get("azura_song_id")) in {str(track.get("unique_id") or ""), str(track.get("song_id") or "")}:
         same = True
     if filename and filename in {str(track.get("filename") or ""), str(track.get("path") or "").rsplit("/", 1)[-1]}:
+        same = True
+    if title.startswith(azura.SAFE_PREFIXES) and filename and title in {filename, stem}:
+        same = True
+    if title.startswith(azura.SAFE_PREFIXES) and stem and title.startswith(stem):
+        same = True
+    if title.startswith(azura.SAFE_PREFIXES) and title.startswith(tuple(f"{prefix}{request_id}_" for prefix in azura.SAFE_PREFIXES)):
         same = True
     if same:
         return

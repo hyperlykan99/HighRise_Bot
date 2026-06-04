@@ -11,6 +11,9 @@ from modules.radio import models
 from modules.radio import settings as radio_settings
 
 
+SAFE_REQUEST_TITLE_PREFIXES = ("radio_yt_", "radio_local_", "radio_req_")
+
+
 def ensure_schema() -> None:
     radio_settings.ensure_radio_settings()
     with database.db_conn() as conn:
@@ -267,7 +270,10 @@ def _match_method_for_track(row: dict, track: dict) -> str:
     candidate_file_id = str(row.get("azura_file_id") or "").strip()
     candidate_song_id = str(row.get("azura_song_id") or "").strip()
     candidate_filename = str(row.get("temp_filename") or "").strip()
+    candidate_stem = os.path.splitext(candidate_filename)[0] if candidate_filename else ""
     candidate_path = str(row.get("azura_path") or "").strip()
+    candidate_id = str(row.get("id") or "").strip()
+    np_title = str(track.get("title") or "").strip()
     if np_media_id and candidate_file_id and np_media_id == candidate_file_id:
         return "media_id"
     if np_unique_id and candidate_song_id and np_unique_id == candidate_song_id:
@@ -280,6 +286,16 @@ def _match_method_for_track(row: dict, track: dict) -> str:
         return "media_path_exact"
     if np_path and candidate_filename and np_path.endswith(candidate_filename):
         return "media_path_endswith"
+    if np_title.startswith(SAFE_REQUEST_TITLE_PREFIXES):
+        if candidate_filename and np_title == candidate_filename:
+            return "nowplaying_title_temp_filename"
+        if candidate_stem and np_title == candidate_stem:
+            return "nowplaying_title_temp_stem"
+        if candidate_stem and np_title.startswith(candidate_stem):
+            return "nowplaying_title_temp_stem"
+        for prefix in SAFE_REQUEST_TITLE_PREFIXES:
+            if candidate_id and np_title.startswith(f"{prefix}{candidate_id}_"):
+                return "nowplaying_title_request_id_prefix"
     return ""
 
 

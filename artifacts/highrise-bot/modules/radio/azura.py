@@ -563,6 +563,9 @@ def extract_nowplaying_track(np_data: dict | None) -> dict | None:
         "raw": song,
     }
     track["filename"] = str(track["path"] or "").rsplit("/", 1)[-1]
+    title_stem = os.path.splitext(str(track["title"] or "").strip())[0]
+    track["title_stem"] = title_stem
+    track["safe_request_title_match_candidate"] = str(track["title"] or "").strip().startswith(SAFE_PREFIXES)
     track["track_key"] = track_key(track)
     return track
 
