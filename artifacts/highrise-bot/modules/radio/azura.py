@@ -539,6 +539,8 @@ def extract_nowplaying_track(np_data: dict | None) -> dict | None:
         media = now_playing.get("media") or now_playing.get("song_media") or {}
         if not isinstance(media, dict):
             media = {}
+    if not media and isinstance(song.get("media"), dict):
+        media = song.get("media") or {}
     station = np_data.get("station") if isinstance(np_data.get("station"), dict) else {}
     elapsed = now_playing.get("elapsed") if isinstance(now_playing, dict) else None
     duration = now_playing.get("duration") if isinstance(now_playing, dict) else None

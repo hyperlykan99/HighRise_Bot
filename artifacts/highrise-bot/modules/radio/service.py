@@ -21,6 +21,26 @@ def ensure_ready() -> None:
     radio_settings.ensure_radio_settings()
 
 
+def recover_stale_ready_submitted_requests() -> None:
+    ensure_ready()
+    for row in radio_db.stale_ready_submitted_requests(minutes=30):
+        filename = str(row.get("temp_filename") or "")
+        if not filename or not azura.safe_request_filename(filename):
+            continue
+        if azura.find_uploaded_media(filename):
+            continue
+        radio_db.mark_status(
+            int(row["id"]),
+            "failed",
+            error="startup_recovery_missing_azura_media",
+            finish_reason="startup_recovery_missing_azura_media",
+        )
+        print(
+            f"[RADIO_PHASE4] event=startup_recovery_stale_request_failed "
+            f"request_id={row['id']} status={row.get('status')!r} filename={filename!r}"
+        )
+
+
 def _renderer_settings() -> dict:
     return {
         "now_show_progress_bar": radio_settings.get_bool_setting("now_show_progress_bar", True),
@@ -74,8 +94,8 @@ def now_playing_card() -> tuple[str | None, dict | None, str]:
         if request.get("status") != "playing":
             radio_db.mark_status(request["id"], "playing")
             radio_db.increment_request_play_count(track.get("track_key", ""), track.get("title", ""), track.get("artist", ""))
-            radio_db.set_runtime_state("current_request_id", request["id"])
             print(f"[RADIO_PHASE4] event=request_detected_playing request_id={request['id']} filename={request.get('temp_filename')!r}")
+        radio_db.set_runtime_state("current_request_id", request["id"])
     stats = radio_db.read_track_stats(track.get("track_key", ""), track.get("title", ""), track.get("artist", ""))
     radio_db.mark_last_poll(True)
     radio_db.set_runtime_state("current_track", track)

@@ -12,6 +12,7 @@ from modules.radio import settings as radio_settings
 async def startup_radio_skeleton(bot) -> None:
     """Initialize schemas and start a lightweight AutoDJ now-playing poll."""
     service.ensure_ready()
+    await asyncio.to_thread(service.recover_stale_ready_submitted_requests)
     print("[RADIO_SKELETON] event=startup_ready")
     asyncio.create_task(_nowplaying_poll_loop(bot), name="radio_skeleton_nowplaying_poll")
 

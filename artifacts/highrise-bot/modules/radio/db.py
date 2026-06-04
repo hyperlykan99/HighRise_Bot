@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 import database as database
@@ -243,39 +244,83 @@ def active_requests_for_user(user_id: str, limit: int = 50) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def stale_ready_submitted_requests(minutes: int = 30, limit: int = 50) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status IN ('ready','submitted')
+                 AND COALESCE(submitted_at, prepared_at, created_at) <= datetime('now', ?)
+               ORDER BY id ASC
+               LIMIT ?""",
+            (f"-{max(1, int(minutes))} minutes", max(1, min(100, int(limit)))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _match_method_for_track(row: dict, track: dict) -> str:
+    np_media_id = str(track.get("media_id") or "").strip()
+    np_song_id = str(track.get("song_id") or "").strip()
+    np_unique_id = str(track.get("unique_id") or "").strip()
+    np_path = str(track.get("path") or "").strip()
+    np_filename = os.path.basename(np_path)
+    candidate_file_id = str(row.get("azura_file_id") or "").strip()
+    candidate_song_id = str(row.get("azura_song_id") or "").strip()
+    candidate_filename = str(row.get("temp_filename") or "").strip()
+    candidate_path = str(row.get("azura_path") or "").strip()
+    if np_media_id and candidate_file_id and np_media_id == candidate_file_id:
+        return "media_id"
+    if np_unique_id and candidate_song_id and np_unique_id == candidate_song_id:
+        return "song_unique_id"
+    if np_song_id and candidate_song_id and np_song_id == candidate_song_id:
+        return "song_id"
+    if np_filename and candidate_filename and np_filename == candidate_filename:
+        return "media_path_basename"
+    if np_path and candidate_path and np_path == candidate_path:
+        return "media_path_exact"
+    if np_path and candidate_filename and np_path.endswith(candidate_filename):
+        return "media_path_endswith"
+    return ""
+
+
+def _log_nowplaying_match_debug(track: dict, candidate: dict | None, match_method: str = "") -> None:
+    candidate = candidate or {}
+    print(
+        "[RADIO_PHASE4] event=nowplaying_match_debug "
+        f"np_media_id={str(track.get('media_id') or '')!r} "
+        f"np_media_path={str(track.get('path') or '')!r} "
+        f"np_song_id={str(track.get('song_id') or '')!r} "
+        f"np_song_unique_id={str(track.get('unique_id') or '')!r} "
+        f"np_title={str(track.get('title') or '')!r} "
+        f"np_artist={str(track.get('artist') or '')!r} "
+        f"candidate_request_id={candidate.get('id', '')!r} "
+        f"candidate_status={candidate.get('status', '')!r} "
+        f"candidate_temp_filename={candidate.get('temp_filename', '')!r} "
+        f"candidate_azura_file_id={candidate.get('azura_file_id', '')!r} "
+        f"candidate_azura_song_id={candidate.get('azura_song_id', '')!r} "
+        f"candidate_azura_path={candidate.get('azura_path', '')!r} "
+        f"match_method={match_method!r}"
+    )
+
+
 def match_request_for_track(track: dict) -> dict | None:
     ensure_schema()
-    media_id = str(track.get("media_id") or "").strip()
-    song_id = str(track.get("unique_id") or track.get("song_id") or "").strip()
-    filename = str(track.get("filename") or "").strip()
-    path = str(track.get("path") or "").strip()
-    path_file = path.rsplit("/", 1)[-1] if path else ""
-    clauses = []
-    params = []
-    if media_id:
-        clauses.append("azura_file_id=?")
-        params.append(media_id)
-    if song_id:
-        clauses.append("azura_song_id=?")
-        params.append(song_id)
-    for value in (filename, path_file):
-        if value:
-            clauses.append("temp_filename=?")
-            params.append(value)
-            clauses.append("azura_path=?")
-            params.append(f"Requests/{value}")
-    if not clauses:
-        return None
     with database.db_conn() as conn:
-        row = conn.execute(
-            f"""SELECT * FROM radio_requests
-                WHERE status IN ('pending','preparing','ready','submitted','playing')
-                  AND ({' OR '.join(clauses)})
-                ORDER BY id ASC
-                LIMIT 1""",
-            tuple(params),
-        ).fetchone()
-    return dict(row) if row else None
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status IN ('ready','submitted','playing')
+               ORDER BY id ASC
+               LIMIT 50"""
+        ).fetchall()
+    first_candidate = dict(rows[0]) if rows else None
+    for row in rows:
+        candidate = dict(row)
+        method = _match_method_for_track(candidate, track)
+        if method:
+            _log_nowplaying_match_debug(track, candidate, method)
+            return candidate
+    _log_nowplaying_match_debug(track, first_candidate, "")
+    return None
 
 
 def increment_request_play_count(track_key: str, title: str, artist: str) -> None:
