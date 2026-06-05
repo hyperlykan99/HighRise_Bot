@@ -269,7 +269,7 @@ def now_playing_card(bot=None) -> tuple[str | None, dict | None, str]:
                 display_track.get("artist", ""),
             )
             print(f"[RADIO_PHASE4] event=request_detected_playing request_id={request['id']} filename={request.get('temp_filename')!r}")
-            _schedule_request_prequeue(bot, int(request["id"]))
+            _schedule_request_prequeue(bot, "request_detected_playing", int(request["id"]))
         radio_db.set_runtime_state("current_request_id", request["id"])
     stats = radio_db.read_track_stats(display_track.get("track_key", ""), display_track.get("title", ""), display_track.get("artist", ""))
     radio_db.mark_last_poll(True)
@@ -319,7 +319,7 @@ def _finalize_previous_request_if_changed(track: dict) -> None:
     radio_db.set_runtime_state("current_request_id", "")
 
 
-def _schedule_request_prequeue(bot, playing_request_id: int) -> None:
+def _schedule_request_prequeue(bot, reason: str, playing_request_id: int = 0) -> None:
     if not bot:
         return
     try:
@@ -327,42 +327,67 @@ def _schedule_request_prequeue(bot, playing_request_id: int) -> None:
     except RuntimeError:
         return
     loop.create_task(
-        prequeue_next_ready_requests(bot, playing_request_id=playing_request_id),
-        name=f"radio_prequeue_after_playing_{playing_request_id}",
+        drain_ready_requests_to_azura(bot, reason=reason, playing_request_id=playing_request_id),
+        name=f"radio_prequeue_{reason}_{playing_request_id}",
     )
 
 
 async def prequeue_next_ready_requests(bot, playing_request_id: int = 0, allow_initial: bool = False) -> int:
+    return await drain_ready_requests_to_azura(
+        bot,
+        reason="legacy_prequeue",
+        playing_request_id=playing_request_id,
+        allow_initial=allow_initial,
+    )
+
+
+async def drain_ready_requests_to_azura(
+    bot,
+    reason: str,
+    playing_request_id: int = 0,
+    allow_initial: bool = False,
+) -> int:
     ensure_ready()
     enabled = radio_settings.get_bool_setting("radio_request_prequeue_enabled", True)
-    max_submitted = radio_settings.radio_request_prequeue_count() if enabled else 0
+    if not enabled:
+        print(
+            f"[RADIO_PHASE8] event=request_prequeue_skip reason=disabled "
+            f"drain_reason={reason!r} playing_request_id={playing_request_id}"
+        )
+        return 0
+    max_submitted = radio_settings.radio_request_prequeue_count()
+    if max_submitted <= 0:
+        print(
+            f"[RADIO_PHASE8] event=request_prequeue_skip reason=disabled "
+            f"drain_reason={reason!r} playing_request_id={playing_request_id}"
+        )
+        return 0
     async with _PREQUEUE_LOCK:
         submitted_count = radio_db.submitted_request_count()
-        current_request_id = radio_db.get_runtime_state("current_request_id", "")
-        if max_submitted <= 0:
-            if not allow_initial or current_request_id or submitted_count:
-                print(
-                    f"[RADIO_PHASE8] event=request_prequeue_skip reason=disabled "
-                    f"playing_request_id={playing_request_id}"
-                )
-                return 0
-            max_submitted = 1
+        playing_count = radio_db.playing_request_count()
         ready_rows = radio_db.ready_requests_for_prequeue(limit=max_submitted + 1)
         print(
-            f"[RADIO_PHASE8] event=request_prequeue_check "
+            f"[RADIO_PHASE8] event=request_prequeue_drain reason={reason!r} "
             f"playing_request_id={playing_request_id} ready_count={len(ready_rows)} "
-            f"submitted_count={submitted_count}"
+            f"submitted_count={submitted_count} playing_count={playing_count}"
         )
+        if not allow_initial and not submitted_count and not playing_count:
+            print(
+                f"[RADIO_PHASE8] event=request_prequeue_skip reason=no_active_request_context "
+                f"drain_reason={reason!r}"
+            )
+            return 0
         if submitted_count >= max_submitted:
             print(
-                f"[RADIO_PHASE8] event=request_prequeue_skip reason=already_submitted "
-                f"playing_request_id={playing_request_id} submitted_count={submitted_count}"
+                f"[RADIO_PHASE8] event=request_prequeue_skip reason=submitted_capacity_full "
+                f"drain_reason={reason!r} playing_request_id={playing_request_id} "
+                f"submitted_count={submitted_count}"
             )
             return 0
         if not ready_rows:
             print(
                 f"[RADIO_PHASE8] event=request_prequeue_skip reason=no_ready_requests "
-                f"playing_request_id={playing_request_id}"
+                f"drain_reason={reason!r} playing_request_id={playing_request_id}"
             )
             return 0
         slots = max_submitted - submitted_count
@@ -377,9 +402,9 @@ async def prequeue_next_ready_requests(bot, playing_request_id: int = 0, allow_i
             request_id = int(row["id"])
             print(
                 f"[RADIO_PHASE8] event=request_prequeue_submit "
-                f"request_id={request_id} position={submitted_count + submitted + 1}"
+                f"request_id={request_id} position={submitted_count + submitted + 1} reason={reason!r}"
             )
-            if await _submit_ready_request_to_azura(bot, request_id, reason="prequeue"):
+            if await _submit_ready_request_to_azura(bot, request_id, reason=reason):
                 submitted += 1
             else:
                 print(f"[RADIO_PHASE8] event=request_prequeue_failed request_id={request_id}")
@@ -391,10 +416,10 @@ async def _submit_ready_request_to_azura(bot, request_id: int, reason: str = "re
     if not job:
         return False
     status = str(job.get("status") or "")
-    if status != "ready":
+    if status != "ready" or str(job.get("submitted_at") or "").strip():
         print(
-            f"[RADIO_PHASE8] event=request_prequeue_skip reason=status_not_ready "
-            f"request_id={request_id} status={status!r}"
+            f"[RADIO_PHASE8] event=request_prequeue_abort_status_changed "
+            f"request_id={request_id} status={status!r} submitted_at={job.get('submitted_at')!r}"
         )
         return False
     song_id = str(job.get("azura_song_id") or "").strip()
@@ -429,7 +454,7 @@ async def _submit_ready_request_to_azura(bot, request_id: int, reason: str = "re
     radio_db.mark_status(request_id, "submitted")
     print(
         f"[RADIO_PHASE8] event=request_prequeue_submitted request_id={request_id} "
-        f"song_id={song_id!r} status={status_code} reason={reason!r}"
+        f"status=submitted song_id={song_id!r} http_status={status_code} reason={reason!r}"
     )
     return True
 
@@ -677,6 +702,7 @@ async def submit_direct_youtube_request(bot, user, url: str) -> str:
         is_vip=role == "vip",
     )
     asyncio.create_task(process_request_job(bot, request_id), name=f"radio_request_{request_id}")
+    _schedule_request_prequeue(bot, "request_added", 0)
     return (
         "✅ Added to queue\n"
         f"Title: {meta.get('title') or 'YouTube Request'}\n"
@@ -777,7 +803,10 @@ async def process_request_job(bot, request_id: int) -> None:
             )
         if _abort_if_cancelled_or_terminal(request_id):
             return
-        await prequeue_next_ready_requests(bot, playing_request_id=0, allow_initial=True)
+        if radio_settings.get_bool_setting("radio_request_prequeue_enabled", True):
+            await drain_ready_requests_to_azura(bot, reason="request_ready", playing_request_id=0, allow_initial=True)
+        else:
+            await _submit_ready_request_to_azura(bot, request_id, reason="request_ready_prequeue_disabled")
     except Exception as exc:
         await _fail_request_before_play(bot, request_id, repr(exc))
     finally:

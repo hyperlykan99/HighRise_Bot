@@ -450,6 +450,15 @@ def submitted_request_count() -> int:
     return int(row["n"]) if row else 0
 
 
+def playing_request_count() -> int:
+    ensure_schema()
+    with database.db_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM radio_requests WHERE status='playing'"
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
 def cancelable_requests_for_user(user_id: str, limit: int = 20) -> list[dict]:
     ensure_schema()
     with database.db_conn() as conn:
