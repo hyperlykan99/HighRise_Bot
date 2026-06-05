@@ -28,6 +28,9 @@ async def handle_radiohelp(bot, user, args=None) -> None:
                 "!play <youtube_url> — request a direct YouTube link",
                 "!play <song name> — search YouTube",
                 "!pick 1-5 — request a search result",
+                "!favnow — save the current request",
+                "!favorites — list saved songs",
+                "!playfav <number> — request a saved song",
                 "!cancelrequest — cancel your queued request",
                 "!requeststatus — view your active requests",
                 "!radiohelp — this help",
@@ -131,6 +134,44 @@ async def handle_clearstuckrequests(bot, user, args=None) -> None:
     await _w(bot, user.id, service.clear_stuck_requests(user))
 
 
+async def handle_favnow(bot, user, args=None) -> None:
+    await _w(bot, user.id, service.favorite_now(user))
+
+
+async def handle_favorites(bot, user, args=None) -> None:
+    await _w(bot, user.id, service.favorites_list(user))
+
+
+async def handle_playfav(bot, user, args=None) -> None:
+    args = list(args or [])
+    if args and str(args[0]).lower() == "playfav":
+        args = args[1:]
+    if not args:
+        await _w(bot, user.id, "Use: !playfav <number>")
+        return
+    try:
+        number = int(str(args[0]).strip())
+    except (TypeError, ValueError):
+        await _w(bot, user.id, "Use: !playfav <number>")
+        return
+    await _w(bot, user.id, await service.play_favorite(bot, user, number))
+
+
+async def handle_removefavorite(bot, user, args=None) -> None:
+    args = list(args or [])
+    if args and str(args[0]).lower() in {"removefavorite", "delfav"}:
+        args = args[1:]
+    if not args:
+        await _w(bot, user.id, "Use: !removefavorite <number>")
+        return
+    try:
+        number = int(str(args[0]).strip())
+    except (TypeError, ValueError):
+        await _w(bot, user.id, "Use: !removefavorite <number>")
+        return
+    await _w(bot, user.id, service.remove_favorite(user, number))
+
+
 async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
     if cmd == "play":
         await handle_play(bot, user, args)
@@ -144,6 +185,14 @@ async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
         await handle_clearfailedrequests(bot, user, args)
     elif cmd == "clearstuckrequests":
         await handle_clearstuckrequests(bot, user, args)
+    elif cmd in {"favnow", "favorite"}:
+        await handle_favnow(bot, user, args)
+    elif cmd in {"favorites", "favs"}:
+        await handle_favorites(bot, user, args)
+    elif cmd == "playfav":
+        await handle_playfav(bot, user, args)
+    elif cmd in {"removefavorite", "delfav"}:
+        await handle_removefavorite(bot, user, args)
     elif cmd == "radiohelp":
         await handle_radiohelp(bot, user, args)
     elif cmd in {"q", "queue"}:

@@ -78,6 +78,26 @@ def ensure_schema() -> None:
                 expires_at TEXT
             )"""
         )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS radio_favorites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                username TEXT,
+                title TEXT NOT NULL,
+                artist TEXT,
+                source_url TEXT NOT NULL,
+                video_id TEXT,
+                duration_secs INTEGER,
+                created_at TEXT,
+                last_requested_at TEXT
+            )"""
+        )
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_radio_favorites_user_source ON radio_favorites(user_id, source_url)")
+        conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_radio_favorites_user_video
+               ON radio_favorites(user_id, video_id)
+               WHERE video_id IS NOT NULL AND video_id != ''"""
+        )
 
 
 def queue_rows(limit: int = 20) -> list[dict]:
@@ -190,6 +210,106 @@ def clear_search_session(user_id: str) -> None:
     ensure_schema()
     with database.db_conn() as conn:
         conn.execute("DELETE FROM radio_search_sessions WHERE user_id=?", (str(user_id or ""),))
+
+
+def favorite_count(user_id: str) -> int:
+    ensure_schema()
+    with database.db_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM radio_favorites WHERE user_id=?",
+            (str(user_id or ""),),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def favorite_exists(user_id: str, source_url: str, video_id: str = "") -> bool:
+    ensure_schema()
+    with database.db_conn() as conn:
+        if video_id:
+            row = conn.execute(
+                """SELECT 1 FROM radio_favorites
+                   WHERE user_id=? AND (video_id=? OR source_url=?)
+                   LIMIT 1""",
+                (str(user_id or ""), str(video_id or ""), str(source_url or "")),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """SELECT 1 FROM radio_favorites
+                   WHERE user_id=? AND source_url=?
+                   LIMIT 1""",
+                (str(user_id or ""), str(source_url or "")),
+            ).fetchone()
+    return bool(row)
+
+
+def add_favorite(
+    user_id: str,
+    username: str,
+    title: str,
+    artist: str,
+    source_url: str,
+    video_id: str = "",
+    duration_secs: int = 0,
+) -> int:
+    ensure_schema()
+    with database.db_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO radio_favorites
+               (user_id, username, title, artist, source_url, video_id, duration_secs, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (
+                str(user_id or ""),
+                str(username or ""),
+                str(title or "YouTube Request"),
+                str(artist or "YouTube"),
+                str(source_url or ""),
+                str(video_id or ""),
+                int(duration_secs or 0),
+            ),
+        )
+        return int(cur.lastrowid)
+
+
+def list_favorites(user_id: str, limit: int = 10) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_favorites
+               WHERE user_id=?
+               ORDER BY id ASC
+               LIMIT ?""",
+            (str(user_id or ""), max(1, min(100, int(limit)))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def favorite_by_number(user_id: str, number: int) -> dict | None:
+    rows = list_favorites(user_id, limit=100)
+    index = int(number) - 1
+    if index < 0 or index >= len(rows):
+        return None
+    return rows[index]
+
+
+def remove_favorite_by_number(user_id: str, number: int) -> dict | None:
+    favorite = favorite_by_number(user_id, number)
+    if not favorite:
+        return None
+    with database.db_conn() as conn:
+        conn.execute(
+            "DELETE FROM radio_favorites WHERE id=? AND user_id=?",
+            (int(favorite["id"]), str(user_id or "")),
+        )
+    return favorite
+
+
+def mark_favorite_requested(favorite_id: int) -> None:
+    ensure_schema()
+    with database.db_conn() as conn:
+        conn.execute(
+            "UPDATE radio_favorites SET last_requested_at=datetime('now') WHERE id=?",
+            (int(favorite_id),),
+        )
 
 
 def update_request(request_id: int, **fields) -> None:

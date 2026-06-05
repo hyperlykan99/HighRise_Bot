@@ -4236,6 +4236,8 @@ function renderRadioRequests(d) {
           <label class="switch"><input type="checkbox" name="youtube_search_enabled" ${String(s.youtube_search_enabled) !== "false" ? "checked" : ""}/><span>YouTube Search Enabled</span></label>
           ${settingInput("youtube_search_result_count", "Search Result Count", s.youtube_search_result_count ?? 5)}
           ${settingInput("youtube_search_session_timeout_secs", "Search Session Timeout Seconds", s.youtube_search_session_timeout_secs ?? 120)}
+          <label class="switch"><input type="checkbox" name="radio_favorites_enabled" ${String(s.radio_favorites_enabled) !== "false" ? "checked" : ""}/><span>Favorites Enabled</span></label>
+          ${settingInput("radio_favorites_max_per_user", "Max Favorites Per User", s.radio_favorites_max_per_user ?? 25)}
           <label class="switch"><input type="checkbox" name="youtube_reject_playlists" ${String(s.youtube_reject_playlists) !== "false" ? "checked" : ""}/><span>Reject Playlists</span></label>
           <label class="switch"><input type="checkbox" name="youtube_reject_mixes" ${String(s.youtube_reject_mixes) !== "false" ? "checked" : ""}/><span>Reject Mixes</span></label>
           <label class="switch"><input type="checkbox" name="youtube_reject_livestreams" ${String(s.youtube_reject_livestreams) !== "false" ? "checked" : ""}/><span>Reject Livestreams</span></label>
@@ -8688,6 +8690,8 @@ function bindAdminPageEvents() {
           youtube_search_enabled: form.elements.youtube_search_enabled?.checked,
           youtube_search_result_count: data.youtube_search_result_count,
           youtube_search_session_timeout_secs: data.youtube_search_session_timeout_secs,
+          radio_favorites_enabled: form.elements.radio_favorites_enabled?.checked,
+          radio_favorites_max_per_user: data.radio_favorites_max_per_user,
           youtube_reject_playlists: form.elements.youtube_reject_playlists?.checked,
           youtube_reject_mixes: form.elements.youtube_reject_mixes?.checked,
           youtube_reject_livestreams: form.elements.youtube_reject_livestreams?.checked,

@@ -97,6 +97,12 @@ def _shorten(value: str, limit: int = 42) -> str:
     return text[: max(1, limit - 1)].rstrip() + "…"
 
 
+def _favorite_song_line(index: int, row: dict) -> str:
+    title = _shorten(row.get("title") or "YouTube Request", 42)
+    artist = _shorten(row.get("artist") or "YouTube", 24)
+    return f"{index}. {title} — {artist}"
+
+
 def _render_search_results(results: list[dict]) -> str:
     lines = ["🎵 YouTube Results"]
     for idx, item in enumerate(results[:5], 1):
@@ -107,6 +113,81 @@ def _render_search_results(results: list[dict]) -> str:
     lines.append("")
     lines.append(f"Use !pick 1-{len(results[:5])} to request.")
     return "\n".join(lines)
+
+
+def favorite_now(user) -> str:
+    ensure_ready()
+    if not radio_settings.get_bool_setting("radio_favorites_enabled", True):
+        return "🔒 Radio favorites are currently disabled."
+    raw_id = radio_db.get_runtime_state("current_request_id", "")
+    try:
+        request_id = int(raw_id)
+    except (TypeError, ValueError):
+        return "⚠️ I can only favorite songs requested through DJ_DUDU."
+    request = radio_db.get_request(request_id)
+    if not request or str(request.get("source_type") or "") != "youtube":
+        return "⚠️ I can only favorite songs requested through DJ_DUDU."
+    source_url = str(request.get("source_ref") or "").strip()
+    if not source_url:
+        return "⚠️ I can only favorite songs requested through DJ_DUDU."
+    try:
+        clean_url = sources.validate_youtube_url(source_url)
+    except sources.SourceError:
+        return "⚠️ I can only favorite songs requested through DJ_DUDU."
+    video_id = sources.youtube_video_id(clean_url)
+    if radio_db.favorite_exists(user.id, clean_url, video_id):
+        return "⚠️ That song is already in your favorites."
+    max_favs = radio_settings.radio_favorites_max_per_user()
+    if radio_db.favorite_count(user.id) >= max_favs:
+        return f"⚠️ You can save up to {max_favs} favorites."
+    try:
+        favorite_id = radio_db.add_favorite(
+            user.id,
+            user.username,
+            request.get("title") or "YouTube Request",
+            request.get("artist") or "YouTube",
+            clean_url,
+            video_id,
+            0,
+        )
+    except Exception:
+        return "⚠️ That song is already in your favorites."
+    print(f"[RADIO_PHASE7] event=favorite_saved favorite_id={favorite_id} user={user.username!r} request_id={request_id}")
+    return f"✅ Saved favorite\n{request.get('title') or 'YouTube Request'}"
+
+
+def favorites_list(user) -> str:
+    ensure_ready()
+    rows = radio_db.list_favorites(user.id, limit=10)
+    if not rows:
+        return "🎵 Your Favorites\nNo saved songs yet.\nUse !favnow while your request is playing."
+    lines = ["🎵 Your Favorites"]
+    lines.extend(_favorite_song_line(index, row) for index, row in enumerate(rows, 1))
+    lines.append("Use !playfav <number> to request.")
+    return "\n".join(lines)
+
+
+async def play_favorite(bot, user, number: int) -> str:
+    ensure_ready()
+    if not radio_settings.get_bool_setting("radio_favorites_enabled", True):
+        return "🔒 Radio favorites are currently disabled."
+    favorite = radio_db.favorite_by_number(user.id, int(number))
+    if not favorite:
+        return "⚠️ Pick a favorite number from !favorites."
+    source_url = str(favorite.get("source_url") or "").strip()
+    message = await submit_direct_youtube_request(bot, user, source_url)
+    if message.startswith("✅ Added to queue"):
+        radio_db.mark_favorite_requested(int(favorite["id"]))
+    return message
+
+
+def remove_favorite(user, number: int) -> str:
+    ensure_ready()
+    removed = radio_db.remove_favorite_by_number(user.id, int(number))
+    if not removed:
+        return "⚠️ Pick a favorite number from !favorites."
+    print(f"[RADIO_PHASE7] event=favorite_removed favorite_id={removed.get('id')} user={user.username!r}")
+    return f"✅ Removed favorite\n{removed.get('title') or 'YouTube Request'}"
 
 
 async def search_youtube_request(user, query: str) -> str:
