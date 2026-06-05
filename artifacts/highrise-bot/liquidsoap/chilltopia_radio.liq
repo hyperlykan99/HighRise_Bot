@@ -7,7 +7,7 @@ set("init.allow_root", true)
 set("log.stdout", true)
 set("log.file", false)
 
-autodj = playlist(mode="randomize", reload=10, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/autodj/*.mp3")
+autodj = playlist(mode="randomize", reload=10, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/autodj")
 
 radio = mksafe(autodj)
 
