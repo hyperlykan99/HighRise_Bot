@@ -280,6 +280,20 @@ def _refund_request_discs_once(job: dict) -> int:
     return amount
 
 
+def is_request_cancelled_or_terminal(request_id: int) -> bool:
+    job = radio_db.get_request(request_id)
+    return not job or str(job.get("status") or "") in {"cancelled", "cleaned", "failed", "played"}
+
+
+def _abort_if_cancelled_or_terminal(request_id: int) -> bool:
+    job = radio_db.get_request(request_id)
+    status = str((job or {}).get("status") or "")
+    if not job or status in {"cancelled", "cleaned", "failed", "played"}:
+        print(f"[RADIO_PHASE6] event=request_prepare_aborted_cancelled request_id={request_id} status={status!r}")
+        return True
+    return False
+
+
 def cancel_request(user, request_id: int | None = None) -> str:
     ensure_ready()
     is_staff = _is_staff_user(user.username)
@@ -466,18 +480,30 @@ async def process_request_job(bot, request_id: int) -> None:
         return
     local_path = None
     try:
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         radio_db.mark_status(request_id, "preparing")
         filename = sources.safe_youtube_filename(request_id)
         remote_path = azura.build_requests_remote_path(filename)
         radio_db.update_request(request_id, temp_filename=filename, azura_path=remote_path)
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         local_path = await asyncio.to_thread(sources.download_youtube_mp3, job["source_ref"], filename)
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         if not await asyncio.to_thread(azura.upload_request_file, str(local_path), filename):
             raise RuntimeError("upload_failed")
 
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         radio_db.update_request(request_id, azura_path=remote_path)
         media = None
         song_id = ""
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         for attempt in range(15):
+            if _abort_if_cancelled_or_terminal(request_id):
+                return
             if attempt == 0 or attempt % 5 == 0:
                 await asyncio.to_thread(azura.rescan_requests_folder)
             media = await asyncio.to_thread(azura.find_uploaded_media, filename)
@@ -485,6 +511,8 @@ async def process_request_job(bot, request_id: int) -> None:
             if media and song_id:
                 break
             await asyncio.sleep(2)
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         if not media or not song_id:
             print(f"[RADIO_PHASE4] event=azura_index_timeout request_id={request_id} filename={filename!r}")
             raise RuntimeError("azura_index_timeout")
@@ -496,12 +524,16 @@ async def process_request_job(bot, request_id: int) -> None:
             f"media_id={file_id!r} unique_id={song_id!r} path={azura_path!r}"
         )
         if file_id:
+            if _abort_if_cancelled_or_terminal(request_id):
+                return
             assigned = await asyncio.to_thread(azura.attach_requests_playlist, file_id)
             if not assigned:
                 print(
                     f"[RADIO_PHASE4] event=azura_playlist_assign_failed "
                     f"request_id={request_id} media_id={file_id!r}"
                 )
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         radio_db.mark_status(
             request_id,
             "ready",
@@ -511,6 +543,8 @@ async def process_request_job(bot, request_id: int) -> None:
         )
         requestable = False
         for attempt in range(10):
+            if _abort_if_cancelled_or_terminal(request_id):
+                return
             requestable = await asyncio.to_thread(
                 azura.requestable_media_ready,
                 filename,
@@ -522,11 +556,15 @@ async def process_request_job(bot, request_id: int) -> None:
             if requestable:
                 break
             await asyncio.sleep(2)
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         if not requestable:
             print(
                 f"[RADIO_PHASE4] event=azura_requestable_not_confirmed request_id={request_id} "
                 f"filename={filename!r} unique_id={song_id!r} action=submit_once"
             )
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         ok, status, body = await asyncio.to_thread(azura.submit_request, song_id)
         if not ok:
             playlist_snapshot = await asyncio.to_thread(azura.requests_playlist_snapshot)
@@ -544,6 +582,8 @@ async def process_request_job(bot, request_id: int) -> None:
                 f"status={status} body={body[:240]!r}"
             )
             raise RuntimeError(f"azura_submit_failed status={status} body={body[:200]!r}")
+        if _abort_if_cancelled_or_terminal(request_id):
+            return
         radio_db.mark_status(request_id, "submitted")
         print(
             f"[RADIO_PHASE4] event=azura_submit_ok request_id={request_id} "
@@ -563,6 +603,12 @@ async def _fail_request_before_play(bot, request_id: int, error: str) -> None:
     job = radio_db.get_request(request_id)
     if not job or job.get("status") == "playing":
         return
+    if is_request_cancelled_or_terminal(request_id):
+        print(
+            f"[RADIO_PHASE6] event=request_fail_ignored_terminal "
+            f"request_id={request_id} status={str(job.get('status') or '')!r}"
+        )
+        return
     radio_db.set_runtime_state("last_error", error[:500])
     radio_db.mark_status(request_id, "failed", error=error, finish_reason="prepare_failed")
     if int(job.get("disc_cost_charged") or 0) > 0:
@@ -573,6 +619,7 @@ async def _fail_request_before_play(bot, request_id: int, error: str) -> None:
             music_discs.REFUND_REASON,
             actor="radio",
         )
+        radio_db.update_request(request_id, disc_cost_charged=0)
     cleanup.cleanup_request_media(request_id, reason="failed_before_play")
     try:
         await bot.highrise.send_whisper(job.get("user_id"), "❌ Could not prepare that song. Your Song Request 💽 was refunded.")
