@@ -109,7 +109,8 @@ def queue_rows(limit: int = 20) -> list[dict]:
     try:
         with database.db_conn() as conn:
             rows = conn.execute(
-                f"""SELECT id, username, title, artist, status, priority, created_at
+                f"""SELECT id, username, title, artist, status, priority, created_at,
+                           temp_filename, azura_path
                     FROM radio_requests
                     WHERE status IN ({placeholders})
                     ORDER BY id ASC
@@ -285,6 +286,21 @@ def list_favorites(user_id: str, limit: int = 10) -> list[dict]:
                ORDER BY id ASC
                LIMIT ?""",
             (str(user_id or ""), max(1, min(100, int(limit)))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def active_liquidsoap_request_candidates(limit: int = 50) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status IN ('ready','playing')
+                 AND COALESCE(azura_path, '') != ''
+                 AND COALESCE(temp_filename, '') LIKE 'radio_request_%'
+               ORDER BY id ASC
+               LIMIT ?""",
+            (max(1, min(100, int(limit))),),
         ).fetchall()
     return [dict(row) for row in rows]
 

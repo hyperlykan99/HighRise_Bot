@@ -11,6 +11,7 @@ from modules import permissions
 from modules.radio import cleanup
 from modules.radio import azura
 from modules.radio import db as radio_db
+from modules.radio import icecast
 from modules.radio import liquidsoap_queue
 from modules.radio import music_discs
 from modules.radio import renderer
@@ -243,37 +244,61 @@ def now_playing_card(bot=None) -> tuple[str | None, dict | None, str]:
     ensure_ready()
     if not radio_settings.get_bool_setting("radio_enabled", True):
         return "📻 Music system is currently disabled.", None, ""
-    np_data = azura.fetch_nowplaying()
-    if not np_data:
-        radio_db.mark_last_poll(False, "nowplaying_unavailable")
-        return "📻 Radio is live, but I can't read the current track right now.", None, "nowplaying_unavailable"
-    track = azura.extract_nowplaying_track(np_data)
+    track = icecast.extract_mount_track(icecast.fetch_status_json())
     if not track:
-        radio_db.mark_last_poll(False, "track_parse_failed")
-        return "📻 Radio is live, but I can't read the current track right now.", None, "track_parse_failed"
-    _finalize_previous_request_if_changed(track)
-    request = radio_db.match_request_for_track(track)
+        radio_db.mark_last_poll(False, "icecast_nowplaying_unavailable")
+        return "📻 Radio is live, but I can't read the current track right now.", None, "nowplaying_unavailable"
+    request = _liquidsoap_nowplaying_request(track)
     source = "autodj"
     requester = None
     display_track = track
     if request:
         source = "request"
         requester = request.get("username") or None
-        display_track = _display_track_for_request(track, request)
-        if request.get("status") != "playing":
-            radio_db.mark_status(request["id"], "playing")
-            radio_db.increment_request_play_count(
-                display_track.get("track_key", ""),
-                display_track.get("title", ""),
-                display_track.get("artist", ""),
-            )
-            print(f"[RADIO_PHASE4] event=request_detected_playing request_id={request['id']} filename={request.get('temp_filename')!r}")
-            _schedule_request_prequeue(bot, "request_detected_playing", int(request["id"]))
+        display_track = dict(track)
+        display_track["title"] = request.get("title") or track.get("title") or "Unknown Track"
+        display_track["artist"] = request.get("artist") or track.get("artist") or "Unknown Artist"
+        display_track["track_key"] = f"request:{request.get('id')}"
         radio_db.set_runtime_state("current_request_id", request["id"])
+        print(
+            f"[RADIO_LIQUIDSOAP_NOWPLAYING_REQUEST_MATCH] "
+            f"request_id={request['id']} title={display_track.get('title')!r} "
+            f"filename={request.get('temp_filename')!r}"
+        )
+    else:
+        radio_db.set_runtime_state("current_request_id", "")
+        print(f"[RADIO_LIQUIDSOAP_NOWPLAYING_AUTODJ] title={track.get('title')!r}")
     stats = radio_db.read_track_stats(display_track.get("track_key", ""), display_track.get("title", ""), display_track.get("artist", ""))
     radio_db.mark_last_poll(True)
     radio_db.set_runtime_state("current_track", display_track)
     return renderer.render_now_playing_card(display_track, source, requester=requester, stats=stats, settings=_renderer_settings()), display_track, ""
+
+
+def _liquidsoap_nowplaying_request(track: dict) -> dict | None:
+    title = str((track or {}).get("title") or "").strip()
+    title_is_unknown = title.lower() in {"", "unknown", "unknown title"}
+    normalized_title = radio_db.normalize_generated_request_name(title)
+    generated_title = normalized_title.startswith(("radio request ", "radio yt ", "radio local ", "radio req "))
+    candidates = radio_db.active_liquidsoap_request_candidates(limit=50)
+    playing_candidate = None
+    for row in candidates:
+        path = str(row.get("azura_path") or "")
+        filename = str(row.get("temp_filename") or "")
+        if liquidsoap_queue.request_path_in_playing(path):
+            if not playing_candidate:
+                playing_candidate = row
+            if generated_title and radio_db.normalize_generated_request_name(filename) == normalized_title:
+                return row
+            if generated_title and normalized_title.startswith(f"radio request {row.get('id')}"):
+                return row
+    if title and title.lower() not in {"unknown", "unknown title", "auto dj", "autodj"}:
+        for row in candidates:
+            filename = str(row.get("temp_filename") or "")
+            if generated_title and radio_db.normalize_generated_request_name(filename) == normalized_title:
+                return row
+    if playing_candidate and (title_is_unknown or generated_title):
+        return playing_candidate
+    return None
 
 
 def _finalize_previous_request_if_changed(track: dict) -> None:
@@ -449,6 +474,7 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
 
 def queue_display(limit: int = 10) -> str:
     rows = radio_db.queue_rows(limit)
+    rows = [row for row in rows if not liquidsoap_queue.request_path_in_playing(str(row.get("azura_path") or ""))]
     if not rows:
         return "🎶 QUEUE\nEmpty\nSong requests coming soon."
     lines = ["🎶 QUEUE"]

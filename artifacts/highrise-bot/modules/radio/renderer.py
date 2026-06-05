@@ -53,8 +53,11 @@ def render_now_playing_card(track, source, requester=None, stats=None, settings=
     else:
         lines.append("🤖 Source: Auto DJ")
     if settings.get("now_show_progress_bar", True):
-        progress = f"⏱️ {format_duration(elapsed)} {progress_bar(elapsed, duration)}"
-        if duration:
+        if track.get("live") and not duration:
+            progress = "⏱️ Live"
+        else:
+            progress = f"⏱️ {format_duration(elapsed)} {progress_bar(elapsed, duration)}"
+        if duration and not track.get("live"):
             progress = f"{progress} {format_duration(duration)}"
         lines.append(progress)
     if settings.get("now_show_likes_dislikes", True) or settings.get("now_show_request_play_count", True):
@@ -64,4 +67,3 @@ def render_now_playing_card(track, source, requester=None, stats=None, settings=
         lines.append(f"👍 {likes} | 👎 {dislikes} | 🎧 {plays} plays requested")
     lines.append(footer)
     return "\n".join(lines)
-
