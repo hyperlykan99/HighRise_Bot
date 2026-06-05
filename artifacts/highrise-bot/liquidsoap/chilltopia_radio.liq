@@ -1,5 +1,6 @@
 set("init.allow_root", true)
-# ChillTopia Liquidsoap test stream
+# ChillTopia Liquidsoap radio stream
+# DJ_DUDU = queue brain
 # Liquidsoap = playback engine
 # Icecast = public stream server
 # Mount URL: http://46.250.233.150:8000/chilltopia
@@ -7,9 +8,12 @@ set("init.allow_root", true)
 set("log.stdout", true)
 set("log.file", false)
 
+request_queue = playlist(mode="normal", reload=5, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/queue/next")
+
 autodj = playlist(mode="randomize", reload=10, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/autodj")
 
-radio = mksafe(autodj)
+radio = fallback(track_sensitive=false, [request_queue, autodj, blank()])
+radio = mksafe(radio)
 
 output.icecast(
   %mp3(bitrate=128),
@@ -18,7 +22,7 @@ output.icecast(
   password="ChillTopia123",
   mount="/chilltopia",
   name="ChillTopia Radio",
-  description="ChillTopia Liquidsoap test stream",
+  description="ChillTopia Liquidsoap radio stream",
   genre="HighRise",
   public=false,
   radio
