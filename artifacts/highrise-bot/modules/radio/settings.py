@@ -20,6 +20,7 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "request_disc_cost_owner": ("0", "int"),
     "radio_enabled": ("true", "bool"),
     "radio_poll_interval_secs": ("3", "int"),
+    "radio_submit_ready_immediately": ("true", "bool"),
     "radio_request_prequeue_enabled": ("true", "bool"),
     "radio_request_prequeue_count": ("1", "int"),
     "now_announce_song_changes": ("true", "bool"),

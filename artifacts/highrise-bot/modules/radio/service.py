@@ -348,6 +348,8 @@ async def drain_ready_requests_to_azura(
     allow_initial: bool = False,
 ) -> int:
     ensure_ready()
+    if radio_settings.get_bool_setting("radio_submit_ready_immediately", True):
+        return await _submit_all_ready_requests_immediately(bot, reason)
     enabled = radio_settings.get_bool_setting("radio_request_prequeue_enabled", True)
     if not enabled:
         print(
@@ -409,6 +411,71 @@ async def drain_ready_requests_to_azura(
             else:
                 print(f"[RADIO_PHASE8] event=request_prequeue_failed request_id={request_id}")
         return submitted
+
+
+async def _submit_all_ready_requests_immediately(bot, reason: str) -> int:
+    async with _PREQUEUE_LOCK:
+        ready_rows = radio_db.ready_requests_for_prequeue(limit=10)
+        submitted_count = radio_db.submitted_request_count()
+        playing_count = radio_db.playing_request_count()
+        print(
+            f"[RADIO_PHASE8] event=request_prequeue_drain reason={reason!r} "
+            f"ready_count={len(ready_rows)} submitted_count={submitted_count} "
+            f"playing_count={playing_count} mode='submit_ready_immediately'"
+        )
+        if not ready_rows:
+            print(
+                f"[RADIO_PHASE8] event=request_prequeue_skip reason=no_ready_requests "
+                f"drain_reason={reason!r}"
+            )
+            return 0
+        submitted = 0
+        for row in ready_rows:
+            request_id = int(row["id"])
+            if await _submit_ready_request_immediately(bot, request_id, reason):
+                submitted += 1
+        return submitted
+
+
+async def _submit_ready_request_immediately(bot, request_id: int, reason: str) -> bool:
+    job = radio_db.get_request(request_id)
+    status = str((job or {}).get("status") or "")
+    print(
+        f"[RADIO_PHASE8] event=request_submit_ready_immediate_check "
+        f"request_id={request_id} status={status!r} reason={reason!r}"
+    )
+    if not job:
+        print(
+            f"[RADIO_PHASE8] event=request_submit_ready_immediate_skip "
+            f"reason=status_changed request_id={request_id} status='missing'"
+        )
+        return False
+    if str(job.get("submitted_at") or "").strip():
+        print(
+            f"[RADIO_PHASE8] event=request_submit_ready_immediate_skip "
+            f"reason=already_submitted request_id={request_id}"
+        )
+        return False
+    if status != "ready":
+        print(
+            f"[RADIO_PHASE8] event=request_submit_ready_immediate_skip "
+            f"reason=status_changed request_id={request_id} status={status!r}"
+        )
+        return False
+    print(f"[RADIO_PHASE8] event=request_submit_ready_immediate request_id={request_id}")
+    ok = await _submit_ready_request_to_azura(bot, request_id, reason=f"submit_ready_immediate:{reason}")
+    if ok:
+        refreshed = radio_db.get_request(request_id) or {}
+        print(
+            f"[RADIO_PHASE8] event=request_submit_ready_immediate_ok "
+            f"request_id={request_id} azura_song_id={refreshed.get('azura_song_id')!r}"
+        )
+    else:
+        print(
+            f"[RADIO_PHASE8] event=request_submit_ready_immediate_failed "
+            f"request_id={request_id} error='submit_failed'"
+        )
+    return ok
 
 
 async def _submit_ready_request_to_azura(bot, request_id: int, reason: str = "ready") -> bool:
@@ -803,7 +870,10 @@ async def process_request_job(bot, request_id: int) -> None:
             )
         if _abort_if_cancelled_or_terminal(request_id):
             return
-        if radio_settings.get_bool_setting("radio_request_prequeue_enabled", True):
+        if (
+            radio_settings.get_bool_setting("radio_submit_ready_immediately", True)
+            or radio_settings.get_bool_setting("radio_request_prequeue_enabled", True)
+        ):
             await drain_ready_requests_to_azura(bot, reason="request_ready", playing_request_id=0, allow_initial=True)
         else:
             await _submit_ready_request_to_azura(bot, request_id, reason="request_ready_prequeue_disabled")

@@ -4223,6 +4223,7 @@ function renderRadioRequests(d) {
           ${settingInput("request_cooldown", "Cooldown Seconds", s.request_cooldown ?? 300)}
           ${settingInput("voteskip_threshold", "Vote Skip Required Players", s.voteskip_threshold ?? 3)}
           ${settingInput("radio_poll_interval_secs", "Now Playing Poll Seconds", s.radio_poll_interval_secs ?? 3)}
+          <label class="switch"><input type="checkbox" name="radio_submit_ready_immediately" ${String(s.radio_submit_ready_immediately) !== "false" ? "checked" : ""}/><span>Submit Ready Requests Immediately</span></label>
           <label class="switch"><input type="checkbox" name="radio_request_prequeue_enabled" ${String(s.radio_request_prequeue_enabled) !== "false" ? "checked" : ""}/><span>Request Prequeue Enabled</span></label>
           ${settingInput("radio_request_prequeue_count", "Request Prequeue Count", s.radio_request_prequeue_count ?? 1)}
           <label class="switch"><input type="checkbox" name="skip_on_leave" ${String(s.skip_on_leave) !== "false" ? "checked" : ""}/><span>Skip Request if Requester Leaves</span></label>
@@ -8682,6 +8683,7 @@ function bindAdminPageEvents() {
           skip_on_leave: form.elements.skip_on_leave?.checked,
           refund_on_leave: form.elements.refund_on_leave?.checked,
           admin_ignore_leave: form.elements.admin_ignore_leave?.checked,
+          radio_submit_ready_immediately: form.elements.radio_submit_ready_immediately?.checked,
           radio_request_prequeue_enabled: form.elements.radio_request_prequeue_enabled?.checked,
           radio_request_prequeue_count: data.radio_request_prequeue_count,
           now_announce_song_changes: form.elements.now_announce_song_changes?.checked,
