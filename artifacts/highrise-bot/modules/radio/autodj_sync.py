@@ -39,6 +39,10 @@ def vibe_dir(safe_vibe_name: str) -> Path:
     return (_autodj_root() / "vibes" / safe_vibe_name).resolve()
 
 
+def active_path() -> Path:
+    return (_autodj_root() / "active").resolve()
+
+
 def safe_vibe_name(value: str) -> str:
     text = str(value or "").strip().lower()
     text = re.sub(r"[^a-z0-9_]+", "_", text)
@@ -55,6 +59,62 @@ def _audio_count(path: Path) -> int:
     if not path.exists():
         return 0
     return sum(1 for item in path.rglob("*") if item.is_file() and item.suffix.lower() in AUDIO_EXTS)
+
+
+def _current_active_vibe() -> str:
+    active = active_path()
+    try:
+        if not active.exists() and not active.is_symlink():
+            return ""
+        target = active.resolve()
+        vibes_root = (_autodj_root() / "vibes").resolve()
+        if target.parent != vibes_root:
+            return ""
+        name = target.name
+        return name if SAFE_VIBE_RE.match(name) else ""
+    except Exception:
+        return ""
+
+
+def vibe_status() -> str:
+    current = _current_active_vibe()
+    if not current:
+        print("[AUTODJ_VIBE_STATUS] active_vibe='' count=0")
+        return "🎛 AutoDJ Vibe\nActive: none\nUse: !setvibe <vibe_name>"
+    count = _audio_count(vibe_dir(current))
+    print(f"[AUTODJ_VIBE_STATUS] active_vibe={current!r} count={count}")
+    return "\n".join(["🎛 AutoDJ Vibe", f"Active: {current}", f"Songs: {count}"])
+
+
+def set_active_vibe(vibe_name: str) -> tuple[bool, str]:
+    raw = str(vibe_name or "").strip()
+    safe = safe_vibe_name(raw)
+    if not safe or not SAFE_VIBE_RE.match(safe):
+        print(f"[AUTODJ_VIBE_SET_FAILED] vibe={raw!r} reason=invalid_name")
+        return False, "⚠️ Use a safe vibe name: lowercase letters, numbers, and underscores only."
+    target = vibe_dir(safe)
+    if not target.is_dir():
+        print(f"[AUTODJ_VIBE_SET_FAILED] vibe={safe!r} reason=missing")
+        return False, f"⚠️ AutoDJ vibe not found: {safe}"
+    active = active_path()
+    active.parent.mkdir(parents=True, exist_ok=True)
+    temp = active.parent / ".active.tmp"
+    try:
+        if temp.exists() or temp.is_symlink():
+            temp.unlink()
+        os.symlink(target, temp, target_is_directory=True)
+        os.replace(temp, active)
+        count = _audio_count(target)
+        print(f"[AUTODJ_VIBE_SET] active_vibe={safe!r} songs={count} target={target}")
+        return True, f"✅ Active AutoDJ vibe set to {safe}\nSongs: {count}"
+    except Exception as exc:
+        try:
+            if temp.exists() or temp.is_symlink():
+                temp.unlink()
+        except Exception:
+            pass
+        print(f"[AUTODJ_VIBE_SET_FAILED] vibe={safe!r} error={exc!r}")
+        return False, "⚠️ Could not set active AutoDJ vibe."
 
 
 def _job_path(job_id: str) -> Path:

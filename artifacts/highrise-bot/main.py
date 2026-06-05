@@ -1833,6 +1833,8 @@ RADIO_SKELETON_COMMANDS: frozenset[str] = frozenset({
     "musicstatus",
     "syncvibe",
     "syncstatus",
+    "vibe",
+    "setvibe",
 })
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS | MUSIC_DISC_COMMANDS | RADIO_SKELETON_COMMANDS
 

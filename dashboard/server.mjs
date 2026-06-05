@@ -282,6 +282,56 @@ function autodjVibePath(vibe) {
   return isInsideDir(dir, root) ? dir : null;
 }
 
+function autodjActivePath() {
+  const root = resolveBotRelativePath("liquidsoap/autodj", "liquidsoap/autodj");
+  return path.resolve(root, "active");
+}
+
+function readAutodjActiveVibe() {
+  const active = autodjActivePath();
+  try {
+    fs.lstatSync(active);
+  } catch {
+    return null;
+  }
+  try {
+    const target = fs.realpathSync(active);
+    const root = autodjVibesRoot();
+    if (!isInsideDir(target, root)) return null;
+    const safe = safeAutodjVibeName(path.basename(target));
+    if (!safe || safe !== path.basename(target)) return null;
+    return { name: safe, path: `liquidsoap/autodj/vibes/${safe}` };
+  } catch {
+    return null;
+  }
+}
+
+function setAutodjActiveVibe(vibe) {
+  const safe = safeAutodjVibeName(vibe);
+  const dir = autodjVibePath(safe);
+  if (!safe || !dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+    return { ok: false, error: "vibe_not_found", safe_vibe_name: safe };
+  }
+  const active = autodjActivePath();
+  ensureDir(path.dirname(active), 0o755);
+  const temp = path.resolve(path.dirname(active), ".active.tmp");
+  try {
+    if (fs.existsSync(temp) || fs.lstatSync(temp).isSymbolicLink()) fs.unlinkSync(temp);
+  } catch {}
+  try {
+    fs.symlinkSync(dir, temp, "dir");
+    fs.renameSync(temp, active);
+    console.log(`[AUTODJ_VIBE_SET] active_vibe=${safe} target=${dir}`);
+    return { ok: true, active_vibe: { name: safe, path: `liquidsoap/autodj/vibes/${safe}` } };
+  } catch (err) {
+    try {
+      if (fs.existsSync(temp) || fs.lstatSync(temp).isSymbolicLink()) fs.unlinkSync(temp);
+    } catch {}
+    console.error(`[AUTODJ_VIBE_SET_FAILED] active_vibe=${safe} error=${err.message}`);
+    return { ok: false, error: "set_active_failed", message: err.message, safe_vibe_name: safe };
+  }
+}
+
 function safeAudioFilename(filename) {
   const parsed = path.parse(path.basename(String(filename || "")));
   const ext = parsed.ext.toLowerCase();
@@ -344,6 +394,7 @@ function readAutodjVibeFiles(vibe) {
 function readAutodjVibes() {
   const root = autodjVibesRoot();
   const vibes = [];
+  const active = readAutodjActiveVibe();
   try {
     ensureDir(root, 0o755);
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -356,12 +407,14 @@ function readAutodjVibes() {
         safe_vibe_name: safe,
         path: `liquidsoap/autodj/vibes/${safe}`,
         file_count: info.count,
+        active: active?.name === safe,
       });
     }
     vibes.sort((a, b) => a.name.localeCompare(b.name));
-    return { root: "liquidsoap/autodj/vibes", count: vibes.length, vibes };
+    console.log(`[AUTODJ_VIBE_STATUS] active_vibe=${active?.name || ""} count=${vibes.length}`);
+    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: vibes.length, vibes };
   } catch (err) {
-    return { root: "liquidsoap/autodj/vibes", count: 0, vibes: [], error: err.message };
+    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: 0, vibes: [], error: err.message };
   }
 }
 
@@ -6723,6 +6776,16 @@ app.post("/api/radio/autodj/vibes", requireAuth, requirePermission("manage_radio
 
 app.get("/api/radio/autodj/vibes/:vibe/files", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
   json(res, { vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
+}, closeDb);
+
+app.post("/api/radio/autodj/vibes/:vibe/active", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const result = setAutodjActiveVibe(req.params.vibe);
+  if (!result.ok) {
+    audit(req.db, req.user.username, "autodj_vibe_set_failed", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+    return json(res, { error: result.error || "set_active_failed", detail: result }, result.error === "vibe_not_found" ? 404 : 500);
+  }
+  audit(req.db, req.user.username, "autodj_vibe_set", "filesystem", result.active_vibe.name, "", result.active_vibe, req.ip);
+  json(res, { ok: true, active_vibe: result.active_vibe, autodj_vibes: readAutodjVibes(), updated_at: nowIso() });
 }, closeDb);
 
 app.post(

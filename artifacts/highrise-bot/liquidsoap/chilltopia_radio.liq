@@ -10,7 +10,7 @@ set("log.file", false)
 
 request_queue = playlist(mode="normal", reload=5, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/queue/next")
 
-autodj = playlist(mode="randomize", reload=10, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/autodj")
+autodj = playlist(mode="randomize", reload=10, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/autodj/active")
 
 radio = fallback(track_sensitive=false, [request_queue, autodj, blank()])
 radio = mksafe(radio)

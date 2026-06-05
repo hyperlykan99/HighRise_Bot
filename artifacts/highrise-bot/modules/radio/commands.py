@@ -36,6 +36,8 @@ async def handle_radiohelp(bot, user, args=None) -> None:
                 "!requeststatus — view your active requests",
                 "!syncvibe <vibe> <spotify_playlist_url> — owner AutoDJ import",
                 "!syncstatus [job_id] — owner AutoDJ import status",
+                "!vibe — owner active AutoDJ vibe",
+                "!setvibe <vibe_name> — owner set active AutoDJ vibe",
                 "!radiohelp — this help",
                 "Favorites are still being rebuilt.",
             ]
@@ -199,6 +201,27 @@ async def handle_autodj_syncstatus(bot, user, args=None) -> None:
     await _w(bot, user.id, autodj_sync.status(str(args[0]) if args else ""))
 
 
+async def handle_vibe(bot, user, args=None) -> None:
+    if not permissions.is_owner(user.username):
+        await _w(bot, user.id, "This command is owner-only.")
+        return
+    await _w(bot, user.id, autodj_sync.vibe_status())
+
+
+async def handle_setvibe(bot, user, args=None) -> None:
+    if not permissions.is_owner(user.username):
+        await _w(bot, user.id, "This command is owner-only.")
+        return
+    args = list(args or [])
+    if args and str(args[0]).lower() == "setvibe":
+        args = args[1:]
+    if not args:
+        await _w(bot, user.id, "Use: !setvibe <vibe_name>")
+        return
+    _ok, message = autodj_sync.set_active_vibe(" ".join(str(part) for part in args))
+    await _w(bot, user.id, message)
+
+
 async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
     if cmd == "play":
         await handle_play(bot, user, args)
@@ -224,6 +247,10 @@ async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
         await handle_syncvibe(bot, user, args)
     elif cmd == "syncstatus":
         await handle_autodj_syncstatus(bot, user, args)
+    elif cmd == "vibe":
+        await handle_vibe(bot, user, args)
+    elif cmd == "setvibe":
+        await handle_setvibe(bot, user, args)
     elif cmd == "radiohelp":
         await handle_radiohelp(bot, user, args)
     elif cmd in {"q", "queue"}:

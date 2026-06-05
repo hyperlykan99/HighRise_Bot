@@ -4439,9 +4439,13 @@ function renderRadioAutodjManager(d) {
   const selected = d.selected_vibe || {};
   const vibeRows = vibes.vibes || [];
   const active = selected.vibe || vibeRows[0]?.name || "";
+  const activeVibe = vibes.active_vibe?.name || "";
   return `<div class="grid">
     <div class="card">
       <div class="card-header"><h2>AutoDJ Vibes</h2><span class="pill info">UPLOAD</span></div>
+      <div class="kv" style="margin-bottom:12px">
+        <div><span class="muted">Active Vibe</span><strong>${activeVibe ? esc(activeVibe) : "None"}</strong></div>
+      </div>
       <form id="autodjCreateVibeForm" class="toolbar" style="margin-bottom:12px;flex-wrap:wrap">
         <input name="name" placeholder="new_vibe_name" required />
         <button class="btn primary">Create Vibe</button>
@@ -4449,8 +4453,9 @@ function renderRadioAutodjManager(d) {
       ${vibeRows.length ? table(vibeRows, [
         { key: "name", label: "Vibe" },
         { key: "file_count", label: "Songs" },
+        { key: "active", label: "Active", render: (r) => r.active ? "Yes" : "" },
         { key: "path", label: "Folder" },
-      ], (r) => `<button class="btn sm" data-autodj-vibe="${esc(r.name)}">Open</button>`) : `<div class="notice">No vibe folders yet. Create one to start uploading.</div>`}
+      ], (r) => `<button class="btn sm" data-autodj-vibe="${esc(r.name)}">Open</button> <button class="btn sm" data-autodj-set-active="${esc(r.name)}">Set Active</button>`) : `<div class="notice">No vibe folders yet. Create one to start uploading.</div>`}
     </div>
     <div class="card">
       <div class="card-header"><h2>${active ? esc(active) : "Selected Vibe"}</h2><button class="btn sm" data-autodj-refresh>Refresh</button></div>
@@ -8708,6 +8713,12 @@ function bindAdminPageEvents() {
   document.querySelectorAll("[data-autodj-refresh]").forEach((btn) => btn.addEventListener("click", () => loadAdmin()));
   document.querySelectorAll("[data-autodj-vibe]").forEach((btn) => btn.addEventListener("click", async () => {
     state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(btn.dataset.autodjVibe || "")}`);
+    render();
+  }));
+  document.querySelectorAll("[data-autodj-set-active]").forEach((btn) => btn.addEventListener("click", async () => {
+    const vibe = btn.dataset.autodjSetActive || "";
+    await action("Active AutoDJ vibe updated.", () => api(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/active`, { method: "POST", body: JSON.stringify({}) }));
+    state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
     render();
   }));
   document.getElementById("autodjCreateVibeForm")?.addEventListener("submit", async (e) => {
