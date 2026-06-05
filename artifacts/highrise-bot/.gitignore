@@ -24,6 +24,8 @@ liquidsoap/autodj/**/*.m4a
 liquidsoap/autodj/**/*.aac
 liquidsoap/autodj/**/*.ogg
 liquidsoap/autodj/sync_jobs/
+liquidsoap/autodj/uploads/*
+!liquidsoap/autodj/uploads/.gitkeep
 !.gitkeep
 logs/
 __pycache__/

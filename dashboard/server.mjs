@@ -102,6 +102,7 @@ const ACTIVE_REQUEST_STATUSES = [
 const UPCOMING_REQUEST_STATUSES = ACTIVE_REQUEST_STATUSES.filter((s) => s !== "playing");
 const TERMINAL_REQUEST_STATUSES = ["played", "cleaned", "skipped", "failed", "cancelled", "error"];
 const SAFE_SETTING_KEY = /^[A-Za-z0-9_.:-]{1,120}$/;
+const AUTODJ_UPLOAD_AUDIO_EXTS = new Set([".mp3", ".m4a", ".wav", ".flac", ".ogg", ".opus", ".aac"]);
 const RATE_LIMITS = new Map();
 const IMPORTANT_TABLES = [
   "schema_version",
@@ -208,6 +209,55 @@ function isInsideDir(filePath, dirPath) {
 
 function isApprovedBackupPath(filePath, dirs = [DB_BACKUP_DIR]) {
   return dirs.some((dir) => isInsideDir(filePath, dir));
+}
+
+function resolveBotRelativePath(rawPath, fallback) {
+  const configured = String(rawPath || fallback || "").trim() || fallback;
+  const resolved = path.isAbsolute(configured) ? path.resolve(configured) : path.resolve(BOT_ROOT, configured);
+  if (!isInsideDir(resolved, BOT_ROOT)) return path.resolve(BOT_ROOT, fallback);
+  return resolved;
+}
+
+function readAutodjUploads(db) {
+  const relativeRoot = getRadioSetting(db, "autodj_uploads_path", "liquidsoap/autodj/uploads");
+  const root = resolveBotRelativePath(relativeRoot, "liquidsoap/autodj/uploads");
+  const rows = [];
+  try {
+    ensureDir(root, 0o755);
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        if (!isInsideDir(fullPath, root)) continue;
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!AUTODJ_UPLOAD_AUDIO_EXTS.has(ext)) continue;
+        const stat = fs.statSync(fullPath);
+        const relativePath = path.relative(root, fullPath).split(path.sep).join("/");
+        if (!relativePath || relativePath.startsWith("../") || path.isAbsolute(relativePath)) continue;
+        rows.push({
+          filename: entry.name,
+          type: ext.replace(".", ""),
+          extension: ext,
+          size: stat.size,
+          size_mb: Number((stat.size / (1024 * 1024)).toFixed(2)),
+          modified_at: stat.mtime.toISOString(),
+          relative_path: relativePath,
+          safe_path: `liquidsoap/autodj/uploads/${relativePath}`,
+        });
+      }
+    };
+    walk(root);
+    rows.sort((a, b) => String(b.modified_at).localeCompare(String(a.modified_at)));
+    console.log(`[AUTODJ_UPLOADS_SCAN] root=${root} count=${rows.length}`);
+    return { root: "liquidsoap/autodj/uploads", configured_path: relativeRoot, count: rows.length, files: rows };
+  } catch (err) {
+    console.error(`[AUTODJ_UPLOADS_SCAN_FAILED] root=${root} error=${err.message}`);
+    return { root: "liquidsoap/autodj/uploads", configured_path: relativeRoot, count: 0, files: [], error: err.message };
+  }
 }
 
 function envMetadata(filePath = VPS_ENV_PATH) {
@@ -1233,6 +1283,7 @@ const RADIO_SETTING_DEFAULTS = {
   youtube_reject_livestreams: ["true", "bool"],
   youtube_reject_shorts: ["false", "bool"],
   block_requests_when_azura_unhealthy: ["true", "bool"],
+  autodj_uploads_path: ["liquidsoap/autodj/uploads", "str"],
 };
 
 function ensureRadioSettings(db) {
@@ -1581,6 +1632,7 @@ function readLocalRadioStatus(db) {
     youtube_reject_livestreams: getRadioSetting(db, "youtube_reject_livestreams", "true"),
     youtube_reject_shorts: getRadioSetting(db, "youtube_reject_shorts", "false"),
     block_requests_when_azura_unhealthy: getRadioSetting(db, "block_requests_when_azura_unhealthy", "true"),
+    autodj_uploads_path: getRadioSetting(db, "autodj_uploads_path", "liquidsoap/autodj/uploads"),
   };
   const currentTrack = parseJsonState(getRadioRuntimeState(db, "current_track", ""), null);
   const lastPoll = parseJsonState(getRadioRuntimeState(db, "last_poll", ""), null);
@@ -1625,6 +1677,7 @@ function readLocalRadioStatus(db) {
     skeleton_health: skeletonHealth,
     blocklist,
     stats,
+    autodj_uploads: readAutodjUploads(db),
     local_library: localLibrary,
     logs: {
       audit: safeRows(db, "audit_logs", ["id","actor","action_type","target_type","target_id","old_value","new_value","ip_address","created_at"], { where: "action_type LIKE 'radio_%' OR target_type IN ('yt_request_jobs','radio_v3_requests','bot_command_queue')", orderBy: columnExists(db, "audit_logs", "created_at") ? "created_at DESC" : "", limit: "100" }),
@@ -6516,6 +6569,10 @@ app.post("/api/bot-config/restart", requireAuth, requireOwner, (req, res) => {
 
 app.get("/api/radio", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
   json(res, readLocalRadioStatus(req.db));
+}, closeDb);
+
+app.get("/api/radio/autodj/uploads", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
+  json(res, { autodj_uploads: readAutodjUploads(req.db), updated_at: nowIso() });
 }, closeDb);
 
 for (const radioReadPath of [

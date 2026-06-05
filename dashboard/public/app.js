@@ -146,6 +146,7 @@ const RADIO_TABS = [
   { id: "Recently Played", api: "/api/radio/recent" },
   { id: "Blocklist", api: "/api/radio/blocklist" },
   { id: "Rewards / Stats", api: "/api/radio/stats" },
+  { id: "Uploads", api: "/api/radio/autodj/uploads" },
   { id: "Local Library", api: "/api/radio" },
   { id: "AzuraCast / Stream", api: "/api/radio" },
   { id: "Logs", api: "/api/radio/logs" },
@@ -4102,6 +4103,7 @@ function renderRadioOwnerPage(tab) {
     ${tab === "Recently Played" ? renderRadioRecent(d) : ""}
     ${tab === "Blocklist" ? renderRadioBlocklist(d) : ""}
     ${tab === "Rewards / Stats" ? renderRadioStats(d) : ""}
+    ${tab === "Uploads" ? renderRadioUploads(d) : ""}
     ${tab === "Local Library" ? renderRadioLocalLibrary(d) : ""}
     ${tab === "AzuraCast / Stream" ? renderRadioStream(d) : ""}
     ${tab === "Logs" ? renderRadioLogs(d) : ""}
@@ -4401,6 +4403,32 @@ function renderRadioStats(d) {
     <div class="card"><h2>User Stats</h2>${table(st.radio_user_stats || [])}</div>
     <div class="card"><h2>Song Stats</h2>${table(st.radio_song_stats || [])}</div>
     <div class="card"><h2>Rewards Paid</h2>${table(st.rewards || [])}</div>
+  </div>`;
+}
+
+function renderRadioUploads(d) {
+  const uploads = d.autodj_uploads || {};
+  const rows = uploads.files || [];
+  return `<div class="grid">
+    <div class="card">
+      <div class="card-header"><h2>AutoDJ Upload Inbox</h2><span class="pill info">READ ONLY</span></div>
+      <div class="status-grid">
+        <div><span class="muted">Folder</span><strong>${esc(uploads.root || "liquidsoap/autodj/uploads")}</strong></div>
+        <div><span class="muted">Audio Files</span><strong>${esc(uploads.count ?? rows.length)}</strong></div>
+        <div><span class="muted">Allowed</span><strong>.mp3 .m4a .wav .flac .ogg .opus .aac</strong></div>
+      </div>
+      ${uploads.error ? `<div class="notice warn" style="margin-top:12px">${esc(uploads.error)}</div>` : `<div class="notice" style="margin-top:12px">Upload audio by SFTP into this folder. Import/move/delete controls are intentionally not wired in D1.</div>`}
+    </div>
+    <div class="card">
+      <h2>Uploaded Audio Files</h2>
+      ${table(rows, [
+        { key: "filename", label: "Filename" },
+        { key: "type", label: "Type" },
+        { key: "size_mb", label: "Size MB" },
+        { key: "modified_at", label: "Modified" },
+        { key: "safe_path", label: "Path" },
+      ])}
+    </div>
   </div>`;
 }
 
