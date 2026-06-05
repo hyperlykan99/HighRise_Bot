@@ -20,6 +20,8 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "request_disc_cost_owner": ("0", "int"),
     "radio_enabled": ("true", "bool"),
     "radio_poll_interval_secs": ("3", "int"),
+    "radio_request_prequeue_enabled": ("true", "bool"),
+    "radio_request_prequeue_count": ("1", "int"),
     "now_announce_song_changes": ("true", "bool"),
     "now_announce_autodj": ("true", "bool"),
     "now_announce_requests": ("true", "bool"),
@@ -102,6 +104,11 @@ def get_int_setting(key: str, default: int) -> int:
 def radio_poll_interval_secs() -> int:
     value = get_int_setting("radio_poll_interval_secs", 3)
     return max(3, min(30, int(value)))
+
+
+def radio_request_prequeue_count() -> int:
+    value = get_int_setting("radio_request_prequeue_count", 1)
+    return max(0, min(3, int(value)))
 
 
 def youtube_search_result_count() -> int:

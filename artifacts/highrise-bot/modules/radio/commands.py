@@ -45,7 +45,7 @@ async def handle_queue(bot, user, args=None) -> None:
 
 
 async def handle_now(bot, user, args=None) -> None:
-    card, _track, _error = service.now_playing_card()
+    card, _track, _error = service.now_playing_card(bot)
     message = card or "📻 Radio is live, but I can't read the current track right now."
     if str(radio_settings.get_setting("now_command_response_mode", "whisper")).lower() == "chat":
         try:

@@ -17,6 +17,9 @@ from modules.radio import sources
 from modules.radio import settings as radio_settings
 
 
+_PREQUEUE_LOCK = asyncio.Lock()
+
+
 def ensure_ready() -> None:
     radio_db.ensure_schema()
     radio_settings.ensure_radio_settings()
@@ -237,7 +240,7 @@ async def pick_youtube_search_result(bot, user, pick_number: int) -> str:
     return message
 
 
-def now_playing_card() -> tuple[str | None, dict | None, str]:
+def now_playing_card(bot=None) -> tuple[str | None, dict | None, str]:
     ensure_ready()
     if not radio_settings.get_bool_setting("radio_enabled", True):
         return "📻 Music system is currently disabled.", None, ""
@@ -266,6 +269,7 @@ def now_playing_card() -> tuple[str | None, dict | None, str]:
                 display_track.get("artist", ""),
             )
             print(f"[RADIO_PHASE4] event=request_detected_playing request_id={request['id']} filename={request.get('temp_filename')!r}")
+            _schedule_request_prequeue(bot, int(request["id"]))
         radio_db.set_runtime_state("current_request_id", request["id"])
     stats = radio_db.read_track_stats(display_track.get("track_key", ""), display_track.get("title", ""), display_track.get("artist", ""))
     radio_db.mark_last_poll(True)
@@ -313,6 +317,121 @@ def _finalize_previous_request_if_changed(track: dict) -> None:
     radio_db.mark_status(request_id, "played", finish_reason="song_changed")
     cleanup.cleanup_request_media(request_id, reason="played")
     radio_db.set_runtime_state("current_request_id", "")
+
+
+def _schedule_request_prequeue(bot, playing_request_id: int) -> None:
+    if not bot:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(
+        prequeue_next_ready_requests(bot, playing_request_id=playing_request_id),
+        name=f"radio_prequeue_after_playing_{playing_request_id}",
+    )
+
+
+async def prequeue_next_ready_requests(bot, playing_request_id: int = 0, allow_initial: bool = False) -> int:
+    ensure_ready()
+    enabled = radio_settings.get_bool_setting("radio_request_prequeue_enabled", True)
+    max_submitted = radio_settings.radio_request_prequeue_count() if enabled else 0
+    async with _PREQUEUE_LOCK:
+        submitted_count = radio_db.submitted_request_count()
+        current_request_id = radio_db.get_runtime_state("current_request_id", "")
+        if max_submitted <= 0:
+            if not allow_initial or current_request_id or submitted_count:
+                print(
+                    f"[RADIO_PHASE8] event=request_prequeue_skip reason=disabled "
+                    f"playing_request_id={playing_request_id}"
+                )
+                return 0
+            max_submitted = 1
+        ready_rows = radio_db.ready_requests_for_prequeue(limit=max_submitted + 1)
+        print(
+            f"[RADIO_PHASE8] event=request_prequeue_check "
+            f"playing_request_id={playing_request_id} ready_count={len(ready_rows)} "
+            f"submitted_count={submitted_count}"
+        )
+        if submitted_count >= max_submitted:
+            print(
+                f"[RADIO_PHASE8] event=request_prequeue_skip reason=already_submitted "
+                f"playing_request_id={playing_request_id} submitted_count={submitted_count}"
+            )
+            return 0
+        if not ready_rows:
+            print(
+                f"[RADIO_PHASE8] event=request_prequeue_skip reason=no_ready_requests "
+                f"playing_request_id={playing_request_id}"
+            )
+            return 0
+        slots = max_submitted - submitted_count
+        submitted = 0
+        attempts = 0
+        for row in ready_rows:
+            if submitted >= slots:
+                break
+            if attempts >= slots + 1:
+                break
+            attempts += 1
+            request_id = int(row["id"])
+            print(
+                f"[RADIO_PHASE8] event=request_prequeue_submit "
+                f"request_id={request_id} position={submitted_count + submitted + 1}"
+            )
+            if await _submit_ready_request_to_azura(bot, request_id, reason="prequeue"):
+                submitted += 1
+            else:
+                print(f"[RADIO_PHASE8] event=request_prequeue_failed request_id={request_id}")
+        return submitted
+
+
+async def _submit_ready_request_to_azura(bot, request_id: int, reason: str = "ready") -> bool:
+    job = radio_db.get_request(request_id)
+    if not job:
+        return False
+    status = str(job.get("status") or "")
+    if status != "ready":
+        print(
+            f"[RADIO_PHASE8] event=request_prequeue_skip reason=status_not_ready "
+            f"request_id={request_id} status={status!r}"
+        )
+        return False
+    song_id = str(job.get("azura_song_id") or "").strip()
+    if not song_id:
+        await _fail_request_before_play(bot, request_id, "missing_azura_song_id")
+        return False
+    ok, status_code, body = await asyncio.to_thread(azura.submit_request, song_id)
+    if not ok:
+        if "not requestable" in str(body).lower():
+            playlist_snapshot = await asyncio.to_thread(azura.requests_playlist_snapshot)
+            file_id = str(job.get("azura_file_id") or "").strip()
+            media_after = await asyncio.to_thread(azura.get_media_file, file_id) if file_id else {}
+            print(
+                f"[RADIO_PHASE4] event=azura_not_requestable_after_playlist_assign "
+                f"request_id={request_id} media_id={file_id!r} unique_id={song_id!r} "
+                f"playlist_id={playlist_snapshot.get('playlist_id')!r} "
+                f"playlist_config={playlist_snapshot!r} "
+                f"media_playlists={(media_after or {}).get('playlists')!r}"
+            )
+        print(
+            f"[RADIO_PHASE8] event=request_prequeue_failed request_id={request_id} "
+            f"status={status_code} body={str(body)[:240]!r} reason={reason!r}"
+        )
+        await _fail_request_before_play(
+            bot,
+            request_id,
+            f"azura_submit_failed status={status_code} body={str(body)[:200]!r}",
+        )
+        return False
+    if _abort_if_cancelled_or_terminal(request_id):
+        return False
+    radio_db.mark_status(request_id, "submitted")
+    print(
+        f"[RADIO_PHASE8] event=request_prequeue_submitted request_id={request_id} "
+        f"song_id={song_id!r} status={status_code} reason={reason!r}"
+    )
+    return True
 
 
 def queue_display(limit: int = 10) -> str:
@@ -658,30 +777,7 @@ async def process_request_job(bot, request_id: int) -> None:
             )
         if _abort_if_cancelled_or_terminal(request_id):
             return
-        ok, status, body = await asyncio.to_thread(azura.submit_request, song_id)
-        if not ok:
-            playlist_snapshot = await asyncio.to_thread(azura.requests_playlist_snapshot)
-            media_after = await asyncio.to_thread(azura.get_media_file, file_id) if file_id else {}
-            if "not requestable" in str(body).lower():
-                print(
-                    f"[RADIO_PHASE4] event=azura_not_requestable_after_playlist_assign "
-                    f"request_id={request_id} media_id={file_id!r} unique_id={song_id!r} "
-                    f"playlist_id={playlist_snapshot.get('playlist_id')!r} "
-                    f"playlist_config={playlist_snapshot!r} "
-                    f"media_playlists={(media_after or {}).get('playlists')!r}"
-                )
-            print(
-                f"[RADIO_PHASE4] event=azura_submit_failed request_id={request_id} "
-                f"status={status} body={body[:240]!r}"
-            )
-            raise RuntimeError(f"azura_submit_failed status={status} body={body[:200]!r}")
-        if _abort_if_cancelled_or_terminal(request_id):
-            return
-        radio_db.mark_status(request_id, "submitted")
-        print(
-            f"[RADIO_PHASE4] event=azura_submit_ok request_id={request_id} "
-            f"song_id={song_id!r} status={status}"
-        )
+        await prequeue_next_ready_requests(bot, playing_request_id=0, allow_initial=True)
     except Exception as exc:
         await _fail_request_before_play(bot, request_id, repr(exc))
     finally:

@@ -29,7 +29,7 @@ async def _nowplaying_poll_loop(bot) -> None:
             if not radio_settings.get_bool_setting("radio_enabled", True):
                 await asyncio.sleep(interval)
                 continue
-            card, track, _error = service.now_playing_card()
+            card, track, _error = service.now_playing_card(bot)
             key = service.track_dedupe_key(track)
             if not key or key == last_key:
                 await asyncio.sleep(interval)

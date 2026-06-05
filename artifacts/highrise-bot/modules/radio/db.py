@@ -428,6 +428,28 @@ def active_requests_for_user(user_id: str, limit: int = 50) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def ready_requests_for_prequeue(limit: int = 5) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status='ready'
+               ORDER BY id ASC
+               LIMIT ?""",
+            (max(1, min(10, int(limit))),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def submitted_request_count() -> int:
+    ensure_schema()
+    with database.db_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM radio_requests WHERE status='submitted'"
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
 def cancelable_requests_for_user(user_id: str, limit: int = 20) -> list[dict]:
     ensure_schema()
     with database.db_conn() as conn:
