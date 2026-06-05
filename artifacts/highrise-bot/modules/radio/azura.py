@@ -565,7 +565,14 @@ def extract_nowplaying_track(np_data: dict | None) -> dict | None:
     track["filename"] = str(track["path"] or "").rsplit("/", 1)[-1]
     title_stem = os.path.splitext(str(track["title"] or "").strip())[0]
     track["title_stem"] = title_stem
-    track["safe_request_title_match_candidate"] = str(track["title"] or "").strip().startswith(SAFE_PREFIXES)
+    normalized_title = " ".join(
+        "".join(ch if ch.isalnum() else " " for ch in title_stem.lower().replace("_", " ").replace("-", " ")).split()
+    )
+    track["normalized_title"] = normalized_title
+    track["safe_request_title_match_candidate"] = (
+        str(track["title"] or "").strip().startswith(SAFE_PREFIXES)
+        or normalized_title.startswith(("radio yt ", "radio local ", "radio req "))
+    )
     track["track_key"] = track_key(track)
     return track
 

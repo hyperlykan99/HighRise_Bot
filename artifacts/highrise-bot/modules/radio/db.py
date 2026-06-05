@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 import database as database
@@ -12,6 +13,7 @@ from modules.radio import settings as radio_settings
 
 
 SAFE_REQUEST_TITLE_PREFIXES = ("radio_yt_", "radio_local_", "radio_req_")
+NORMALIZED_REQUEST_TITLE_PREFIXES = ("radio yt ", "radio local ", "radio req ")
 
 
 def ensure_schema() -> None:
@@ -261,6 +263,15 @@ def stale_ready_submitted_requests(minutes: int = 30, limit: int = 50) -> list[d
     return [dict(row) for row in rows]
 
 
+def normalize_generated_request_name(value) -> str:
+    text = str(value or "").strip().lower()
+    if text.endswith(".mp3"):
+        text = text[:-4]
+    text = text.replace("_", " ").replace("-", " ")
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
 def _match_method_for_track(row: dict, track: dict) -> str:
     np_media_id = str(track.get("media_id") or "").strip()
     np_song_id = str(track.get("song_id") or "").strip()
@@ -274,6 +285,8 @@ def _match_method_for_track(row: dict, track: dict) -> str:
     candidate_path = str(row.get("azura_path") or "").strip()
     candidate_id = str(row.get("id") or "").strip()
     np_title = str(track.get("title") or "").strip()
+    normalized_np_title = normalize_generated_request_name(np_title)
+    normalized_candidate_filename = normalize_generated_request_name(candidate_filename)
     if np_media_id and candidate_file_id and np_media_id == candidate_file_id:
         return "media_id"
     if np_unique_id and candidate_song_id and np_unique_id == candidate_song_id:
@@ -296,6 +309,12 @@ def _match_method_for_track(row: dict, track: dict) -> str:
         for prefix in SAFE_REQUEST_TITLE_PREFIXES:
             if candidate_id and np_title.startswith(f"{prefix}{candidate_id}_"):
                 return "nowplaying_title_request_id_prefix"
+    if normalized_np_title.startswith(NORMALIZED_REQUEST_TITLE_PREFIXES):
+        if normalized_candidate_filename and normalized_np_title == normalized_candidate_filename:
+            return "nowplaying_title_normalized_temp_filename"
+        for prefix in NORMALIZED_REQUEST_TITLE_PREFIXES:
+            if candidate_id and normalized_np_title.startswith(f"{prefix}{candidate_id}"):
+                return "nowplaying_title_normalized_request_id_prefix"
     return ""
 
 
@@ -312,6 +331,8 @@ def _log_nowplaying_match_debug(track: dict, candidate: dict | None, match_metho
         f"candidate_request_id={candidate.get('id', '')!r} "
         f"candidate_status={candidate.get('status', '')!r} "
         f"candidate_temp_filename={candidate.get('temp_filename', '')!r} "
+        f"normalized_np_title={normalize_generated_request_name(track.get('title'))!r} "
+        f"normalized_candidate_filename={normalize_generated_request_name(candidate.get('temp_filename'))!r} "
         f"candidate_azura_file_id={candidate.get('azura_file_id', '')!r} "
         f"candidate_azura_song_id={candidate.get('azura_song_id', '')!r} "
         f"candidate_azura_path={candidate.get('azura_path', '')!r} "

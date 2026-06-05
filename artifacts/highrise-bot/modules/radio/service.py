@@ -51,7 +51,10 @@ def _renderer_settings() -> dict:
 
 
 def _safe_generated_title(title: str) -> bool:
-    return str(title or "").strip().startswith(azura.SAFE_PREFIXES)
+    normalized = radio_db.normalize_generated_request_name(title)
+    return str(title or "").strip().startswith(azura.SAFE_PREFIXES) or normalized.startswith(
+        ("radio yt ", "radio local ", "radio req ")
+    )
 
 
 def _display_track_for_request(track: dict, request: dict | None) -> dict:
@@ -138,6 +141,8 @@ def _finalize_previous_request_if_changed(track: dict) -> None:
     filename = str(job.get("temp_filename") or "")
     stem = os.path.splitext(filename)[0] if filename else ""
     title = str(track.get("title") or "")
+    normalized_title = radio_db.normalize_generated_request_name(title)
+    normalized_filename = radio_db.normalize_generated_request_name(filename)
     same = False
     if job.get("azura_file_id") and str(job.get("azura_file_id")) == str(track.get("media_id") or ""):
         same = True
@@ -150,6 +155,10 @@ def _finalize_previous_request_if_changed(track: dict) -> None:
     if title.startswith(azura.SAFE_PREFIXES) and stem and title.startswith(stem):
         same = True
     if title.startswith(azura.SAFE_PREFIXES) and title.startswith(tuple(f"{prefix}{request_id}_" for prefix in azura.SAFE_PREFIXES)):
+        same = True
+    if normalized_title.startswith(("radio yt ", "radio local ", "radio req ")) and normalized_filename and normalized_title == normalized_filename:
+        same = True
+    if normalized_title.startswith(tuple(f"{prefix}{request_id}" for prefix in ("radio yt ", "radio local ", "radio req "))):
         same = True
     if same:
         return
