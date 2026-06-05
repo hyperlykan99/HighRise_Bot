@@ -267,6 +267,8 @@ def _refund_request_discs_once(job: dict) -> int:
     amount = int(job.get("disc_cost_charged") or 0)
     if amount <= 0:
         return 0
+    if str(job.get("submitted_at") or "").strip() or str(job.get("status") or "") in {"submitted", "playing"}:
+        return 0
     music_discs.refund_discs(
         job.get("user_id") or "",
         job.get("username") or "",
@@ -298,9 +300,22 @@ def cancel_request(user, request_id: int | None = None) -> str:
         if not is_staff and str(job.get("user_id") or "") != str(user.id):
             return "⚠️ You can only cancel your own request."
     status = str(job.get("status") or "")
-    if status not in {"pending", "preparing", "ready", "submitted"}:
+    if not is_staff and (status == "submitted" or str(job.get("submitted_at") or "").strip()):
+        print(
+            f"[RADIO_PHASE6] event=request_cancel_blocked_late request_id={job.get('id')} "
+            f"status={status!r} submitted_at={job.get('submitted_at')!r} username={getattr(user, 'username', '')!r}"
+        )
+        return "⚠️ This request was already sent to the radio and can no longer be cancelled."
+    if not is_staff and status == "playing":
+        print(
+            f"[RADIO_PHASE6] event=request_cancel_blocked_late request_id={job.get('id')} "
+            f"status={status!r} submitted_at={job.get('submitted_at')!r} username={getattr(user, 'username', '')!r}"
+        )
+        return "⚠️ This request is already playing and can’t be cancelled."
+    allowed = {"pending", "preparing", "ready"} if not is_staff else {"pending", "preparing", "ready", "submitted"}
+    if status not in allowed:
         if status == "playing":
-            return "⚠️ That request is already playing."
+            return "⚠️ This request is already playing and can’t be cancelled."
         return "⚠️ That request can no longer be cancelled."
     refunded = _refund_request_discs_once(job)
     radio_db.mark_status(int(job["id"]), "cancelled", finish_reason="cancelled_by_staff" if is_staff else "cancelled_by_user")

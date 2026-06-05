@@ -314,7 +314,7 @@ def cancelable_requests_for_user(user_id: str, limit: int = 20) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE user_id=?
-                 AND status IN ('pending','preparing','ready','submitted')
+                 AND status IN ('pending','preparing','ready')
                ORDER BY id ASC
                LIMIT ?""",
             (str(user_id or ""), max(1, min(50, int(limit)))),
