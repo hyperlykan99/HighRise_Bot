@@ -308,6 +308,47 @@ def active_requests_for_user(user_id: str, limit: int = 50) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def cancelable_requests_for_user(user_id: str, limit: int = 20) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE user_id=?
+                 AND status IN ('pending','preparing','ready','submitted')
+               ORDER BY id ASC
+               LIMIT ?""",
+            (str(user_id or ""), max(1, min(50, int(limit)))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def failed_requests_for_cleanup(limit: int = 50) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status='failed'
+               ORDER BY id ASC
+               LIMIT ?""",
+            (max(1, min(100, int(limit))),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def stuck_requests_for_cleanup(minutes: int = 30, limit: int = 50) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status IN ('pending','preparing','ready','submitted')
+                 AND COALESCE(submitted_at, prepared_at, created_at) <= datetime('now', ?)
+               ORDER BY id ASC
+               LIMIT ?""",
+            (f"-{max(1, int(minutes))} minutes", max(1, min(100, int(limit)))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def stale_ready_submitted_requests(minutes: int = 30, limit: int = 50) -> list[dict]:
     ensure_schema()
     with database.db_conn() as conn:

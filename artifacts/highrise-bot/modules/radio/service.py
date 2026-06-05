@@ -253,6 +253,109 @@ def queue_display(limit: int = 10) -> str:
     return "\n".join(lines)
 
 
+def _request_line(row: dict) -> str:
+    title = row.get("title") or "Untitled request"
+    status = row.get("status") or "unknown"
+    return f"#{row.get('id')} — {title} ({status})"
+
+
+def _is_staff_user(username: str) -> bool:
+    return permissions.is_owner(username) or permissions.is_staff(username)
+
+
+def _refund_request_discs_once(job: dict) -> int:
+    amount = int(job.get("disc_cost_charged") or 0)
+    if amount <= 0:
+        return 0
+    music_discs.refund_discs(
+        job.get("user_id") or "",
+        job.get("username") or "",
+        amount,
+        music_discs.REFUND_REASON,
+        actor="radio",
+    )
+    radio_db.update_request(int(job["id"]), disc_cost_charged=0)
+    return amount
+
+
+def cancel_request(user, request_id: int | None = None) -> str:
+    ensure_ready()
+    is_staff = _is_staff_user(user.username)
+    if request_id is None:
+        rows = radio_db.cancelable_requests_for_user(user.id)
+        if not rows:
+            return "🎵 You have no queued request to cancel."
+        if len(rows) > 1:
+            lines = ["🎵 Your cancelable requests"]
+            lines.extend(_request_line(row) for row in rows[:8])
+            lines.append("Use !cancelrequest <id>.")
+            return "\n".join(lines)
+        job = rows[0]
+    else:
+        job = radio_db.get_request(int(request_id))
+        if not job:
+            return "⚠️ Request not found."
+        if not is_staff and str(job.get("user_id") or "") != str(user.id):
+            return "⚠️ You can only cancel your own request."
+    status = str(job.get("status") or "")
+    if status not in {"pending", "preparing", "ready", "submitted"}:
+        if status == "playing":
+            return "⚠️ That request is already playing."
+        return "⚠️ That request can no longer be cancelled."
+    refunded = _refund_request_discs_once(job)
+    radio_db.mark_status(int(job["id"]), "cancelled", finish_reason="cancelled_by_staff" if is_staff else "cancelled_by_user")
+    cleanup.cleanup_request_media(int(job["id"]), reason="cancelled")
+    print(
+        f"[RADIO_PHASE6] event=request_cancelled request_id={job['id']} "
+        f"by={getattr(user, 'username', '')!r} refunded={refunded}"
+    )
+    suffix = f"\nRefunded: {refunded} Song Request 💽" if refunded else ""
+    return f"✅ Cancelled request #{job['id']}.\nTitle: {job.get('title') or 'Untitled request'}{suffix}"
+
+
+def request_status(user) -> str:
+    ensure_ready()
+    rows = radio_db.active_requests_for_user(user.id, limit=10)
+    if not rows:
+        return "🎵 You have no active radio requests."
+    lines = ["🎵 Your request status"]
+    lines.extend(_request_line(row) for row in rows)
+    lines.append("Use !cancelrequest <id> before it starts playing.")
+    return "\n".join(lines)
+
+
+def clear_failed_requests(user) -> str:
+    ensure_ready()
+    if not _is_staff_user(user.username):
+        return "This command is staff-only."
+    rows = radio_db.failed_requests_for_cleanup(limit=100)
+    cleaned = 0
+    for row in rows:
+        if cleanup.cleanup_request_media(int(row["id"]), reason="staff_clear_failed"):
+            cleaned += 1
+    print(f"[RADIO_PHASE6] event=clear_failed_requests by={user.username!r} rows={len(rows)} cleaned={cleaned}")
+    return f"🧹 Cleared failed radio requests: {cleaned}/{len(rows)}."
+
+
+def clear_stuck_requests(user) -> str:
+    ensure_ready()
+    if not _is_staff_user(user.username):
+        return "This command is staff-only."
+    rows = radio_db.stuck_requests_for_cleanup(minutes=30, limit=100)
+    cleaned = 0
+    refunded = 0
+    for row in rows:
+        refunded += _refund_request_discs_once(row)
+        radio_db.mark_status(int(row["id"]), "cancelled", finish_reason="staff_clear_stuck")
+        if cleanup.cleanup_request_media(int(row["id"]), reason="staff_clear_stuck"):
+            cleaned += 1
+    print(
+        f"[RADIO_PHASE6] event=clear_stuck_requests by={user.username!r} "
+        f"rows={len(rows)} cleaned={cleaned} refunded={refunded}"
+    )
+    return f"🧹 Cleared stuck radio requests: {cleaned}/{len(rows)}.\nRefunded: {refunded} Song Request 💽"
+
+
 def health_snapshot() -> dict:
     ensure_ready()
     api = azura.test_api()

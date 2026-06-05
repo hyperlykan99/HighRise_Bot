@@ -28,6 +28,8 @@ async def handle_radiohelp(bot, user, args=None) -> None:
                 "!play <youtube_url> — request a direct YouTube link",
                 "!play <song name> — search YouTube",
                 "!pick 1-5 — request a search result",
+                "!cancelrequest — cancel your queued request",
+                "!requeststatus — view your active requests",
                 "!radiohelp — this help",
                 "Favorites are still being rebuilt.",
             ]
@@ -103,11 +105,45 @@ async def handle_pick(bot, user, args=None) -> None:
     await _w(bot, user.id, message)
 
 
+async def handle_cancelrequest(bot, user, args=None) -> None:
+    args = list(args or [])
+    if args and str(args[0]).lower() == "cancelrequest":
+        args = args[1:]
+    request_id = None
+    if args:
+        try:
+            request_id = int(str(args[0]).strip())
+        except (TypeError, ValueError):
+            await _w(bot, user.id, "Use: !cancelrequest or !cancelrequest <id>")
+            return
+    await _w(bot, user.id, service.cancel_request(user, request_id))
+
+
+async def handle_requeststatus(bot, user, args=None) -> None:
+    await _w(bot, user.id, service.request_status(user))
+
+
+async def handle_clearfailedrequests(bot, user, args=None) -> None:
+    await _w(bot, user.id, service.clear_failed_requests(user))
+
+
+async def handle_clearstuckrequests(bot, user, args=None) -> None:
+    await _w(bot, user.id, service.clear_stuck_requests(user))
+
+
 async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
     if cmd == "play":
         await handle_play(bot, user, args)
     elif cmd in {"pick", "djpick"}:
         await handle_pick(bot, user, args)
+    elif cmd == "cancelrequest":
+        await handle_cancelrequest(bot, user, args)
+    elif cmd == "requeststatus":
+        await handle_requeststatus(bot, user, args)
+    elif cmd == "clearfailedrequests":
+        await handle_clearfailedrequests(bot, user, args)
+    elif cmd == "clearstuckrequests":
+        await handle_clearstuckrequests(bot, user, args)
     elif cmd == "radiohelp":
         await handle_radiohelp(bot, user, args)
     elif cmd in {"q", "queue"}:
