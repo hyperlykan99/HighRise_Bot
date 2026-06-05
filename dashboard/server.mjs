@@ -260,6 +260,135 @@ function readAutodjUploads(db) {
   }
 }
 
+function safeAutodjVibeName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48);
+}
+
+function autodjVibesRoot() {
+  return resolveBotRelativePath("liquidsoap/autodj/vibes", "liquidsoap/autodj/vibes");
+}
+
+function autodjVibePath(vibe) {
+  const safe = safeAutodjVibeName(vibe);
+  if (!safe) return null;
+  const root = autodjVibesRoot();
+  const dir = path.resolve(root, safe);
+  return isInsideDir(dir, root) ? dir : null;
+}
+
+function safeAudioFilename(filename) {
+  const parsed = path.parse(path.basename(String(filename || "")));
+  const ext = parsed.ext.toLowerCase();
+  if (!AUTODJ_UPLOAD_AUDIO_EXTS.has(ext)) return "";
+  const stem = parsed.name
+    .normalize("NFKD")
+    .replace(/[^\w .'-]+/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/_+/g, "_")
+    .trim()
+    .slice(0, 120)
+    .replace(/^\.+|\.+$/g, "");
+  return `${stem || "track"}${ext}`;
+}
+
+function uniqueAudioPath(dir, filename) {
+  const safe = safeAudioFilename(filename);
+  if (!safe) return null;
+  const parsed = path.parse(safe);
+  let candidate = path.resolve(dir, safe);
+  let index = 2;
+  while (fs.existsSync(candidate)) {
+    candidate = path.resolve(dir, `${parsed.name} (${index})${parsed.ext}`);
+    index += 1;
+  }
+  return isInsideDir(candidate, dir) ? candidate : null;
+}
+
+function readAutodjVibeFiles(vibe) {
+  const safe = safeAutodjVibeName(vibe);
+  const dir = autodjVibePath(safe);
+  if (!safe || !dir) return { vibe: safe, count: 0, files: [], error: "invalid_vibe" };
+  const files = [];
+  try {
+    ensureDir(dir, 0o755);
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const ext = path.extname(entry.name).toLowerCase();
+      if (!AUTODJ_UPLOAD_AUDIO_EXTS.has(ext)) continue;
+      const fullPath = path.resolve(dir, entry.name);
+      if (!isInsideDir(fullPath, dir)) continue;
+      const stat = fs.statSync(fullPath);
+      files.push({
+        filename: entry.name,
+        type: ext.replace(".", ""),
+        extension: ext,
+        size: stat.size,
+        size_mb: Number((stat.size / (1024 * 1024)).toFixed(2)),
+        modified_at: stat.mtime.toISOString(),
+        relative_path: path.relative(BOT_ROOT, fullPath).split(path.sep).join("/"),
+      });
+    }
+    files.sort((a, b) => String(a.filename).localeCompare(String(b.filename)));
+    return { vibe: safe, path: `liquidsoap/autodj/vibes/${safe}`, count: files.length, files };
+  } catch (err) {
+    return { vibe: safe, path: `liquidsoap/autodj/vibes/${safe}`, count: 0, files: [], error: err.message };
+  }
+}
+
+function readAutodjVibes() {
+  const root = autodjVibesRoot();
+  const vibes = [];
+  try {
+    ensureDir(root, 0o755);
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const safe = safeAutodjVibeName(entry.name);
+      if (!safe || safe !== entry.name) continue;
+      const info = readAutodjVibeFiles(safe);
+      vibes.push({
+        name: safe,
+        safe_vibe_name: safe,
+        path: `liquidsoap/autodj/vibes/${safe}`,
+        file_count: info.count,
+      });
+    }
+    vibes.sort((a, b) => a.name.localeCompare(b.name));
+    return { root: "liquidsoap/autodj/vibes", count: vibes.length, vibes };
+  } catch (err) {
+    return { root: "liquidsoap/autodj/vibes", count: 0, vibes: [], error: err.message };
+  }
+}
+
+function parseMultipartFiles(buffer, contentType) {
+  const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(String(contentType || ""));
+  const boundary = match?.[1] || match?.[2];
+  if (!boundary) return [];
+  const raw = buffer.toString("binary");
+  const marker = `--${boundary}`;
+  const files = [];
+  for (const part of raw.split(marker)) {
+    if (!part || part === "--\r\n" || part === "--") continue;
+    const bodyStart = part.indexOf("\r\n\r\n");
+    if (bodyStart === -1) continue;
+    const headerText = part.slice(0, bodyStart);
+    let dataText = part.slice(bodyStart + 4);
+    if (dataText.endsWith("\r\n")) dataText = dataText.slice(0, -2);
+    if (dataText.endsWith("--")) dataText = dataText.slice(0, -2);
+    const disposition = /content-disposition:[^\r\n]+/i.exec(headerText)?.[0] || "";
+    const name = /name="([^"]+)"/i.exec(disposition)?.[1] || "";
+    const filename = /filename="([^"]*)"/i.exec(disposition)?.[1] || "";
+    if (!["file", "files"].includes(name) || !filename) continue;
+    files.push({ filename, data: Buffer.from(dataText, "binary") });
+  }
+  return files;
+}
+
 function envMetadata(filePath = VPS_ENV_PATH) {
   const meta = fileMeta(filePath);
   const tokenKeys = {};
@@ -6574,6 +6703,64 @@ app.get("/api/radio", requireAuth, requireAnyPermission("manage_radio", "view_lo
 app.get("/api/radio/autodj/uploads", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
   json(res, { autodj_uploads: readAutodjUploads(req.db), updated_at: nowIso() });
 }, closeDb);
+
+app.get("/api/radio/autodj/vibes", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
+  const vibes = readAutodjVibes();
+  const selected = String(req.query?.selected || vibes.vibes?.[0]?.name || "").trim();
+  json(res, { autodj_vibes: vibes, selected_vibe: selected ? readAutodjVibeFiles(selected) : null, updated_at: nowIso() });
+}, closeDb);
+
+app.post("/api/radio/autodj/vibes", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const rawName = String(req.body?.name || "").trim();
+  const safe = safeAutodjVibeName(rawName);
+  if (!safe) return json(res, { error: "invalid_vibe_name" }, 400);
+  const dir = autodjVibePath(safe);
+  if (!dir) return json(res, { error: "invalid_vibe_path" }, 400);
+  ensureDir(dir, 0o755);
+  audit(req.db, req.user.username, "autodj_vibe_create", "filesystem", safe, "", { path: `liquidsoap/autodj/vibes/${safe}` }, req.ip);
+  json(res, { ok: true, vibe: { name: safe, safe_vibe_name: safe, path: `liquidsoap/autodj/vibes/${safe}` } });
+}, closeDb);
+
+app.get("/api/radio/autodj/vibes/:vibe/files", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
+  json(res, { vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
+}, closeDb);
+
+app.post(
+  "/api/radio/autodj/vibes/:vibe/upload",
+  requireAuth,
+  requirePermission("manage_radio"),
+  express.raw({ type: (req) => String(req.headers["content-type"] || "").startsWith("multipart/form-data"), limit: "500mb" }),
+  (req, res) => {
+    const safe = safeAutodjVibeName(req.params.vibe);
+    const dir = autodjVibePath(safe);
+    if (!safe || !dir) return json(res, { error: "invalid_vibe" }, 400);
+    ensureDir(dir, 0o755);
+    const parts = parseMultipartFiles(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), req.headers["content-type"]);
+    const uploaded = [];
+    const rejected = [];
+    for (const part of parts) {
+      const safeName = safeAudioFilename(part.filename);
+      if (!safeName || !part.data?.length) {
+        rejected.push({ filename: part.filename, reason: "unsupported_or_empty" });
+        continue;
+      }
+      const target = uniqueAudioPath(dir, safeName);
+      if (!target) {
+        rejected.push({ filename: part.filename, reason: "unsafe_target" });
+        continue;
+      }
+      fs.writeFileSync(target, part.data, { flag: "wx" });
+      uploaded.push({
+        filename: path.basename(target),
+        size: part.data.length,
+        relative_path: path.relative(BOT_ROOT, target).split(path.sep).join("/"),
+      });
+    }
+    audit(req.db, req.user.username, "autodj_vibe_upload", "filesystem", safe, "", { uploaded: uploaded.length, rejected: rejected.length }, req.ip);
+    json(res, { ok: true, uploaded, rejected, vibe_files: readAutodjVibeFiles(safe) });
+  },
+  closeDb,
+);
 
 for (const radioReadPath of [
   "/api/radio/overview",

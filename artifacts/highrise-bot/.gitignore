@@ -23,6 +23,13 @@ liquidsoap/autodj/**/*.flac
 liquidsoap/autodj/**/*.m4a
 liquidsoap/autodj/**/*.aac
 liquidsoap/autodj/**/*.ogg
+liquidsoap/autodj/vibes/**/*.mp3
+liquidsoap/autodj/vibes/**/*.wav
+liquidsoap/autodj/vibes/**/*.flac
+liquidsoap/autodj/vibes/**/*.m4a
+liquidsoap/autodj/vibes/**/*.aac
+liquidsoap/autodj/vibes/**/*.ogg
+liquidsoap/autodj/vibes/**/*.opus
 liquidsoap/autodj/sync_jobs/
 liquidsoap/autodj/uploads/*
 !liquidsoap/autodj/uploads/.gitkeep

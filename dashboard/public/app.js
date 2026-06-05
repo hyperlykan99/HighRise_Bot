@@ -146,6 +146,7 @@ const RADIO_TABS = [
   { id: "Recently Played", api: "/api/radio/recent" },
   { id: "Blocklist", api: "/api/radio/blocklist" },
   { id: "Rewards / Stats", api: "/api/radio/stats" },
+  { id: "AutoDJ Manager", api: "/api/radio/autodj/vibes" },
   { id: "Uploads", api: "/api/radio/autodj/uploads" },
   { id: "Local Library", api: "/api/radio" },
   { id: "AzuraCast / Stream", api: "/api/radio" },
@@ -4103,6 +4104,7 @@ function renderRadioOwnerPage(tab) {
     ${tab === "Recently Played" ? renderRadioRecent(d) : ""}
     ${tab === "Blocklist" ? renderRadioBlocklist(d) : ""}
     ${tab === "Rewards / Stats" ? renderRadioStats(d) : ""}
+    ${tab === "AutoDJ Manager" ? renderRadioAutodjManager(d) : ""}
     ${tab === "Uploads" ? renderRadioUploads(d) : ""}
     ${tab === "Local Library" ? renderRadioLocalLibrary(d) : ""}
     ${tab === "AzuraCast / Stream" ? renderRadioStream(d) : ""}
@@ -4427,6 +4429,47 @@ function renderRadioUploads(d) {
         { key: "size_mb", label: "Size MB" },
         { key: "modified_at", label: "Modified" },
         { key: "safe_path", label: "Path" },
+      ])}
+    </div>
+  </div>`;
+}
+
+function renderRadioAutodjManager(d) {
+  const vibes = d.autodj_vibes || {};
+  const selected = d.selected_vibe || {};
+  const vibeRows = vibes.vibes || [];
+  const active = selected.vibe || vibeRows[0]?.name || "";
+  return `<div class="grid">
+    <div class="card">
+      <div class="card-header"><h2>AutoDJ Vibes</h2><span class="pill info">UPLOAD</span></div>
+      <form id="autodjCreateVibeForm" class="toolbar" style="margin-bottom:12px;flex-wrap:wrap">
+        <input name="name" placeholder="new_vibe_name" required />
+        <button class="btn primary">Create Vibe</button>
+      </form>
+      ${vibeRows.length ? table(vibeRows, [
+        { key: "name", label: "Vibe" },
+        { key: "file_count", label: "Songs" },
+        { key: "path", label: "Folder" },
+      ], (r) => `<button class="btn sm" data-autodj-vibe="${esc(r.name)}">Open</button>`) : `<div class="notice">No vibe folders yet. Create one to start uploading.</div>`}
+    </div>
+    <div class="card">
+      <div class="card-header"><h2>${active ? esc(active) : "Selected Vibe"}</h2><button class="btn sm" data-autodj-refresh>Refresh</button></div>
+      ${active ? `
+        <div id="autodjDropZone" class="notice" data-vibe="${esc(active)}" style="border:1px dashed var(--border);padding:20px;text-align:center;margin-bottom:12px">
+          Drag audio files here or use the picker below.
+          <div class="muted text-sm">Allowed: .mp3 .m4a .wav .flac .ogg .opus .aac</div>
+        </div>
+        <input id="autodjFileInput" type="file" multiple accept=".mp3,.m4a,.wav,.flac,.ogg,.opus,.aac,audio/*" data-vibe="${esc(active)}" />
+      ` : `<div class="notice">Select or create a vibe.</div>`}
+    </div>
+    <div class="card">
+      <h2>Tracks (${selected.count ?? 0})</h2>
+      ${table(selected.files || [], [
+        { key: "filename", label: "Filename" },
+        { key: "type", label: "Type" },
+        { key: "size_mb", label: "Size MB" },
+        { key: "modified_at", label: "Modified" },
+        { key: "relative_path", label: "Path" },
       ])}
     </div>
   </div>`;
@@ -8662,6 +8705,63 @@ function bindAdminPageEvents() {
 
   /* Radio controls */
   document.querySelectorAll('[data-action="radio-refresh"]').forEach((btn) => btn.addEventListener("click", () => loadAdmin()));
+  document.querySelectorAll("[data-autodj-refresh]").forEach((btn) => btn.addEventListener("click", () => loadAdmin()));
+  document.querySelectorAll("[data-autodj-vibe]").forEach((btn) => btn.addEventListener("click", async () => {
+    state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(btn.dataset.autodjVibe || "")}`);
+    render();
+  }));
+  document.getElementById("autodjCreateVibeForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget));
+    try {
+      const created = await api("/api/radio/autodj/vibes", { method: "POST", body: JSON.stringify(data) });
+      const selected = created?.vibe?.name || "";
+      state.notice = "AutoDJ vibe created.";
+      state.error = "";
+      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(selected)}`);
+      render();
+    } catch (err) {
+      state.error = err.message;
+      render();
+    }
+  });
+  async function uploadAutodjFiles(vibe, files) {
+    if (!vibe || !files?.length) return;
+    const form = new FormData();
+    Array.from(files).forEach((file) => form.append("files", file));
+    const headers = state.csrf ? { "X-CSRF-Token": state.csrf, Accept: "application/json" } : { Accept: "application/json" };
+    const res = await fetch(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/upload`, {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    state.notice = `Uploaded ${data.uploaded?.length || 0} file(s).`;
+    state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
+    render();
+  }
+  document.getElementById("autodjFileInput")?.addEventListener("change", async (e) => {
+    const vibe = e.currentTarget.dataset.vibe || "";
+    try { await uploadAutodjFiles(vibe, e.currentTarget.files); }
+    catch (err) { state.error = err.message; render(); }
+  });
+  const dropZone = document.getElementById("autodjDropZone");
+  if (dropZone) {
+    ["dragenter", "dragover"].forEach((eventName) => dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      dropZone.classList.add("active");
+    }));
+    ["dragleave", "drop"].forEach((eventName) => dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("active");
+    }));
+    dropZone.addEventListener("drop", async (e) => {
+      try { await uploadAutodjFiles(dropZone.dataset.vibe || "", e.dataTransfer.files); }
+      catch (err) { state.error = err.message; render(); }
+    });
+  }
   document.querySelectorAll('[data-action="radio-skip"]').forEach((btn) => btn.addEventListener("click", () => {
     confirmAction("Skip Song", "Request a skip of the current song.", async () => {
       await action("Skip queued for DJ_DUDU.", () => api("/api/radio/skip", { method: "POST", body: JSON.stringify({}) }));
