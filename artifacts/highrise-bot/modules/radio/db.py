@@ -26,6 +26,7 @@ def ensure_schema() -> None:
                 username TEXT,
                 source_type TEXT,
                 source_ref TEXT,
+                duration_secs INTEGER DEFAULT 0,
                 title TEXT,
                 artist TEXT,
                 status TEXT,
@@ -50,6 +51,9 @@ def ensure_schema() -> None:
                 finish_reason TEXT
             )"""
         )
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(radio_requests)").fetchall()}
+        if "duration_secs" not in columns:
+            conn.execute("ALTER TABLE radio_requests ADD COLUMN duration_secs INTEGER DEFAULT 0")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS radio_runtime_state (
                 key TEXT PRIMARY KEY,
@@ -122,6 +126,7 @@ def create_request(
     username: str,
     source_type: str,
     source_ref: str,
+    duration_secs: int,
     title: str,
     artist: str,
     disc_cost: int,
@@ -133,15 +138,16 @@ def create_request(
     with database.db_conn() as conn:
         cur = conn.execute(
             """INSERT INTO radio_requests
-               (user_id, username, source_type, source_ref, title, artist, status,
+               (user_id, username, source_type, source_ref, duration_secs, title, artist, status,
                 priority, disc_cost_charged, payment_reason, is_staff_free, is_vip,
                 created_at)
-               VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, datetime('now'))""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, datetime('now'))""",
             (
                 user_id,
                 username,
                 source_type,
                 source_ref,
+                int(duration_secs or 0),
                 title,
                 artist,
                 int(disc_cost),
@@ -318,7 +324,7 @@ def update_request(request_id: int, **fields) -> None:
     ensure_schema()
     allowed = {
         "source_type", "source_ref", "title", "artist", "status", "priority",
-        "disc_cost_charged", "payment_reason", "is_staff_free", "is_vip",
+        "duration_secs", "disc_cost_charged", "payment_reason", "is_staff_free", "is_vip",
         "temp_filename", "azura_file_id", "azura_song_id", "azura_path",
         "prepared_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
         "cancelled_at", "failed_at", "error", "finish_reason",
@@ -370,7 +376,7 @@ def update_request_with_sql_markers(request_id: int, **fields) -> None:
     ensure_schema()
     allowed = {
         "source_type", "source_ref", "title", "artist", "status", "priority",
-        "disc_cost_charged", "payment_reason", "is_staff_free", "is_vip",
+        "duration_secs", "disc_cost_charged", "payment_reason", "is_staff_free", "is_vip",
         "temp_filename", "azura_file_id", "azura_song_id", "azura_path",
         "prepared_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
         "cancelled_at", "failed_at", "error", "finish_reason",
@@ -437,6 +443,21 @@ def ready_requests_for_prequeue(limit: int = 5) -> list[dict]:
                ORDER BY id ASC
                LIMIT ?""",
             (max(1, min(10, int(limit))),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def ready_liquidsoap_requests_for_cleanup(limit: int = 50) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status='ready'
+                 AND COALESCE(azura_path, '') != ''
+                 AND COALESCE(temp_filename, '') LIKE 'radio_request_%'
+               ORDER BY id ASC
+               LIMIT ?""",
+            (max(1, min(100, int(limit))),),
         ).fetchall()
     return [dict(row) for row in rows]
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 
 import database as root_db
 from modules import permissions
@@ -346,8 +347,77 @@ async def drain_ready_requests_to_liquidsoap(
     allow_initial: bool = False,
 ) -> int:
     ensure_ready()
-    print(f"[RADIO_PHASE8] event=request_prequeue_skip reason=liquidsoap_handoff_active drain_reason={reason!r}")
-    return 0
+    return await cleanup_played_liquidsoap_requests(reason=reason)
+
+
+async def cleanup_played_liquidsoap_requests(reason: str = "poll_tick") -> int:
+    ensure_ready()
+    return await asyncio.to_thread(_cleanup_played_liquidsoap_requests_sync, reason)
+
+
+def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
+    now = time.time()
+    buffer_secs = radio_settings.liquidsoap_cleanup_buffer_secs()
+    fallback_duration = radio_settings.liquidsoap_cleanup_fallback_duration_secs()
+    moved = 0
+    rows = radio_db.ready_liquidsoap_requests_for_cleanup(limit=50)
+    print(
+        f"[RADIO_LIQUIDSOAP_CLEANUP_SCAN] reason={reason!r} rows={len(rows)} "
+        f"buffer_secs={buffer_secs} fallback_duration_secs={fallback_duration}"
+    )
+    for row in rows:
+        request_id = int(row.get("id") or 0)
+        filename = str(row.get("temp_filename") or "")
+        path = str(row.get("azura_path") or filename)
+        next_path = liquidsoap_queue.request_path_in_next(path)
+        if not next_path or not liquidsoap_queue.safe_request_filename(filename):
+            print(
+                f"[RADIO_LIQUIDSOAP_CLEANUP_SCAN] request_id={request_id} "
+                f"path={path!r} eligible=False reason='unsafe_path_or_filename'"
+            )
+            continue
+        if not next_path.exists() or not next_path.is_file():
+            print(
+                f"[RADIO_LIQUIDSOAP_CLEANUP_SCAN] request_id={request_id} "
+                f"path={str(next_path)!r} eligible=False reason='file_missing'"
+            )
+            continue
+        duration = int(row.get("duration_secs") or 0)
+        if duration <= 0:
+            duration = fallback_duration
+        age_secs = max(0, int(now - next_path.stat().st_mtime))
+        threshold = max(1, int(duration) + int(buffer_secs))
+        eligible = age_secs >= threshold
+        print(
+            f"[RADIO_LIQUIDSOAP_CLEANUP_SCAN] request_id={request_id} "
+            f"path={str(next_path)!r} age_secs={age_secs} threshold_secs={threshold} "
+            f"eligible={eligible}"
+        )
+        if not eligible:
+            continue
+        ok, played_path, error = liquidsoap_queue.move_request_to_played(str(next_path))
+        if not ok:
+            print(
+                f"[RADIO_LIQUIDSOAP_MOVE_PLAYED_FAILED] request_id={request_id} "
+                f"source={str(next_path)!r} target={played_path!r} error={error!r}"
+            )
+            continue
+        print(
+            f"[RADIO_LIQUIDSOAP_MOVE_PLAYED_OK] request_id={request_id} "
+            f"source={str(next_path)!r} target={played_path!r}"
+        )
+        radio_db.mark_status(
+            request_id,
+            "played",
+            azura_path=played_path,
+            finish_reason="liquidsoap_played_cleanup",
+        )
+        print(
+            f"[RADIO_LIQUIDSOAP_MARK_PLAYED] request_id={request_id} "
+            f"filename={filename!r} reason='liquidsoap_played_cleanup'"
+        )
+        moved += 1
+    return moved
 
 
 def queue_display(limit: int = 10) -> str:
@@ -580,6 +650,7 @@ async def submit_direct_youtube_request(bot, user, url: str) -> str:
         user.username,
         "youtube",
         clean_url,
+        duration,
         meta.get("title") or "YouTube Request",
         meta.get("artist") or "YouTube",
         cost,

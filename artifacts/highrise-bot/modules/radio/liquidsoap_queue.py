@@ -18,7 +18,15 @@ def project_root() -> Path:
 
 
 def queue_next_dir() -> Path:
-    raw = str(radio_settings.get_setting("liquidsoap_queue_next_path", "liquidsoap/queue/next") or "").strip()
+    return _configured_dir("liquidsoap_queue_next_path", "liquidsoap/queue/next")
+
+
+def queue_played_dir() -> Path:
+    return _configured_dir("liquidsoap_played_path", "liquidsoap/queue/played")
+
+
+def _configured_dir(setting_key: str, default: str) -> Path:
+    raw = str(radio_settings.get_setting(setting_key, default) or "").strip()
     path = Path(raw)
     if not path.is_absolute():
         path = project_root() / path
@@ -39,6 +47,22 @@ def request_filename(request_id: int, title: str = "") -> str:
 def safe_request_filename(filename: str) -> bool:
     name = os.path.basename(str(filename or ""))
     return bool(name) and name == filename and bool(SAFE_REQUEST_RE.match(name))
+
+
+def request_path_in_next(path_or_filename: str) -> Path | None:
+    raw = str(path_or_filename or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    filename = os.path.basename(raw)
+    if not safe_request_filename(filename):
+        return None
+    target = path.resolve() if path.is_absolute() else (queue_next_dir() / filename).resolve()
+    try:
+        target.relative_to(queue_next_dir())
+    except ValueError:
+        return None
+    return target
 
 
 def handoff_to_next(local_mp3: str | os.PathLike, request_id: int, title: str = "") -> tuple[bool, str, str]:
@@ -66,21 +90,9 @@ def handoff_to_next(local_mp3: str | os.PathLike, request_id: int, title: str = 
 
 
 def remove_request_file(path_or_filename: str) -> bool:
-    raw = str(path_or_filename or "").strip()
-    if not raw:
-        return True
-    path = Path(raw)
-    if path.is_absolute():
-        target = path.resolve()
-        try:
-            target.relative_to(queue_next_dir())
-        except ValueError:
-            return False
-    else:
-        filename = os.path.basename(raw)
-        if not safe_request_filename(filename):
-            return False
-        target = queue_next_dir() / filename
+    target = request_path_in_next(path_or_filename)
+    if target is None:
+        return not str(path_or_filename or "").strip()
     try:
         target.unlink()
         return True
@@ -88,3 +100,26 @@ def remove_request_file(path_or_filename: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def move_request_to_played(path_or_filename: str) -> tuple[bool, str, str]:
+    source = request_path_in_next(path_or_filename)
+    if source is None:
+        return False, "", "unsafe_or_outside_next"
+    filename = source.name
+    if not safe_request_filename(filename):
+        return False, str(source), "unsafe_filename"
+    if not source.exists() or not source.is_file():
+        return False, str(source), "source_missing"
+    target_dir = queue_played_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = (target_dir / filename).resolve()
+    try:
+        target.relative_to(target_dir)
+    except ValueError:
+        return False, str(target), "target_outside_played"
+    try:
+        os.replace(source, target)
+    except Exception as exc:
+        return False, str(target), repr(exc)
+    return True, str(target), ""

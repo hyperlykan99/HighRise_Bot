@@ -24,6 +24,9 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "radio_request_prequeue_enabled": ("true", "bool"),
     "radio_request_prequeue_count": ("1", "int"),
     "liquidsoap_queue_next_path": ("liquidsoap/queue/next", "str"),
+    "liquidsoap_played_path": ("liquidsoap/queue/played", "str"),
+    "liquidsoap_cleanup_buffer_secs": ("60", "int"),
+    "liquidsoap_cleanup_fallback_duration_secs": ("300", "int"),
     "now_announce_song_changes": ("true", "bool"),
     "now_announce_autodj": ("true", "bool"),
     "now_announce_requests": ("true", "bool"),
@@ -111,6 +114,16 @@ def radio_poll_interval_secs() -> int:
 def radio_request_prequeue_count() -> int:
     value = get_int_setting("radio_request_prequeue_count", 1)
     return max(0, min(3, int(value)))
+
+
+def liquidsoap_cleanup_buffer_secs() -> int:
+    value = get_int_setting("liquidsoap_cleanup_buffer_secs", 60)
+    return max(0, min(600, int(value)))
+
+
+def liquidsoap_cleanup_fallback_duration_secs() -> int:
+    value = get_int_setting("liquidsoap_cleanup_fallback_duration_secs", 300)
+    return max(30, min(3600, int(value)))
 
 
 def youtube_search_result_count() -> int:
