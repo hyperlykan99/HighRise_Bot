@@ -9,3 +9,18 @@ request_staging/
 logs/
 __pycache__/
 *.pyc
+
+# ChillTopia Liquidsoap runtime/audio files
+liquidsoap/autodj/*.mp3
+liquidsoap/autodj/*.wav
+liquidsoap/autodj/*.flac
+liquidsoap/autodj/*.m4a
+liquidsoap/autodj/*.aac
+liquidsoap/autodj/*.ogg
+liquidsoap/queue/**/*.mp3
+liquidsoap/queue/**/*.wav
+liquidsoap/queue/**/*.flac
+liquidsoap/queue/**/*.m4a
+liquidsoap/queue/**/*.aac
+liquidsoap/queue/**/*.ogg
+liquidsoap/logs/
