@@ -259,6 +259,13 @@ def _request_line(row: dict) -> str:
     return f"#{row.get('id')} — {title} ({status})"
 
 
+def _request_status_line(row: dict) -> str:
+    title = row.get("title") or "Untitled request"
+    status = str(row.get("status") or "unknown")
+    state = "cancellable" if status in {"pending", "preparing", "ready"} and not str(row.get("submitted_at") or "").strip() else "locked"
+    return f"#{row.get('id')} — {title} — {status} — {state}"
+
+
 def _is_staff_user(username: str) -> bool:
     return permissions.is_owner(username) or permissions.is_staff(username)
 
@@ -300,12 +307,13 @@ def cancel_request(user, request_id: int | None = None) -> str:
     if request_id is None:
         rows = radio_db.cancelable_requests_for_user(user.id)
         if not rows:
-            return "🎵 You have no queued request to cancel."
+            return "⚠️ You have no cancellable requests."
         if len(rows) > 1:
-            lines = ["🎵 Your cancelable requests"]
-            lines.extend(_request_line(row) for row in rows[:8])
-            lines.append("Use !cancelrequest <id>.")
-            return "\n".join(lines)
+            print(
+                f"[RADIO_PHASE6] event=request_cancel_multiple_requires_id "
+                f"username={getattr(user, 'username', '')!r} count={len(rows)}"
+            )
+            return "⚠️ You have multiple requests. Use !requeststatus then !cancelrequest <id>."
         job = rows[0]
     else:
         job = radio_db.get_request(int(request_id))
@@ -313,6 +321,10 @@ def cancel_request(user, request_id: int | None = None) -> str:
             return "⚠️ Request not found."
         if not is_staff and str(job.get("user_id") or "") != str(user.id):
             return "⚠️ You can only cancel your own request."
+        print(
+            f"[RADIO_PHASE6] event=request_cancel_by_id "
+            f"request_id={job.get('id')} username={getattr(user, 'username', '')!r}"
+        )
     status = str(job.get("status") or "")
     if not is_staff and (status == "submitted" or str(job.get("submitted_at") or "").strip()):
         print(
@@ -326,7 +338,7 @@ def cancel_request(user, request_id: int | None = None) -> str:
             f"status={status!r} submitted_at={job.get('submitted_at')!r} username={getattr(user, 'username', '')!r}"
         )
         return "⚠️ This request is already playing and can’t be cancelled."
-    allowed = {"pending", "preparing", "ready"} if not is_staff else {"pending", "preparing", "ready", "submitted"}
+    allowed = {"pending", "preparing", "ready"}
     if status not in allowed:
         if status == "playing":
             return "⚠️ This request is already playing and can’t be cancelled."
@@ -347,9 +359,9 @@ def request_status(user) -> str:
     rows = radio_db.active_requests_for_user(user.id, limit=10)
     if not rows:
         return "🎵 You have no active radio requests."
-    lines = ["🎵 Your request status"]
-    lines.extend(_request_line(row) for row in rows)
-    lines.append("Use !cancelrequest <id> before it starts playing.")
+    lines = ["🎵 Your active requests"]
+    lines.extend(_request_status_line(row) for row in rows)
+    lines.append("Cancel with: !cancelrequest <id>")
     return "\n".join(lines)
 
 
