@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import threading
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,9 +15,10 @@ from modules.radio import liquidsoap_queue
 from modules.radio import settings as radio_settings
 
 
-AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"}
+AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus"}
 SAFE_VIBE_RE = re.compile(r"^[a-z0-9_]{1,48}$")
 SPOTDL_DEFAULT = "/opt/highrise-bots/spotdl-venv/bin/spotdl"
+REPLACEMENT_WORDS = ("wrong", "random", "version", "replacement", "replace")
 
 
 def _now_iso() -> str:
@@ -33,6 +35,14 @@ def _sync_jobs_dir() -> Path:
 
 def _rejected_dir(safe_vibe_name: str) -> Path:
     return (_autodj_root() / "rejected" / safe_vibe_name).resolve()
+
+
+def _manifests_dir() -> Path:
+    return (_autodj_root() / "manifests").resolve()
+
+
+def _manifest_path(safe_vibe_name: str) -> Path:
+    return (_manifests_dir() / f"{safe_vibe_name}.json").resolve()
 
 
 def vibe_dir(safe_vibe_name: str) -> Path:
@@ -61,6 +71,85 @@ def _audio_count(path: Path) -> int:
     return sum(1 for item in path.rglob("*") if item.is_file() and item.suffix.lower() in AUDIO_EXTS)
 
 
+def _safe_audio_filename(value: str) -> str:
+    name = Path(str(value or "")).name
+    if not name or Path(name).suffix.lower() not in AUDIO_EXTS:
+        return ""
+    if name.startswith(".") or "/" in name or "\\" in name:
+        return ""
+    return name
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _normalize_track_name(value: str) -> str:
+    text = Path(str(value or "")).stem.lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _unique_rejected_path(directory: Path, filename: str) -> Path:
+    parsed = Path(filename)
+    candidate = directory / parsed.name
+    index = 2
+    while candidate.exists():
+        candidate = directory / f"{parsed.stem} ({index}){parsed.suffix}"
+        index += 1
+    return candidate
+
+
+def _read_manifest(safe_vibe_name: str) -> dict:
+    path = _manifest_path(safe_vibe_name)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            data.setdefault("vibe", safe_vibe_name)
+            data.setdefault("tracks", [])
+            return data
+    except Exception:
+        pass
+    return {"vibe": safe_vibe_name, "tracks": []}
+
+
+def _write_manifest(safe_vibe_name: str, manifest: dict) -> None:
+    path = _manifest_path(safe_vibe_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    manifest["vibe"] = safe_vibe_name
+    manifest.setdefault("tracks", [])
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(temp, path)
+
+
+def _upsert_manifest_track(safe_vibe_name: str, filename: str, **fields) -> None:
+    manifest = _read_manifest(safe_vibe_name)
+    tracks = manifest.setdefault("tracks", [])
+    row = None
+    for item in tracks:
+        if str(item.get("filename") or "") == filename:
+            row = item
+            break
+    if row is None:
+        row = {
+            "filename": filename,
+            "status": "active",
+            "reason": "",
+            "needs_replacement": False,
+            "rejected_at": None,
+            "replaced_by": None,
+            "source": "spotdl_or_upload",
+        }
+        tracks.append(row)
+    row.update(fields)
+    _write_manifest(safe_vibe_name, manifest)
+
+
 def _current_active_vibe() -> str:
     active = active_path()
     try:
@@ -74,6 +163,77 @@ def _current_active_vibe() -> str:
         return name if SAFE_VIBE_RE.match(name) else ""
     except Exception:
         return ""
+
+
+def _active_track_file_for_nowplaying(track: dict) -> Path | None:
+    safe_vibe = _current_active_vibe()
+    if not safe_vibe:
+        return None
+    root = vibe_dir(safe_vibe)
+    if not root.is_dir():
+        return None
+    title = str((track or {}).get("title") or "").strip()
+    artist = str((track or {}).get("artist") or "").strip()
+    candidates = []
+    if title:
+        candidates.append(_normalize_track_name(title))
+    if artist and title:
+        candidates.append(_normalize_track_name(f"{artist} - {title}"))
+    candidates = [item for item in candidates if item]
+    if not candidates:
+        return None
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in AUDIO_EXTS:
+            continue
+        if not _inside(path, root):
+            continue
+        normalized_file = _normalize_track_name(path.name)
+        if normalized_file in candidates or any(candidate and candidate in normalized_file for candidate in candidates):
+            return path
+    return None
+
+
+def reject_current_track(track: dict, reason: str = "") -> tuple[bool, str]:
+    safe_vibe = _current_active_vibe()
+    clean_reason = str(reason or "").strip()[:160]
+    print(f"[AUTODJ_BADTRACK_START] active_vibe={safe_vibe!r} title={str((track or {}).get('title') or '')!r} reason={clean_reason!r}")
+    if not safe_vibe:
+        print("[AUTODJ_BADTRACK_FAILED] reason=no_active_vibe")
+        return False, "⚠️ No active AutoDJ vibe is set."
+    source = _active_track_file_for_nowplaying(track)
+    if source is None:
+        print("[AUTODJ_BADTRACK_FAILED] reason=current_file_not_matched")
+        return False, "⚠️ I couldn't safely identify the current AutoDJ file."
+    filename = _safe_audio_filename(source.name)
+    source_root = vibe_dir(safe_vibe)
+    rejected_root = _rejected_dir(safe_vibe)
+    if not filename or not _inside(source, source_root):
+        print(f"[AUTODJ_BADTRACK_FAILED] reason=unsafe_file file={str(source)!r}")
+        return False, "⚠️ Current AutoDJ file was not safe to move."
+    rejected_root.mkdir(parents=True, exist_ok=True)
+    target = _unique_rejected_path(rejected_root, filename)
+    if not _inside(target, rejected_root):
+        print(f"[AUTODJ_BADTRACK_FAILED] reason=unsafe_target target={str(target)!r}")
+        return False, "⚠️ Rejected target path was not safe."
+    needs_replacement = any(word in clean_reason.lower() for word in REPLACEMENT_WORDS)
+    try:
+        shutil.move(str(source), str(target))
+        _upsert_manifest_track(
+            safe_vibe,
+            filename,
+            status="needs_replacement" if needs_replacement else "rejected",
+            reason=clean_reason,
+            needs_replacement=needs_replacement,
+            rejected_at=_now_iso(),
+            rejected_path=str(target),
+        )
+    except Exception as exc:
+        print(f"[AUTODJ_BADTRACK_FAILED] file={str(source)!r} error={exc!r}")
+        return False, "⚠️ Could not move that AutoDJ track to rejected."
+    if needs_replacement:
+        print(f"[AUTODJ_REPLACEMENT_NEEDED] vibe={safe_vibe!r} filename={filename!r} reason={clean_reason!r}")
+    print(f"[AUTODJ_BADTRACK_OK] vibe={safe_vibe!r} filename={filename!r} rejected_path={str(target)!r}")
+    return True, f"✅ Rejected AutoDJ track\nVibe: {safe_vibe}\nFile: {filename}"
 
 
 def vibe_status() -> str:

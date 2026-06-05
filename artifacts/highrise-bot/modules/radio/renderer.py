@@ -9,7 +9,7 @@ def format_duration(seconds) -> str:
     except (TypeError, ValueError):
         total = 0
     minutes, secs = divmod(total, 60)
-    return f"{minutes}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
 
 
 def progress_bar(elapsed, duration, blocks: int = 10) -> str:

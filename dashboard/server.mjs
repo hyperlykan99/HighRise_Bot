@@ -287,6 +287,22 @@ function autodjActivePath() {
   return path.resolve(root, "active");
 }
 
+function autodjRejectedPath(vibe) {
+  const safe = safeAutodjVibeName(vibe);
+  if (!safe) return null;
+  const root = resolveBotRelativePath("liquidsoap/autodj/rejected", "liquidsoap/autodj/rejected");
+  const dir = path.resolve(root, safe);
+  return isInsideDir(dir, root) ? dir : null;
+}
+
+function autodjManifestPath(vibe) {
+  const safe = safeAutodjVibeName(vibe);
+  if (!safe) return null;
+  const root = resolveBotRelativePath("liquidsoap/autodj/manifests", "liquidsoap/autodj/manifests");
+  const file = path.resolve(root, `${safe}.json`);
+  return isInsideDir(file, root) ? file : null;
+}
+
 function readAutodjActiveVibe() {
   const active = autodjActivePath();
   try {
@@ -303,6 +319,21 @@ function readAutodjActiveVibe() {
     return { name: safe, path: `liquidsoap/autodj/vibes/${safe}` };
   } catch {
     return null;
+  }
+}
+
+function readAutodjManifest(vibe) {
+  const safe = safeAutodjVibeName(vibe);
+  const file = autodjManifestPath(safe);
+  if (!safe || !file || !fs.existsSync(file)) return { vibe: safe, tracks: [] };
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    return {
+      vibe: safe,
+      tracks: Array.isArray(data?.tracks) ? data.tracks.filter((track) => safeAudioFilename(track?.filename || "")) : [],
+    };
+  } catch {
+    return { vibe: safe, tracks: [] };
   }
 }
 
@@ -365,29 +396,67 @@ function readAutodjVibeFiles(vibe) {
   const dir = autodjVibePath(safe);
   if (!safe || !dir) return { vibe: safe, count: 0, files: [], error: "invalid_vibe" };
   const files = [];
-  try {
-    ensureDir(dir, 0o755);
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  const rejected = [];
+  const manifest = readAutodjManifest(safe);
+  const manifestByName = new Map((manifest.tracks || []).map((track) => [String(track.filename || ""), track]));
+  const readAudioDir = (root, status) => {
+    if (!root || !fs.existsSync(root)) return;
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       if (!entry.isFile()) continue;
       const ext = path.extname(entry.name).toLowerCase();
       if (!AUTODJ_UPLOAD_AUDIO_EXTS.has(ext)) continue;
-      const fullPath = path.resolve(dir, entry.name);
-      if (!isInsideDir(fullPath, dir)) continue;
+      const fullPath = path.resolve(root, entry.name);
+      if (!isInsideDir(fullPath, root)) continue;
       const stat = fs.statSync(fullPath);
-      files.push({
+      const manifestRow = manifestByName.get(entry.name) || {};
+      const row = {
         filename: entry.name,
+        status: manifestRow.needs_replacement ? "needs_replacement" : status,
+        reason: manifestRow.reason || "",
+        needs_replacement: Boolean(manifestRow.needs_replacement),
         type: ext.replace(".", ""),
         extension: ext,
         size: stat.size,
         size_mb: Number((stat.size / (1024 * 1024)).toFixed(2)),
         modified_at: stat.mtime.toISOString(),
         relative_path: path.relative(BOT_ROOT, fullPath).split(path.sep).join("/"),
-      });
+      };
+      if (status === "active") files.push(row);
+      else rejected.push(row);
     }
+  };
+  try {
+    ensureDir(dir, 0o755);
+    readAudioDir(dir, "active");
+    readAudioDir(autodjRejectedPath(safe), "rejected");
     files.sort((a, b) => String(a.filename).localeCompare(String(b.filename)));
-    return { vibe: safe, path: `liquidsoap/autodj/vibes/${safe}`, count: files.length, files };
+    rejected.sort((a, b) => String(a.filename).localeCompare(String(b.filename)));
+    const needsReplacement = [...files, ...rejected, ...(manifest.tracks || [])
+      .filter((track) => track.needs_replacement)
+      .map((track) => ({
+        filename: track.filename,
+        status: "needs_replacement",
+        reason: track.reason || "",
+        needs_replacement: true,
+        size: "",
+        size_mb: "",
+        modified_at: track.rejected_at || "",
+        relative_path: track.rejected_path && isInsideDir(String(track.rejected_path), BOT_ROOT)
+          ? path.relative(BOT_ROOT, String(track.rejected_path)).split(path.sep).join("/")
+          : "",
+      }))].filter((row) => row.needs_replacement);
+    return {
+      vibe: safe,
+      path: `liquidsoap/autodj/vibes/${safe}`,
+      count: files.length,
+      files,
+      rejected_count: rejected.length,
+      rejected_files: rejected,
+      needs_replacement_count: needsReplacement.length,
+      needs_replacement: needsReplacement,
+    };
   } catch (err) {
-    return { vibe: safe, path: `liquidsoap/autodj/vibes/${safe}`, count: 0, files: [], error: err.message };
+    return { vibe: safe, path: `liquidsoap/autodj/vibes/${safe}`, count: 0, files: [], rejected_files: [], needs_replacement: [], error: err.message };
   }
 }
 

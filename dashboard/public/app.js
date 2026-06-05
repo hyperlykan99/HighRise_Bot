@@ -4471,9 +4471,32 @@ function renderRadioAutodjManager(d) {
       <h2>Tracks (${selected.count ?? 0})</h2>
       ${table(selected.files || [], [
         { key: "filename", label: "Filename" },
+        { key: "status", label: "Status" },
+        { key: "reason", label: "Reason" },
         { key: "type", label: "Type" },
         { key: "size_mb", label: "Size MB" },
         { key: "modified_at", label: "Modified" },
+        { key: "relative_path", label: "Path" },
+      ])}
+    </div>
+    <div class="card">
+      <h2>Rejected Tracks (${selected.rejected_count ?? 0})</h2>
+      ${table(selected.rejected_files || [], [
+        { key: "filename", label: "Filename" },
+        { key: "status", label: "Status" },
+        { key: "reason", label: "Reason" },
+        { key: "size_mb", label: "Size MB" },
+        { key: "modified_at", label: "Modified" },
+        { key: "relative_path", label: "Path" },
+      ])}
+    </div>
+    <div class="card">
+      <h2>Needs Replacement (${selected.needs_replacement_count ?? 0})</h2>
+      ${table(selected.needs_replacement || [], [
+        { key: "filename", label: "Filename" },
+        { key: "status", label: "Status" },
+        { key: "reason", label: "Reason" },
+        { key: "modified_at", label: "Marked" },
         { key: "relative_path", label: "Path" },
       ])}
     </div>

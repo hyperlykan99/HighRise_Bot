@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from datetime import datetime, timezone
 
 import database as root_db
 from modules import permissions
+from modules.radio import autodj_sync
 from modules.radio import cleanup
 from modules.radio import azura
 from modules.radio import db as radio_db
@@ -259,6 +261,21 @@ def now_playing_card(bot=None) -> tuple[str | None, dict | None, str]:
         display_track["title"] = request.get("title") or track.get("title") or "Unknown Track"
         display_track["artist"] = request.get("artist") or track.get("artist") or "Unknown Artist"
         display_track["track_key"] = f"request:{request.get('id')}"
+        duration = int(request.get("duration_secs") or 0)
+        elapsed = _elapsed_from_playing_at(request.get("playing_at"), duration)
+        if duration > 0 and elapsed is not None:
+            display_track["duration"] = duration
+            display_track["elapsed"] = elapsed
+            display_track["live"] = False
+            print(
+                f"[RADIO_LIQUIDSOAP_PROGRESS_RENDER] request_id={request['id']} "
+                f"elapsed_secs={elapsed} duration_secs={duration}"
+            )
+        else:
+            print(
+                f"[RADIO_LIQUIDSOAP_PROGRESS_FALLBACK] request_id={request['id']} "
+                f"playing_at={request.get('playing_at')!r} duration_secs={duration}"
+            )
         radio_db.set_runtime_state("current_request_id", request["id"])
         print(
             f"[RADIO_LIQUIDSOAP_NOWPLAYING_REQUEST_MATCH] "
@@ -272,6 +289,35 @@ def now_playing_card(bot=None) -> tuple[str | None, dict | None, str]:
     radio_db.mark_last_poll(True)
     radio_db.set_runtime_state("current_track", display_track)
     return renderer.render_now_playing_card(display_track, source, requester=requester, stats=stats, settings=_renderer_settings()), display_track, ""
+
+
+def reject_current_autodj_track(reason: str = "") -> str:
+    ensure_ready()
+    track = icecast.extract_mount_track(icecast.fetch_status_json())
+    if not track:
+        return "⚠️ I can't read the current AutoDJ track right now."
+    request = _liquidsoap_nowplaying_request(track)
+    if request:
+        return "⚠️ Current song is a user request. Use request controls instead."
+    ok, message = autodj_sync.reject_current_track(track, reason=reason)
+    return message
+
+
+def _elapsed_from_playing_at(playing_at: str | None, duration: int) -> int | None:
+    raw = str(playing_at or "").strip()
+    if not raw or int(duration or 0) <= 0:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    elapsed = int((datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds())
+    return max(0, min(int(duration), elapsed))
 
 
 def _liquidsoap_nowplaying_request(track: dict) -> dict | None:
@@ -428,7 +474,7 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
                     f"source={str(next_path)!r} target={new_path!r} error={error!r}"
                 )
                 continue
-            radio_db.update_request(request_id, azura_path=new_path)
+            radio_db.mark_liquidsoap_playing_file(request_id, new_path)
             print(
                 f"[RADIO_LIQUIDSOAP_MOVE_PLAYING_OK] request_id={request_id} "
                 f"source={str(next_path)!r} target={new_path!r}"

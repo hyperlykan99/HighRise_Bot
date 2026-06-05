@@ -38,6 +38,7 @@ async def handle_radiohelp(bot, user, args=None) -> None:
                 "!syncstatus [job_id] — owner AutoDJ import status",
                 "!vibe — owner active AutoDJ vibe",
                 "!setvibe <vibe_name> — owner set active AutoDJ vibe",
+                "!badtrack [reason] — owner reject current AutoDJ track",
                 "!radiohelp — this help",
                 "Favorites are still being rebuilt.",
             ]
@@ -222,6 +223,16 @@ async def handle_setvibe(bot, user, args=None) -> None:
     await _w(bot, user.id, message)
 
 
+async def handle_badtrack(bot, user, args=None) -> None:
+    if not permissions.is_owner(user.username):
+        await _w(bot, user.id, "This command is owner-only.")
+        return
+    args = list(args or [])
+    if args and str(args[0]).lower() == "badtrack":
+        args = args[1:]
+    await _w(bot, user.id, service.reject_current_autodj_track(" ".join(str(part) for part in args)))
+
+
 async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
     if cmd == "play":
         await handle_play(bot, user, args)
@@ -251,6 +262,8 @@ async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
         await handle_vibe(bot, user, args)
     elif cmd == "setvibe":
         await handle_setvibe(bot, user, args)
+    elif cmd == "badtrack":
+        await handle_badtrack(bot, user, args)
     elif cmd == "radiohelp":
         await handle_radiohelp(bot, user, args)
     elif cmd in {"q", "queue"}:

@@ -382,6 +382,14 @@ def mark_status(request_id: int, status: str, **fields) -> None:
     update_request_with_sql_markers(request_id, **fields)
 
 
+def mark_liquidsoap_playing_file(request_id: int, azura_path: str) -> None:
+    update_request_with_sql_markers(
+        request_id,
+        azura_path=str(azura_path or ""),
+        playing_at=_sql_now_marker(),
+    )
+
+
 def _sql_now_marker() -> str:
     return "__SQL_DATETIME_NOW__"
 

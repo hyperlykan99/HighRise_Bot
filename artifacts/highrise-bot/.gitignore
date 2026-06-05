@@ -31,6 +31,7 @@ liquidsoap/autodj/vibes/**/*.aac
 liquidsoap/autodj/vibes/**/*.ogg
 liquidsoap/autodj/vibes/**/*.opus
 liquidsoap/autodj/active
+liquidsoap/autodj/manifests/
 liquidsoap/autodj/sync_jobs/
 liquidsoap/autodj/uploads/*
 !liquidsoap/autodj/uploads/.gitkeep
