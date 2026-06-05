@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from modules import permissions
+from modules.radio import autodj_sync
 from modules.radio import service
 from modules.radio import settings as radio_settings
 
@@ -33,6 +34,8 @@ async def handle_radiohelp(bot, user, args=None) -> None:
                 "!playfav <number> — request a saved song",
                 "!cancelrequest — cancel your queued request",
                 "!requeststatus — view your active requests",
+                "!syncvibe <vibe> <spotify_playlist_url> — owner AutoDJ import",
+                "!syncstatus [job_id] — owner AutoDJ import status",
                 "!radiohelp — this help",
                 "Favorites are still being rebuilt.",
             ]
@@ -172,6 +175,30 @@ async def handle_removefavorite(bot, user, args=None) -> None:
     await _w(bot, user.id, service.remove_favorite(user, number))
 
 
+async def handle_syncvibe(bot, user, args=None) -> None:
+    if not permissions.is_owner(user.username):
+        await _w(bot, user.id, "This command is owner-only.")
+        return
+    args = list(args or [])
+    if args and str(args[0]).lower() == "syncvibe":
+        args = args[1:]
+    if len(args) < 2:
+        await _w(bot, user.id, "Use: !syncvibe <vibe_name> <spotify_playlist_url>")
+        return
+    _ok, message = autodj_sync.start_sync(str(args[0]), str(args[1]))
+    await _w(bot, user.id, message)
+
+
+async def handle_autodj_syncstatus(bot, user, args=None) -> None:
+    if not permissions.is_owner(user.username):
+        await _w(bot, user.id, "This command is owner-only.")
+        return
+    args = list(args or [])
+    if args and str(args[0]).lower() == "syncstatus":
+        args = args[1:]
+    await _w(bot, user.id, autodj_sync.status(str(args[0]) if args else ""))
+
+
 async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
     if cmd == "play":
         await handle_play(bot, user, args)
@@ -193,6 +220,10 @@ async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
         await handle_playfav(bot, user, args)
     elif cmd in {"removefavorite", "delfav"}:
         await handle_removefavorite(bot, user, args)
+    elif cmd == "syncvibe":
+        await handle_syncvibe(bot, user, args)
+    elif cmd == "syncstatus":
+        await handle_autodj_syncstatus(bot, user, args)
     elif cmd == "radiohelp":
         await handle_radiohelp(bot, user, args)
     elif cmd in {"q", "queue"}:

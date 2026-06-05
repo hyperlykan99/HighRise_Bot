@@ -1831,6 +1831,8 @@ RADIO_SKELETON_COMMANDS: frozenset[str] = frozenset({
     "np",
     "radiotest",
     "musicstatus",
+    "syncvibe",
+    "syncstatus",
 })
 ALL_KNOWN_COMMANDS = ALL_KNOWN_COMMANDS | DJ_COMMANDS | MUSIC_DISC_COMMANDS | RADIO_SKELETON_COMMANDS
 

@@ -29,6 +29,7 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "liquidsoap_no_replay_move_delay_secs": ("20", "int"),
     "liquidsoap_cleanup_buffer_secs": ("60", "int"),
     "liquidsoap_cleanup_fallback_duration_secs": ("300", "int"),
+    "spotdl_bin_path": ("/opt/highrise-bots/spotdl-venv/bin/spotdl", "str"),
     "now_announce_song_changes": ("true", "bool"),
     "now_announce_autodj": ("true", "bool"),
     "now_announce_requests": ("true", "bool"),
