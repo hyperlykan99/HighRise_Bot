@@ -26,8 +26,10 @@ async def handle_radiohelp(bot, user, args=None) -> None:
                 "!q / !queue — view queue",
                 "!now / !np — current song",
                 "!play <youtube_url> — request a direct YouTube link",
+                "!play <song name> — search YouTube",
+                "!pick 1-5 — request a search result",
                 "!radiohelp — this help",
-                "Search and favorites are still being rebuilt.",
+                "Favorites are still being rebuilt.",
             ]
         ),
     )
@@ -75,15 +77,37 @@ async def handle_play(bot, user, args=None) -> None:
     if args and str(args[0]).lower() == "play":
         args = args[1:]
     if not args:
-        await _w(bot, user.id, "Use: !play <youtube_url>\nSearch is still being rebuilt.")
+        await _w(bot, user.id, "Use: !play <youtube_url or song name>")
         return
-    message = await service.submit_direct_youtube_request(bot, user, " ".join(args).strip())
+    query = " ".join(args).strip()
+    if query.startswith(("http://", "https://")):
+        message = await service.submit_direct_youtube_request(bot, user, query)
+    else:
+        message = await service.search_youtube_request(user, query)
+    await _w(bot, user.id, message)
+
+
+async def handle_pick(bot, user, args=None) -> None:
+    args = list(args or [])
+    if args and str(args[0]).lower() in {"pick", "djpick"}:
+        args = args[1:]
+    if not args:
+        await _w(bot, user.id, "⚠️ Pick a number from the search results: !pick 1")
+        return
+    try:
+        pick_number = int(str(args[0]).strip())
+    except (TypeError, ValueError):
+        await _w(bot, user.id, "⚠️ Pick a number from the search results: !pick 1")
+        return
+    message = await service.pick_youtube_search_result(bot, user, pick_number)
     await _w(bot, user.id, message)
 
 
 async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
     if cmd == "play":
         await handle_play(bot, user, args)
+    elif cmd in {"pick", "djpick"}:
+        await handle_pick(bot, user, args)
     elif cmd == "radiohelp":
         await handle_radiohelp(bot, user, args)
     elif cmd in {"q", "queue"}:

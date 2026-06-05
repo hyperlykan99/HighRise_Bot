@@ -4233,6 +4233,9 @@ function renderRadioRequests(d) {
           <label class="switch"><input type="checkbox" name="now_show_likes_dislikes" ${String(s.now_show_likes_dislikes) !== "false" ? "checked" : ""}/><span>Show Likes / Dislikes</span></label>
           <label class="switch"><input type="checkbox" name="now_show_request_play_count" ${String(s.now_show_request_play_count) !== "false" ? "checked" : ""}/><span>Show Request Play Count</span></label>
           <label class="switch"><input type="checkbox" name="youtube_direct_url_enabled" ${String(s.youtube_direct_url_enabled) !== "false" ? "checked" : ""}/><span>Direct YouTube URL Requests Enabled</span></label>
+          <label class="switch"><input type="checkbox" name="youtube_search_enabled" ${String(s.youtube_search_enabled) !== "false" ? "checked" : ""}/><span>YouTube Search Enabled</span></label>
+          ${settingInput("youtube_search_result_count", "Search Result Count", s.youtube_search_result_count ?? 5)}
+          ${settingInput("youtube_search_session_timeout_secs", "Search Session Timeout Seconds", s.youtube_search_session_timeout_secs ?? 120)}
           <label class="switch"><input type="checkbox" name="youtube_reject_playlists" ${String(s.youtube_reject_playlists) !== "false" ? "checked" : ""}/><span>Reject Playlists</span></label>
           <label class="switch"><input type="checkbox" name="youtube_reject_mixes" ${String(s.youtube_reject_mixes) !== "false" ? "checked" : ""}/><span>Reject Mixes</span></label>
           <label class="switch"><input type="checkbox" name="youtube_reject_livestreams" ${String(s.youtube_reject_livestreams) !== "false" ? "checked" : ""}/><span>Reject Livestreams</span></label>
@@ -8682,6 +8685,9 @@ function bindAdminPageEvents() {
           now_show_likes_dislikes: form.elements.now_show_likes_dislikes?.checked,
           now_show_request_play_count: form.elements.now_show_request_play_count?.checked,
           youtube_direct_url_enabled: form.elements.youtube_direct_url_enabled?.checked,
+          youtube_search_enabled: form.elements.youtube_search_enabled?.checked,
+          youtube_search_result_count: data.youtube_search_result_count,
+          youtube_search_session_timeout_secs: data.youtube_search_session_timeout_secs,
           youtube_reject_playlists: form.elements.youtube_reject_playlists?.checked,
           youtube_reject_mixes: form.elements.youtube_reject_mixes?.checked,
           youtube_reject_livestreams: form.elements.youtube_reject_livestreams?.checked,

@@ -33,6 +33,9 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "max_song_duration_staff_secs": ("600", "int"),
     "max_song_duration_owner_secs": ("0", "int"),
     "youtube_direct_url_enabled": ("true", "bool"),
+    "youtube_search_enabled": ("true", "bool"),
+    "youtube_search_result_count": ("5", "int"),
+    "youtube_search_session_timeout_secs": ("120", "int"),
     "youtube_reject_playlists": ("true", "bool"),
     "youtube_reject_mixes": ("true", "bool"),
     "youtube_reject_livestreams": ("true", "bool"),
@@ -97,6 +100,16 @@ def get_int_setting(key: str, default: int) -> int:
 def radio_poll_interval_secs() -> int:
     value = get_int_setting("radio_poll_interval_secs", 3)
     return max(3, min(30, int(value)))
+
+
+def youtube_search_result_count() -> int:
+    value = get_int_setting("youtube_search_result_count", 5)
+    return max(1, min(5, int(value)))
+
+
+def youtube_search_session_timeout_secs() -> int:
+    value = get_int_setting("youtube_search_session_timeout_secs", 120)
+    return max(30, min(300, int(value)))
 
 
 def get_bool_setting(key: str, default: bool) -> bool:

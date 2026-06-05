@@ -12,6 +12,7 @@ from modules.radio import azura
 from modules.radio import db as radio_db
 from modules.radio import music_discs
 from modules.radio import renderer
+from modules.radio import search
 from modules.radio import sources
 from modules.radio import settings as radio_settings
 
@@ -87,6 +88,72 @@ def request_cost_for_role(role: str) -> int:
 def max_duration_for_role(role: str) -> int:
     defaults = {"normal": 300, "vip": 480, "staff": 600, "owner": 0}
     return max(0, radio_settings.get_int_setting(f"max_song_duration_{role}_secs", defaults.get(role, 300)))
+
+
+def _shorten(value: str, limit: int = 42) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)].rstrip() + "…"
+
+
+def _render_search_results(results: list[dict]) -> str:
+    lines = ["🎵 YouTube Results"]
+    for idx, item in enumerate(results[:5], 1):
+        title = _shorten(item.get("title") or "YouTube Result", 36)
+        channel = _shorten(item.get("channel") or "YouTube", 20)
+        duration = renderer.format_duration(item.get("duration") or 0)
+        lines.append(f"{idx}. {title} — {channel} — {duration}")
+    lines.append("")
+    lines.append(f"Use !pick 1-{len(results[:5])} to request.")
+    return "\n".join(lines)
+
+
+async def search_youtube_request(user, query: str) -> str:
+    ensure_ready()
+    if not radio_settings.get_bool_setting("radio_enabled", True):
+        return "📻 Music system is currently disabled."
+    if not radio_settings.get_bool_setting("youtube_search_enabled", True):
+        return "🔒 YouTube search is currently disabled."
+    query = str(query or "").strip()
+    if not query:
+        return "Use: !play <song name>"
+    limit = radio_settings.youtube_search_result_count()
+    try:
+        results = await asyncio.to_thread(search.search_youtube, query, limit)
+    except search.SearchError as exc:
+        return f"⚠️ {exc}"
+    if not results:
+        return "⚠️ No YouTube results found. Try another search."
+    radio_db.save_search_session(
+        user.id,
+        user.username,
+        query,
+        results,
+        radio_settings.youtube_search_session_timeout_secs(),
+    )
+    return _render_search_results(results)
+
+
+async def pick_youtube_search_result(bot, user, pick_number: int) -> str:
+    ensure_ready()
+    session = radio_db.get_search_session(user.id)
+    if not session:
+        return "⚠️ Search first with !play <song name>."
+    if session.get("expired"):
+        radio_db.clear_search_session(user.id)
+        return "⚠️ Your search expired. Search again with !play <song name>."
+    results = session.get("results") or []
+    if pick_number < 1 or pick_number > len(results):
+        return "⚠️ Pick a number from the search results: !pick 1"
+    selected = results[pick_number - 1]
+    url = str(selected.get("webpage_url") or "")
+    if not url:
+        return "⚠️ Pick a number from the search results: !pick 1"
+    message = await submit_direct_youtube_request(bot, user, url)
+    if message.startswith("✅ Added to queue"):
+        radio_db.clear_search_session(user.id)
+    return message
 
 
 def now_playing_card() -> tuple[str | None, dict | None, str]:

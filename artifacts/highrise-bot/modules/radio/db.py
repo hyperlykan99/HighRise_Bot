@@ -68,6 +68,16 @@ def ensure_schema() -> None:
                 last_played_at TEXT
             )"""
         )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS radio_search_sessions (
+                user_id TEXT PRIMARY KEY,
+                username TEXT,
+                query TEXT,
+                results_json TEXT,
+                created_at TEXT,
+                expires_at TEXT
+            )"""
+        )
 
 
 def queue_rows(limit: int = 20) -> list[dict]:
@@ -131,6 +141,55 @@ def get_request(request_id: int) -> dict | None:
             (int(request_id),),
         ).fetchone()
     return dict(row) if row else None
+
+
+def save_search_session(user_id: str, username: str, query: str, results: list[dict], timeout_secs: int) -> None:
+    ensure_schema()
+    with database.db_conn() as conn:
+        conn.execute(
+            """INSERT INTO radio_search_sessions
+               (user_id, username, query, results_json, created_at, expires_at)
+               VALUES (?, ?, ?, ?, datetime('now'), datetime('now', ?))
+               ON CONFLICT(user_id) DO UPDATE SET
+                   username=excluded.username,
+                   query=excluded.query,
+                   results_json=excluded.results_json,
+                   created_at=datetime('now'),
+                   expires_at=excluded.expires_at""",
+            (
+                str(user_id or ""),
+                str(username or ""),
+                str(query or ""),
+                json.dumps(results or []),
+                f"+{max(30, min(300, int(timeout_secs or 120)))} seconds",
+            ),
+        )
+
+
+def get_search_session(user_id: str) -> dict | None:
+    ensure_schema()
+    with database.db_conn() as conn:
+        row = conn.execute(
+            """SELECT *, expires_at <= datetime('now') AS expired
+               FROM radio_search_sessions
+               WHERE user_id=?""",
+            (str(user_id or ""),),
+        ).fetchone()
+    if not row:
+        return None
+    data = dict(row)
+    try:
+        data["results"] = json.loads(data.get("results_json") or "[]")
+    except Exception:
+        data["results"] = []
+    data["expired"] = bool(data.get("expired"))
+    return data
+
+
+def clear_search_session(user_id: str) -> None:
+    ensure_schema()
+    with database.db_conn() as conn:
+        conn.execute("DELETE FROM radio_search_sessions WHERE user_id=?", (str(user_id or ""),))
 
 
 def update_request(request_id: int, **fields) -> None:
