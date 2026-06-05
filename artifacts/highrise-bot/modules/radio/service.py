@@ -357,54 +357,81 @@ async def cleanup_played_liquidsoap_requests(reason: str = "poll_tick") -> int:
 
 def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
     now = time.time()
+    no_replay_delay = radio_settings.liquidsoap_no_replay_move_delay_secs()
     buffer_secs = radio_settings.liquidsoap_cleanup_buffer_secs()
     fallback_duration = radio_settings.liquidsoap_cleanup_fallback_duration_secs()
     moved = 0
     rows = radio_db.ready_liquidsoap_requests_for_cleanup(limit=50)
     print(
         f"[RADIO_LIQUIDSOAP_CLEANUP_SCAN] reason={reason!r} rows={len(rows)} "
-        f"buffer_secs={buffer_secs} fallback_duration_secs={fallback_duration}"
+        f"no_replay_delay_secs={no_replay_delay} buffer_secs={buffer_secs} "
+        f"fallback_duration_secs={fallback_duration}"
     )
     for row in rows:
         request_id = int(row.get("id") or 0)
         filename = str(row.get("temp_filename") or "")
         path = str(row.get("azura_path") or filename)
         next_path = liquidsoap_queue.request_path_in_next(path)
-        if not next_path or not liquidsoap_queue.safe_request_filename(filename):
+        playing_path = liquidsoap_queue.request_path_in_playing(path)
+        queue_path = next_path or playing_path
+        if not queue_path or not liquidsoap_queue.safe_request_filename(filename):
             print(
                 f"[RADIO_LIQUIDSOAP_CLEANUP_SCAN] request_id={request_id} "
                 f"path={path!r} eligible=False reason='unsafe_path_or_filename'"
             )
             continue
-        if not next_path.exists() or not next_path.is_file():
+        if not queue_path.exists() or not queue_path.is_file():
             print(
                 f"[RADIO_LIQUIDSOAP_CLEANUP_SCAN] request_id={request_id} "
-                f"path={str(next_path)!r} eligible=False reason='file_missing'"
+                f"path={str(queue_path)!r} eligible=False reason='file_missing'"
             )
+            continue
+        age_secs = max(0, int(now - queue_path.stat().st_mtime))
+        if next_path:
+            eligible_for_lock = age_secs >= no_replay_delay
+            print(
+                f"[RADIO_LIQUIDSOAP_NO_REPLAY_SCAN] request_id={request_id} "
+                f"path={str(next_path)!r} age_secs={age_secs} "
+                f"threshold_secs={no_replay_delay} eligible={eligible_for_lock}"
+            )
+            if not eligible_for_lock:
+                continue
+            ok, new_path, error = liquidsoap_queue.move_request_to_playing(str(next_path))
+            if not ok:
+                print(
+                    f"[RADIO_LIQUIDSOAP_MOVE_PLAYING_FAILED] request_id={request_id} "
+                    f"source={str(next_path)!r} target={new_path!r} error={error!r}"
+                )
+                continue
+            radio_db.update_request(request_id, azura_path=new_path)
+            print(
+                f"[RADIO_LIQUIDSOAP_MOVE_PLAYING_OK] request_id={request_id} "
+                f"source={str(next_path)!r} target={new_path!r}"
+            )
+            moved += 1
             continue
         duration = int(row.get("duration_secs") or 0)
         if duration <= 0:
             duration = fallback_duration
-        age_secs = max(0, int(now - next_path.stat().st_mtime))
         threshold = max(1, int(duration) + int(buffer_secs))
         eligible = age_secs >= threshold
         print(
             f"[RADIO_LIQUIDSOAP_CLEANUP_SCAN] request_id={request_id} "
-            f"path={str(next_path)!r} age_secs={age_secs} threshold_secs={threshold} "
+            f"path={str(queue_path)!r} age_secs={age_secs} threshold_secs={threshold} "
             f"eligible={eligible}"
         )
         if not eligible:
             continue
-        ok, played_path, error = liquidsoap_queue.move_request_to_played(str(next_path))
+        ok, played_path, error = liquidsoap_queue.move_request_to_played(str(queue_path))
         if not ok:
             print(
                 f"[RADIO_LIQUIDSOAP_MOVE_PLAYED_FAILED] request_id={request_id} "
-                f"source={str(next_path)!r} target={played_path!r} error={error!r}"
+                f"source={str(queue_path)!r} target={played_path!r} error={error!r}"
             )
             continue
         print(
             f"[RADIO_LIQUIDSOAP_MOVE_PLAYED_OK] request_id={request_id} "
-            f"source={str(next_path)!r} target={played_path!r}"
+            f"source={str(queue_path)!r} target={played_path!r}"
         )
         radio_db.mark_status(
             request_id,

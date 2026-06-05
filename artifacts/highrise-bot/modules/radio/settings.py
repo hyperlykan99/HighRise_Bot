@@ -24,7 +24,9 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "radio_request_prequeue_enabled": ("true", "bool"),
     "radio_request_prequeue_count": ("1", "int"),
     "liquidsoap_queue_next_path": ("liquidsoap/queue/next", "str"),
+    "liquidsoap_playing_path": ("liquidsoap/queue/playing", "str"),
     "liquidsoap_played_path": ("liquidsoap/queue/played", "str"),
+    "liquidsoap_no_replay_move_delay_secs": ("20", "int"),
     "liquidsoap_cleanup_buffer_secs": ("60", "int"),
     "liquidsoap_cleanup_fallback_duration_secs": ("300", "int"),
     "now_announce_song_changes": ("true", "bool"),
@@ -119,6 +121,11 @@ def radio_request_prequeue_count() -> int:
 def liquidsoap_cleanup_buffer_secs() -> int:
     value = get_int_setting("liquidsoap_cleanup_buffer_secs", 60)
     return max(0, min(600, int(value)))
+
+
+def liquidsoap_no_replay_move_delay_secs() -> int:
+    value = get_int_setting("liquidsoap_no_replay_move_delay_secs", 20)
+    return max(5, min(120, int(value)))
 
 
 def liquidsoap_cleanup_fallback_duration_secs() -> int:
