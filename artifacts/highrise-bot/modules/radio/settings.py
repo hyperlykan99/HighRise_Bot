@@ -23,6 +23,7 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "radio_submit_ready_immediately": ("true", "bool"),
     "radio_request_prequeue_enabled": ("true", "bool"),
     "radio_request_prequeue_count": ("1", "int"),
+    "liquidsoap_queue_next_path": ("liquidsoap/queue/next", "str"),
     "now_announce_song_changes": ("true", "bool"),
     "now_announce_autodj": ("true", "bool"),
     "now_announce_requests": ("true", "bool"),

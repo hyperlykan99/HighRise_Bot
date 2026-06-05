@@ -6,10 +6,15 @@ import os
 
 from modules.radio import azura
 from modules.radio import db as radio_db
+from modules.radio import liquidsoap_queue
 
 
 def safe_generated_filename(filename: str) -> bool:
-    return azura.safe_request_filename(os.path.basename(str(filename or ""))) and os.path.basename(str(filename or "")) == filename
+    name = os.path.basename(str(filename or ""))
+    return (
+        (azura.safe_request_filename(name) or liquidsoap_queue.safe_request_filename(name))
+        and name == filename
+    )
 
 
 def cleanup_request_media(request_id: int, reason: str = "cleanup") -> bool:
@@ -18,10 +23,17 @@ def cleanup_request_media(request_id: int, reason: str = "cleanup") -> bool:
         return False
     filename = job.get("temp_filename") or ""
     file_id = job.get("azura_file_id") or ""
-    remote_path = azura.build_requests_remote_path(filename) if safe_generated_filename(filename) else ""
+    remote_path = ""
+    if azura.safe_request_filename(os.path.basename(str(filename or ""))):
+        remote_path = azura.build_requests_remote_path(filename)
+    elif liquidsoap_queue.safe_request_filename(os.path.basename(str(filename or ""))):
+        remote_path = str(job.get("azura_path") or filename or "")
     if file_id:
         azura.clear_file_playlists(str(file_id))
     removed = azura.delete_request_file(filename if safe_generated_filename(filename) else "", str(file_id or ""))
+    liquidsoap_path = str(job.get("azura_path") or filename or "")
+    liquidsoap_removed = liquidsoap_queue.remove_request_file(liquidsoap_path)
+    removed = bool(removed or liquidsoap_removed)
     azura.rescan_requests_folder()
     verified = azura.verify_request_file_gone(filename) if filename and safe_generated_filename(filename) else True
     ok = bool(removed or verified)

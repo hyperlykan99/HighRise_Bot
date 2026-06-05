@@ -30,7 +30,7 @@ async def _nowplaying_poll_loop(bot) -> None:
                 await asyncio.sleep(interval)
                 continue
             card, track, _error = service.now_playing_card(bot)
-            await service.drain_ready_requests_to_azura(bot, reason="poll_tick")
+            await service.drain_ready_requests_to_liquidsoap(bot, reason="poll_tick")
             key = service.track_dedupe_key(track)
             if not key or key == last_key:
                 await asyncio.sleep(interval)
