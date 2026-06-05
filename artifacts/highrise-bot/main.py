@@ -1811,6 +1811,8 @@ MUSIC_DISC_COMMANDS: frozenset[str] = frozenset({
 })
 RADIO_SKELETON_COMMANDS: frozenset[str] = frozenset({
     "play",
+    "pick",
+    "djpick",
     "radiohelp",
     "q",
     "queue",
@@ -4125,6 +4127,7 @@ class HangoutBot(BaseBot):
         if cmd in RADIO_SKELETON_COMMANDS:
             if BOT_MODE != "dj":
                 return
+            print(f"[RADIO_PHASE5] event=radio_command_dispatch cmd={cmd}")
             await dispatch_radio_command(self, user, cmd, args)
             return
 
@@ -8097,6 +8100,10 @@ class HangoutBot(BaseBot):
         # ── DJ Music: only BOT_MODE=dj (DJ_DUDU) responds ────────────────────
         elif cmd in DJ_COMMANDS and BOT_MODE != "dj":
             pass  # non-DJ bot silently ignores all music/radio commands
+
+        elif cmd in RADIO_SKELETON_COMMANDS:
+            print(f"[RADIO_PHASE5] event=radio_command_dispatch cmd={cmd}")
+            await dispatch_radio_command(self, user, cmd, args)
 
         elif cmd in DJ_COMMANDS:
             await _music_rebuild_notice(self, user)
