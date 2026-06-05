@@ -19,6 +19,7 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "request_disc_cost_staff": ("0", "int"),
     "request_disc_cost_owner": ("0", "int"),
     "radio_enabled": ("true", "bool"),
+    "radio_poll_interval_secs": ("3", "int"),
     "now_announce_song_changes": ("true", "bool"),
     "now_announce_autodj": ("true", "bool"),
     "now_announce_requests": ("true", "bool"),
@@ -91,6 +92,11 @@ def get_int_setting(key: str, default: int) -> int:
         return int(get_setting(key, default))
     except (TypeError, ValueError):
         return int(default)
+
+
+def radio_poll_interval_secs() -> int:
+    value = get_int_setting("radio_poll_interval_secs", 3)
+    return max(3, min(30, int(value)))
 
 
 def get_bool_setting(key: str, default: bool) -> bool:

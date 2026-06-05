@@ -19,21 +19,32 @@ async def startup_radio_skeleton(bot) -> None:
 
 async def _nowplaying_poll_loop(bot) -> None:
     last_key = radio_db.get_runtime_state("last_announced_track_key", "")
+    last_interval = None
     while True:
-        await asyncio.sleep(45)
         try:
+            interval = radio_settings.radio_poll_interval_secs()
+            if interval != last_interval:
+                print(f"[RADIO_PHASE4] event=radio_poll_interval interval_secs={interval}")
+                last_interval = interval
             if not radio_settings.get_bool_setting("radio_enabled", True):
-                continue
-            if not radio_settings.get_bool_setting("now_announce_song_changes", True):
+                await asyncio.sleep(interval)
                 continue
             card, track, _error = service.now_playing_card()
             key = service.track_dedupe_key(track)
             if not key or key == last_key:
+                await asyncio.sleep(interval)
+                continue
+            if not radio_settings.get_bool_setting("now_announce_song_changes", True):
+                last_key = key
+                radio_db.set_runtime_state("last_announced_track_key", key)
+                await asyncio.sleep(interval)
                 continue
             is_request = bool(radio_db.get_runtime_state("current_request_id", ""))
             if is_request and not radio_settings.get_bool_setting("now_announce_requests", True):
+                await asyncio.sleep(interval)
                 continue
             if not is_request and not radio_settings.get_bool_setting("now_announce_autodj", True):
+                await asyncio.sleep(interval)
                 continue
             last_key = key
             radio_db.set_runtime_state("last_announced_track_key", key)
@@ -44,3 +55,4 @@ async def _nowplaying_poll_loop(bot) -> None:
         except Exception as exc:
             radio_db.mark_last_poll(False, repr(exc))
             print(f"[RADIO_SKELETON] event=poll_failed error={exc!r}")
+        await asyncio.sleep(radio_settings.radio_poll_interval_secs())

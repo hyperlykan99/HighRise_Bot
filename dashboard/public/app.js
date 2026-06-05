@@ -4222,6 +4222,7 @@ function renderRadioRequests(d) {
           ${settingInput("per_user_queue_limit", "Per User Limit", s.per_user_queue_limit ?? 3)}
           ${settingInput("request_cooldown", "Cooldown Seconds", s.request_cooldown ?? 300)}
           ${settingInput("voteskip_threshold", "Vote Skip Required Players", s.voteskip_threshold ?? 3)}
+          ${settingInput("radio_poll_interval_secs", "Now Playing Poll Seconds", s.radio_poll_interval_secs ?? 3)}
           <label class="switch"><input type="checkbox" name="skip_on_leave" ${String(s.skip_on_leave) !== "false" ? "checked" : ""}/><span>Skip Request if Requester Leaves</span></label>
           <label class="switch"><input type="checkbox" name="refund_on_leave" ${String(s.refund_on_leave) !== "false" ? "checked" : ""}/><span>Refund Song Play if Requester Leaves</span></label>
           <label class="switch"><input type="checkbox" name="admin_ignore_leave" ${String(s.admin_ignore_leave) !== "false" ? "checked" : ""}/><span>Admin Requests Ignore Leave Rule</span></label>
@@ -8669,6 +8670,7 @@ function bindAdminPageEvents() {
           per_user_queue_limit: data.per_user_queue_limit,
           request_cooldown: data.request_cooldown,
           voteskip_threshold: data.voteskip_threshold,
+          radio_poll_interval_secs: data.radio_poll_interval_secs,
           radio_enabled: form.elements.radio_enabled?.checked,
           skip_on_leave: form.elements.skip_on_leave?.checked,
           refund_on_leave: form.elements.refund_on_leave?.checked,
