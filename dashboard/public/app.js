@@ -832,6 +832,7 @@ const state = {
   autodjSyncJobs: null,
   autodjSyncJobsLoading: false,
   autodjSyncJobsError: "",
+  autodjReviewFilter: "all",
   autodjShowSuspectsOnly: false,
   autodjLogJob: null,
   autodjUploads: [],
@@ -4555,6 +4556,28 @@ function renderAutodjSyncJobs(syncJobs) {
   </div>`;
 }
 
+function autodjReviewRows(selected, filter) {
+  const active = selected.files || [];
+  if (filter === "unreviewed") return active.filter((row) => row.status === "unreviewed");
+  if (filter === "approved") return active.filter((row) => row.status === "approved");
+  if (filter === "suspects") return active.filter((row) => row.is_suspect);
+  if (filter === "needs_replacement") return selected.needs_replacement || [];
+  if (filter === "rejected") return selected.rejected_files || [];
+  return active;
+}
+
+function autodjReviewActions(row, vibe) {
+  const filename = esc(row.filename);
+  const safeVibe = esc(vibe);
+  if (row.status === "rejected" || row.relative_path?.includes("/rejected/")) {
+    return `<button class="btn sm" data-autodj-restore-file="${filename}" data-vibe="${safeVibe}">Restore</button> <button class="btn sm" data-autodj-needs-file="${filename}" data-vibe="${safeVibe}">Needs Replacement</button> <button class="btn sm primary" data-autodj-replace-file="${filename}" data-vibe="${safeVibe}">Replace File</button>`;
+  }
+  if (row.status === "needs_replacement" || row.needs_replacement) {
+    return `<button class="btn sm" data-autodj-needs-file="${filename}" data-vibe="${safeVibe}">Needs Replacement</button> <button class="btn sm primary" data-autodj-replace-file="${filename}" data-vibe="${safeVibe}">Replace File</button>`;
+  }
+  return `<button class="btn sm primary" data-autodj-approve-file="${filename}" data-vibe="${safeVibe}">Approve</button> <button class="btn sm" data-autodj-needs-file="${filename}" data-vibe="${safeVibe}">Needs Replacement</button> <button class="btn sm danger" data-autodj-reject-file="${filename}" data-vibe="${safeVibe}">Delete / Reject</button>`;
+}
+
 function renderRadioAutodjManager(d) {
   const vibes = d.autodj_vibes || {};
   const vibeRows = vibes.vibes || [];
@@ -4562,11 +4585,12 @@ function renderRadioAutodjManager(d) {
   const selected = state.autodjSelectedVibeData?.vibe === active ? state.autodjSelectedVibeData : {};
   const activeVibe = vibes.active_vibe?.name || "";
   const syncJobs = state.autodjSyncJobs || {};
-  const activeRows = state.autodjShowSuspectsOnly
-    ? (selected.files || []).filter((row) => row.is_suspect)
-    : (selected.files || []);
-  const paged = autodjPagedRows(activeRows);
+  const reviewFilter = state.autodjShowSuspectsOnly ? "suspects" : (state.autodjReviewFilter || "all");
+  const reviewRows = autodjReviewRows(selected, reviewFilter);
+  const paged = autodjPagedRows(reviewRows);
   const rowsValue = state.autodjPager?.rows || "25";
+  const counts = selected.review_counts || {};
+  const visibleApprovalCount = (paged.rows || []).filter((row) => !row.needs_replacement && !["rejected", "needs_replacement"].includes(row.status)).length;
   return `<div class="grid">
     <div class="card">
       <div class="card-header"><h2>AutoDJ Vibes</h2><span class="pill info">UPLOAD</span></div>
@@ -4601,13 +4625,32 @@ function renderRadioAutodjManager(d) {
     ${!active ? `<div class="card"><div class="notice">Open a vibe to load its tracks, suspect badges, rejected files, and replacement tools.</div></div>` : ""}
     ${active && !state.autodjSelectedVibeLoading ? `
     <div class="card">
-      <div class="card-header"><h2>Active Tracks (${activeRows.length} / ${selected.count ?? 0})</h2><button class="btn sm" data-autodj-refresh>Refresh</button></div>
+      <div class="card-header"><h2>Review Queue (${reviewRows.length})</h2><button class="btn sm" data-autodj-refresh>Refresh</button></div>
+      <div class="metrics-grid compact" style="margin-bottom:12px">
+        ${metricCard("Total Active", counts.total_active ?? selected.count ?? 0)}
+        ${metricCard("Unreviewed", counts.unreviewed ?? 0, "", "accent-cyan")}
+        ${metricCard("Approved", counts.approved ?? 0, "", "accent-green")}
+        ${metricCard("Suspect", counts.suspect ?? 0, "", "accent-red")}
+        ${metricCard("Rejected", counts.rejected ?? selected.rejected_count ?? 0)}
+        ${metricCard("Needs Replacement", counts.needs_replacement ?? selected.needs_replacement_count ?? 0, "", "accent-red")}
+      </div>
       <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <label class="muted text-sm">Review filter</label>
+        <select id="autodjReviewFilter">
+          ${[
+            ["all", "Show all"],
+            ["unreviewed", "Show unreviewed only"],
+            ["approved", "Show approved only"],
+            ["suspects", "Show suspects only"],
+            ["needs_replacement", "Show needs replacement"],
+            ["rejected", "Show rejected"],
+          ].map(([value, label]) => `<option value="${value}" ${reviewFilter === value ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
         <label class="muted text-sm">Rows per page</label>
         <select id="autodjRowsPerPage">
           ${["10", "25", "50", "100", "all"].map((value) => `<option value="${value}" ${rowsValue === value ? "selected" : ""}>${value === "all" ? "All" : value}</option>`).join("")}
         </select>
-        <label class="muted text-sm"><input id="autodjSuspectsOnly" type="checkbox" ${state.autodjShowSuspectsOnly ? "checked" : ""} /> Show suspects only</label>
+        <button class="btn sm primary" data-autodj-approve-visible="${esc(active)}" ${visibleApprovalCount ? "" : "disabled"}>Approve All Visible</button>
         <button class="btn sm" data-autodj-page="prev" ${paged.page <= 1 ? "disabled" : ""}>Previous</button>
         <span class="muted text-sm">Page ${paged.page} of ${paged.pages}</span>
         <button class="btn sm" data-autodj-page="next" ${paged.page >= paged.pages ? "disabled" : ""}>Next</button>
@@ -4620,9 +4663,10 @@ function renderRadioAutodjManager(d) {
         { key: "duration_secs", label: "Duration" },
         { key: "type", label: "Type" },
         { key: "size_mb", label: "Size MB" },
+        { key: "approved_at", label: "Approved" },
         { key: "modified_at", label: "Modified" },
         { key: "relative_path", label: "Path" },
-      ], (r) => `<button class="btn sm" data-autodj-needs-file="${esc(r.filename)}" data-vibe="${esc(active)}">Needs Replacement</button> <button class="btn sm danger" data-autodj-reject-file="${esc(r.filename)}" data-vibe="${esc(active)}">Delete / Reject</button>`)}
+      ], (r) => autodjReviewActions(r, active))}
     </div>
     <div class="card">
       <h2>Rejected Tracks (${selected.rejected_count ?? 0})</h2>
@@ -8923,8 +8967,9 @@ function bindAdminPageEvents() {
     state.autodjPager.page = 1;
     render();
   });
-  document.getElementById("autodjSuspectsOnly")?.addEventListener("change", (e) => {
-    state.autodjShowSuspectsOnly = !!e.currentTarget.checked;
+  document.getElementById("autodjReviewFilter")?.addEventListener("change", (e) => {
+    state.autodjReviewFilter = e.currentTarget.value || "all";
+    state.autodjShowSuspectsOnly = state.autodjReviewFilter === "suspects";
     state.autodjPager.page = 1;
     render();
   });
@@ -8932,6 +8977,32 @@ function bindAdminPageEvents() {
     const delta = btn.dataset.autodjPage === "next" ? 1 : -1;
     state.autodjPager.page = Math.max(1, Number(state.autodjPager.page || 1) + delta);
     render();
+  }));
+  document.querySelectorAll("[data-autodj-approve-file]").forEach((btn) => btn.addEventListener("click", () => {
+    const vibe = btn.dataset.vibe || "";
+    const filename = btn.dataset.autodjApproveFile || "";
+    action("AutoDJ track approved.", () =>
+      api(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/files/${encodeURIComponent(filename)}/approve`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      })).then(() => loadAutodjSelectedVibeFiles(vibe));
+  }));
+  document.querySelectorAll("[data-autodj-approve-visible]").forEach((btn) => btn.addEventListener("click", () => {
+    const vibe = btn.dataset.autodjApproveVisible || "";
+    const filenames = [...document.querySelectorAll("[data-autodj-approve-file]")]
+      .map((item) => item.dataset.autodjApproveFile || "")
+      .filter(Boolean);
+    if (!filenames.length) return;
+    const run = async () => {
+      await action(`Approved ${filenames.length} visible AutoDJ track(s).`, () =>
+        api(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/files/approve-visible`, {
+          method: "POST",
+          body: JSON.stringify({ filenames }),
+        }));
+      await loadAutodjSelectedVibeFiles(vibe);
+    };
+    if (filenames.length > 25) confirmAction("Approve All Visible", `Approve ${filenames.length} visible active tracks?`, run);
+    else run();
   }));
   document.querySelectorAll("[data-autodj-reject-file]").forEach((btn) => btn.addEventListener("click", () => {
     const vibe = btn.dataset.vibe || "";

@@ -509,6 +509,52 @@ function upsertAutodjManifestTrack(vibe, filename, fields = {}) {
   return writeAutodjManifest(safe, manifest);
 }
 
+function approveAutodjVibeFile(vibe, filename) {
+  const safe = safeAutodjVibeName(vibe);
+  const safeName = safeAudioFilename(filename);
+  const activeDir = autodjVibePath(safe);
+  console.log(`[AUTODJ_REVIEW_APPROVE] vibe=${safe} filename=${safeName}`);
+  if (!safe || !safeName || !activeDir) {
+    console.error(`[AUTODJ_REVIEW_APPROVE_FAILED] vibe=${safe} filename=${safeName} reason=invalid_file`);
+    return { ok: false, error: "invalid_file" };
+  }
+  const source = path.resolve(activeDir, safeName);
+  if (!isInsideDir(source, activeDir) || !fs.existsSync(source) || !fs.statSync(source).isFile()) {
+    console.error(`[AUTODJ_REVIEW_APPROVE_FAILED] vibe=${safe} filename=${safeName} reason=file_not_found`);
+    return { ok: false, error: "file_not_found" };
+  }
+  const manifest = readAutodjManifest(safe);
+  const existing = (manifest.tracks || []).find((track) => String(track.filename || "") === safeName);
+  if (existing?.needs_replacement || existing?.status === "rejected") {
+    console.error(`[AUTODJ_REVIEW_APPROVE_FAILED] vibe=${safe} filename=${safeName} reason=not_approvable status=${existing?.status || ""}`);
+    return { ok: false, error: "not_approvable" };
+  }
+  if (!upsertAutodjManifestTrack(safe, safeName, {
+    status: "approved",
+    approved_at: nowIso(),
+    needs_replacement: false,
+    reason: "",
+  })) {
+    console.error(`[AUTODJ_REVIEW_APPROVE_FAILED] vibe=${safe} filename=${safeName} reason=manifest_write_failed`);
+    return { ok: false, error: "manifest_write_failed" };
+  }
+  return { ok: true, filename: safeName, status: "approved" };
+}
+
+function approveVisibleAutodjVibeFiles(vibe, filenames = []) {
+  const safe = safeAutodjVibeName(vibe);
+  const unique = [...new Set((Array.isArray(filenames) ? filenames : []).map((name) => safeAudioFilename(name)).filter(Boolean))];
+  const approved = [];
+  const failed = [];
+  for (const filename of unique) {
+    const result = approveAutodjVibeFile(safe, filename);
+    if (result.ok) approved.push(filename);
+    else failed.push({ filename, error: result.error || "approve_failed" });
+  }
+  console.log(`[AUTODJ_REVIEW_APPROVE_VISIBLE] vibe=${safe} requested=${unique.length} approved=${approved.length} failed=${failed.length}`);
+  return { ok: failed.length === 0, vibe: safe, requested: unique.length, approved_count: approved.length, approved, failed };
+}
+
 function setAutodjActiveVibe(vibe) {
   const safe = safeAutodjVibeName(vibe);
   const dir = autodjVibePath(safe);
@@ -779,6 +825,14 @@ function readAutodjVibeFiles(vibe) {
   console.log(`[AUTODJ_VIBE_FILES_SCAN] vibe=${safe}`);
   const files = [];
   const rejected = [];
+  const counts = {
+    total_active: 0,
+    unreviewed: 0,
+    approved: 0,
+    suspect: 0,
+    rejected: 0,
+    needs_replacement: 0,
+  };
   const manifest = readAutodjManifest(safe);
   const manifestByName = new Map((manifest.tracks || []).map((track) => [String(track.filename || ""), track]));
   const duplicateNames = new Set();
@@ -807,11 +861,15 @@ function readAutodjVibeFiles(vibe) {
       const suspect = status === "active"
         ? suspectBadgesForFile(fullPath, entry.name, stat, duplicateNames.has(normalizeAutodjTrackName(entry.name)))
         : { badges: [], duration_secs: "" };
+      const reviewStatus = status === "active"
+        ? (manifestRow.needs_replacement ? "needs_replacement" : (manifestRow.status || "unreviewed"))
+        : (manifestRow.needs_replacement ? "needs_replacement" : "rejected");
       const row = {
         filename: entry.name,
-        status: manifestRow.needs_replacement ? "needs_replacement" : status,
+        status: reviewStatus,
         reason: manifestRow.reason || "",
         needs_replacement: Boolean(manifestRow.needs_replacement),
+        approved_at: manifestRow.approved_at || "",
         rejected_at: manifestRow.rejected_at || "",
         restored_at: manifestRow.restored_at || "",
         replaced_by: manifestRow.replaced_by || "",
@@ -827,8 +885,18 @@ function readAutodjVibeFiles(vibe) {
         modified_at: stat.mtime.toISOString(),
         relative_path: path.relative(BOT_ROOT, fullPath).split(path.sep).join("/"),
       };
-      if (status === "active") files.push(row);
-      else rejected.push(row);
+      if (status === "active") {
+        counts.total_active += 1;
+        if (row.status === "unreviewed") counts.unreviewed += 1;
+        if (row.status === "approved") counts.approved += 1;
+        if (row.is_suspect) counts.suspect += 1;
+        if (row.needs_replacement) counts.needs_replacement += 1;
+        files.push(row);
+      } else {
+        counts.rejected += 1;
+        if (row.needs_replacement) counts.needs_replacement += 1;
+        rejected.push(row);
+      }
     }
   };
   try {
@@ -846,6 +914,7 @@ function readAutodjVibeFiles(vibe) {
         status: track.needs_replacement ? "needs_replacement" : "rejected",
         reason: track.reason || "",
         needs_replacement: Boolean(track.needs_replacement),
+        approved_at: track.approved_at || "",
         rejected_at: track.rejected_at || "",
         restored_at: track.restored_at || "",
         replaced_by: track.replaced_by || "",
@@ -866,6 +935,7 @@ function readAutodjVibeFiles(vibe) {
         status: "needs_replacement",
         reason: track.reason || "",
         needs_replacement: true,
+        approved_at: track.approved_at || "",
         size: "",
         size_mb: "",
         modified_at: track.rejected_at || "",
@@ -873,11 +943,15 @@ function readAutodjVibeFiles(vibe) {
           ? path.relative(BOT_ROOT, String(track.rejected_path)).split(path.sep).join("/")
           : "",
       }))].filter((row) => row.needs_replacement);
+    counts.rejected = rejected.length;
+    counts.needs_replacement = needsReplacement.length;
+    console.log(`[AUTODJ_REVIEW_COUNTS] vibe=${safe} total_active=${counts.total_active} unreviewed=${counts.unreviewed} approved=${counts.approved} suspect=${counts.suspect} rejected=${counts.rejected} needs_replacement=${counts.needs_replacement}`);
     console.log(`[AUTODJ_VIBE_FILES_SCAN] vibe=${safe} active=${files.length} rejected=${rejected.length} needs_replacement=${needsReplacement.length}`);
     return {
       vibe: safe,
       path: `liquidsoap/autodj/vibes/${safe}`,
       count: files.length,
+      review_counts: counts,
       files,
       rejected_count: rejected.length,
       rejected_files: rejected,
@@ -7304,6 +7378,26 @@ app.post("/api/radio/autodj/vibes/:vibe/files/:filename/reject", requireAuth, re
   }
   audit(req.db, req.user.username, "autodj_vibe_file_rejected", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
   json(res, { ok: true, rejected: result, vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
+}, closeDb);
+
+app.post("/api/radio/autodj/vibes/:vibe/files/:filename/approve", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const result = approveAutodjVibeFile(req.params.vibe, req.params.filename);
+  if (!result.ok) {
+    audit(req.db, req.user.username, "autodj_vibe_file_approve_failed", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+    return json(res, { error: result.error || "approve_failed", detail: result }, result.error === "file_not_found" ? 404 : 400);
+  }
+  audit(req.db, req.user.username, "autodj_vibe_file_approved", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+  json(res, { ok: true, approved: result, vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
+}, closeDb);
+
+app.post("/api/radio/autodj/vibes/:vibe/files/approve-visible", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const result = approveVisibleAutodjVibeFiles(req.params.vibe, req.body?.filenames || []);
+  if (!result.ok && result.approved_count === 0) {
+    audit(req.db, req.user.username, "autodj_vibe_file_approve_visible_failed", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+    return json(res, { error: "approve_visible_failed", detail: result }, 400);
+  }
+  audit(req.db, req.user.username, "autodj_vibe_file_approve_visible", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+  json(res, { ok: true, approved: result, vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
 }, closeDb);
 
 app.post("/api/radio/autodj/vibes/:vibe/files/:filename/restore", requireAuth, requirePermission("manage_radio"), (req, res) => {
