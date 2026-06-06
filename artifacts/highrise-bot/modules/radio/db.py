@@ -31,6 +31,7 @@ def ensure_schema() -> None:
                 artist TEXT,
                 status TEXT,
                 priority INTEGER DEFAULT 0,
+                queue_position INTEGER DEFAULT 0,
                 disc_cost_charged INTEGER DEFAULT 0,
                 payment_type TEXT DEFAULT 'disc',
                 payment_amount INTEGER DEFAULT 0,
@@ -62,6 +63,8 @@ def ensure_schema() -> None:
             conn.execute("ALTER TABLE radio_requests ADD COLUMN duration_secs INTEGER DEFAULT 0")
         if "priority" not in columns:
             conn.execute("ALTER TABLE radio_requests ADD COLUMN priority INTEGER DEFAULT 0")
+        if "queue_position" not in columns:
+            conn.execute("ALTER TABLE radio_requests ADD COLUMN queue_position INTEGER DEFAULT 0")
         if "payment_type" not in columns:
             conn.execute("ALTER TABLE radio_requests ADD COLUMN payment_type TEXT DEFAULT 'disc'")
         if "payment_amount" not in columns:
@@ -133,11 +136,11 @@ def queue_rows(limit: int = 20) -> list[dict]:
     try:
         with database.db_conn() as conn:
             rows = conn.execute(
-                f"""SELECT id, username, title, artist, status, priority, created_at,
+                f"""SELECT id, username, title, artist, status, priority, queue_position, created_at,
                            temp_filename, prepared_path, released_path, current_path, azura_path
                     FROM radio_requests
                     WHERE status IN ({placeholders})
-                    ORDER BY priority DESC, id ASC
+                    ORDER BY priority DESC, CASE WHEN queue_position > 0 THEN queue_position ELSE id END ASC, id ASC
                     LIMIT ?""",
                 (*models.QUEUE_DISPLAY_STATUSES, max(1, min(50, int(limit)))),
             ).fetchall()
@@ -373,7 +376,7 @@ def update_request(request_id: int, **fields) -> None:
     ensure_schema()
     allowed = {
         "source_type", "source_ref", "title", "artist", "status", "priority",
-        "duration_secs", "disc_cost_charged", "payment_type", "payment_amount", "payment_reason", "is_staff_free", "is_vip",
+        "queue_position", "duration_secs", "disc_cost_charged", "payment_type", "payment_amount", "payment_reason", "is_staff_free", "is_vip",
         "temp_filename", "prepared_path", "released_path", "current_path", "azura_file_id", "azura_song_id", "azura_path",
         "prepared_at", "released_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
         "cancelled_at", "failed_at", "error", "finish_reason",
@@ -435,7 +438,7 @@ def update_request_with_sql_markers(request_id: int, **fields) -> None:
     ensure_schema()
     allowed = {
         "source_type", "source_ref", "title", "artist", "status", "priority",
-        "duration_secs", "disc_cost_charged", "payment_type", "payment_amount", "payment_reason", "is_staff_free", "is_vip",
+        "queue_position", "duration_secs", "disc_cost_charged", "payment_type", "payment_amount", "payment_reason", "is_staff_free", "is_vip",
         "temp_filename", "prepared_path", "released_path", "current_path", "azura_file_id", "azura_song_id", "azura_path",
         "prepared_at", "released_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
         "cancelled_at", "failed_at", "error", "finish_reason",
@@ -471,8 +474,8 @@ def active_requests(limit: int = 50) -> list[dict]:
     with database.db_conn() as conn:
         rows = conn.execute(
             """SELECT * FROM radio_requests
-               WHERE status IN ('pending','preparing','ready','released','submitted','playing')
-               ORDER BY priority DESC, id ASC
+               WHERE status IN ('pending','pending_search','preparing','ready','released','submitted','playing')
+               ORDER BY priority DESC, CASE WHEN queue_position > 0 THEN queue_position ELSE id END ASC, id ASC
                LIMIT ?""",
             (max(1, min(100, int(limit))),),
         ).fetchall()
@@ -485,8 +488,8 @@ def active_requests_for_user(user_id: str, limit: int = 50) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE user_id=?
-                 AND status IN ('pending','preparing','ready','released','submitted','playing')
-               ORDER BY priority DESC, id ASC
+                 AND status IN ('pending','pending_search','preparing','ready','released','submitted','playing')
+               ORDER BY priority DESC, CASE WHEN queue_position > 0 THEN queue_position ELSE id END ASC, id ASC
                LIMIT ?""",
             (str(user_id or ""), max(1, min(100, int(limit)))),
         ).fetchall()
@@ -499,7 +502,7 @@ def ready_requests_for_prequeue(limit: int = 5) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE status='ready'
-               ORDER BY priority DESC, id ASC
+               ORDER BY priority DESC, CASE WHEN queue_position > 0 THEN queue_position ELSE id END ASC, id ASC
                LIMIT ?""",
             (max(1, min(10, int(limit))),),
         ).fetchall()
@@ -512,7 +515,7 @@ def ready_requests_for_release(limit: int = 1) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE status='ready'
-               ORDER BY priority DESC, id ASC
+               ORDER BY priority DESC, CASE WHEN queue_position > 0 THEN queue_position ELSE id END ASC, id ASC
                LIMIT ?""",
             (max(1, min(10, int(limit))),),
         ).fetchall()
@@ -525,7 +528,7 @@ def released_requests(limit: int = 10) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE status='released'
-               ORDER BY priority DESC, id ASC
+               ORDER BY priority DESC, CASE WHEN queue_position > 0 THEN queue_position ELSE id END ASC, id ASC
                LIMIT ?""",
             (max(1, min(25, int(limit))),),
         ).fetchall()
@@ -585,7 +588,7 @@ def cancelable_requests_for_user(user_id: str, limit: int = 20) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE user_id=?
-                 AND status IN ('pending','preparing','ready')
+                 AND status IN ('pending','pending_search','preparing','ready')
                ORDER BY id ASC
                LIMIT ?""",
             (str(user_id or ""), max(1, min(50, int(limit)))),
@@ -611,7 +614,7 @@ def stuck_requests_for_cleanup(minutes: int = 30, limit: int = 50) -> list[dict]
     with database.db_conn() as conn:
         rows = conn.execute(
             """SELECT * FROM radio_requests
-               WHERE status IN ('pending','preparing','ready','released','submitted')
+               WHERE status IN ('pending','pending_search','preparing','ready','released','submitted')
                  AND COALESCE(submitted_at, prepared_at, created_at) <= datetime('now', ?)
                ORDER BY id ASC
                LIMIT ?""",
@@ -755,7 +758,7 @@ def active_queue_count() -> int:
         row = conn.execute(
             """SELECT COUNT(*) AS n
                FROM radio_requests
-               WHERE status IN ('pending','preparing','ready','released','submitted','playing')"""
+               WHERE status IN ('pending','pending_search','preparing','ready','released','submitted','playing')"""
         ).fetchone()
     return int(row["n"]) if row else 0
 

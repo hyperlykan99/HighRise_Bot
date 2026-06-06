@@ -2017,6 +2017,7 @@ const RADIO_SETTING_DEFAULTS = {
   radio_submit_ready_immediately: ["true", "bool"],
   radio_request_prequeue_enabled: ["true", "bool"],
   radio_request_prequeue_count: ["1", "int"],
+  request_file_retention_mode: ["archive", "str"],
   now_announce_song_changes: ["true", "bool"],
   now_announce_autodj: ["true", "bool"],
   now_announce_requests: ["true", "bool"],
@@ -2367,6 +2368,7 @@ function readLocalRadioStatus(db) {
     radio_submit_ready_immediately: getRadioSetting(db, "radio_submit_ready_immediately", "true"),
     radio_request_prequeue_enabled: getRadioSetting(db, "radio_request_prequeue_enabled", "true"),
     radio_request_prequeue_count: getRadioSetting(db, "radio_request_prequeue_count", "1"),
+    request_file_retention_mode: getRadioSetting(db, "request_file_retention_mode", "archive"),
     now_announce_song_changes: getRadioSetting(db, "now_announce_song_changes", "true"),
     now_announce_autodj: getRadioSetting(db, "now_announce_autodj", "true"),
     now_announce_requests: getRadioSetting(db, "now_announce_requests", "true"),
@@ -7620,6 +7622,12 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     const value = ["whisper", "chat"].includes(requested) ? requested : "whisper";
     setRadioSetting(req.db, "now_command_response_mode", value, "str", req.user.username);
     updates.now_command_response_mode = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "request_file_retention_mode")) {
+    const requested = String(req.body.request_file_retention_mode || "archive").trim().toLowerCase();
+    const value = ["archive", "delete"].includes(requested) ? requested : "archive";
+    setRadioSetting(req.db, "request_file_retention_mode", value, "str", req.user.username);
+    updates.request_file_retention_mode = value;
   }
   for (const field of ["skip_on_leave", "refund_on_leave", "admin_ignore_leave"]) {
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, field)) continue;

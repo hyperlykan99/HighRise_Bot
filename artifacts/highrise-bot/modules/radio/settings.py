@@ -26,6 +26,9 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "radio_request_prequeue_count": ("1", "int"),
     "liquidsoap_queue_next_path": ("liquidsoap/queue/next", "str"),
     "radio_staging_path": ("data/radio_staging", "str"),
+    "radio_request_library_path": ("data/radio_requests", "str"),
+    "radio_current_request_playlist_path": ("liquidsoap/current_request.m3u", "str"),
+    "request_file_retention_mode": ("archive", "str"),
     "liquidsoap_playing_path": ("liquidsoap/queue/playing", "str"),
     "liquidsoap_played_path": ("liquidsoap/queue/played", "str"),
     "liquidsoap_no_replay_move_delay_secs": ("20", "int"),
@@ -135,6 +138,11 @@ def liquidsoap_no_replay_move_delay_secs() -> int:
 def liquidsoap_cleanup_fallback_duration_secs() -> int:
     value = get_int_setting("liquidsoap_cleanup_fallback_duration_secs", 300)
     return max(30, min(3600, int(value)))
+
+
+def request_file_retention_mode() -> str:
+    value = str(get_setting("request_file_retention_mode", "archive") or "archive").strip().lower()
+    return value if value in {"archive", "delete"} else "archive"
 
 
 def youtube_search_result_count() -> int:

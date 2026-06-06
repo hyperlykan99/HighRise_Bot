@@ -4287,6 +4287,12 @@ function renderRadioRequests(d) {
           <label class="switch"><input type="checkbox" name="radio_request_prequeue_enabled" ${String(s.radio_request_prequeue_enabled) !== "false" ? "checked" : ""}/><span>Request Prequeue Enabled</span></label>
           ${settingInput("radio_request_prequeue_count", "Request Prequeue Count", s.radio_request_prequeue_count ?? 1)}
           ${settingInput("priority_luxe_cost", "Priority Request Luxe Cost", s.priority_luxe_cost ?? 100)}
+          <label>Request File Retention
+            <select name="request_file_retention_mode">
+              <option value="archive" ${String(s.request_file_retention_mode || "archive") === "archive" ? "selected" : ""}>Archive played files</option>
+              <option value="delete" ${String(s.request_file_retention_mode || "archive") === "delete" ? "selected" : ""}>Delete played files</option>
+            </select>
+          </label>
           <label class="switch"><input type="checkbox" name="skip_on_leave" ${String(s.skip_on_leave) !== "false" ? "checked" : ""}/><span>Skip Request if Requester Leaves</span></label>
           <label class="switch"><input type="checkbox" name="refund_on_leave" ${String(s.refund_on_leave) !== "false" ? "checked" : ""}/><span>Refund Song Play if Requester Leaves</span></label>
           <label class="switch"><input type="checkbox" name="admin_ignore_leave" ${String(s.admin_ignore_leave) !== "false" ? "checked" : ""}/><span>Admin Requests Ignore Leave Rule</span></label>
@@ -9226,6 +9232,7 @@ function bindAdminPageEvents() {
           radio_request_prequeue_enabled: form.elements.radio_request_prequeue_enabled?.checked,
           radio_request_prequeue_count: data.radio_request_prequeue_count,
           priority_luxe_cost: data.priority_luxe_cost,
+          request_file_retention_mode: form.elements.request_file_retention_mode?.value || "archive",
           now_announce_song_changes: form.elements.now_announce_song_changes?.checked,
           now_announce_autodj: form.elements.now_announce_autodj?.checked,
           now_announce_requests: form.elements.now_announce_requests?.checked,
