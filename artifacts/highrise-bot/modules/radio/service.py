@@ -539,6 +539,20 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
             azura_path=str(request_path),
         )
         print(
+            f"[RADIO_CONTROLLER_POINTER_CLEAR_START] request_id={request_id} "
+            f"playlist={str(liquidsoap_queue.current_request_playlist_path())!r}"
+        )
+        if liquidsoap_queue.clear_current_request_playlist():
+            print(
+                f"[RADIO_CONTROLLER_POINTER_CLEARED] request_id={request_id} "
+                f"path={str(request_path)!r}"
+            )
+        else:
+            print(
+                f"[RADIO_CONTROLLER_POINTER_CLEAR_FAILED] request_id={request_id} "
+                f"playlist={str(liquidsoap_queue.current_request_playlist_path())!r}"
+            )
+        print(
             f"[RADIO_CONTROLLER_PLAYING_OK] request_id={request_id} "
             f"path={str(request_path)!r}"
         )
