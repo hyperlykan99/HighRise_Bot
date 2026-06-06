@@ -378,9 +378,8 @@ def _request_queue_playlist_rows() -> tuple[list[dict], list[str], int, int, int
     released_rows = radio_db.released_requests(limit=10)
     ready_rows = radio_db.ready_requests_for_release(limit=100)
     rows: list[dict] = []
-    active_rows = playing_rows or released_rows[:1]
     seen_ids: set[int] = set()
-    for row in active_rows:
+    for row in released_rows[:1]:
         request_id = int(row.get("id") or 0)
         if request_id and request_id not in seen_ids:
             rows.append(row)
