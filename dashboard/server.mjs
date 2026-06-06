@@ -15,7 +15,7 @@ import express from "express";
 import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";
-import { execFile } from "child_process";
+import { execFile, execFileSync } from "child_process";
 import { promisify } from "util";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -303,6 +303,143 @@ function autodjManifestPath(vibe) {
   return isInsideDir(file, root) ? file : null;
 }
 
+function autodjSyncJobsRoot() {
+  return resolveBotRelativePath("liquidsoap/autodj/sync_jobs", "liquidsoap/autodj/sync_jobs");
+}
+
+function safeAutodjJobId(value) {
+  const text = String(value || "").trim();
+  return /^[0-9A-Za-z_-]{6,64}$/.test(text) ? text : "";
+}
+
+function autodjJobPath(jobId) {
+  const safe = safeAutodjJobId(jobId);
+  if (!safe) return null;
+  const root = autodjSyncJobsRoot();
+  const file = path.resolve(root, `job_${safe}.json`);
+  return isInsideDir(file, root) ? file : null;
+}
+
+function autodjJobLogPath(jobId) {
+  const safe = safeAutodjJobId(jobId);
+  if (!safe) return null;
+  const root = autodjSyncJobsRoot();
+  const file = path.resolve(root, `job_${safe}.log`);
+  return isInsideDir(file, root) ? file : null;
+}
+
+function writeJsonFileSafe(file, value) {
+  ensureDir(path.dirname(file), 0o755);
+  const temp = `${file}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(value, null, 2), "utf8");
+  fs.renameSync(temp, file);
+}
+
+function tailFileLines(file, limit = 100) {
+  try {
+    if (!file || !fs.existsSync(file)) return [];
+    return fs.readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean).slice(-Math.max(1, Math.min(500, Number(limit) || 100)));
+  } catch {
+    return [];
+  }
+}
+
+function countAudioFilesInDir(dir) {
+  if (!dir || !fs.existsSync(dir)) return 0;
+  let total = 0;
+  const walk = (root) => {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      const fullPath = path.resolve(root, entry.name);
+      if (!isInsideDir(fullPath, dir)) continue;
+      if (entry.isDirectory()) walk(fullPath);
+      else if (entry.isFile() && AUTODJ_UPLOAD_AUDIO_EXTS.has(path.extname(entry.name).toLowerCase())) total += 1;
+    }
+  };
+  walk(dir);
+  return total;
+}
+
+function readAutodjSyncJobs(limit = 12) {
+  const root = autodjSyncJobsRoot();
+  const rows = [];
+  try {
+    ensureDir(root, 0o755);
+    const files = fs.readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /^job_[0-9A-Za-z_-]+\.json$/.test(entry.name))
+      .map((entry) => path.resolve(root, entry.name))
+      .filter((file) => isInsideDir(file, root))
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+      .slice(0, Math.max(1, Math.min(50, Number(limit) || 12)));
+    for (const file of files) {
+      const job = readJsonFileSafe(file, null);
+      if (!job || typeof job !== "object") continue;
+      const jobId = safeAutodjJobId(job.job_id || path.basename(file).replace(/^job_|\.json$/g, ""));
+      if (!jobId) continue;
+      const outputDir = path.resolve(String(job.output_dir || ""));
+      const vibe = safeAutodjVibeName(job.safe_vibe_name || job.vibe_name || "");
+      const audioFiles = vibe && isInsideDir(outputDir, autodjVibesRoot()) ? countAudioFilesInDir(outputDir) : 0;
+      const logFile = autodjJobLogPath(jobId);
+      const recentLines = tailFileLines(logFile, 100);
+      const totalTracks = Number(job.total_tracks || 0);
+      const done = Number(job.downloaded_count || 0) + Number(job.existing_count || 0) + Number(job.failed_count || 0);
+      rows.push({
+        job_id: jobId,
+        vibe: vibe || job.vibe_name || "",
+        status: job.status || "unknown",
+        playlist_url: job.playlist_url || "",
+        started_at: job.started_at || "",
+        finished_at: job.finished_at || "",
+        audio_files: audioFiles,
+        downloaded_count: Number(job.downloaded_count || 0),
+        existing_count: Number(job.existing_count || 0),
+        failed_count: Number(job.failed_count || 0),
+        total_tracks: totalTracks,
+        progress_pct: totalTracks > 0 ? Math.max(0, Math.min(100, Math.round((done / totalTracks) * 100))) : null,
+        current_line: job.current_line || recentLines.at(-1) || "",
+        current_track: job.current_track || "",
+        process_id: job.process_id || "",
+        log_tail: recentLines,
+      });
+    }
+    console.log(`[AUTODJ_SYNC_DASHBOARD_LIST] count=${rows.length}`);
+    return { root: "liquidsoap/autodj/sync_jobs", count: rows.length, jobs: rows };
+  } catch (err) {
+    console.error(`[AUTODJ_SYNC_DASHBOARD_LIST] error=${err.message}`);
+    return { root: "liquidsoap/autodj/sync_jobs", count: 0, jobs: [], error: err.message };
+  }
+}
+
+function cancelAutodjSyncJob(jobId) {
+  const safe = safeAutodjJobId(jobId);
+  const file = autodjJobPath(safe);
+  const job = file ? readJsonFileSafe(file, null) : null;
+  if (!safe || !file || !job || typeof job !== "object") {
+    console.error(`[AUTODJ_SYNC_DASHBOARD_CANCEL_FAILED] job_id=${safe} reason=missing_job`);
+    return { ok: false, error: "job_not_found" };
+  }
+  if (job.status !== "running") {
+    return { ok: false, error: "job_not_running" };
+  }
+  const pid = Number(job.process_id || 0);
+  const command = Array.isArray(job.command) ? job.command.join(" ") : "";
+  if (!pid || !command.includes("spotdl")) {
+    console.error(`[AUTODJ_SYNC_DASHBOARD_CANCEL_FAILED] job_id=${safe} reason=unsafe_pid pid=${pid}`);
+    return { ok: false, error: "unsafe_or_missing_pid" };
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+    job.status = "cancelled";
+    job.finished_at = nowIso();
+    job.current_line = "cancelled from dashboard";
+    writeJsonFileSafe(file, job);
+    console.log(`[AUTODJ_SYNC_DASHBOARD_CANCEL] job_id=${safe} pid=${pid}`);
+    return { ok: true, job_id: safe, process_id: pid };
+  } catch (err) {
+    console.error(`[AUTODJ_SYNC_DASHBOARD_CANCEL_FAILED] job_id=${safe} pid=${pid} error=${err.message}`);
+    return { ok: false, error: "cancel_failed", message: err.message };
+  }
+}
+
 function readAutodjActiveVibe() {
   const active = autodjActivePath();
   try {
@@ -424,6 +561,39 @@ function uniqueAudioPath(dir, filename) {
     index += 1;
   }
   return isInsideDir(candidate, dir) ? candidate : null;
+}
+
+function normalizeAutodjTrackName(value) {
+  return path.parse(String(value || "")).name.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function ffprobeDurationSafe(file) {
+  try {
+    const out = execFileSync("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      file,
+    ], { timeout: 3000, encoding: "utf8" });
+    return Math.max(0, Number.parseFloat(String(out || "").trim()) || 0);
+  } catch {
+    return 0;
+  }
+}
+
+function suspectBadgesForFile(filePath, filename, stat, duplicate) {
+  const badges = [];
+  const lower = String(filename || "").toLowerCase();
+  if (Number(stat?.size || 0) > 0 && Number(stat.size) < 1024 * 1024) badges.push("⚠️ Small File");
+  if (duplicate) badges.push("⚠️ Duplicate");
+  if (/(random|audio|full album|interview|live|reaction|cover|instrumental|karaoke)/i.test(lower)) badges.push("⚠️ Suspicious Name");
+  const duration = ffprobeDurationSafe(filePath);
+  if (duration > 0 && duration < 45) badges.push("⚠️ Short");
+  if (duration > 12 * 60) badges.push("⚠️ Long");
+  return { badges, duration_secs: duration ? Math.round(duration) : "" };
 }
 
 function uniqueRejectedAudioPath(dir, filename) {
@@ -599,6 +769,19 @@ function readAutodjVibeFiles(vibe) {
   const rejected = [];
   const manifest = readAutodjManifest(safe);
   const manifestByName = new Map((manifest.tracks || []).map((track) => [String(track.filename || ""), track]));
+  const duplicateNames = new Set();
+  try {
+    const counts = new Map();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !AUTODJ_UPLOAD_AUDIO_EXTS.has(path.extname(entry.name).toLowerCase())) continue;
+      const normalized = normalizeAutodjTrackName(entry.name);
+      if (!normalized) continue;
+      counts.set(normalized, (counts.get(normalized) || 0) + 1);
+    }
+    for (const [name, count] of counts.entries()) {
+      if (count > 1) duplicateNames.add(name);
+    }
+  } catch {}
   const readAudioDir = (root, status) => {
     if (!root || !fs.existsSync(root)) return;
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -609,6 +792,9 @@ function readAutodjVibeFiles(vibe) {
       if (!isInsideDir(fullPath, root)) continue;
       const stat = fs.statSync(fullPath);
       const manifestRow = manifestByName.get(entry.name) || {};
+      const suspect = status === "active"
+        ? suspectBadgesForFile(fullPath, entry.name, stat, duplicateNames.has(normalizeAutodjTrackName(entry.name)))
+        : { badges: [], duration_secs: "" };
       const row = {
         filename: entry.name,
         status: manifestRow.needs_replacement ? "needs_replacement" : status,
@@ -622,6 +808,10 @@ function readAutodjVibeFiles(vibe) {
         extension: ext,
         size: stat.size,
         size_mb: Number((stat.size / (1024 * 1024)).toFixed(2)),
+        duration_secs: suspect.duration_secs,
+        suspect_badges: suspect.badges.join(" "),
+        suspect_reasons: suspect.badges,
+        is_suspect: suspect.badges.length > 0,
         modified_at: stat.mtime.toISOString(),
         relative_path: path.relative(BOT_ROOT, fullPath).split(path.sep).join("/"),
       };
@@ -707,9 +897,9 @@ function readAutodjVibes() {
     }
     vibes.sort((a, b) => a.name.localeCompare(b.name));
     console.log(`[AUTODJ_VIBE_STATUS] active_vibe=${active?.name || ""} count=${vibes.length}`);
-    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: vibes.length, vibes };
+    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: vibes.length, vibes, sync_jobs: readAutodjSyncJobs(12) };
   } catch (err) {
-    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: 0, vibes: [], error: err.message };
+    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: 0, vibes: [], sync_jobs: readAutodjSyncJobs(12), error: err.message };
   }
 }
 
@@ -7071,6 +7261,25 @@ app.post("/api/radio/autodj/vibes", requireAuth, requirePermission("manage_radio
 
 app.get("/api/radio/autodj/vibes/:vibe/files", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
   json(res, { vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
+}, closeDb);
+
+app.get("/api/radio/autodj/sync-jobs", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
+  json(res, { sync_jobs: readAutodjSyncJobs(20), updated_at: nowIso() });
+}, closeDb);
+
+app.get("/api/radio/autodj/sync-jobs/:jobId/log", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
+  const logPath = autodjJobLogPath(req.params.jobId);
+  json(res, { job_id: safeAutodjJobId(req.params.jobId), lines: tailFileLines(logPath, 100), updated_at: nowIso() });
+}, closeDb);
+
+app.post("/api/radio/autodj/sync-jobs/:jobId/cancel", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const result = cancelAutodjSyncJob(req.params.jobId);
+  if (!result.ok) {
+    audit(req.db, req.user.username, "autodj_sync_cancel_failed", "filesystem", String(req.params.jobId || ""), "", result, req.ip);
+    return json(res, { error: result.error || "cancel_failed", detail: result }, result.error === "job_not_found" ? 404 : 400);
+  }
+  audit(req.db, req.user.username, "autodj_sync_cancelled", "filesystem", result.job_id, "", result, req.ip);
+  json(res, { ok: true, cancelled: result, sync_jobs: readAutodjSyncJobs(20), updated_at: nowIso() });
 }, closeDb);
 
 app.post("/api/radio/autodj/vibes/:vibe/files/:filename/reject", requireAuth, requirePermission("manage_radio"), (req, res) => {

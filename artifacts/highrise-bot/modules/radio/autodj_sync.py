@@ -19,6 +19,8 @@ AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus"}
 SAFE_VIBE_RE = re.compile(r"^[a-z0-9_]{1,48}$")
 SPOTDL_DEFAULT = "/opt/highrise-bots/spotdl-venv/bin/spotdl"
 REPLACEMENT_WORDS = ("wrong", "random", "version", "replacement", "replace")
+FOUND_SONGS_RE = re.compile(r"\bfound\s+(\d+)\s+songs?\b", re.IGNORECASE)
+TRACK_PROGRESS_RE = re.compile(r"\b(?:downloaded|skipping|skip|failed|error)\b.*?[-–]\s*(.+)$", re.IGNORECASE)
 
 
 def _now_iso() -> str:
@@ -469,6 +471,9 @@ def _run_spotdl_job(job_id: str, command: list[str]) -> None:
     log_file = Path(str(job["log_file"]))
     output_dir = Path(str(job["output_dir"]))
     failed_count = 0
+    downloaded_count = 0
+    existing_count = int(job.get("existing_count") or 0)
+    total_tracks = int(job.get("total_tracks") or 0)
     try:
         with log_file.open("a", encoding="utf-8") as log:
             log.write(f"[{_now_iso()}] Starting: {' '.join(command)}\n")
@@ -487,12 +492,23 @@ def _run_spotdl_job(job_id: str, command: list[str]) -> None:
                 log.write(clean + "\n")
                 log.flush()
                 lowered = clean.lower()
+                found = FOUND_SONGS_RE.search(clean)
+                if found:
+                    total_tracks = max(total_tracks, int(found.group(1)))
+                if any(token in lowered for token in ("already exists", "skipping", "skip")):
+                    existing_count += 1
+                elif any(token in lowered for token in ("downloaded", "saved", "converted")):
+                    downloaded_count = max(downloaded_count + 1, _audio_count(output_dir) - existing_count)
                 if "failed" in lowered or "error" in lowered:
                     failed_count += 1
+                track_match = TRACK_PROGRESS_RE.search(clean)
                 _update_job(
                     job_id,
+                    total_tracks=total_tracks,
                     current_line=clean[-500:],
-                    downloaded_count=max(0, _audio_count(output_dir) - int(job.get("existing_count") or 0)),
+                    current_track=(track_match.group(1).strip()[:240] if track_match else ""),
+                    downloaded_count=max(downloaded_count, max(0, _audio_count(output_dir) - existing_count)),
+                    existing_count=existing_count,
                     failed_count=failed_count,
                 )
             code = proc.wait()

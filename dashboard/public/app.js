@@ -825,6 +825,8 @@ const state = {
   playerResult: null,
   userIdLookup: null,
   autodjPager: { rows: "25", page: 1 },
+  autodjShowSuspectsOnly: false,
+  autodjLogJob: null,
   autodjUploads: [],
 };
 
@@ -4463,13 +4465,54 @@ function renderAutodjUploadStatus() {
   </div>`;
 }
 
+function renderAutodjSyncProgress(job) {
+  const total = Number(job.total_tracks || 0);
+  const done = Number(job.progress_done ?? (Number(job.downloaded_count || 0) + Number(job.existing_count || 0) + Number(job.failed_count || 0)));
+  if (!total) return `<span class="muted text-sm">Unknown</span>`;
+  const pct = Math.max(0, Math.min(100, Number(job.progress_pct || Math.round((done / total) * 100))));
+  return `<div>
+    <div class="text-sm">${done} / ${total} (${pct}%)</div>
+    <div class="mini-progress"><span style="width:${pct}%"></span></div>
+  </div>`;
+}
+
+function renderAutodjSyncJobs(syncJobs) {
+  const jobs = syncJobs?.jobs || [];
+  const logJob = state.autodjLogJob;
+  return `<div class="card">
+    <div class="card-header"><h2>Sync Jobs</h2><button class="btn sm" data-autodj-sync-refresh>Refresh</button></div>
+    ${table(jobs, [
+      { key: "job_id", label: "Job" },
+      { key: "vibe", label: "Vibe" },
+      { key: "status", label: "Status", render: (r) => pill(r.status || "unknown", ["completed", "running"]) },
+      { key: "playlist_url", label: "Playlist" },
+      { key: "started_at", label: "Started" },
+      { key: "finished_at", label: "Finished" },
+      { key: "audio_files", label: "Audio Files" },
+      { key: "downloaded_count", label: "Downloaded" },
+      { key: "existing_count", label: "Existing" },
+      { key: "failed_count", label: "Failed" },
+      { key: "__progress", label: "Progress", render: renderAutodjSyncProgress },
+      { key: "__line", label: "Recent", render: (r) => esc(r.current_track || r.current_line || r.recent_log_line || "") },
+    ], (r) => `<button class="btn sm" data-autodj-view-log="${esc(r.job_id)}">View Log</button> ${r.status === "running" ? `<button class="btn sm danger" data-autodj-cancel-sync="${esc(r.job_id)}">Cancel Sync</button>` : ""}`)}
+    ${logJob ? `<div class="notice" style="margin-top:12px">
+      <div class="card-header" style="padding:0;margin-bottom:8px"><h3>Job ${esc(logJob.job_id)} Log</h3><button class="btn sm" data-autodj-close-log>Close</button></div>
+      <pre style="white-space:pre-wrap;max-height:320px;overflow:auto">${esc((logJob.lines || []).join("\n"))}</pre>
+    </div>` : ""}
+  </div>`;
+}
+
 function renderRadioAutodjManager(d) {
   const vibes = d.autodj_vibes || {};
   const selected = d.selected_vibe || {};
   const vibeRows = vibes.vibes || [];
   const active = selected.vibe || vibeRows[0]?.name || "";
   const activeVibe = vibes.active_vibe?.name || "";
-  const paged = autodjPagedRows(selected.files || []);
+  const syncJobs = vibes.sync_jobs || {};
+  const activeRows = state.autodjShowSuspectsOnly
+    ? (selected.files || []).filter((row) => row.is_suspect)
+    : (selected.files || []);
+  const paged = autodjPagedRows(activeRows);
   const rowsValue = state.autodjPager?.rows || "25";
   return `<div class="grid">
     <div class="card">
@@ -4499,13 +4542,15 @@ function renderRadioAutodjManager(d) {
       ` : `<div class="notice">Select or create a vibe.</div>`}
     </div>
     ${renderAutodjUploadStatus()}
+    ${renderAutodjSyncJobs(syncJobs)}
     <div class="card">
-      <div class="card-header"><h2>Tracks (${selected.count ?? 0})</h2><button class="btn sm" data-autodj-refresh>Refresh</button></div>
+      <div class="card-header"><h2>Active Tracks (${activeRows.length} / ${selected.count ?? 0})</h2><button class="btn sm" data-autodj-refresh>Refresh</button></div>
       <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
         <label class="muted text-sm">Rows per page</label>
         <select id="autodjRowsPerPage">
           ${["10", "25", "50", "100", "all"].map((value) => `<option value="${value}" ${rowsValue === value ? "selected" : ""}>${value === "all" ? "All" : value}</option>`).join("")}
         </select>
+        <label class="muted text-sm"><input id="autodjSuspectsOnly" type="checkbox" ${state.autodjShowSuspectsOnly ? "checked" : ""} /> Show suspects only</label>
         <button class="btn sm" data-autodj-page="prev" ${paged.page <= 1 ? "disabled" : ""}>Previous</button>
         <span class="muted text-sm">Page ${paged.page} of ${paged.pages}</span>
         <button class="btn sm" data-autodj-page="next" ${paged.page >= paged.pages ? "disabled" : ""}>Next</button>
@@ -4514,6 +4559,8 @@ function renderRadioAutodjManager(d) {
         { key: "filename", label: "Filename" },
         { key: "status", label: "Status" },
         { key: "reason", label: "Reason" },
+        { key: "suspect_badges", label: "Warnings" },
+        { key: "duration_secs", label: "Duration" },
         { key: "type", label: "Type" },
         { key: "size_mb", label: "Size MB" },
         { key: "modified_at", label: "Modified" },
@@ -8778,6 +8825,34 @@ function bindAdminPageEvents() {
   /* Radio controls */
   document.querySelectorAll('[data-action="radio-refresh"]').forEach((btn) => btn.addEventListener("click", () => loadAdmin()));
   document.querySelectorAll("[data-autodj-refresh]").forEach((btn) => btn.addEventListener("click", () => loadAdmin()));
+  document.querySelectorAll("[data-autodj-sync-refresh]").forEach((btn) => btn.addEventListener("click", async () => {
+    const selected = state.data?.selected_vibe?.vibe || "";
+    state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(selected)}`);
+    render();
+  }));
+  document.querySelectorAll("[data-autodj-view-log]").forEach((btn) => btn.addEventListener("click", async () => {
+    const jobId = btn.dataset.autodjViewLog || "";
+    const data = await api(`/api/radio/autodj/sync-jobs/${encodeURIComponent(jobId)}/log`);
+    state.autodjLogJob = { job_id: jobId, lines: data.lines || [] };
+    render();
+  }));
+  document.querySelectorAll("[data-autodj-close-log]").forEach((btn) => btn.addEventListener("click", () => {
+    state.autodjLogJob = null;
+    render();
+  }));
+  document.querySelectorAll("[data-autodj-cancel-sync]").forEach((btn) => btn.addEventListener("click", () => {
+    const jobId = btn.dataset.autodjCancelSync || "";
+    const selected = state.data?.selected_vibe?.vibe || "";
+    confirmAction("Cancel Sync", `Stop SpotDL sync job ${jobId}?`, async () => {
+      await action("AutoDJ sync cancelled.", () =>
+        api(`/api/radio/autodj/sync-jobs/${encodeURIComponent(jobId)}/cancel`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        }));
+      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(selected)}`);
+      render();
+    });
+  }));
   document.querySelectorAll("[data-autodj-vibe]").forEach((btn) => btn.addEventListener("click", async () => {
     state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(btn.dataset.autodjVibe || "")}`);
     render();
@@ -8790,6 +8865,11 @@ function bindAdminPageEvents() {
   }));
   document.getElementById("autodjRowsPerPage")?.addEventListener("change", (e) => {
     state.autodjPager.rows = e.currentTarget.value || "25";
+    state.autodjPager.page = 1;
+    render();
+  });
+  document.getElementById("autodjSuspectsOnly")?.addEventListener("change", (e) => {
+    state.autodjShowSuspectsOnly = !!e.currentTarget.checked;
     state.autodjPager.page = 1;
     render();
   });
