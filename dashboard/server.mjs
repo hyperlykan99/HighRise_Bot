@@ -464,6 +464,133 @@ function rejectAutodjVibeFile(vibe, filename, reason = "dashboard reject") {
   }
 }
 
+function restoreAutodjRejectedFile(vibe, filename) {
+  const safe = safeAutodjVibeName(vibe);
+  const safeName = safeAudioFilename(filename);
+  const activeDir = autodjVibePath(safe);
+  const rejectedDir = autodjRejectedPath(safe);
+  console.log(`[AUTODJ_RESTORE_START] vibe=${safe} filename=${safeName}`);
+  if (!safe || !safeName || !activeDir || !rejectedDir) {
+    console.error(`[AUTODJ_RESTORE_FAILED] vibe=${safe} filename=${safeName} reason=invalid_file`);
+    return { ok: false, error: "invalid_file" };
+  }
+  const source = path.resolve(rejectedDir, safeName);
+  if (!isInsideDir(source, rejectedDir) || !fs.existsSync(source) || !fs.statSync(source).isFile()) {
+    console.error(`[AUTODJ_RESTORE_FAILED] vibe=${safe} filename=${safeName} reason=file_not_found`);
+    return { ok: false, error: "file_not_found" };
+  }
+  ensureDir(activeDir, 0o755);
+  const target = uniqueAudioPath(activeDir, safeName);
+  if (!target || !isInsideDir(target, activeDir)) {
+    console.error(`[AUTODJ_RESTORE_FAILED] vibe=${safe} filename=${safeName} reason=unsafe_target`);
+    return { ok: false, error: "unsafe_target" };
+  }
+  try {
+    fs.renameSync(source, target);
+    const restoredName = path.basename(target);
+    upsertAutodjManifestTrack(safe, safeName, {
+      filename: restoredName,
+      status: "active",
+      reason: "",
+      needs_replacement: false,
+      restored_at: nowIso(),
+      rejected_path: "",
+    });
+    console.log(`[AUTODJ_RESTORE_OK] vibe=${safe} filename=${safeName} restored_as=${restoredName}`);
+    return { ok: true, filename: safeName, restored_filename: restoredName, relative_path: path.relative(BOT_ROOT, target).split(path.sep).join("/") };
+  } catch (err) {
+    console.error(`[AUTODJ_RESTORE_FAILED] vibe=${safe} filename=${safeName} error=${err.message}`);
+    return { ok: false, error: "restore_failed", message: err.message };
+  }
+}
+
+function markAutodjNeedsReplacement(vibe, filename, reason = "needs replacement") {
+  const safe = safeAutodjVibeName(vibe);
+  const safeName = safeAudioFilename(filename);
+  const activeDir = autodjVibePath(safe);
+  const rejectedDir = autodjRejectedPath(safe);
+  if (!safe || !safeName || !activeDir || !rejectedDir) {
+    return { ok: false, error: "invalid_file" };
+  }
+  const cleanReason = String(reason || "needs replacement").slice(0, 160);
+  const activeSource = path.resolve(activeDir, safeName);
+  const rejectedSource = path.resolve(rejectedDir, safeName);
+  let rejectedName = safeName;
+  let rejectedPath = rejectedSource;
+  try {
+    if (isInsideDir(activeSource, activeDir) && fs.existsSync(activeSource) && fs.statSync(activeSource).isFile()) {
+      ensureDir(rejectedDir, 0o755);
+      const target = uniqueRejectedAudioPath(rejectedDir, safeName);
+      if (!target || !isInsideDir(target, rejectedDir)) return { ok: false, error: "unsafe_target" };
+      fs.renameSync(activeSource, target);
+      rejectedName = path.basename(target);
+      rejectedPath = target;
+    } else if (!isInsideDir(rejectedSource, rejectedDir) || !fs.existsSync(rejectedSource) || !fs.statSync(rejectedSource).isFile()) {
+      return { ok: false, error: "file_not_found" };
+    }
+    upsertAutodjManifestTrack(safe, safeName, {
+      filename: rejectedName,
+      status: "rejected",
+      reason: cleanReason,
+      needs_replacement: true,
+      rejected_at: nowIso(),
+      rejected_path: rejectedPath,
+    });
+    console.log(`[AUTODJ_NEEDS_REPLACEMENT_SET] vibe=${safe} filename=${safeName} rejected_as=${rejectedName}`);
+    return { ok: true, filename: safeName, rejected_filename: rejectedName, needs_replacement: true };
+  } catch (err) {
+    console.error(`[AUTODJ_REPLACE_FAILED] vibe=${safe} filename=${safeName} phase=mark_needs_replacement error=${err.message}`);
+    return { ok: false, error: "needs_replacement_failed", message: err.message };
+  }
+}
+
+function replaceAutodjRejectedFile(vibe, filename, part) {
+  const safe = safeAutodjVibeName(vibe);
+  const badName = safeAudioFilename(filename);
+  const replacementName = safeAudioFilename(part?.filename || "");
+  const activeDir = autodjVibePath(safe);
+  const rejectedDir = autodjRejectedPath(safe);
+  console.log(`[AUTODJ_REPLACE_START] vibe=${safe} filename=${badName} replacement=${replacementName}`);
+  if (!safe || !badName || !replacementName || !activeDir || !rejectedDir || !part?.data?.length) {
+    console.error(`[AUTODJ_REPLACE_FAILED] vibe=${safe} filename=${badName} reason=invalid_file`);
+    return { ok: false, error: "invalid_file" };
+  }
+  const badPath = path.resolve(rejectedDir, badName);
+  if (!isInsideDir(badPath, rejectedDir) || !fs.existsSync(badPath) || !fs.statSync(badPath).isFile()) {
+    console.error(`[AUTODJ_REPLACE_FAILED] vibe=${safe} filename=${badName} reason=rejected_file_not_found`);
+    return { ok: false, error: "rejected_file_not_found" };
+  }
+  ensureDir(activeDir, 0o755);
+  const target = uniqueAudioPath(activeDir, replacementName);
+  if (!target || !isInsideDir(target, activeDir)) {
+    console.error(`[AUTODJ_REPLACE_FAILED] vibe=${safe} filename=${badName} reason=unsafe_target`);
+    return { ok: false, error: "unsafe_target" };
+  }
+  try {
+    fs.writeFileSync(target, part.data, { flag: "wx" });
+    const activeName = path.basename(target);
+    upsertAutodjManifestTrack(safe, badName, {
+      status: "rejected",
+      needs_replacement: false,
+      replacement_done: true,
+      replaced_by: activeName,
+      replaced_at: nowIso(),
+      rejected_path: badPath,
+    });
+    upsertAutodjManifestTrack(safe, activeName, {
+      status: "active",
+      reason: "",
+      needs_replacement: false,
+      source: "dashboard_replacement",
+    });
+    console.log(`[AUTODJ_REPLACE_OK] vibe=${safe} filename=${badName} replaced_by=${activeName}`);
+    return { ok: true, filename: badName, replaced_by: activeName, relative_path: path.relative(BOT_ROOT, target).split(path.sep).join("/") };
+  } catch (err) {
+    console.error(`[AUTODJ_REPLACE_FAILED] vibe=${safe} filename=${badName} error=${err.message}`);
+    return { ok: false, error: "replace_failed", message: err.message };
+  }
+}
+
 function readAutodjVibeFiles(vibe) {
   const safe = safeAutodjVibeName(vibe);
   const dir = autodjVibePath(safe);
@@ -487,6 +614,10 @@ function readAutodjVibeFiles(vibe) {
         status: manifestRow.needs_replacement ? "needs_replacement" : status,
         reason: manifestRow.reason || "",
         needs_replacement: Boolean(manifestRow.needs_replacement),
+        rejected_at: manifestRow.rejected_at || "",
+        restored_at: manifestRow.restored_at || "",
+        replaced_by: manifestRow.replaced_by || "",
+        replacement_done: Boolean(manifestRow.replacement_done),
         type: ext.replace(".", ""),
         extension: ext,
         size: stat.size,
@@ -503,6 +634,28 @@ function readAutodjVibeFiles(vibe) {
     readAudioDir(dir, "active");
     readAudioDir(autodjRejectedPath(safe), "rejected");
     files.sort((a, b) => String(a.filename).localeCompare(String(b.filename)));
+    const rejectedNames = new Set(rejected.map((row) => row.filename));
+    for (const track of manifest.tracks || []) {
+      const safeName = safeAudioFilename(track.filename || "");
+      if (!safeName || rejectedNames.has(safeName)) continue;
+      if (track.status !== "rejected" && !track.needs_replacement) continue;
+      rejected.push({
+        filename: safeName,
+        status: track.needs_replacement ? "needs_replacement" : "rejected",
+        reason: track.reason || "",
+        needs_replacement: Boolean(track.needs_replacement),
+        rejected_at: track.rejected_at || "",
+        restored_at: track.restored_at || "",
+        replaced_by: track.replaced_by || "",
+        replacement_done: Boolean(track.replacement_done),
+        size: "",
+        size_mb: "",
+        modified_at: track.rejected_at || "",
+        relative_path: track.rejected_path && isInsideDir(String(track.rejected_path), BOT_ROOT)
+          ? path.relative(BOT_ROOT, String(track.rejected_path)).split(path.sep).join("/")
+          : "",
+      });
+    }
     rejected.sort((a, b) => String(a.filename).localeCompare(String(b.filename)));
     const needsReplacement = [...files, ...rejected, ...(manifest.tracks || [])
       .filter((track) => track.needs_replacement)
@@ -6929,6 +7082,44 @@ app.post("/api/radio/autodj/vibes/:vibe/files/:filename/reject", requireAuth, re
   audit(req.db, req.user.username, "autodj_vibe_file_rejected", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
   json(res, { ok: true, rejected: result, vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
 }, closeDb);
+
+app.post("/api/radio/autodj/vibes/:vibe/files/:filename/restore", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const result = restoreAutodjRejectedFile(req.params.vibe, req.params.filename);
+  if (!result.ok) {
+    audit(req.db, req.user.username, "autodj_vibe_file_restore_failed", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+    return json(res, { error: result.error || "restore_failed", detail: result }, result.error === "file_not_found" ? 404 : 400);
+  }
+  audit(req.db, req.user.username, "autodj_vibe_file_restored", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+  json(res, { ok: true, restored: result, vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
+}, closeDb);
+
+app.post("/api/radio/autodj/vibes/:vibe/files/:filename/needs-replacement", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const result = markAutodjNeedsReplacement(req.params.vibe, req.params.filename, req.body?.reason || "needs replacement");
+  if (!result.ok) {
+    audit(req.db, req.user.username, "autodj_vibe_file_needs_replacement_failed", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+    return json(res, { error: result.error || "needs_replacement_failed", detail: result }, result.error === "file_not_found" ? 404 : 400);
+  }
+  audit(req.db, req.user.username, "autodj_vibe_file_needs_replacement", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+  json(res, { ok: true, track: result, vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
+}, closeDb);
+
+app.post(
+  "/api/radio/autodj/vibes/:vibe/files/:filename/replace",
+  requireAuth,
+  requirePermission("manage_radio"),
+  express.raw({ type: (req) => String(req.headers["content-type"] || "").startsWith("multipart/form-data"), limit: "500mb" }),
+  (req, res) => {
+    const parts = parseMultipartFiles(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), req.headers["content-type"]);
+    const result = replaceAutodjRejectedFile(req.params.vibe, req.params.filename, parts[0] || null);
+    if (!result.ok) {
+      audit(req.db, req.user.username, "autodj_vibe_file_replace_failed", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+      return json(res, { error: result.error || "replace_failed", detail: result }, result.error === "rejected_file_not_found" ? 404 : 400);
+    }
+    audit(req.db, req.user.username, "autodj_vibe_file_replaced", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+    json(res, { ok: true, replacement: result, vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
+  },
+  closeDb,
+);
 
 app.post("/api/radio/autodj/vibes/:vibe/active", requireAuth, requirePermission("manage_radio"), (req, res) => {
   const result = setAutodjActiveVibe(req.params.vibe);

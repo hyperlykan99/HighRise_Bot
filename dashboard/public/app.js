@@ -4518,7 +4518,7 @@ function renderRadioAutodjManager(d) {
         { key: "size_mb", label: "Size MB" },
         { key: "modified_at", label: "Modified" },
         { key: "relative_path", label: "Path" },
-      ], (r) => `<button class="btn sm danger" data-autodj-reject-file="${esc(r.filename)}" data-vibe="${esc(active)}">Delete / Reject</button>`)}
+      ], (r) => `<button class="btn sm" data-autodj-needs-file="${esc(r.filename)}" data-vibe="${esc(active)}">Needs Replacement</button> <button class="btn sm danger" data-autodj-reject-file="${esc(r.filename)}" data-vibe="${esc(active)}">Delete / Reject</button>`)}
     </div>
     <div class="card">
       <h2>Rejected Tracks (${selected.rejected_count ?? 0})</h2>
@@ -4526,10 +4526,13 @@ function renderRadioAutodjManager(d) {
         { key: "filename", label: "Filename" },
         { key: "status", label: "Status" },
         { key: "reason", label: "Reason" },
+        { key: "needs_replacement", label: "Needs Replacement", render: (r) => r.needs_replacement ? "Yes" : "" },
+        { key: "rejected_at", label: "Rejected" },
+        { key: "replaced_by", label: "Replaced By" },
         { key: "size_mb", label: "Size MB" },
         { key: "modified_at", label: "Modified" },
         { key: "relative_path", label: "Path" },
-      ])}
+      ], (r) => `<button class="btn sm" data-autodj-restore-file="${esc(r.filename)}" data-vibe="${esc(active)}">Restore</button> <button class="btn sm" data-autodj-needs-file="${esc(r.filename)}" data-vibe="${esc(active)}">Needs Replacement</button> <button class="btn sm primary" data-autodj-replace-file="${esc(r.filename)}" data-vibe="${esc(active)}">Replace File</button>`)}
     </div>
     <div class="card">
       <h2>Needs Replacement (${selected.needs_replacement_count ?? 0})</h2>
@@ -8807,6 +8810,65 @@ function bindAdminPageEvents() {
       state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
       render();
     });
+  }));
+  document.querySelectorAll("[data-autodj-restore-file]").forEach((btn) => btn.addEventListener("click", () => {
+    const vibe = btn.dataset.vibe || "";
+    const filename = btn.dataset.autodjRestoreFile || "";
+    confirmAction("Restore AutoDJ Track", `Restore ${filename} to active vibe ${vibe}?`, async () => {
+      await action("AutoDJ track restored.", () =>
+        api(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/files/${encodeURIComponent(filename)}/restore`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        }));
+      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
+      render();
+    });
+  }));
+  document.querySelectorAll("[data-autodj-needs-file]").forEach((btn) => btn.addEventListener("click", () => {
+    const vibe = btn.dataset.vibe || "";
+    const filename = btn.dataset.autodjNeedsFile || "";
+    const reason = prompt("Reason", "needs replacement") || "needs replacement";
+    confirmAction("Mark Needs Replacement", `Mark ${filename} as needing replacement?`, async () => {
+      await action("AutoDJ track marked needs replacement.", () =>
+        api(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/files/${encodeURIComponent(filename)}/needs-replacement`, {
+          method: "POST",
+          body: JSON.stringify({ reason }),
+        }));
+      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
+      render();
+    });
+  }));
+  document.querySelectorAll("[data-autodj-replace-file]").forEach((btn) => btn.addEventListener("click", () => {
+    const vibe = btn.dataset.vibe || "";
+    const filename = btn.dataset.autodjReplaceFile || "";
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".mp3,.m4a,.wav,.flac,.ogg,.opus,.aac,audio/*";
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const form = new FormData();
+      form.append("files", file);
+      try {
+        const headers = state.csrf ? { "X-CSRF-Token": state.csrf, Accept: "application/json" } : { Accept: "application/json" };
+        const res = await fetch(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/files/${encodeURIComponent(filename)}/replace`, {
+          method: "POST",
+          credentials: "include",
+          headers,
+          body: form,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        state.notice = `Replacement uploaded as ${data.replacement?.replaced_by || file.name}.`;
+        state.error = "";
+        state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
+        render();
+      } catch (err) {
+        state.error = err.message;
+        render();
+      }
+    });
+    input.click();
   }));
   document.getElementById("autodjCreateVibeForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
