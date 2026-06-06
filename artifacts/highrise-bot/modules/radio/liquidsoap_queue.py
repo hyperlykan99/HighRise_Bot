@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import socket
 from pathlib import Path
 
 from modules.radio import settings as radio_settings
@@ -23,10 +24,6 @@ def request_library_dir() -> Path:
 
 def current_request_playlist_path() -> Path:
     return _configured_file("radio_current_request_playlist_path", "liquidsoap/current_request.m3u")
-
-
-def request_queue_playlist_path() -> Path:
-    return _configured_file("radio_request_queue_playlist_path", "liquidsoap/request_queue.m3u")
 
 
 def played_archive_dir() -> Path:
@@ -173,63 +170,6 @@ def write_current_request_playlist(request_path: str | os.PathLike) -> tuple[boo
     return True, ""
 
 
-def write_request_queue_playlist(request_paths: list[str] | tuple[str, ...]) -> tuple[bool, str, int]:
-    playlist = request_queue_playlist_path()
-    playlist.parent.mkdir(parents=True, exist_ok=True)
-    safe_paths: list[str] = []
-    seen: set[str] = set()
-    for raw_path in request_paths or []:
-        target = request_path_in_library(str(raw_path or ""))
-        if target is None:
-            return False, "request_path_outside_library", len(safe_paths)
-        if not target.exists() or not target.is_file():
-            return False, f"request_file_missing:{target}", len(safe_paths)
-        if not safe_request_filename(target.name):
-            return False, f"unsafe_request_filename:{target.name}", len(safe_paths)
-        resolved = str(target.resolve())
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        safe_paths.append(resolved)
-    tmp = playlist.with_suffix(".tmp")
-    try:
-        tmp.write_text("".join(f"{path}\n" for path in safe_paths), encoding="utf-8")
-        os.replace(tmp, playlist)
-    except Exception as exc:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except Exception:
-            pass
-        return False, repr(exc), len(safe_paths)
-    return True, "", len(safe_paths)
-
-
-def request_queue_playlist_targets() -> list[str]:
-    playlist = request_queue_playlist_path()
-    try:
-        return [
-            line.strip()
-            for line in playlist.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
-    except FileNotFoundError:
-        return []
-    except Exception:
-        return []
-
-
-def request_queue_playlist_contains(request_path: str | os.PathLike) -> bool:
-    target = request_path_in_library(str(request_path))
-    if target is None:
-        return False
-    try:
-        wanted = str(target.resolve())
-        return any(str(Path(raw).resolve()) == wanted for raw in request_queue_playlist_targets())
-    except Exception:
-        return False
-
-
 def clear_current_request_playlist() -> bool:
     playlist = current_request_playlist_path()
     playlist.parent.mkdir(parents=True, exist_ok=True)
@@ -272,6 +212,42 @@ def playlist_points_to(request_path: str | os.PathLike) -> bool:
         return Path(raw).resolve() == target.resolve()
     except Exception:
         return False
+
+
+def push_request_to_liquidsoap(request_path: str | os.PathLike) -> tuple[bool, str, str]:
+    target = request_path_in_library(str(request_path))
+    if target is None:
+        return False, "", "request_path_outside_library"
+    if not target.exists() or not target.is_file():
+        return False, "", "request_file_missing"
+    if not safe_request_filename(target.name):
+        return False, "", "unsafe_request_filename"
+    host = radio_settings.liquidsoap_telnet_host()
+    port = radio_settings.liquidsoap_telnet_port()
+    timeout = radio_settings.liquidsoap_telnet_timeout_secs()
+    command = f"request_queue.push {str(target)}\n"
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            sock.sendall(command.encode("utf-8"))
+            chunks: list[bytes] = []
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                if b"\nEND" in b"".join(chunks):
+                    break
+            response = b"".join(chunks).decode("utf-8", errors="replace")
+    except Exception as exc:
+        return False, "", repr(exc)
+    lines = [line.strip() for line in response.splitlines() if line.strip() and line.strip() != "END"]
+    if not lines:
+        return False, "", "empty_liquidsoap_response"
+    if any(line.upper().startswith("ERROR") or "ERROR:" in line.upper() for line in lines):
+        return False, "", response.strip()
+    request_id = lines[-1]
+    return True, request_id, response.strip()
 
 
 def remove_request_file(path_or_filename: str) -> bool:

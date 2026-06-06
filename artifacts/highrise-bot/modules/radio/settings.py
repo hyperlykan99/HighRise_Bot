@@ -27,8 +27,10 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "liquidsoap_queue_next_path": ("liquidsoap/queue/next", "str"),
     "radio_staging_path": ("data/radio_staging", "str"),
     "radio_request_library_path": ("data/radio_requests", "str"),
-    "radio_request_queue_playlist_path": ("liquidsoap/request_queue.m3u", "str"),
     "radio_current_request_playlist_path": ("liquidsoap/current_request.m3u", "str"),
+    "liquidsoap_telnet_host": ("127.0.0.1", "str"),
+    "liquidsoap_telnet_port": ("1234", "int"),
+    "liquidsoap_telnet_timeout_secs": ("5", "int"),
     "request_file_retention_mode": ("archive", "str"),
     "liquidsoap_playing_path": ("liquidsoap/queue/playing", "str"),
     "liquidsoap_played_path": ("liquidsoap/queue/played", "str"),
@@ -144,6 +146,20 @@ def liquidsoap_cleanup_fallback_duration_secs() -> int:
 def request_file_retention_mode() -> str:
     value = str(get_setting("request_file_retention_mode", "archive") or "archive").strip().lower()
     return value if value in {"archive", "delete"} else "archive"
+
+
+def liquidsoap_telnet_host() -> str:
+    return str(get_setting("liquidsoap_telnet_host", "127.0.0.1") or "127.0.0.1").strip() or "127.0.0.1"
+
+
+def liquidsoap_telnet_port() -> int:
+    value = get_int_setting("liquidsoap_telnet_port", 1234)
+    return max(1, min(65535, int(value)))
+
+
+def liquidsoap_telnet_timeout_secs() -> float:
+    value = get_int_setting("liquidsoap_telnet_timeout_secs", 5)
+    return float(max(1, min(30, int(value))))
 
 
 def youtube_search_result_count() -> int:

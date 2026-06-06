@@ -7,8 +7,9 @@ set("init.allow_root", true)
 
 set("log.stdout", true)
 set("log.file", false)
+set("server.telnet", true)
 
-request_queue = playlist(mode="normal", reload=2, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/request_queue.m3u")
+request_queue = request.queue(id="request_queue")
 
 autodj = playlist(mode="randomize", reload=10, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/autodj/active")
 

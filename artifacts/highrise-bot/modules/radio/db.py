@@ -334,7 +334,7 @@ def active_liquidsoap_request_candidates(limit: int = 50) -> list[dict]:
                  AND COALESCE(CASE WHEN status='playing' THEN current_path ELSE released_path END, azura_path, '') != ''
                  AND (COALESCE(temp_filename, '') LIKE 'radio_request_%'
                       OR COALESCE(temp_filename, '') LIKE '000_priority_request_%')
-               ORDER BY priority DESC, id ASC
+               ORDER BY CASE WHEN status='playing' THEN 0 ELSE 1 END ASC, priority DESC, id ASC
                LIMIT ?""",
             (max(1, min(100, int(limit))),),
         ).fetchall()
