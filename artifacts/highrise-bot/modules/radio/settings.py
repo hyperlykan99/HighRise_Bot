@@ -25,6 +25,7 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "radio_request_prequeue_enabled": ("true", "bool"),
     "radio_request_prequeue_count": ("1", "int"),
     "liquidsoap_queue_next_path": ("liquidsoap/queue/next", "str"),
+    "radio_staging_path": ("data/radio_staging", "str"),
     "liquidsoap_playing_path": ("liquidsoap/queue/playing", "str"),
     "liquidsoap_played_path": ("liquidsoap/queue/played", "str"),
     "liquidsoap_no_replay_move_delay_secs": ("20", "int"),

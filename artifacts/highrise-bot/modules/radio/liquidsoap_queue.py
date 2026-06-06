@@ -21,6 +21,10 @@ def queue_next_dir() -> Path:
     return _configured_dir("liquidsoap_queue_next_path", "liquidsoap/queue/next")
 
 
+def staging_dir() -> Path:
+    return _configured_dir("radio_staging_path", "data/radio_staging")
+
+
 def queue_played_dir() -> Path:
     return _configured_dir("liquidsoap_played_path", "liquidsoap/queue/played")
 
@@ -58,6 +62,10 @@ def request_path_in_next(path_or_filename: str) -> Path | None:
     return _request_path_in_dir(path_or_filename, queue_next_dir())
 
 
+def request_path_in_staging(path_or_filename: str) -> Path | None:
+    return _request_path_in_dir(path_or_filename, staging_dir())
+
+
 def request_path_in_playing(path_or_filename: str) -> Path | None:
     return _request_path_in_dir(path_or_filename, queue_playing_dir())
 
@@ -78,14 +86,14 @@ def _request_path_in_dir(path_or_filename: str, base_dir: Path) -> Path | None:
     return target
 
 
-def handoff_to_next(local_mp3: str | os.PathLike, request_id: int, title: str = "", priority: bool = False) -> tuple[bool, str, str]:
+def handoff_to_staging(local_mp3: str | os.PathLike, request_id: int, title: str = "", priority: bool = False) -> tuple[bool, str, str]:
     source = Path(local_mp3)
     filename = request_filename(request_id, title, priority=priority)
     if not source.exists() or not source.is_file():
         return False, filename, "source_missing"
     if not safe_request_filename(filename):
         return False, filename, "unsafe_filename"
-    target_dir = queue_next_dir()
+    target_dir = staging_dir()
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / filename
     temp_target = target.with_suffix(".tmp")
@@ -102,8 +110,38 @@ def handoff_to_next(local_mp3: str | os.PathLike, request_id: int, title: str = 
     return True, str(target), ""
 
 
+def release_prepared_to_next(prepared_path: str | os.PathLike, request_id: int, title: str = "", priority: bool = False) -> tuple[bool, str, str]:
+    source = Path(prepared_path)
+    filename = os.path.basename(str(prepared_path or "")) or request_filename(request_id, title, priority=priority)
+    if not safe_request_filename(filename):
+        return False, filename, "unsafe_filename"
+    staging_path = request_path_in_staging(str(source)) or request_path_in_staging(filename)
+    if staging_path is None:
+        return False, str(source), "source_outside_staging"
+    if not staging_path.exists() or not staging_path.is_file():
+        return False, str(staging_path), "source_missing"
+    expected = request_filename(request_id, title, priority=priority)
+    target_name = filename if safe_request_filename(filename) else expected
+    target_dir = queue_next_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = (target_dir / target_name).resolve()
+    try:
+        target.relative_to(target_dir)
+    except ValueError:
+        return False, str(target), "target_outside_next"
+    try:
+        os.replace(staging_path, target)
+    except Exception as exc:
+        return False, str(target), repr(exc)
+    return True, str(target), ""
+
+
 def remove_request_file(path_or_filename: str) -> bool:
-    target = request_path_in_next(path_or_filename) or request_path_in_playing(path_or_filename)
+    target = (
+        request_path_in_staging(path_or_filename)
+        or request_path_in_next(path_or_filename)
+        or request_path_in_playing(path_or_filename)
+    )
     if target is None:
         return not str(path_or_filename or "").strip()
     try:
@@ -136,6 +174,28 @@ def move_request_to_played(path_or_filename: str) -> tuple[bool, str, str]:
     except Exception as exc:
         return False, str(target), repr(exc)
     return True, str(target), ""
+
+
+def list_request_files(folder: str) -> list[Path]:
+    dirs = {
+        "next": queue_next_dir,
+        "playing": queue_playing_dir,
+        "played": queue_played_dir,
+        "staging": staging_dir,
+    }
+    getter = dirs.get(str(folder or "").strip().lower())
+    if not getter:
+        return []
+    base = getter()
+    try:
+        return sorted(
+            [path for path in base.iterdir() if path.is_file() and safe_request_filename(path.name)],
+            key=lambda path: path.name,
+        )
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
 
 
 def move_request_to_playing(path_or_filename: str) -> tuple[bool, str, str]:

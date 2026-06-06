@@ -37,7 +37,7 @@ def cleanup_request_media(request_id: int, reason: str = "cleanup") -> bool:
     azura.rescan_requests_folder()
     verified = azura.verify_request_file_gone(filename) if filename and safe_generated_filename(filename) else True
     ok = bool(removed or verified)
-    if ok:
+    if ok and str(reason or "") not in {"cancelled", "failed_before_play", "staff_clear_stuck"}:
         radio_db.mark_status(request_id, "cleaned", finish_reason=reason)
     print(
         f"[RADIO_PHASE4] event=cleanup_request_media request_id={request_id} "

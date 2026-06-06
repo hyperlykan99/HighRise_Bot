@@ -38,11 +38,15 @@ def ensure_schema() -> None:
                 is_staff_free INTEGER DEFAULT 0,
                 is_vip INTEGER DEFAULT 0,
                 temp_filename TEXT,
+                prepared_path TEXT,
+                released_path TEXT,
+                current_path TEXT,
                 azura_file_id TEXT,
                 azura_song_id TEXT,
                 azura_path TEXT,
                 created_at TEXT,
                 prepared_at TEXT,
+                released_at TEXT,
                 submitted_at TEXT,
                 playing_at TEXT,
                 played_at TEXT,
@@ -62,6 +66,14 @@ def ensure_schema() -> None:
             conn.execute("ALTER TABLE radio_requests ADD COLUMN payment_type TEXT DEFAULT 'disc'")
         if "payment_amount" not in columns:
             conn.execute("ALTER TABLE radio_requests ADD COLUMN payment_amount INTEGER DEFAULT 0")
+        if "prepared_path" not in columns:
+            conn.execute("ALTER TABLE radio_requests ADD COLUMN prepared_path TEXT")
+        if "released_path" not in columns:
+            conn.execute("ALTER TABLE radio_requests ADD COLUMN released_path TEXT")
+        if "current_path" not in columns:
+            conn.execute("ALTER TABLE radio_requests ADD COLUMN current_path TEXT")
+        if "released_at" not in columns:
+            conn.execute("ALTER TABLE radio_requests ADD COLUMN released_at TEXT")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS radio_runtime_state (
                 key TEXT PRIMARY KEY,
@@ -122,7 +134,7 @@ def queue_rows(limit: int = 20) -> list[dict]:
         with database.db_conn() as conn:
             rows = conn.execute(
                 f"""SELECT id, username, title, artist, status, priority, created_at,
-                           temp_filename, azura_path
+                           temp_filename, prepared_path, released_path, current_path, azura_path
                     FROM radio_requests
                     WHERE status IN ({placeholders})
                     ORDER BY priority DESC, id ASC
@@ -315,8 +327,8 @@ def active_liquidsoap_request_candidates(limit: int = 50) -> list[dict]:
     with database.db_conn() as conn:
         rows = conn.execute(
             """SELECT * FROM radio_requests
-               WHERE status IN ('ready','playing')
-                 AND COALESCE(azura_path, '') != ''
+               WHERE status IN ('released','playing')
+                 AND COALESCE(CASE WHEN status='playing' THEN current_path ELSE released_path END, azura_path, '') != ''
                  AND (COALESCE(temp_filename, '') LIKE 'radio_request_%'
                       OR COALESCE(temp_filename, '') LIKE '000_priority_request_%')
                ORDER BY priority DESC, id ASC
@@ -362,8 +374,8 @@ def update_request(request_id: int, **fields) -> None:
     allowed = {
         "source_type", "source_ref", "title", "artist", "status", "priority",
         "duration_secs", "disc_cost_charged", "payment_type", "payment_amount", "payment_reason", "is_staff_free", "is_vip",
-        "temp_filename", "azura_file_id", "azura_song_id", "azura_path",
-        "prepared_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
+        "temp_filename", "prepared_path", "released_path", "current_path", "azura_file_id", "azura_song_id", "azura_path",
+        "prepared_at", "released_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
         "cancelled_at", "failed_at", "error", "finish_reason",
     }
     pairs = [(k, v) for k, v in fields.items() if k in allowed]
@@ -389,6 +401,7 @@ def mark_status(request_id: int, status: str, **fields) -> None:
     stamps = {
         "preparing": "prepared_at",
         "ready": "prepared_at",
+        "released": "released_at",
         "submitted": "submitted_at",
         "playing": "playing_at",
         "played": "played_at",
@@ -407,6 +420,7 @@ def mark_liquidsoap_playing_file(request_id: int, azura_path: str) -> None:
     update_request_with_sql_markers(
         request_id,
         azura_path=str(azura_path or ""),
+        current_path=str(azura_path or ""),
         playing_at=_sql_now_marker(),
     )
 
@@ -422,8 +436,8 @@ def update_request_with_sql_markers(request_id: int, **fields) -> None:
     allowed = {
         "source_type", "source_ref", "title", "artist", "status", "priority",
         "duration_secs", "disc_cost_charged", "payment_type", "payment_amount", "payment_reason", "is_staff_free", "is_vip",
-        "temp_filename", "azura_file_id", "azura_song_id", "azura_path",
-        "prepared_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
+        "temp_filename", "prepared_path", "released_path", "current_path", "azura_file_id", "azura_song_id", "azura_path",
+        "prepared_at", "released_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
         "cancelled_at", "failed_at", "error", "finish_reason",
     }
     pairs = [(k, v) for k, v in fields.items() if k in allowed]
@@ -457,7 +471,7 @@ def active_requests(limit: int = 50) -> list[dict]:
     with database.db_conn() as conn:
         rows = conn.execute(
             """SELECT * FROM radio_requests
-               WHERE status IN ('pending','preparing','ready','submitted','playing')
+               WHERE status IN ('pending','preparing','ready','released','submitted','playing')
                ORDER BY priority DESC, id ASC
                LIMIT ?""",
             (max(1, min(100, int(limit))),),
@@ -471,7 +485,7 @@ def active_requests_for_user(user_id: str, limit: int = 50) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE user_id=?
-                 AND status IN ('pending','preparing','ready','submitted','playing')
+                 AND status IN ('pending','preparing','ready','released','submitted','playing')
                ORDER BY priority DESC, id ASC
                LIMIT ?""",
             (str(user_id or ""), max(1, min(100, int(limit)))),
@@ -492,12 +506,51 @@ def ready_requests_for_prequeue(limit: int = 5) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def ready_liquidsoap_requests_for_cleanup(limit: int = 50) -> list[dict]:
+def ready_requests_for_release(limit: int = 1) -> list[dict]:
     ensure_schema()
     with database.db_conn() as conn:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE status='ready'
+               ORDER BY priority DESC, id ASC
+               LIMIT ?""",
+            (max(1, min(10, int(limit))),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def released_requests(limit: int = 10) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status='released'
+               ORDER BY priority DESC, id ASC
+               LIMIT ?""",
+            (max(1, min(25, int(limit))),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def playing_requests(limit: int = 10) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status='playing'
+               ORDER BY priority DESC, id ASC
+               LIMIT ?""",
+            (max(1, min(25, int(limit))),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def ready_liquidsoap_requests_for_cleanup(limit: int = 50) -> list[dict]:
+    ensure_schema()
+    with database.db_conn() as conn:
+        rows = conn.execute(
+            """SELECT * FROM radio_requests
+               WHERE status IN ('released','playing')
                  AND COALESCE(azura_path, '') != ''
                  AND (COALESCE(temp_filename, '') LIKE 'radio_request_%'
                       OR COALESCE(temp_filename, '') LIKE '000_priority_request_%')
@@ -558,7 +611,7 @@ def stuck_requests_for_cleanup(minutes: int = 30, limit: int = 50) -> list[dict]
     with database.db_conn() as conn:
         rows = conn.execute(
             """SELECT * FROM radio_requests
-               WHERE status IN ('pending','preparing','ready','submitted')
+               WHERE status IN ('pending','preparing','ready','released','submitted')
                  AND COALESCE(submitted_at, prepared_at, created_at) <= datetime('now', ?)
                ORDER BY id ASC
                LIMIT ?""",
@@ -572,7 +625,7 @@ def stale_ready_submitted_requests(minutes: int = 30, limit: int = 50) -> list[d
     with database.db_conn() as conn:
         rows = conn.execute(
             """SELECT * FROM radio_requests
-               WHERE status IN ('ready','submitted')
+               WHERE status IN ('ready','released','submitted')
                  AND COALESCE(submitted_at, prepared_at, created_at) <= datetime('now', ?)
                ORDER BY id ASC
                LIMIT ?""",
@@ -663,7 +716,7 @@ def match_request_for_track(track: dict) -> dict | None:
     with database.db_conn() as conn:
         rows = conn.execute(
             """SELECT * FROM radio_requests
-               WHERE status IN ('ready','submitted','playing')
+               WHERE status IN ('released','playing')
                ORDER BY id ASC
                LIMIT 50"""
         ).fetchall()
@@ -702,7 +755,7 @@ def active_queue_count() -> int:
         row = conn.execute(
             """SELECT COUNT(*) AS n
                FROM radio_requests
-               WHERE status IN ('pending','preparing','ready','submitted','playing')"""
+               WHERE status IN ('pending','preparing','ready','released','submitted','playing')"""
         ).fetchone()
     return int(row["n"]) if row else 0
 

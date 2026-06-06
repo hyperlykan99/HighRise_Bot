@@ -6,6 +6,7 @@ from __future__ import annotations
 STATUS_PENDING = "pending"
 STATUS_PREPARING = "preparing"
 STATUS_READY = "ready"
+STATUS_RELEASED = "released"
 STATUS_SUBMITTED = "submitted"
 STATUS_PLAYING = "playing"
 STATUS_PLAYED = "played"
@@ -17,6 +18,7 @@ REQUEST_STATUSES = {
     STATUS_PENDING,
     STATUS_PREPARING,
     STATUS_READY,
+    STATUS_RELEASED,
     STATUS_SUBMITTED,
     STATUS_PLAYING,
     STATUS_PLAYED,
@@ -29,7 +31,7 @@ QUEUE_DISPLAY_STATUSES = (
     STATUS_PENDING,
     STATUS_PREPARING,
     STATUS_READY,
-    STATUS_SUBMITTED,
+    STATUS_RELEASED,
 )
 
 TERMINAL_STATUSES = (
@@ -43,4 +45,3 @@ TERMINAL_STATUSES = (
 def normalize_status(value: str | None) -> str:
     status = (value or "").strip().lower()
     return status if status in REQUEST_STATUSES else STATUS_PENDING
-
