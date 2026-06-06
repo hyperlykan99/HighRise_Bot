@@ -824,6 +824,8 @@ const state = {
   showLoginOverlay: false,
   playerResult: null,
   userIdLookup: null,
+  autodjPager: { rows: "25", page: 1 },
+  autodjUploads: [],
 };
 
 const app = document.getElementById("app");
@@ -4434,12 +4436,41 @@ function renderRadioUploads(d) {
   </div>`;
 }
 
+function autodjPagedRows(rows) {
+  const allRows = rows || [];
+  const rowsSetting = state.autodjPager?.rows || "25";
+  if (rowsSetting === "all") return { rows: allRows, page: 1, pages: 1, total: allRows.length, perPage: "all" };
+  const perPage = Math.max(1, Number(rowsSetting) || 25);
+  const pages = Math.max(1, Math.ceil(allRows.length / perPage));
+  const page = Math.max(1, Math.min(pages, Number(state.autodjPager?.page || 1)));
+  const start = (page - 1) * perPage;
+  return { rows: allRows.slice(start, start + perPage), page, pages, total: allRows.length, perPage };
+}
+
+function renderAutodjUploadStatus() {
+  const rows = state.autodjUploads || [];
+  if (!rows.length) return "";
+  const done = rows.filter((row) => ["uploaded", "duplicate-renamed", "failed", "skipped"].includes(row.status)).length;
+  return `<div class="card">
+    <div class="card-header"><h2>Upload Status</h2><span class="pill info">Uploaded ${done} / ${rows.length} files</span></div>
+    ${table(rows, [
+      { key: "name", label: "File" },
+      { key: "status", label: "Status" },
+      { key: "progress", label: "Progress", render: (r) => `${Math.max(0, Math.min(100, Number(r.progress || 0)))}%` },
+      { key: "uploaded_as", label: "Uploaded As" },
+      { key: "error", label: "Reason" },
+    ])}
+  </div>`;
+}
+
 function renderRadioAutodjManager(d) {
   const vibes = d.autodj_vibes || {};
   const selected = d.selected_vibe || {};
   const vibeRows = vibes.vibes || [];
   const active = selected.vibe || vibeRows[0]?.name || "";
   const activeVibe = vibes.active_vibe?.name || "";
+  const paged = autodjPagedRows(selected.files || []);
+  const rowsValue = state.autodjPager?.rows || "25";
   return `<div class="grid">
     <div class="card">
       <div class="card-header"><h2>AutoDJ Vibes</h2><span class="pill info">UPLOAD</span></div>
@@ -4467,9 +4498,19 @@ function renderRadioAutodjManager(d) {
         <input id="autodjFileInput" type="file" multiple accept=".mp3,.m4a,.wav,.flac,.ogg,.opus,.aac,audio/*" data-vibe="${esc(active)}" />
       ` : `<div class="notice">Select or create a vibe.</div>`}
     </div>
+    ${renderAutodjUploadStatus()}
     <div class="card">
-      <h2>Tracks (${selected.count ?? 0})</h2>
-      ${table(selected.files || [], [
+      <div class="card-header"><h2>Tracks (${selected.count ?? 0})</h2><button class="btn sm" data-autodj-refresh>Refresh</button></div>
+      <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <label class="muted text-sm">Rows per page</label>
+        <select id="autodjRowsPerPage">
+          ${["10", "25", "50", "100", "all"].map((value) => `<option value="${value}" ${rowsValue === value ? "selected" : ""}>${value === "all" ? "All" : value}</option>`).join("")}
+        </select>
+        <button class="btn sm" data-autodj-page="prev" ${paged.page <= 1 ? "disabled" : ""}>Previous</button>
+        <span class="muted text-sm">Page ${paged.page} of ${paged.pages}</span>
+        <button class="btn sm" data-autodj-page="next" ${paged.page >= paged.pages ? "disabled" : ""}>Next</button>
+      </div>
+      ${table(paged.rows, [
         { key: "filename", label: "Filename" },
         { key: "status", label: "Status" },
         { key: "reason", label: "Reason" },
@@ -4477,7 +4518,7 @@ function renderRadioAutodjManager(d) {
         { key: "size_mb", label: "Size MB" },
         { key: "modified_at", label: "Modified" },
         { key: "relative_path", label: "Path" },
-      ])}
+      ], (r) => `<button class="btn sm danger" data-autodj-reject-file="${esc(r.filename)}" data-vibe="${esc(active)}">Delete / Reject</button>`)}
     </div>
     <div class="card">
       <h2>Rejected Tracks (${selected.rejected_count ?? 0})</h2>
@@ -8744,6 +8785,29 @@ function bindAdminPageEvents() {
     state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
     render();
   }));
+  document.getElementById("autodjRowsPerPage")?.addEventListener("change", (e) => {
+    state.autodjPager.rows = e.currentTarget.value || "25";
+    state.autodjPager.page = 1;
+    render();
+  });
+  document.querySelectorAll("[data-autodj-page]").forEach((btn) => btn.addEventListener("click", () => {
+    const delta = btn.dataset.autodjPage === "next" ? 1 : -1;
+    state.autodjPager.page = Math.max(1, Number(state.autodjPager.page || 1) + delta);
+    render();
+  }));
+  document.querySelectorAll("[data-autodj-reject-file]").forEach((btn) => btn.addEventListener("click", () => {
+    const vibe = btn.dataset.vibe || "";
+    const filename = btn.dataset.autodjRejectFile || "";
+    confirmAction("Reject AutoDJ Track", `Move ${filename} to rejected for ${vibe}?`, async () => {
+      await action("AutoDJ track moved to rejected.", () =>
+        api(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/files/${encodeURIComponent(filename)}/reject`, {
+          method: "POST",
+          body: JSON.stringify({ reason: "dashboard reject" }),
+        }));
+      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
+      render();
+    });
+  }));
   document.getElementById("autodjCreateVibeForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.currentTarget));
@@ -8759,20 +8823,68 @@ function bindAdminPageEvents() {
       render();
     }
   });
+  function uploadAutodjFile(vibe, file, row) {
+    return new Promise((resolve) => {
+      const form = new FormData();
+      form.append("files", file);
+      const xhr = new XMLHttpRequest();
+      row.status = "uploading";
+      row.progress = 0;
+      xhr.upload.addEventListener("progress", (event) => {
+        if (event.lengthComputable) {
+          row.progress = Math.round((event.loaded / event.total) * 100);
+          render();
+        }
+      });
+      xhr.addEventListener("load", () => {
+        let data = {};
+        try { data = JSON.parse(xhr.responseText || "{}"); }
+        catch { data = {}; }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const uploaded = data.uploaded?.[0] || {};
+          const rejected = data.rejected?.[0] || null;
+          if (uploaded.filename) {
+            row.status = uploaded.renamed ? "duplicate-renamed" : "uploaded";
+            row.progress = 100;
+            row.uploaded_as = uploaded.renamed ? uploaded.filename : "";
+          } else if (rejected) {
+            row.status = "failed";
+            row.error = rejected.reason || "rejected";
+          } else {
+            row.status = "skipped";
+            row.error = "no file returned";
+          }
+        } else {
+          row.status = "failed";
+          row.error = data.error || xhr.statusText || "upload_failed";
+        }
+        render();
+        resolve();
+      });
+      xhr.addEventListener("error", () => {
+        row.status = "failed";
+        row.error = "network_error";
+        render();
+        resolve();
+      });
+      xhr.open("POST", `/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/upload`);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader("Accept", "application/json");
+      if (state.csrf) xhr.setRequestHeader("X-CSRF-Token", state.csrf);
+      xhr.send(form);
+      render();
+    });
+  }
   async function uploadAutodjFiles(vibe, files) {
     if (!vibe || !files?.length) return;
-    const form = new FormData();
-    Array.from(files).forEach((file) => form.append("files", file));
-    const headers = state.csrf ? { "X-CSRF-Token": state.csrf, Accept: "application/json" } : { Accept: "application/json" };
-    const res = await fetch(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/upload`, {
-      method: "POST",
-      credentials: "include",
-      headers,
-      body: form,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || res.statusText);
-    state.notice = `Uploaded ${data.uploaded?.length || 0} file(s).`;
+    const uploadRows = Array.from(files).map((file) => ({ name: file.name, status: "queued", progress: 0, uploaded_as: "", error: "" }));
+    state.autodjUploads = uploadRows;
+    render();
+    for (let i = 0; i < uploadRows.length; i += 1) {
+      await uploadAutodjFile(vibe, Array.from(files)[i], uploadRows[i]);
+    }
+    const uploaded = uploadRows.filter((row) => String(row.status || "").startsWith("uploaded")).length;
+    state.notice = `Uploaded ${uploaded} / ${uploadRows.length} file(s).`;
     state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
     render();
   }

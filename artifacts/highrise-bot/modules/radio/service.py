@@ -284,6 +284,13 @@ def now_playing_card(bot=None) -> tuple[str | None, dict | None, str]:
         )
     else:
         radio_db.set_runtime_state("current_request_id", "")
+        autodj_progress = autodj_sync.autodj_nowplaying_progress(track)
+        if autodj_progress:
+            display_track = dict(track)
+            display_track["duration"] = int(autodj_progress.get("duration") or 0)
+            display_track["elapsed"] = int(autodj_progress.get("elapsed") or 0)
+            display_track["live"] = False
+            display_track["track_key"] = f"autodj:{autodj_progress.get('vibe')}:{autodj_progress.get('filename')}"
         print(f"[RADIO_LIQUIDSOAP_NOWPLAYING_AUTODJ] title={track.get('title')!r}")
     stats = radio_db.read_track_stats(display_track.get("track_key", ""), display_track.get("title", ""), display_track.get("artist", ""))
     radio_db.mark_last_poll(True)

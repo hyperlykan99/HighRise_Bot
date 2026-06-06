@@ -53,6 +53,10 @@ def active_path() -> Path:
     return (_autodj_root() / "active").resolve()
 
 
+def _current_state_path() -> Path:
+    return (_autodj_root() / "current.json").resolve()
+
+
 def safe_vibe_name(value: str) -> str:
     text = str(value or "").strip().lower()
     text = re.sub(r"[^a-z0-9_]+", "_", text)
@@ -115,6 +119,22 @@ def _read_manifest(safe_vibe_name: str) -> dict:
     except Exception:
         pass
     return {"vibe": safe_vibe_name, "tracks": []}
+
+
+def _read_current_state() -> dict:
+    try:
+        data = json.loads(_current_state_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_current_state(state: dict) -> None:
+    path = _current_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(temp, path)
 
 
 def _write_manifest(safe_vibe_name: str, manifest: dict) -> None:
@@ -191,6 +211,96 @@ def _active_track_file_for_nowplaying(track: dict) -> Path | None:
         if normalized_file in candidates or any(candidate and candidate in normalized_file for candidate in candidates):
             return path
     return None
+
+
+def _ffprobe_duration(path: Path) -> int:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return 0
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode != 0:
+            return 0
+        return max(0, int(float(str(proc.stdout or "").strip() or "0")))
+    except Exception:
+        return 0
+
+
+def autodj_nowplaying_progress(track: dict) -> dict | None:
+    safe_vibe = _current_active_vibe()
+    source = _active_track_file_for_nowplaying(track)
+    if not safe_vibe or source is None:
+        print(
+            f"[RADIO_LIQUIDSOAP_AUTODJ_PROGRESS_FALLBACK] "
+            f"reason='no_safe_match' active_vibe={safe_vibe!r} title={str((track or {}).get('title') or '')!r}"
+        )
+        return None
+    filename = _safe_audio_filename(source.name)
+    root = vibe_dir(safe_vibe)
+    if not filename or not _inside(source, root):
+        print(
+            f"[RADIO_LIQUIDSOAP_AUTODJ_PROGRESS_FALLBACK] "
+            f"reason='unsafe_match' active_vibe={safe_vibe!r} file={str(source)!r}"
+        )
+        return None
+    state = _read_current_state()
+    source_key = str(source.resolve())
+    started_at = str(state.get("started_at") or "")
+    duration_secs = int(state.get("duration_secs") or 0) if state.get("file_path") == source_key else 0
+    if state.get("file_path") != source_key or not started_at:
+        started_at = _now_iso()
+        duration_secs = 0
+    if duration_secs <= 0:
+        duration_secs = _ffprobe_duration(source)
+    new_state = {
+        "vibe": safe_vibe,
+        "filename": filename,
+        "file_path": source_key,
+        "title": str((track or {}).get("title") or ""),
+        "artist": str((track or {}).get("artist") or ""),
+        "started_at": started_at,
+        "duration_secs": duration_secs,
+        "updated_at": _now_iso(),
+    }
+    _write_current_state(new_state)
+    print(
+        f"[RADIO_LIQUIDSOAP_AUTODJ_CURRENT_MATCH] "
+        f"vibe={safe_vibe!r} filename={filename!r} duration_secs={duration_secs}"
+    )
+    if duration_secs <= 0:
+        print(
+            f"[RADIO_LIQUIDSOAP_AUTODJ_PROGRESS_FALLBACK] "
+            f"reason='duration_unknown' active_vibe={safe_vibe!r} filename={filename!r}"
+        )
+        return None
+    try:
+        parsed = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    elapsed = int((datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds())
+    elapsed = max(0, min(duration_secs, elapsed))
+    print(
+        f"[RADIO_LIQUIDSOAP_AUTODJ_PROGRESS_RENDER] "
+        f"vibe={safe_vibe!r} filename={filename!r} elapsed_secs={elapsed} duration_secs={duration_secs}"
+    )
+    return {"elapsed": elapsed, "duration": duration_secs, "filename": filename, "vibe": safe_vibe}
 
 
 def reject_current_track(track: dict, reason: str = "") -> tuple[bool, str]:

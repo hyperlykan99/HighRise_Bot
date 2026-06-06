@@ -337,6 +337,41 @@ function readAutodjManifest(vibe) {
   }
 }
 
+function writeAutodjManifest(vibe, manifest) {
+  const safe = safeAutodjVibeName(vibe);
+  const file = autodjManifestPath(safe);
+  if (!safe || !file) return false;
+  ensureDir(path.dirname(file), 0o755);
+  const temp = `${file}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify({ vibe: safe, tracks: manifest.tracks || [] }, null, 2), "utf8");
+  fs.renameSync(temp, file);
+  return true;
+}
+
+function upsertAutodjManifestTrack(vibe, filename, fields = {}) {
+  const safe = safeAutodjVibeName(vibe);
+  const safeName = safeAudioFilename(filename);
+  if (!safe || !safeName) return false;
+  const manifest = readAutodjManifest(safe);
+  const tracks = manifest.tracks || [];
+  let row = tracks.find((track) => String(track.filename || "") === safeName);
+  if (!row) {
+    row = {
+      filename: safeName,
+      status: "active",
+      reason: "",
+      needs_replacement: false,
+      rejected_at: null,
+      replaced_by: null,
+      source: "dashboard_upload",
+    };
+    tracks.push(row);
+  }
+  Object.assign(row, fields);
+  manifest.tracks = tracks;
+  return writeAutodjManifest(safe, manifest);
+}
+
 function setAutodjActiveVibe(vibe) {
   const safe = safeAutodjVibeName(vibe);
   const dir = autodjVibePath(safe);
@@ -389,6 +424,44 @@ function uniqueAudioPath(dir, filename) {
     index += 1;
   }
   return isInsideDir(candidate, dir) ? candidate : null;
+}
+
+function uniqueRejectedAudioPath(dir, filename) {
+  return uniqueAudioPath(dir, filename);
+}
+
+function rejectAutodjVibeFile(vibe, filename, reason = "dashboard reject") {
+  const safe = safeAutodjVibeName(vibe);
+  const safeName = safeAudioFilename(filename);
+  const sourceDir = autodjVibePath(safe);
+  const rejectedDir = autodjRejectedPath(safe);
+  if (!safe || !safeName || !sourceDir || !rejectedDir) {
+    return { ok: false, error: "invalid_file" };
+  }
+  const source = path.resolve(sourceDir, safeName);
+  if (!isInsideDir(source, sourceDir) || !fs.existsSync(source) || !fs.statSync(source).isFile()) {
+    return { ok: false, error: "file_not_found" };
+  }
+  ensureDir(rejectedDir, 0o755);
+  const target = uniqueRejectedAudioPath(rejectedDir, safeName);
+  if (!target || !isInsideDir(target, rejectedDir)) {
+    return { ok: false, error: "unsafe_target" };
+  }
+  try {
+    fs.renameSync(source, target);
+    upsertAutodjManifestTrack(safe, safeName, {
+      status: "rejected",
+      reason: String(reason || "dashboard reject").slice(0, 160),
+      needs_replacement: false,
+      rejected_at: nowIso(),
+      rejected_path: target,
+    });
+    console.log(`[AUTODJ_DASHBOARD_FILE_REJECTED] vibe=${safe} filename=${safeName} target=${target}`);
+    return { ok: true, filename: safeName, rejected_filename: path.basename(target), relative_path: path.relative(BOT_ROOT, target).split(path.sep).join("/") };
+  } catch (err) {
+    console.error(`[AUTODJ_DASHBOARD_FILE_DELETE_FAILED] vibe=${safe} filename=${safeName} error=${err.message}`);
+    return { ok: false, error: "reject_failed", message: err.message };
+  }
 }
 
 function readAutodjVibeFiles(vibe) {
@@ -6847,6 +6920,16 @@ app.get("/api/radio/autodj/vibes/:vibe/files", requireAuth, requireAnyPermission
   json(res, { vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
 }, closeDb);
 
+app.post("/api/radio/autodj/vibes/:vibe/files/:filename/reject", requireAuth, requirePermission("manage_radio"), (req, res) => {
+  const result = rejectAutodjVibeFile(req.params.vibe, req.params.filename, req.body?.reason || "dashboard reject");
+  if (!result.ok) {
+    audit(req.db, req.user.username, "autodj_vibe_file_reject_failed", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+    return json(res, { error: result.error || "reject_failed", detail: result }, result.error === "file_not_found" ? 404 : 400);
+  }
+  audit(req.db, req.user.username, "autodj_vibe_file_rejected", "filesystem", String(req.params.vibe || ""), "", result, req.ip);
+  json(res, { ok: true, rejected: result, vibe_files: readAutodjVibeFiles(req.params.vibe), updated_at: nowIso() });
+}, closeDb);
+
 app.post("/api/radio/autodj/vibes/:vibe/active", requireAuth, requirePermission("manage_radio"), (req, res) => {
   const result = setAutodjActiveVibe(req.params.vibe);
   if (!result.ok) {
@@ -6868,25 +6951,37 @@ app.post(
     if (!safe || !dir) return json(res, { error: "invalid_vibe" }, 400);
     ensureDir(dir, 0o755);
     const parts = parseMultipartFiles(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), req.headers["content-type"]);
+    console.log(`[AUTODJ_DASHBOARD_UPLOAD_START] vibe=${safe} files=${parts.length}`);
     const uploaded = [];
     const rejected = [];
     for (const part of parts) {
       const safeName = safeAudioFilename(part.filename);
       if (!safeName || !part.data?.length) {
+        console.error(`[AUTODJ_DASHBOARD_UPLOAD_FAILED] vibe=${safe} filename=${String(part.filename || "")} reason=unsupported_or_empty`);
         rejected.push({ filename: part.filename, reason: "unsupported_or_empty" });
         continue;
       }
       const target = uniqueAudioPath(dir, safeName);
       if (!target) {
+        console.error(`[AUTODJ_DASHBOARD_UPLOAD_FAILED] vibe=${safe} filename=${safeName} reason=unsafe_target`);
         rejected.push({ filename: part.filename, reason: "unsafe_target" });
         continue;
       }
       fs.writeFileSync(target, part.data, { flag: "wx" });
       uploaded.push({
+        original_filename: part.filename,
         filename: path.basename(target),
+        renamed: path.basename(target) !== safeName,
         size: part.data.length,
         relative_path: path.relative(BOT_ROOT, target).split(path.sep).join("/"),
       });
+      upsertAutodjManifestTrack(safe, path.basename(target), {
+        status: "active",
+        reason: "",
+        needs_replacement: false,
+        source: "dashboard_upload",
+      });
+      console.log(`[AUTODJ_DASHBOARD_UPLOAD_OK] vibe=${safe} filename=${path.basename(target)} original=${String(part.filename || "")}`);
     }
     audit(req.db, req.user.username, "autodj_vibe_upload", "filesystem", safe, "", { uploaded: uploaded.length, rejected: rejected.length }, req.ip);
     json(res, { ok: true, uploaded, rejected, vibe_files: readAutodjVibeFiles(safe) });
