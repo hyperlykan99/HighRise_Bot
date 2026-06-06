@@ -172,6 +172,11 @@ def _pos_close(actual: object | None, expected: Position, threshold: float = 1.2
         return False
 
 
+def _spawn_transient_error(exc: object) -> bool:
+    text = repr(exc).lower()
+    return "user not in room" in text or "server error" in text or "temporar" in text
+
+
 def _spawn_lookup_candidates(username: str, mode: str) -> list[str]:
     candidates: list[str] = []
     for raw in (username, mode):
@@ -187,12 +192,9 @@ def _spawn_lookup_candidates(username: str, mode: str) -> list[str]:
     return candidates
 
 
-async def _get_bot_position(bot: BaseBot, bot_uid: str) -> Position | None:
+async def _bot_room_presence(bot: BaseBot, bot_uid: str) -> tuple[bool, Position | None, str]:
     if not bot_uid:
-        return None
-    cached = _user_positions.get(bot_uid)
-    if cached is not None:
-        return cached
+        return False, None, "no_bot_uid_yet"
     try:
         resp = await bot.highrise.get_room_users()
         pairs = list(resp.content) if hasattr(resp, "content") else []
@@ -200,10 +202,20 @@ async def _get_bot_position(bot: BaseBot, bot_uid: str) -> Position | None:
             if getattr(room_user, "id", "") == bot_uid:
                 if pos is not None:
                     update_user_position(bot_uid, pos)
-                return pos
+                return True, pos, "present"
+        return False, None, "bot_not_in_room"
     except Exception as exc:
         print(f"[SPAWN_RESTORE] get_room_users_failed error={exc!r}")
-    return None
+        return False, None, "room_users_unavailable"
+
+
+async def _get_bot_position(bot: BaseBot, bot_uid: str) -> Position | None:
+    if not bot_uid:
+        return None
+    present, pos, _reason = await _bot_room_presence(bot, bot_uid)
+    if present:
+        return pos
+    return _user_positions.get(bot_uid)
 
 
 def _get_room_users_cached() -> dict[str, tuple[str, Position]]:
@@ -2566,14 +2578,26 @@ async def teleport_bot_to_saved_spawn(
     print("[BOT SPAWN] teleport_attempt=true")
 
     if bot_uid:
+        present, live_pos, presence_reason = await _bot_room_presence(bot, bot_uid)
+        if not present:
+            print(
+                f"[BOT SPAWN] teleport_deferred=true reason={presence_reason} "
+                f"bot_uid={bot_uid!r}"
+            )
+            return (False, pos, row, presence_reason, saved_key) if return_details else False
+        if live_pos is not None:
+            print(f"[BOT SPAWN] live_presence=true actual={_format_pos(live_pos)}")
         try:
             await bot.highrise.teleport(bot_uid, pos)
             print("[BOT SPAWN] teleport_success=true fallback_walk=false")
             return (True, pos, row, "teleport", saved_key) if return_details else True
         except Exception as exc:
             print(f"[BOT SPAWN] teleport_success=false error={exc!r}")
+            if _spawn_transient_error(exc):
+                return (False, pos, row, "teleport_transient", saved_key) if return_details else False
     else:
         print("[BOT SPAWN] teleport_skipped=true reason=no_bot_uid_yet")
+        return (False, pos, row, "no_bot_uid_yet", saved_key) if return_details else False
 
     if fallback_walk:
         print("[BOT SPAWN] fallback_walk=true")
@@ -2583,6 +2607,8 @@ async def teleport_bot_to_saved_spawn(
             return (True, pos, row, "walk", saved_key) if return_details else True
         except Exception as exc:
             print(f"[BOT SPAWN] walk_success=false error={exc!r}")
+            if _spawn_transient_error(exc):
+                return (False, pos, row, "walk_transient", saved_key) if return_details else False
     else:
         print("[BOT SPAWN] fallback_walk=false")
 
@@ -2601,8 +2627,10 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
         return
     _bot_spawn_restore_tasks[key] = asyncio.current_task()  # type: ignore[assignment]
 
-    delays = (0.0, 2.0, 5.0)
+    delays = (2.0, 5.0, 10.0, 20.0, 35.0, 60.0, 90.0, 120.0)
     expected: Position | None = None
+    last_actual: Position | None = None
+    last_reason = "not_started"
     try:
         for attempt, delay in enumerate(delays, 1):
             if delay:
@@ -2621,6 +2649,8 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
             bot_uid = get_bot_user_id()
             await asyncio.sleep(0.75)
             actual = await _get_bot_position(bot, bot_uid)
+            last_actual = actual
+            last_reason = str(reason)
             success = bool(ok and expected is not None and _pos_close(actual, expected))
             expected_facing = getattr(expected, "facing", "") if expected is not None else ""
             actual_facing = getattr(actual, "facing", "") if actual is not None else ""
@@ -2633,10 +2663,12 @@ async def apply_bot_spawn(bot: BaseBot, bot_username: str) -> None:
             )
             if success or expected is None:
                 return
+            if reason in ("no_bot_uid_yet", "bot_not_in_room", "room_users_unavailable", "teleport_transient", "walk_transient"):
+                continue
         print(
             f"[SPAWN_RESTORE] bot={key} attempt=max "
-            f"expected={_format_pos(expected)} actual=unknown "
-            "success=false reason=max_attempts"
+            f"expected={_format_pos(expected)} actual={_format_pos(last_actual)} "
+            f"success=false reason=max_attempts last_reason={last_reason}"
         )
     finally:
         if _bot_spawn_restore_tasks.get(key) is asyncio.current_task():
