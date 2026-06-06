@@ -825,6 +825,13 @@ const state = {
   playerResult: null,
   userIdLookup: null,
   autodjPager: { rows: "25", page: 1 },
+  autodjSelectedVibeName: "",
+  autodjSelectedVibeData: null,
+  autodjSelectedVibeLoading: false,
+  autodjSelectedVibeError: "",
+  autodjSyncJobs: null,
+  autodjSyncJobsLoading: false,
+  autodjSyncJobsError: "",
   autodjShowSuspectsOnly: false,
   autodjLogJob: null,
   autodjUploads: [],
@@ -1054,6 +1061,50 @@ async function loadAdmin() {
   try { state.data = await api(url); state.error = ""; }
   catch (err) { state.data = null; state.error = err.message; }
   render();
+  if (page === "Music System" && tab === "AutoDJ Manager") loadAutodjSyncJobs();
+}
+
+async function loadAutodjSyncJobs() {
+  state.autodjSyncJobsLoading = true;
+  state.autodjSyncJobsError = "";
+  render();
+  try {
+    const data = await api("/api/radio/autodj/sync-jobs");
+    state.autodjSyncJobs = data.sync_jobs || { jobs: [] };
+    state.autodjSyncJobsError = "";
+  } catch (err) {
+    state.autodjSyncJobsError = err.message || "Could not load sync jobs.";
+  } finally {
+    state.autodjSyncJobsLoading = false;
+    render();
+  }
+}
+
+async function loadAutodjSelectedVibeFiles(vibe) {
+  const safe = String(vibe || "").trim();
+  if (!safe) {
+    state.autodjSelectedVibeName = "";
+    state.autodjSelectedVibeData = null;
+    state.autodjSelectedVibeError = "";
+    state.autodjSelectedVibeLoading = false;
+    render();
+    return;
+  }
+  state.autodjSelectedVibeName = safe;
+  state.autodjSelectedVibeLoading = true;
+  state.autodjSelectedVibeError = "";
+  render();
+  try {
+    const data = await api(`/api/radio/autodj/vibes/${encodeURIComponent(safe)}/files`);
+    state.autodjSelectedVibeData = data.vibe_files || null;
+    state.autodjSelectedVibeError = "";
+  } catch (err) {
+    state.autodjSelectedVibeData = { vibe: safe, files: [], rejected_files: [], needs_replacement: [] };
+    state.autodjSelectedVibeError = err.message || "Could not load files for this vibe.";
+  } finally {
+    state.autodjSelectedVibeLoading = false;
+    render();
+  }
 }
 
 async function switchTab(page, tab) {
@@ -4481,6 +4532,8 @@ function renderAutodjSyncJobs(syncJobs) {
   const logJob = state.autodjLogJob;
   return `<div class="card">
     <div class="card-header"><h2>Sync Jobs</h2><button class="btn sm" data-autodj-sync-refresh>Refresh</button></div>
+    ${state.autodjSyncJobsLoading ? `<div class="notice">Loading sync jobs...</div>` : ""}
+    ${state.autodjSyncJobsError ? `<div class="notice error">Could not load sync jobs: ${esc(state.autodjSyncJobsError)}</div>` : ""}
     ${table(jobs, [
       { key: "job_id", label: "Job" },
       { key: "vibe", label: "Vibe" },
@@ -4504,11 +4557,11 @@ function renderAutodjSyncJobs(syncJobs) {
 
 function renderRadioAutodjManager(d) {
   const vibes = d.autodj_vibes || {};
-  const selected = d.selected_vibe || {};
   const vibeRows = vibes.vibes || [];
-  const active = selected.vibe || vibeRows[0]?.name || "";
+  const active = state.autodjSelectedVibeName || "";
+  const selected = state.autodjSelectedVibeData?.vibe === active ? state.autodjSelectedVibeData : {};
   const activeVibe = vibes.active_vibe?.name || "";
-  const syncJobs = vibes.sync_jobs || {};
+  const syncJobs = state.autodjSyncJobs || {};
   const activeRows = state.autodjShowSuspectsOnly
     ? (selected.files || []).filter((row) => row.is_suspect)
     : (selected.files || []);
@@ -4543,6 +4596,10 @@ function renderRadioAutodjManager(d) {
     </div>
     ${renderAutodjUploadStatus()}
     ${renderAutodjSyncJobs(syncJobs)}
+    ${state.autodjSelectedVibeLoading ? `<div class="card"><div class="notice">Loading tracks for ${esc(active)}...</div></div>` : ""}
+    ${state.autodjSelectedVibeError ? `<div class="card"><div class="notice error">Could not load ${esc(active)} files: ${esc(state.autodjSelectedVibeError)}</div></div>` : ""}
+    ${!active ? `<div class="card"><div class="notice">Open a vibe to load its tracks, suspect badges, rejected files, and replacement tools.</div></div>` : ""}
+    ${active && !state.autodjSelectedVibeLoading ? `
     <div class="card">
       <div class="card-header"><h2>Active Tracks (${activeRows.length} / ${selected.count ?? 0})</h2><button class="btn sm" data-autodj-refresh>Refresh</button></div>
       <div class="toolbar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
@@ -4591,6 +4648,7 @@ function renderRadioAutodjManager(d) {
         { key: "relative_path", label: "Path" },
       ])}
     </div>
+    ` : ""}
   </div>`;
 }
 
@@ -8824,11 +8882,12 @@ function bindAdminPageEvents() {
 
   /* Radio controls */
   document.querySelectorAll('[data-action="radio-refresh"]').forEach((btn) => btn.addEventListener("click", () => loadAdmin()));
-  document.querySelectorAll("[data-autodj-refresh]").forEach((btn) => btn.addEventListener("click", () => loadAdmin()));
+  document.querySelectorAll("[data-autodj-refresh]").forEach((btn) => btn.addEventListener("click", () => {
+    if (state.autodjSelectedVibeName) loadAutodjSelectedVibeFiles(state.autodjSelectedVibeName);
+    else loadAdmin();
+  }));
   document.querySelectorAll("[data-autodj-sync-refresh]").forEach((btn) => btn.addEventListener("click", async () => {
-    const selected = state.data?.selected_vibe?.vibe || "";
-    state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(selected)}`);
-    render();
+    await loadAutodjSyncJobs();
   }));
   document.querySelectorAll("[data-autodj-view-log]").forEach((btn) => btn.addEventListener("click", async () => {
     const jobId = btn.dataset.autodjViewLog || "";
@@ -8842,26 +8901,22 @@ function bindAdminPageEvents() {
   }));
   document.querySelectorAll("[data-autodj-cancel-sync]").forEach((btn) => btn.addEventListener("click", () => {
     const jobId = btn.dataset.autodjCancelSync || "";
-    const selected = state.data?.selected_vibe?.vibe || "";
     confirmAction("Cancel Sync", `Stop SpotDL sync job ${jobId}?`, async () => {
       await action("AutoDJ sync cancelled.", () =>
         api(`/api/radio/autodj/sync-jobs/${encodeURIComponent(jobId)}/cancel`, {
           method: "POST",
           body: JSON.stringify({}),
         }));
-      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(selected)}`);
-      render();
     });
   }));
   document.querySelectorAll("[data-autodj-vibe]").forEach((btn) => btn.addEventListener("click", async () => {
-    state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(btn.dataset.autodjVibe || "")}`);
-    render();
+    state.autodjPager.page = 1;
+    await loadAutodjSelectedVibeFiles(btn.dataset.autodjVibe || "");
   }));
   document.querySelectorAll("[data-autodj-set-active]").forEach((btn) => btn.addEventListener("click", async () => {
     const vibe = btn.dataset.autodjSetActive || "";
     await action("Active AutoDJ vibe updated.", () => api(`/api/radio/autodj/vibes/${encodeURIComponent(vibe)}/active`, { method: "POST", body: JSON.stringify({}) }));
-    state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
-    render();
+    await loadAutodjSelectedVibeFiles(vibe);
   }));
   document.getElementById("autodjRowsPerPage")?.addEventListener("change", (e) => {
     state.autodjPager.rows = e.currentTarget.value || "25";
@@ -8887,8 +8942,7 @@ function bindAdminPageEvents() {
           method: "POST",
           body: JSON.stringify({ reason: "dashboard reject" }),
         }));
-      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
-      render();
+      await loadAutodjSelectedVibeFiles(vibe);
     });
   }));
   document.querySelectorAll("[data-autodj-restore-file]").forEach((btn) => btn.addEventListener("click", () => {
@@ -8900,8 +8954,7 @@ function bindAdminPageEvents() {
           method: "POST",
           body: JSON.stringify({}),
         }));
-      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
-      render();
+      await loadAutodjSelectedVibeFiles(vibe);
     });
   }));
   document.querySelectorAll("[data-autodj-needs-file]").forEach((btn) => btn.addEventListener("click", () => {
@@ -8914,8 +8967,7 @@ function bindAdminPageEvents() {
           method: "POST",
           body: JSON.stringify({ reason }),
         }));
-      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
-      render();
+      await loadAutodjSelectedVibeFiles(vibe);
     });
   }));
   document.querySelectorAll("[data-autodj-replace-file]").forEach((btn) => btn.addEventListener("click", () => {
@@ -8941,8 +8993,8 @@ function bindAdminPageEvents() {
         if (!res.ok) throw new Error(data.error || res.statusText);
         state.notice = `Replacement uploaded as ${data.replacement?.replaced_by || file.name}.`;
         state.error = "";
-        state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
-        render();
+        state.autodjSelectedVibeData = data.vibe_files || state.autodjSelectedVibeData;
+        await loadAutodjSelectedVibeFiles(vibe);
       } catch (err) {
         state.error = err.message;
         render();
@@ -8958,8 +9010,8 @@ function bindAdminPageEvents() {
       const selected = created?.vibe?.name || "";
       state.notice = "AutoDJ vibe created.";
       state.error = "";
-      state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(selected)}`);
-      render();
+      await loadAdmin();
+      await loadAutodjSelectedVibeFiles(selected);
     } catch (err) {
       state.error = err.message;
       render();
@@ -9027,8 +9079,7 @@ function bindAdminPageEvents() {
     }
     const uploaded = uploadRows.filter((row) => String(row.status || "").startsWith("uploaded")).length;
     state.notice = `Uploaded ${uploaded} / ${uploadRows.length} file(s).`;
-    state.data = await api(`/api/radio/autodj/vibes?selected=${encodeURIComponent(vibe)}`);
-    render();
+    await loadAutodjSelectedVibeFiles(vibe);
   }
   document.getElementById("autodjFileInput")?.addEventListener("change", async (e) => {
     const vibe = e.currentTarget.dataset.vibe || "";

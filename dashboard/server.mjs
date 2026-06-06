@@ -596,6 +596,17 @@ function suspectBadgesForFile(filePath, filename, stat, duplicate) {
   return { badges, duration_secs: duration ? Math.round(duration) : "" };
 }
 
+function countAutodjAudioFilesShallow(dir) {
+  if (!dir || !fs.existsSync(dir)) return 0;
+  let count = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && AUTODJ_UPLOAD_AUDIO_EXTS.has(path.extname(entry.name).toLowerCase())) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 function uniqueRejectedAudioPath(dir, filename) {
   return uniqueAudioPath(dir, filename);
 }
@@ -765,6 +776,7 @@ function readAutodjVibeFiles(vibe) {
   const safe = safeAutodjVibeName(vibe);
   const dir = autodjVibePath(safe);
   if (!safe || !dir) return { vibe: safe, count: 0, files: [], error: "invalid_vibe" };
+  console.log(`[AUTODJ_VIBE_FILES_SCAN] vibe=${safe}`);
   const files = [];
   const rejected = [];
   const manifest = readAutodjManifest(safe);
@@ -861,6 +873,7 @@ function readAutodjVibeFiles(vibe) {
           ? path.relative(BOT_ROOT, String(track.rejected_path)).split(path.sep).join("/")
           : "",
       }))].filter((row) => row.needs_replacement);
+    console.log(`[AUTODJ_VIBE_FILES_SCAN] vibe=${safe} active=${files.length} rejected=${rejected.length} needs_replacement=${needsReplacement.length}`);
     return {
       vibe: safe,
       path: `liquidsoap/autodj/vibes/${safe}`,
@@ -872,6 +885,7 @@ function readAutodjVibeFiles(vibe) {
       needs_replacement: needsReplacement,
     };
   } catch (err) {
+    console.error(`[AUTODJ_VIBE_FILES_SCAN_FAILED] vibe=${safe} error=${err.message}`);
     return { vibe: safe, path: `liquidsoap/autodj/vibes/${safe}`, count: 0, files: [], rejected_files: [], needs_replacement: [], error: err.message };
   }
 }
@@ -886,20 +900,21 @@ function readAutodjVibes() {
       if (!entry.isDirectory()) continue;
       const safe = safeAutodjVibeName(entry.name);
       if (!safe || safe !== entry.name) continue;
-      const info = readAutodjVibeFiles(safe);
+      const dir = autodjVibePath(safe);
       vibes.push({
         name: safe,
         safe_vibe_name: safe,
+        display_name: safe.replace(/_/g, " "),
         path: `liquidsoap/autodj/vibes/${safe}`,
-        file_count: info.count,
+        file_count: countAutodjAudioFilesShallow(dir),
         active: active?.name === safe,
       });
     }
     vibes.sort((a, b) => a.name.localeCompare(b.name));
     console.log(`[AUTODJ_VIBE_STATUS] active_vibe=${active?.name || ""} count=${vibes.length}`);
-    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: vibes.length, vibes, sync_jobs: readAutodjSyncJobs(12) };
+    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: vibes.length, vibes };
   } catch (err) {
-    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: 0, vibes: [], sync_jobs: readAutodjSyncJobs(12), error: err.message };
+    return { root: "liquidsoap/autodj/vibes", active_vibe: active, count: 0, vibes: [], error: err.message };
   }
 }
 
@@ -7244,8 +7259,7 @@ app.get("/api/radio/autodj/uploads", requireAuth, requireAnyPermission("manage_r
 
 app.get("/api/radio/autodj/vibes", requireAuth, requireAnyPermission("manage_radio", "view_logs"), (req, res) => {
   const vibes = readAutodjVibes();
-  const selected = String(req.query?.selected || vibes.vibes?.[0]?.name || "").trim();
-  json(res, { autodj_vibes: vibes, selected_vibe: selected ? readAutodjVibeFiles(selected) : null, updated_at: nowIso() });
+  json(res, { autodj_vibes: vibes, selected_vibe: null, updated_at: nowIso() });
 }, closeDb);
 
 app.post("/api/radio/autodj/vibes", requireAuth, requirePermission("manage_radio"), (req, res) => {
