@@ -8,7 +8,7 @@ set("init.allow_root", true)
 set("log.stdout", true)
 set("log.file", false)
 
-request_queue = playlist(mode="normal", reload=2, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/current_request.m3u")
+request_queue = playlist(mode="normal", reload=2, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/request_queue.m3u")
 
 autodj = playlist(mode="randomize", reload=10, "/opt/highrise-bots/artifacts/highrise-bot/liquidsoap/autodj/active")
 

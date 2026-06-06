@@ -27,6 +27,7 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "liquidsoap_queue_next_path": ("liquidsoap/queue/next", "str"),
     "radio_staging_path": ("data/radio_staging", "str"),
     "radio_request_library_path": ("data/radio_requests", "str"),
+    "radio_request_queue_playlist_path": ("liquidsoap/request_queue.m3u", "str"),
     "radio_current_request_playlist_path": ("liquidsoap/current_request.m3u", "str"),
     "request_file_retention_mode": ("archive", "str"),
     "liquidsoap_playing_path": ("liquidsoap/queue/playing", "str"),

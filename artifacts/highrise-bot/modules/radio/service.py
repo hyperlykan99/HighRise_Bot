@@ -31,21 +31,23 @@ def ensure_ready() -> None:
 def recover_stale_ready_submitted_requests() -> None:
     ensure_ready()
     for row in radio_db.stale_ready_submitted_requests(minutes=30):
-        filename = str(row.get("temp_filename") or "")
-        if not filename or not azura.safe_request_filename(filename):
+        filename = str(row.get("temp_filename") or "").strip()
+        if not filename or not liquidsoap_queue.safe_request_filename(filename):
             continue
-        if azura.find_uploaded_media(filename):
+        request_path = _request_path_for_playlist(row)
+        if request_path:
             continue
         radio_db.mark_status(
             int(row["id"]),
             "failed",
-            error="startup_recovery_missing_azura_media",
-            finish_reason="startup_recovery_missing_azura_media",
+            error="startup_recovery_missing_request_file",
+            finish_reason="startup_recovery_missing_request_file",
         )
         print(
-            f"[RADIO_PHASE4] event=startup_recovery_stale_request_failed "
+            f"[RADIO_CONTROLLER_RECOVERY] event=startup_recovery_stale_request_failed "
             f"request_id={row['id']} status={row.get('status')!r} filename={filename!r}"
         )
+    _rebuild_request_queue_playlist_sync("startup_recovery")
 
 
 def _renderer_settings() -> dict:
@@ -354,6 +356,82 @@ def _age_from_timestamp(raw_value: str | None) -> int | None:
     return max(0, int((datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()))
 
 
+def _request_path_for_playlist(row: dict) -> str:
+    filename = str(row.get("temp_filename") or "").strip()
+    for key in ("current_path", "released_path", "prepared_path", "azura_path", "temp_filename"):
+        raw = str(row.get(key) or "").strip()
+        if not raw:
+            continue
+        target = liquidsoap_queue.request_path_in_library(raw)
+        if not target or not target.exists() or not target.is_file():
+            continue
+        if filename and not liquidsoap_queue.safe_request_filename(filename):
+            continue
+        if not liquidsoap_queue.safe_request_filename(target.name):
+            continue
+        return str(target)
+    return ""
+
+
+def _request_queue_playlist_rows() -> tuple[list[dict], list[str], int, int, int]:
+    playing_rows = radio_db.playing_requests(limit=10)
+    released_rows = radio_db.released_requests(limit=10)
+    ready_rows = radio_db.ready_requests_for_release(limit=100)
+    rows: list[dict] = []
+    active_rows = playing_rows or released_rows[:1]
+    seen_ids: set[int] = set()
+    for row in active_rows:
+        request_id = int(row.get("id") or 0)
+        if request_id and request_id not in seen_ids:
+            rows.append(row)
+            seen_ids.add(request_id)
+    for row in ready_rows:
+        request_id = int(row.get("id") or 0)
+        if request_id and request_id not in seen_ids:
+            rows.append(row)
+            seen_ids.add(request_id)
+    paths = [path for path in (_request_path_for_playlist(row) for row in rows) if path]
+    return rows, paths, len(ready_rows), len(released_rows), len(playing_rows)
+
+
+def _rebuild_request_queue_playlist_sync(reason: str) -> bool:
+    rows, paths, ready_count, released_count, playing_count = _request_queue_playlist_rows()
+    existing_targets = liquidsoap_queue.request_queue_playlist_targets()
+    print(
+        f"[RADIO_QUEUE_PLAYLIST_REBUILD_START] reason={reason!r} "
+        f"row_count={len(rows)} path_count={len(paths)} ready_count={ready_count} "
+        f"released_count={released_count} playing_count={playing_count}"
+    )
+    if (playing_count or released_count or ready_count) and paths:
+        active_path = paths[0]
+        if active_path not in existing_targets:
+            print(
+                f"[RADIO_QUEUE_PLAYLIST_RECOVERY] reason={reason!r} "
+                f"active_path={active_path!r} existing_count={len(existing_targets)}"
+            )
+    elif existing_targets:
+        print(
+            f"[RADIO_QUEUE_PLAYLIST_RECOVERY] reason={reason!r} "
+            f"active_path='' existing_count={len(existing_targets)}"
+        )
+    ok, error, written_count = liquidsoap_queue.write_request_queue_playlist(paths)
+    if not ok:
+        print(
+            f"[RADIO_QUEUE_PLAYLIST_REBUILD_FAILED] reason={reason!r} "
+            f"error={error!r} written_count={written_count}"
+        )
+        return False
+    print(
+        f"[RADIO_QUEUE_PLAYLIST_REBUILD_OK] reason={reason!r} "
+        f"written_count={written_count} playlist={str(liquidsoap_queue.request_queue_playlist_path())!r}"
+    )
+    if written_count:
+        print(f"[RADIO_QUEUE_PLAYLIST_ACTIVE] reason={reason!r} written_count={written_count}")
+    else:
+        print(f"[RADIO_QUEUE_PLAYLIST_EMPTY] reason={reason!r}")
+    return True
+
+
 def _liquidsoap_nowplaying_request(track: dict) -> dict | None:
     title = str((track or {}).get("title") or "").strip()
     title_is_unknown = title.lower() in {"", "unknown", "unknown title"}
@@ -434,6 +512,7 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
     ready_rows = radio_db.ready_requests_for_release(limit=10)
     released_rows = radio_db.released_requests(limit=10)
     playing_rows = radio_db.playing_requests(limit=10)
+    _rebuild_request_queue_playlist_sync(reason)
     print(
         f"[RADIO_CONTROLLER_SCAN] reason={reason!r} ready_count={len(ready_rows)} "
         f"released_count={len(released_rows)} playing_count={len(playing_rows)} "
@@ -472,14 +551,13 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
         duration = int(row.get("duration_secs") or 0)
         if duration <= 0:
             duration = fallback_duration
-        threshold = max(1, int(duration) + int(buffer_secs))
+        threshold = max(1, int(duration))
         if age_secs < threshold:
             return 0
         print(
             f"[RADIO_CONTROLLER_PLAYED_START] request_id={request_id} "
             f"path={str(request_path)!r} age_secs={age_secs} threshold_secs={threshold}"
         )
-        liquidsoap_queue.clear_current_request_playlist()
         retention_mode = radio_settings.request_file_retention_mode()
         ok, archived_path, error = liquidsoap_queue.archive_or_delete_request_file(
             str(request_path),
@@ -504,6 +582,7 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
             f"[RADIO_CONTROLLER_PLAYED_OK] request_id={request_id} "
             f"source={str(request_path)!r} target={archived_path!r} retention_mode={retention_mode!r}"
         )
+        _rebuild_request_queue_playlist_sync("played_cleanup")
         return 1
 
     if released_rows:
@@ -518,12 +597,12 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
                 f"path={path!r} error='released_file_missing_or_unsafe'"
             )
             return 0
-        if not liquidsoap_queue.playlist_points_to(str(request_path)):
+        if not liquidsoap_queue.request_queue_playlist_contains(str(request_path)):
             print(
-                f"[RADIO_CONTROLLER_PLAYING_FAILED] request_id={request_id} "
-                f"path={str(request_path)!r} error='current_playlist_not_pointing_to_request'"
+                f"[RADIO_QUEUE_PLAYLIST_RECOVERY] reason='released_not_in_playlist' "
+                f"request_id={request_id} path={str(request_path)!r}"
             )
-            return 0
+            _rebuild_request_queue_playlist_sync("released_not_in_playlist")
         age_secs = _age_from_timestamp(row.get("released_at"))
         if age_secs is None or age_secs < 5:
             return 0
@@ -539,27 +618,14 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
             azura_path=str(request_path),
         )
         print(
-            f"[RADIO_CONTROLLER_POINTER_CLEAR_START] request_id={request_id} "
-            f"playlist={str(liquidsoap_queue.current_request_playlist_path())!r}"
-        )
-        if liquidsoap_queue.clear_current_request_playlist():
-            print(
-                f"[RADIO_CONTROLLER_POINTER_CLEARED] request_id={request_id} "
-                f"path={str(request_path)!r}"
-            )
-        else:
-            print(
-                f"[RADIO_CONTROLLER_POINTER_CLEAR_FAILED] request_id={request_id} "
-                f"playlist={str(liquidsoap_queue.current_request_playlist_path())!r}"
-            )
-        print(
             f"[RADIO_CONTROLLER_PLAYING_OK] request_id={request_id} "
             f"path={str(request_path)!r}"
         )
+        _rebuild_request_queue_playlist_sync("released_marked_playing")
         return 1
 
     if not ready_rows:
-        liquidsoap_queue.clear_current_request_playlist()
+        _rebuild_request_queue_playlist_sync("no_ready_requests")
         return 0
 
     row = ready_rows[0]
@@ -571,11 +637,10 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
         f"priority={int(is_priority)} prepared_path={prepared_path!r}"
     )
     request_path = liquidsoap_queue.request_path_in_library(prepared_path)
-    ok, error = liquidsoap_queue.write_current_request_playlist(str(request_path or prepared_path))
-    if not ok:
+    if not request_path or not request_path.exists() or not request_path.is_file():
         print(
             f"[RADIO_CONTROLLER_RELEASE_FAILED] request_id={request_id} "
-            f"source={prepared_path!r} error={error!r}"
+            f"source={prepared_path!r} error='prepared_file_missing_or_unsafe'"
         )
         return 0
     released_path = str(request_path)
@@ -592,6 +657,7 @@ def _cleanup_played_liquidsoap_requests_sync(reason: str = "poll_tick") -> int:
     )
     if is_priority:
         print(f"[RADIO_PRIORITY_HANDOFF_ORDER] request_id={request_id} filename={os.path.basename(released_path)!r}")
+    _rebuild_request_queue_playlist_sync("ready_released")
     return 1
 
 
@@ -605,14 +671,23 @@ def queue_display(limit: int = 10) -> str:
         "pending": "⏳",
         "preparing": "⏳",
         "ready": "✅",
+        "released": "▶️",
         "submitted": "✅",
     }
+    labels = {
+        "pending": "preparing",
+        "preparing": "preparing",
+        "ready": "ready",
+        "released": "up next",
+    }
     for idx, row in enumerate(rows, 1):
-        icon = icons.get(str(row.get("status") or ""), "⏳")
+        status = str(row.get("status") or "")
+        icon = icons.get(status, "⏳")
+        label = labels.get(status, status or "queued")
         user = row.get("username") or "Unknown Player"
         title = row.get("title") or "Untitled request"
         marker = "🎟️ " if int(row.get("priority") or 0) else ""
-        lines.append(f"{idx}. {icon} {marker}@{user} — {title}")
+        lines.append(f"{idx}. {icon} {marker}@{user} — {title} ({label})")
     return "\n".join(lines)
 
 
@@ -736,6 +811,7 @@ def cancel_request(user, request_id: int | None = None) -> str:
     refunded, refunded_luxe = _refund_request_payment_once(job)
     radio_db.mark_status(int(job["id"]), "cancelled", finish_reason="cancelled_by_staff" if is_staff else "cancelled_by_user")
     cleanup.cleanup_request_media(int(job["id"]), reason="cancelled")
+    _rebuild_request_queue_playlist_sync("request_cancelled")
     if status == "ready":
         print(f"[RADIO_CONTROLLER_CANCEL_READY] request_id={job['id']} username={getattr(user, 'username', '')!r}")
     print(
@@ -768,6 +844,7 @@ def clear_failed_requests(user) -> str:
     for row in rows:
         if cleanup.cleanup_request_media(int(row["id"]), reason="staff_clear_failed"):
             cleaned += 1
+    _rebuild_request_queue_playlist_sync("clear_failed_requests")
     print(f"[RADIO_PHASE6] event=clear_failed_requests by={user.username!r} rows={len(rows)} cleaned={cleaned}")
     return f"🧹 Cleared failed radio requests: {cleaned}/{len(rows)}."
 
@@ -787,6 +864,7 @@ def clear_stuck_requests(user) -> str:
         radio_db.mark_status(int(row["id"]), "cancelled", finish_reason="staff_clear_stuck")
         if cleanup.cleanup_request_media(int(row["id"]), reason="staff_clear_stuck"):
             cleaned += 1
+    _rebuild_request_queue_playlist_sync("clear_stuck_requests")
     print(
         f"[RADIO_PHASE6] event=clear_stuck_requests by={user.username!r} "
         f"rows={len(rows)} cleaned={cleaned} refunded={refunded} refunded_luxe={refunded_luxe}"
@@ -950,6 +1028,7 @@ async def process_request_job(bot, request_id: int) -> None:
             f"[RADIO_REQUEST_PREPARED] request_id={request_id} "
             f"path={target_path!r} priority={int(is_priority)}"
         )
+        await asyncio.to_thread(_rebuild_request_queue_playlist_sync, "request_ready")
         _schedule_request_prequeue(bot, "request_ready", 0)
     except Exception as exc:
         await _fail_request_before_play(bot, request_id, repr(exc))
@@ -975,6 +1054,7 @@ async def _fail_request_before_play(bot, request_id: int, error: str) -> None:
     radio_db.mark_status(request_id, "failed", error=error, finish_reason="prepare_failed")
     refunded_discs, refunded_luxe = _refund_request_payment_once(job)
     cleanup.cleanup_request_media(request_id, reason="failed_before_play")
+    await asyncio.to_thread(_rebuild_request_queue_playlist_sync, "request_failed_before_play")
     try:
         if refunded_luxe:
             await bot.highrise.send_whisper(job.get("user_id"), "❌ Could not prepare that priority song. Your Luxe Tickets 🎫 were refunded.")

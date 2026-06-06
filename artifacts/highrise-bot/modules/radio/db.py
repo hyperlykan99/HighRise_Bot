@@ -517,7 +517,7 @@ def ready_requests_for_release(limit: int = 1) -> list[dict]:
                WHERE status='ready'
                ORDER BY priority DESC, CASE WHEN queue_position > 0 THEN queue_position ELSE id END ASC, id ASC
                LIMIT ?""",
-            (max(1, min(10, int(limit))),),
+            (max(1, min(250, int(limit))),),
         ).fetchall()
     return [dict(row) for row in rows]
 

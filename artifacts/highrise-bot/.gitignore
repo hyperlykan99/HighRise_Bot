@@ -32,6 +32,7 @@ liquidsoap/autodj/vibes/**/*.ogg
 liquidsoap/autodj/vibes/**/*.opus
 liquidsoap/autodj/active
 liquidsoap/autodj/current.json
+liquidsoap/request_queue.m3u
 liquidsoap/current_request.m3u
 liquidsoap/autodj/manifests/
 liquidsoap/autodj/sync_jobs/
