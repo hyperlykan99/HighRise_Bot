@@ -10,7 +10,7 @@ from pathlib import Path
 from modules.radio import settings as radio_settings
 
 
-SAFE_REQUEST_RE = re.compile(r"^radio_request_\d+_[a-z0-9][a-z0-9_-]{0,60}\.mp3$")
+SAFE_REQUEST_RE = re.compile(r"^(?:000_priority_request|radio_request)_\d+_[a-z0-9][a-z0-9_-]{0,60}\.mp3$")
 
 
 def project_root() -> Path:
@@ -44,8 +44,9 @@ def _safe_slug(value: str, limit: int = 48) -> str:
     return (text[:limit].strip("_") or "request")
 
 
-def request_filename(request_id: int, title: str = "") -> str:
-    return f"radio_request_{int(request_id)}_{_safe_slug(title)}.mp3"
+def request_filename(request_id: int, title: str = "", priority: bool = False) -> str:
+    prefix = "000_priority_request" if priority else "radio_request"
+    return f"{prefix}_{int(request_id)}_{_safe_slug(title)}.mp3"
 
 
 def safe_request_filename(filename: str) -> bool:
@@ -77,9 +78,9 @@ def _request_path_in_dir(path_or_filename: str, base_dir: Path) -> Path | None:
     return target
 
 
-def handoff_to_next(local_mp3: str | os.PathLike, request_id: int, title: str = "") -> tuple[bool, str, str]:
+def handoff_to_next(local_mp3: str | os.PathLike, request_id: int, title: str = "", priority: bool = False) -> tuple[bool, str, str]:
     source = Path(local_mp3)
-    filename = request_filename(request_id, title)
+    filename = request_filename(request_id, title, priority=priority)
     if not source.exists() or not source.is_file():
         return False, filename, "source_missing"
     if not safe_request_filename(filename):

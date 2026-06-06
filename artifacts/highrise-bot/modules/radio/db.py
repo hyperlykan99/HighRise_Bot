@@ -32,6 +32,8 @@ def ensure_schema() -> None:
                 status TEXT,
                 priority INTEGER DEFAULT 0,
                 disc_cost_charged INTEGER DEFAULT 0,
+                payment_type TEXT DEFAULT 'disc',
+                payment_amount INTEGER DEFAULT 0,
                 payment_reason TEXT,
                 is_staff_free INTEGER DEFAULT 0,
                 is_vip INTEGER DEFAULT 0,
@@ -54,6 +56,12 @@ def ensure_schema() -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(radio_requests)").fetchall()}
         if "duration_secs" not in columns:
             conn.execute("ALTER TABLE radio_requests ADD COLUMN duration_secs INTEGER DEFAULT 0")
+        if "priority" not in columns:
+            conn.execute("ALTER TABLE radio_requests ADD COLUMN priority INTEGER DEFAULT 0")
+        if "payment_type" not in columns:
+            conn.execute("ALTER TABLE radio_requests ADD COLUMN payment_type TEXT DEFAULT 'disc'")
+        if "payment_amount" not in columns:
+            conn.execute("ALTER TABLE radio_requests ADD COLUMN payment_amount INTEGER DEFAULT 0")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS radio_runtime_state (
                 key TEXT PRIMARY KEY,
@@ -78,10 +86,14 @@ def ensure_schema() -> None:
                 username TEXT,
                 query TEXT,
                 results_json TEXT,
+                priority INTEGER DEFAULT 0,
                 created_at TEXT,
                 expires_at TEXT
             )"""
         )
+        search_columns = {row["name"] for row in conn.execute("PRAGMA table_info(radio_search_sessions)").fetchall()}
+        if "priority" not in search_columns:
+            conn.execute("ALTER TABLE radio_search_sessions ADD COLUMN priority INTEGER DEFAULT 0")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS radio_favorites (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,7 +125,7 @@ def queue_rows(limit: int = 20) -> list[dict]:
                            temp_filename, azura_path
                     FROM radio_requests
                     WHERE status IN ({placeholders})
-                    ORDER BY id ASC
+                    ORDER BY priority DESC, id ASC
                     LIMIT ?""",
                 (*models.QUEUE_DISPLAY_STATUSES, max(1, min(50, int(limit)))),
             ).fetchall()
@@ -134,15 +146,18 @@ def create_request(
     payment_reason: str,
     is_staff_free: bool = False,
     is_vip: bool = False,
+    priority: bool = False,
+    payment_type: str = "disc",
+    payment_amount: int = 0,
 ) -> int:
     ensure_schema()
     with database.db_conn() as conn:
         cur = conn.execute(
             """INSERT INTO radio_requests
                (user_id, username, source_type, source_ref, duration_secs, title, artist, status,
-                priority, disc_cost_charged, payment_reason, is_staff_free, is_vip,
+                priority, disc_cost_charged, payment_type, payment_amount, payment_reason, is_staff_free, is_vip,
                 created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, datetime('now'))""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (
                 user_id,
                 username,
@@ -151,7 +166,10 @@ def create_request(
                 int(duration_secs or 0),
                 title,
                 artist,
+                1 if priority else 0,
                 int(disc_cost),
+                str(payment_type or "disc"),
+                int(payment_amount or disc_cost or 0),
                 payment_reason,
                 1 if is_staff_free else 0,
                 1 if is_vip else 0,
@@ -170,17 +188,18 @@ def get_request(request_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def save_search_session(user_id: str, username: str, query: str, results: list[dict], timeout_secs: int) -> None:
+def save_search_session(user_id: str, username: str, query: str, results: list[dict], timeout_secs: int, priority: bool = False) -> None:
     ensure_schema()
     with database.db_conn() as conn:
         conn.execute(
             """INSERT INTO radio_search_sessions
-               (user_id, username, query, results_json, created_at, expires_at)
-               VALUES (?, ?, ?, ?, datetime('now'), datetime('now', ?))
+               (user_id, username, query, results_json, priority, created_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now', ?))
                ON CONFLICT(user_id) DO UPDATE SET
                    username=excluded.username,
                    query=excluded.query,
                    results_json=excluded.results_json,
+                   priority=excluded.priority,
                    created_at=datetime('now'),
                    expires_at=excluded.expires_at""",
             (
@@ -188,6 +207,7 @@ def save_search_session(user_id: str, username: str, query: str, results: list[d
                 str(username or ""),
                 str(query or ""),
                 json.dumps(results or []),
+                1 if priority else 0,
                 f"+{max(30, min(300, int(timeout_secs or 120)))} seconds",
             ),
         )
@@ -297,8 +317,9 @@ def active_liquidsoap_request_candidates(limit: int = 50) -> list[dict]:
             """SELECT * FROM radio_requests
                WHERE status IN ('ready','playing')
                  AND COALESCE(azura_path, '') != ''
-                 AND COALESCE(temp_filename, '') LIKE 'radio_request_%'
-               ORDER BY id ASC
+                 AND (COALESCE(temp_filename, '') LIKE 'radio_request_%'
+                      OR COALESCE(temp_filename, '') LIKE '000_priority_request_%')
+               ORDER BY priority DESC, id ASC
                LIMIT ?""",
             (max(1, min(100, int(limit))),),
         ).fetchall()
@@ -340,7 +361,7 @@ def update_request(request_id: int, **fields) -> None:
     ensure_schema()
     allowed = {
         "source_type", "source_ref", "title", "artist", "status", "priority",
-        "duration_secs", "disc_cost_charged", "payment_reason", "is_staff_free", "is_vip",
+        "duration_secs", "disc_cost_charged", "payment_type", "payment_amount", "payment_reason", "is_staff_free", "is_vip",
         "temp_filename", "azura_file_id", "azura_song_id", "azura_path",
         "prepared_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
         "cancelled_at", "failed_at", "error", "finish_reason",
@@ -350,7 +371,7 @@ def update_request(request_id: int, **fields) -> None:
         return
     with database.db_conn() as conn:
         current = conn.execute("SELECT status FROM radio_requests WHERE id=?", (int(request_id),)).fetchone()
-        if current and current["status"] in models.TERMINAL_STATUSES and fields.get("status") not in models.TERMINAL_STATUSES:
+        if current and current["status"] in models.TERMINAL_STATUSES and "status" in fields and fields.get("status") not in models.TERMINAL_STATUSES:
             print(
                 f"[RADIO_PHASE4] event=refused_terminal_revival request_id={request_id} "
                 f"old_status={current['status']!r} attempted_status={fields.get('status')!r}"
@@ -400,7 +421,7 @@ def update_request_with_sql_markers(request_id: int, **fields) -> None:
     ensure_schema()
     allowed = {
         "source_type", "source_ref", "title", "artist", "status", "priority",
-        "duration_secs", "disc_cost_charged", "payment_reason", "is_staff_free", "is_vip",
+        "duration_secs", "disc_cost_charged", "payment_type", "payment_amount", "payment_reason", "is_staff_free", "is_vip",
         "temp_filename", "azura_file_id", "azura_song_id", "azura_path",
         "prepared_at", "submitted_at", "playing_at", "played_at", "cleaned_at",
         "cancelled_at", "failed_at", "error", "finish_reason",
@@ -411,7 +432,7 @@ def update_request_with_sql_markers(request_id: int, **fields) -> None:
     with database.db_conn() as conn:
         current = conn.execute("SELECT status FROM radio_requests WHERE id=?", (int(request_id),)).fetchone()
         attempted = fields.get("status")
-        if current and current["status"] in models.TERMINAL_STATUSES and attempted not in models.TERMINAL_STATUSES:
+        if current and current["status"] in models.TERMINAL_STATUSES and "status" in fields and attempted not in models.TERMINAL_STATUSES:
             print(
                 f"[RADIO_PHASE4] event=refused_terminal_revival request_id={request_id} "
                 f"old_status={current['status']!r} attempted_status={attempted!r}"
@@ -437,7 +458,7 @@ def active_requests(limit: int = 50) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE status IN ('pending','preparing','ready','submitted','playing')
-               ORDER BY id ASC
+               ORDER BY priority DESC, id ASC
                LIMIT ?""",
             (max(1, min(100, int(limit))),),
         ).fetchall()
@@ -451,7 +472,7 @@ def active_requests_for_user(user_id: str, limit: int = 50) -> list[dict]:
             """SELECT * FROM radio_requests
                WHERE user_id=?
                  AND status IN ('pending','preparing','ready','submitted','playing')
-               ORDER BY id ASC
+               ORDER BY priority DESC, id ASC
                LIMIT ?""",
             (str(user_id or ""), max(1, min(100, int(limit)))),
         ).fetchall()
@@ -464,7 +485,7 @@ def ready_requests_for_prequeue(limit: int = 5) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM radio_requests
                WHERE status='ready'
-               ORDER BY id ASC
+               ORDER BY priority DESC, id ASC
                LIMIT ?""",
             (max(1, min(10, int(limit))),),
         ).fetchall()
@@ -478,8 +499,9 @@ def ready_liquidsoap_requests_for_cleanup(limit: int = 50) -> list[dict]:
             """SELECT * FROM radio_requests
                WHERE status='ready'
                  AND COALESCE(azura_path, '') != ''
-                 AND COALESCE(temp_filename, '') LIKE 'radio_request_%'
-               ORDER BY id ASC
+                 AND (COALESCE(temp_filename, '') LIKE 'radio_request_%'
+                      OR COALESCE(temp_filename, '') LIKE '000_priority_request_%')
+               ORDER BY priority DESC, id ASC
                LIMIT ?""",
             (max(1, min(100, int(limit))),),
         ).fetchall()

@@ -1788,6 +1788,7 @@ DJ_COMMANDS: frozenset[str] = frozenset({
     "repeat", "shuffle", "autoplay",
     "setdjprice",
     "priority",
+    "priorityplay", "pp", "prioritycost",
     "priorityrequest", "priorityreq", "pr",
     "viprequest", "vipreq",
     "moveup", "bump",
@@ -1811,6 +1812,9 @@ MUSIC_DISC_COMMANDS: frozenset[str] = frozenset({
 })
 RADIO_SKELETON_COMMANDS: frozenset[str] = frozenset({
     "play",
+    "priorityplay",
+    "pp",
+    "prioritycost",
     "pick",
     "djpick",
     "cancelrequest",
@@ -6600,6 +6604,10 @@ class HangoutBot(BaseBot):
             await handle_poker_v2(self, user, "resendcards", args)
 
         elif cmd in ("po", "podds", "pp", "pplayers", "pstacks", "mystack"):
+            if cmd == "pp" and BOT_MODE == "dj":
+                print(f"[RADIO_PHASE5] event=radio_command_dispatch cmd={cmd}")
+                await dispatch_radio_command(self, user, cmd, args)
+                return
             try:
                 await self.highrise.send_whisper(
                     user.id, "Use !table or !hand for poker info.")

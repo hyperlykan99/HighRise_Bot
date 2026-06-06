@@ -18,6 +18,7 @@ DEFAULT_SETTINGS: dict[str, tuple[str, str]] = {
     "request_disc_cost_vip": ("1", "int"),
     "request_disc_cost_staff": ("0", "int"),
     "request_disc_cost_owner": ("0", "int"),
+    "priority_luxe_cost": ("100", "int"),
     "radio_enabled": ("true", "bool"),
     "radio_poll_interval_secs": ("3", "int"),
     "radio_submit_ready_immediately": ("true", "bool"),
@@ -148,6 +149,11 @@ def youtube_search_session_timeout_secs() -> int:
 def radio_favorites_max_per_user() -> int:
     value = get_int_setting("radio_favorites_max_per_user", 25)
     return max(1, min(100, int(value)))
+
+
+def priority_luxe_cost() -> int:
+    value = get_int_setting("priority_luxe_cost", 100)
+    return max(0, min(1000000, int(value)))
 
 
 def get_bool_setting(key: str, default: bool) -> bool:

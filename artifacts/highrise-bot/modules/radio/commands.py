@@ -28,6 +28,8 @@ async def handle_radiohelp(bot, user, args=None) -> None:
                 "!now / !np — current song",
                 "!play <youtube_url> — request a direct YouTube link",
                 "!play <song name> — search YouTube",
+                "!priorityplay <youtube_url or song name> — priority request with Luxe Tickets",
+                "!prioritycost — priority request Luxe cost",
                 "!pick 1-5 — request a search result",
                 "!favnow — save the current request",
                 "!favorites — list saved songs",
@@ -96,6 +98,25 @@ async def handle_play(bot, user, args=None) -> None:
     else:
         message = await service.search_youtube_request(user, query)
     await _w(bot, user.id, message)
+
+
+async def handle_priorityplay(bot, user, args=None) -> None:
+    args = list(args or [])
+    if args and str(args[0]).lower() in {"priorityplay", "pp"}:
+        args = args[1:]
+    if not args:
+        await _w(bot, user.id, "Use: !priorityplay <youtube_url or song name>")
+        return
+    query = " ".join(args).strip()
+    if query.startswith(("http://", "https://")):
+        message = await service.submit_direct_youtube_request(bot, user, query, priority=True)
+    else:
+        message = await service.search_youtube_request(user, query, priority=True)
+    await _w(bot, user.id, message)
+
+
+async def handle_prioritycost(bot, user, args=None) -> None:
+    await _w(bot, user.id, f"🎟️ Priority Request Cost\n{service.priority_luxe_cost()} Luxe Tickets")
 
 
 async def handle_pick(bot, user, args=None) -> None:
@@ -236,6 +257,10 @@ async def handle_badtrack(bot, user, args=None) -> None:
 async def dispatch_radio_command(bot, user, cmd: str, args: list[str]) -> None:
     if cmd == "play":
         await handle_play(bot, user, args)
+    elif cmd in {"priorityplay", "pp"}:
+        await handle_priorityplay(bot, user, args)
+    elif cmd == "prioritycost":
+        await handle_prioritycost(bot, user, args)
     elif cmd in {"pick", "djpick"}:
         await handle_pick(bot, user, args)
     elif cmd == "cancelrequest":

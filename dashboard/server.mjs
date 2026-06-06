@@ -2011,6 +2011,7 @@ const RADIO_SETTING_DEFAULTS = {
   request_disc_cost_vip: ["1", "int"],
   request_disc_cost_staff: ["0", "int"],
   request_disc_cost_owner: ["0", "int"],
+  priority_luxe_cost: ["100", "int"],
   radio_enabled: ["true", "bool"],
   radio_poll_interval_secs: ["3", "int"],
   radio_submit_ready_immediately: ["true", "bool"],
@@ -2360,6 +2361,7 @@ function readLocalRadioStatus(db) {
     request_disc_cost_vip: getRadioSetting(db, "request_disc_cost_vip", "1"),
     request_disc_cost_staff: getRadioSetting(db, "request_disc_cost_staff", "0"),
     request_disc_cost_owner: getRadioSetting(db, "request_disc_cost_owner", "0"),
+    priority_luxe_cost: getRadioSetting(db, "priority_luxe_cost", "100"),
     radio_enabled: getRadioSetting(db, "radio_enabled", "true"),
     radio_poll_interval_secs: getRadioSetting(db, "radio_poll_interval_secs", "3"),
     radio_submit_ready_immediately: getRadioSetting(db, "radio_submit_ready_immediately", "true"),
@@ -7572,6 +7574,7 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     request_disc_cost_vip: { min: 0, max: 1000 },
     request_disc_cost_staff: { min: 0, max: 1000 },
     request_disc_cost_owner: { min: 0, max: 1000 },
+    priority_luxe_cost: { min: 0, max: 1000000 },
     radio_poll_interval_secs: { min: 3, max: 30 },
     radio_request_prequeue_count: { min: 0, max: 3 },
     youtube_search_result_count: { min: 1, max: 5 },
@@ -7598,6 +7601,9 @@ app.put("/api/radio/settings", requireAuth, requirePermission("manage_radio"), (
     const clamped = Math.min(cfg.max, Math.max(cfg.min, Math.trunc(value)));
     setRadioSetting(req.db, field, String(clamped), "int", req.user.username);
     updates[field] = String(clamped);
+    if (field === "priority_luxe_cost") {
+      console.log(`[RADIO_PRIORITY_COST_SET] username=${req.user.username} value=${clamped}`);
+    }
   }
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "music_disc_display_name")) {
     const value = String(req.body.music_disc_display_name || "Song Request 💽").trim().slice(0, 80) || "Song Request 💽";

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 import database as root_db
 from modules import permissions
+from modules import luxe
 from modules.radio import autodj_sync
 from modules.radio import cleanup
 from modules.radio import azura
@@ -59,7 +60,7 @@ def _renderer_settings() -> dict:
 def _safe_generated_title(title: str) -> bool:
     normalized = radio_db.normalize_generated_request_name(title)
     return str(title or "").strip().startswith(azura.SAFE_PREFIXES) or normalized.startswith(
-        ("radio yt ", "radio local ", "radio req ")
+        ("000 priority request ", "radio request ", "radio yt ", "radio local ", "radio req ")
     )
 
 
@@ -88,6 +89,10 @@ def user_role(username: str) -> str:
 
 def request_cost_for_role(role: str) -> int:
     return max(0, radio_settings.get_int_setting(f"request_disc_cost_{role}", 1 if role in {"normal", "vip"} else 0))
+
+
+def priority_luxe_cost() -> int:
+    return radio_settings.priority_luxe_cost()
 
 
 def max_duration_for_role(role: str) -> int:
@@ -195,8 +200,10 @@ def remove_favorite(user, number: int) -> str:
     return f"✅ Removed favorite\n{removed.get('title') or 'YouTube Request'}"
 
 
-async def search_youtube_request(user, query: str) -> str:
+async def search_youtube_request(user, query: str, priority: bool = False) -> str:
     ensure_ready()
+    if priority:
+        print(f"[RADIO_PRIORITY_REQUEST_START] username={getattr(user, 'username', '')!r} source='search'")
     if not radio_settings.get_bool_setting("radio_enabled", True):
         return "📻 Music system is currently disabled."
     if not radio_settings.get_bool_setting("youtube_search_enabled", True):
@@ -217,8 +224,12 @@ async def search_youtube_request(user, query: str) -> str:
         query,
         results,
         radio_settings.youtube_search_session_timeout_secs(),
+        priority=priority,
     )
-    return _render_search_results(results)
+    message = _render_search_results(results)
+    if priority:
+        message += f"\nPriority cost: {priority_luxe_cost()} Luxe Tickets 🎫"
+    return message
 
 
 async def pick_youtube_search_result(bot, user, pick_number: int) -> str:
@@ -236,7 +247,7 @@ async def pick_youtube_search_result(bot, user, pick_number: int) -> str:
     url = str(selected.get("webpage_url") or "")
     if not url:
         return "⚠️ Pick a number from the search results: !pick 1"
-    message = await submit_direct_youtube_request(bot, user, url)
+    message = await submit_direct_youtube_request(bot, user, url, priority=bool(session.get("priority")))
     if message.startswith("✅ Added to queue"):
         radio_db.clear_search_session(user.id)
     return message
@@ -331,7 +342,7 @@ def _liquidsoap_nowplaying_request(track: dict) -> dict | None:
     title = str((track or {}).get("title") or "").strip()
     title_is_unknown = title.lower() in {"", "unknown", "unknown title"}
     normalized_title = radio_db.normalize_generated_request_name(title)
-    generated_title = normalized_title.startswith(("radio request ", "radio yt ", "radio local ", "radio req "))
+    generated_title = normalized_title.startswith(("radio request ", "000 priority request ", "radio yt ", "radio local ", "radio req "))
     candidates = radio_db.active_liquidsoap_request_candidates(limit=50)
     playing_candidate = None
     for row in candidates:
@@ -342,7 +353,10 @@ def _liquidsoap_nowplaying_request(track: dict) -> dict | None:
                 playing_candidate = row
             if generated_title and radio_db.normalize_generated_request_name(filename) == normalized_title:
                 return row
-            if generated_title and normalized_title.startswith(f"radio request {row.get('id')}"):
+            if generated_title and (
+                normalized_title.startswith(f"radio request {row.get('id')}")
+                or normalized_title.startswith(f"000 priority request {row.get('id')}")
+            ):
                 return row
     if title and title.lower() not in {"unknown", "unknown title", "auto dj", "autodj"}:
         for row in candidates:
@@ -385,9 +399,9 @@ def _finalize_previous_request_if_changed(track: dict) -> None:
         same = True
     if title.startswith(azura.SAFE_PREFIXES) and title.startswith(tuple(f"{prefix}{request_id}_" for prefix in azura.SAFE_PREFIXES)):
         same = True
-    if normalized_title.startswith(("radio yt ", "radio local ", "radio req ")) and normalized_filename and normalized_title == normalized_filename:
+    if normalized_title.startswith(("000 priority request ", "radio request ", "radio yt ", "radio local ", "radio req ")) and normalized_filename and normalized_title == normalized_filename:
         same = True
-    if normalized_title.startswith(tuple(f"{prefix}{request_id}" for prefix in ("radio yt ", "radio local ", "radio req "))):
+    if normalized_title.startswith(tuple(f"{prefix}{request_id}" for prefix in ("000 priority request ", "radio request ", "radio yt ", "radio local ", "radio req "))):
         same = True
     if same:
         return
@@ -541,7 +555,8 @@ def queue_display(limit: int = 10) -> str:
         icon = icons.get(str(row.get("status") or ""), "⏳")
         user = row.get("username") or "Unknown Player"
         title = row.get("title") or "Untitled request"
-        lines.append(f"{idx}. {icon} @{user} — {title}")
+        marker = "🎟️ " if int(row.get("priority") or 0) else ""
+        lines.append(f"{idx}. {icon} {marker}@{user} — {title}")
     return "\n".join(lines)
 
 
@@ -554,8 +569,9 @@ def _request_line(row: dict) -> str:
 def _request_status_line(row: dict) -> str:
     title = row.get("title") or "Untitled request"
     status = str(row.get("status") or "unknown")
+    marker = "priority — " if int(row.get("priority") or 0) else ""
     state = "cancellable" if status in {"pending", "preparing", "ready"} and not str(row.get("submitted_at") or "").strip() else "locked"
-    return f"#{row.get('id')} — {title} — {status} — {state}"
+    return f"#{row.get('id')} — {title} — {marker}{status} — {state}"
 
 
 def _is_staff_user(username: str) -> bool:
@@ -577,6 +593,32 @@ def _refund_request_discs_once(job: dict) -> int:
     )
     radio_db.update_request(int(job["id"]), disc_cost_charged=0)
     return amount
+
+
+def _refund_request_luxe_once(job: dict) -> int:
+    if str(job.get("payment_type") or "").lower() != "luxe":
+        return 0
+    amount = int(job.get("payment_amount") or 0)
+    if amount <= 0:
+        return 0
+    if str(job.get("submitted_at") or "").strip() or str(job.get("status") or "") in {"submitted", "playing"}:
+        return 0
+    luxe.add_luxe_balance(job.get("user_id") or "", job.get("username") or "", amount)
+    luxe.log_luxe_transaction(
+        job.get("user_id") or "",
+        job.get("username") or "",
+        "Priority Song Request 🎟️ Refund",
+        amount,
+        "luxe",
+        f"radio_request:{job.get('id')}",
+    )
+    radio_db.update_request(int(job["id"]), payment_amount=0)
+    print(f"[RADIO_PRIORITY_REQUEST_REFUND] request_id={job.get('id')} amount={amount}")
+    return amount
+
+
+def _refund_request_payment_once(job: dict) -> tuple[int, int]:
+    return _refund_request_discs_once(job), _refund_request_luxe_once(job)
 
 
 def is_request_cancelled_or_terminal(request_id: int) -> bool:
@@ -635,14 +677,16 @@ def cancel_request(user, request_id: int | None = None) -> str:
         if status == "playing":
             return "⚠️ This request is already playing and can’t be cancelled."
         return "⚠️ That request can no longer be cancelled."
-    refunded = _refund_request_discs_once(job)
+    refunded, refunded_luxe = _refund_request_payment_once(job)
     radio_db.mark_status(int(job["id"]), "cancelled", finish_reason="cancelled_by_staff" if is_staff else "cancelled_by_user")
     cleanup.cleanup_request_media(int(job["id"]), reason="cancelled")
     print(
         f"[RADIO_PHASE6] event=request_cancelled request_id={job['id']} "
-        f"by={getattr(user, 'username', '')!r} refunded={refunded}"
+        f"by={getattr(user, 'username', '')!r} refunded={refunded} refunded_luxe={refunded_luxe}"
     )
     suffix = f"\nRefunded: {refunded} Song Request 💽" if refunded else ""
+    if refunded_luxe:
+        suffix += f"\nRefunded: {refunded_luxe} Luxe Tickets 🎫"
     return f"✅ Cancelled request #{job['id']}.\nTitle: {job.get('title') or 'Untitled request'}{suffix}"
 
 
@@ -677,16 +721,19 @@ def clear_stuck_requests(user) -> str:
     rows = radio_db.stuck_requests_for_cleanup(minutes=30, limit=100)
     cleaned = 0
     refunded = 0
+    refunded_luxe = 0
     for row in rows:
-        refunded += _refund_request_discs_once(row)
+        row_refund, row_luxe = _refund_request_payment_once(row)
+        refunded += row_refund
+        refunded_luxe += row_luxe
         radio_db.mark_status(int(row["id"]), "cancelled", finish_reason="staff_clear_stuck")
         if cleanup.cleanup_request_media(int(row["id"]), reason="staff_clear_stuck"):
             cleaned += 1
     print(
         f"[RADIO_PHASE6] event=clear_stuck_requests by={user.username!r} "
-        f"rows={len(rows)} cleaned={cleaned} refunded={refunded}"
+        f"rows={len(rows)} cleaned={cleaned} refunded={refunded} refunded_luxe={refunded_luxe}"
     )
-    return f"🧹 Cleared stuck radio requests: {cleaned}/{len(rows)}.\nRefunded: {refunded} Song Request 💽"
+    return f"🧹 Cleared stuck radio requests: {cleaned}/{len(rows)}.\nRefunded: {refunded} Song Request 💽\nRefunded: {refunded_luxe} Luxe Tickets 🎫"
 
 
 def health_snapshot() -> dict:
@@ -727,8 +774,10 @@ def _has_duplicate_active_youtube_request(user_id: str, clean_url: str) -> bool:
     return False
 
 
-async def submit_direct_youtube_request(bot, user, url: str) -> str:
+async def submit_direct_youtube_request(bot, user, url: str, priority: bool = False) -> str:
     ensure_ready()
+    if priority:
+        print(f"[RADIO_PRIORITY_REQUEST_START] username={getattr(user, 'username', '')!r} source='direct'")
     if not radio_settings.get_bool_setting("radio_enabled", True):
         return "📻 Music system is currently disabled."
     if not radio_settings.get_bool_setting("youtube_direct_url_enabled", True):
@@ -749,7 +798,24 @@ async def submit_direct_youtube_request(bot, user, url: str) -> str:
     if max_duration and duration > max_duration:
         return f"⚠️ That video is too long ({renderer.format_duration(duration)}). Your limit is {renderer.format_duration(max_duration)}."
     cost = request_cost_for_role(role)
-    if cost > 0 and not music_discs.deduct_discs(user.id, user.username, cost, music_discs.REQUEST_REASON, actor="radio"):
+    payment_type = "disc"
+    payment_amount = cost
+    payment_reason = music_discs.REQUEST_REASON if cost else ""
+    if priority:
+        cost = 0
+        payment_type = "luxe"
+        payment_amount = priority_luxe_cost()
+        payment_reason = "Priority Song Request 🎟️" if payment_amount else ""
+        if payment_amount > 0 and not luxe.deduct_luxe_balance(user.id, user.username, payment_amount):
+            print(
+                f"[RADIO_PRIORITY_REQUEST_PAYMENT_FAILED] username={user.username!r} "
+                f"amount={payment_amount} balance={luxe.get_luxe_balance(user.id)}"
+            )
+            return f"⚠️ You need {payment_amount} Luxe Tickets 🎫 for a priority request."
+        if payment_amount > 0:
+            luxe.log_luxe_transaction(user.id, user.username, "Priority Song Request 🎟️", payment_amount, "luxe", clean_url)
+        print(f"[RADIO_PRIORITY_REQUEST_PAYMENT_OK] username={user.username!r} amount={payment_amount}")
+    elif cost > 0 and not music_discs.deduct_discs(user.id, user.username, cost, music_discs.REQUEST_REASON, actor="radio"):
         return f"⚠️ You need {cost} Song Request 💽 to request this song."
     request_id = radio_db.create_request(
         user.id,
@@ -760,9 +826,12 @@ async def submit_direct_youtube_request(bot, user, url: str) -> str:
         meta.get("title") or "YouTube Request",
         meta.get("artist") or "YouTube",
         cost,
-        music_discs.REQUEST_REASON if cost else "",
-        is_staff_free=cost == 0 and role in {"staff", "owner"},
+        payment_reason,
+        is_staff_free=(not priority) and cost == 0 and role in {"staff", "owner"},
         is_vip=role == "vip",
+        priority=priority,
+        payment_type=payment_type,
+        payment_amount=payment_amount,
     )
     asyncio.create_task(process_request_job(bot, request_id), name=f"radio_request_{request_id}")
     _schedule_request_prequeue(bot, "request_added", 0)
@@ -770,7 +839,7 @@ async def submit_direct_youtube_request(bot, user, url: str) -> str:
         "✅ Added to queue\n"
         f"Title: {meta.get('title') or 'YouTube Request'}\n"
         f"Position: #{len(radio_db.queue_rows(50))}\n"
-        f"Cost: {cost} Song Request 💽\n"
+        f"Cost: {payment_amount} {'Luxe Tickets 🎫' if priority else 'Song Request 💽'}\n"
         "Please wait…"
     )
 
@@ -785,7 +854,8 @@ async def process_request_job(bot, request_id: int) -> None:
             return
         radio_db.mark_status(request_id, "preparing")
         staging_filename = sources.safe_youtube_filename(request_id)
-        final_filename = liquidsoap_queue.request_filename(request_id, job.get("title") or "request")
+        is_priority = bool(int(job.get("priority") or 0))
+        final_filename = liquidsoap_queue.request_filename(request_id, job.get("title") or "request", priority=is_priority)
         radio_db.update_request(request_id, temp_filename=final_filename)
         if _abort_if_cancelled_or_terminal(request_id):
             return
@@ -801,6 +871,7 @@ async def process_request_job(bot, request_id: int) -> None:
             str(local_path),
             request_id,
             job.get("title") or "request",
+            is_priority,
         )
         if not ok:
             print(
@@ -820,6 +891,8 @@ async def process_request_job(bot, request_id: int) -> None:
             f"[RADIO_LIQUIDSOAP_HANDOFF_OK] request_id={request_id} "
             f"target={target_path!r}"
         )
+        if is_priority:
+            print(f"[RADIO_PRIORITY_HANDOFF_ORDER] request_id={request_id} filename={os.path.basename(target_path)!r}")
     except Exception as exc:
         await _fail_request_before_play(bot, request_id, repr(exc))
     finally:
@@ -842,17 +915,14 @@ async def _fail_request_before_play(bot, request_id: int, error: str) -> None:
         return
     radio_db.set_runtime_state("last_error", error[:500])
     radio_db.mark_status(request_id, "failed", error=error, finish_reason="prepare_failed")
-    if int(job.get("disc_cost_charged") or 0) > 0:
-        music_discs.refund_discs(
-            job.get("user_id") or "",
-            job.get("username") or "",
-            int(job.get("disc_cost_charged") or 0),
-            music_discs.REFUND_REASON,
-            actor="radio",
-        )
-        radio_db.update_request(request_id, disc_cost_charged=0)
+    refunded_discs, refunded_luxe = _refund_request_payment_once(job)
     cleanup.cleanup_request_media(request_id, reason="failed_before_play")
     try:
-        await bot.highrise.send_whisper(job.get("user_id"), "❌ Could not prepare that song. Your Song Request 💽 was refunded.")
+        if refunded_luxe:
+            await bot.highrise.send_whisper(job.get("user_id"), "❌ Could not prepare that priority song. Your Luxe Tickets 🎫 were refunded.")
+        elif refunded_discs:
+            await bot.highrise.send_whisper(job.get("user_id"), "❌ Could not prepare that song. Your Song Request 💽 was refunded.")
+        else:
+            await bot.highrise.send_whisper(job.get("user_id"), "❌ Could not prepare that song.")
     except Exception:
         pass
